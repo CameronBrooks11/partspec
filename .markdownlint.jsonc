@@ -1,0 +1,11 @@
+{
+  // Prettier owns formatting (whitespace, wrapping, tables, emphasis, lists);
+  // the shared config disables the lint rules it controls so the two don't fight.
+  "extends": "markdownlint/style/prettier",
+
+  // Project overlay — docs/tables/code-identifier-heavy repo:
+  "MD033": false, // inline HTML — <details>, <br>, <input> in examples
+  "MD040": false, // fenced-code-language — many fences are illustrative output
+  "MD041": false, // first-line-h1 — fragment files / files starting with frontmatter
+  "MD024": { "siblings_only": true }, // repeated headings across sections
+}
