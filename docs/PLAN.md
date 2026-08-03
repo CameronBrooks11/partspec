@@ -45,7 +45,7 @@ Python ≥3.12, ruff, pyright.
 
 Each phase ends in something runnable. No phase is "write the rest of the code."
 
-### P0 — Skeleton and the seam *(half a day)*
+### P0 — Skeleton and the seam ✅ *done 2026-08-02*
 
 Scaffold; then define, in this order, **before any geometry**:
 
@@ -64,7 +64,7 @@ example is the contract, so it should be executable, not decorative.
 Ship the status machinery before any geometry deliberately: it is the thesis, it is where
 the design risk lives, and it is testable without a CAD kernel.
 
-### P1 — Mesh backend + OpenSCAD *(1–2 days)*
+### P1 — Mesh backend + OpenSCAD ✅ *done 2026-08-03*
 
 `openscad -D … --export-format binstl` → `trimesh.load_mesh()` → measure. Never parse
 `--summary` (D13). Implements: `bbox`, `volume`, `area`, `center_of_mass`, `watertight`,
@@ -85,7 +85,7 @@ topology correctly refused.
 > phase. P1 is now verifiable at the backend's own API, which is where it belongs; the
 > combined run moves to P2.
 
-### P2 — Contract API *(1 day)*
+### P2 — Contract API ✅ *done 2026-08-03*
 
 `Part`, the source constructors, the closed v0 `kind` vocabulary, target resolution
 (`<module>[:<factory>]` with the error message as discovery mechanism), and `requires`
@@ -95,7 +95,7 @@ expression evaluation with operand capture.
 `bayonet-lock-scad` passes `just check` with its README's documented rules as `requires`
 checks (inherited from P1).
 
-### P3 — `measure` *(half a day)*
+### P3 — `measure` ✅ *shipped early with P2*
 
 The adoption path. Dumps every honestly-available quantity with `exactness`, emits nothing
 that would be `unsupported`, produces no verdict.
@@ -159,6 +159,7 @@ bolted on when OpenSCAD support arrives.
 |---|---|---|
 | **The `approximate` machinery is dead code in v0** | No v0 check can produce it (`SPEC-report.md` §10). Its first real exercise will be its first bug report. | Accept. Unit-test the adjudicator directly with synthetic intervals so it is at least *tested*, even if unexercised. |
 | **The parts have nothing interesting to say** | If every contract passes first try, the project has proved nothing. | Deliberately contract a part **known to have a defect**, and confirm the report catches it. A green dogfood run is a failed experiment. |
+| ⚠️ **This risk fired.** `bayonet-lock-scad` carries 12 of its own `assert()`s, so OpenSCAD already rejects every invalid parameterisation and partspec's `requires` checks are redundant there (dogfood F1). | The first dogfood subject was the best-defended library in the corpus — the worst choice for demonstrating the tool. | **P6 must start from a library with no asserts** (`NEMA17.scad`, `bearings.scad`, `hotends.scad`). Until then the core claim is untested on a subject that needs it. |
 | Silent OCP clobbering | `cadquery-ocp` and `-novtk` both own `OCP/`; pip does not notice | Pin + lock + CI assertion (P4) |
 | Contract weakening undetected | Known gap: needs `diff`, out of v0 scope | Recorded in `SPEC-report.md` §7.1. `counts.total` + `contract_digest` make it detectable on comparison |
 | Scope creep into assemblies | The absorbed design's best ideas are assembly-level | `POST-V0.md` exists to hold them |
