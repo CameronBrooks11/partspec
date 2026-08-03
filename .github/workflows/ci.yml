@@ -1,0 +1,82 @@
+# CI with unified "ok" gate for branch protection.
+#
+# The only required status check is `ok` (bare job name, not "CI / ok").
+# Add jobs to its `needs:` list rather than to branch protection directly.
+#
+# Path filtering uses dorny/paths-filter rather than paths-ignore on the trigger,
+# so the workflow always runs and `ok` always reports a status — including on
+# docs-only PRs, which matters here because the specs in docs/ are load-bearing
+# and a docs change must not silently skip the gate.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+
+  check:
+    name: Check
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+      - name: Setup
+        run: just setup
+      - name: Check (fmt + lint + typecheck)
+        run: just check
+
+  test:
+    name: Test
+    # Not gated on `changes`: the test suite asserts that the schema example in
+    # docs/SPEC-report.md conforms to its own rules, so a docs-only change can
+    # genuinely break it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+      - name: Setup
+        run: just setup
+      - name: Test
+        run: just test
+
+  ok:
+    name: ok
+    if: always()
+    needs: [changes, check, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail if any upstream job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - name: Pass
+        run: echo 'All checks passed or were skipped'

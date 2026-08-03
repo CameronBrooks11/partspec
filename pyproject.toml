@@ -1,0 +1,65 @@
+[project]
+name = "partspec"
+version = "0.1.0"
+description = "Verify CAD-as-code parts against declared engineering intent."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [{ name = "Cameron Brooks" }]
+keywords = ["cad", "openscad", "build123d", "cadquery", "verification"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Manufacturing",
+    "Topic :: Scientific/Engineering",
+]
+
+# Intentionally empty. Importing `partspec` MUST NOT pull in a CAD engine
+# (SPEC-contract.md 1.1). Engines are extras; the core is stdlib-only, which
+# keeps the parameter phase and `--list` fast and makes the rule structural
+# rather than a convention someone has to remember.
+dependencies = []
+
+[project.optional-dependencies]
+# OpenSCAD parts. The `openscad` binary itself is a system dependency.
+mesh = ["trimesh>=5.0", "manifold3d>=3.5"]
+# build123d parts. Pins the OCP provider explicitly — see AGENTS.md.
+occt = ["build123d>=0.11,<0.12"]
+# CadQuery parts, adopted into the OCCT backend via `.wrapped`.
+cadquery = ["cadquery>=2.8,<3"]
+
+[project.scripts]
+partspec = "partspec.cli:main"
+
+[project.urls]
+Repository = "https://github.com/CameronBrooks11/partspec"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.11",
+    "pyright>=1.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Markdown is documentation, not source. Ruff 0.16 formats fenced Python blocks,
+# which rewrites the deliberately-aligned illustrative snippets in docs/ (the
+# Protocol stubs, the `openscad(path, **params)  # ...` comment column). The
+# specs are normative prose and a formatter should not own their layout.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

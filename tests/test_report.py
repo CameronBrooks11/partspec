@@ -1,0 +1,256 @@
+"""The report artifact, including a conformance test against the spec's own example.
+
+That example is not decorative — SPEC-report.md 1 says the report *is* the
+contract, so the document's canonical sample should be executable. Testing it
+catches the specific defect where a spec drifts from its own illustration and an
+implementer builds a conformance suite from a broken fixture.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+import pytest
+
+from partspec.report import SCHEMA_VERSION, CheckResult, Report, write_placeholder
+from partspec.status import Limit, Measurement, Status, Verdict
+
+DOCS = Path(__file__).resolve().parents[1] / "docs"
+
+
+def _report(**kw) -> Report:
+    return Report(part_id="p", contract="parts/p.py:main", tool_version="0.1.0", **kw)
+
+
+def _check(status: Status, **kw) -> CheckResult:
+    kw.setdefault("id", f"c-{status.value}")
+    kw.setdefault("kind", "envelope")
+    kw.setdefault("phase", "geometry")
+    return CheckResult(status=status, **kw)
+
+
+# --------------------------------------------------------------------------
+# shape
+# --------------------------------------------------------------------------
+
+
+def test_field_order_is_fixed():
+    """Ordering is a correctness property: reports get compared across runs."""
+    doc = _report().to_json()
+    assert list(doc) == [
+        "schema_version",
+        "tool",
+        "part",
+        "engine",
+        "params",
+        "geometry",
+        "verdict",
+        "counts",
+        "checks",
+        "error",
+        "hint",
+        "environment",
+        "invocation",
+    ]
+
+
+def test_counts_are_self_consistent():
+    r = _report(checks=[_check(Status.PASS), _check(Status.PASS), _check(Status.UNSUPPORTED)])
+    counts = r.counts()
+    assert counts["total"] == len(r.checks)
+    assert sum(v for k, v in counts.items() if k != "total") == counts["total"]
+
+
+def test_deleted_fields_stay_deleted():
+    """Speculative fields removed after review; regression guard."""
+    doc = _report().to_json()
+    assert "units" not in doc["part"]
+    assert "tier" not in doc["engine"]
+    assert "allow_incomplete" not in doc["invocation"]
+
+
+def test_measurement_serialises_exactness_not_a_bare_float():
+    r = _report(
+        checks=[
+            _check(
+                Status.PASS,
+                measurement=Measurement((15.8, 15.8, 8.0), "mm", axes=("x", "y", "z")),
+                limit=Limit(max=(40, 40, 15)),
+            )
+        ]
+    )
+    m = r.to_json()["checks"][0]["measurement"]
+    assert m["exactness"] == "exact"
+    assert m["axes"] == ["x", "y", "z"]
+    assert "bounds" not in m
+
+
+def test_approximate_measurement_carries_bounds():
+    r = _report(
+        checks=[
+            _check(
+                Status.APPROXIMATE,
+                measurement=Measurement(2.01, "mm", exact=False, bounds=(1.96, 2.06)),
+                limit=Limit(min=2.0),
+            )
+        ]
+    )
+    m = r.to_json()["checks"][0]["measurement"]
+    assert m["exactness"] == "approximate"
+    assert m["bounds"] == [1.96, 2.06]
+
+
+def test_predicate_check_has_no_measurement_or_limit():
+    """Q7: parameter predicates are not measurements (SPEC-contract.md 5).
+
+    Recording operands means a failure reports the inputs that produced it,
+    rather than a bare `false` the reader has to re-derive.
+    """
+    r = _report(
+        checks=[
+            CheckResult(
+                id="pin_fits_shell",
+                kind="requires",
+                phase="parameter",
+                status=Status.FAIL,
+                expr="pin_radius + allowance/2 <= shell_thickness",
+                operands={"pin_radius": 1.0, "allowance": 0.2, "shell_thickness": 1.0},
+                detail="1.1 <= 1.0 is false",
+            )
+        ]
+    )
+    c = r.to_json()["checks"][0]
+    assert c["measurement"] is None and c["limit"] is None
+    assert c["operands"]["shell_thickness"] == 1.0
+
+
+def test_unsupported_names_the_tier_that_would_answer():
+    r = _report(
+        checks=[
+            _check(
+                Status.UNSUPPORTED,
+                kind="hole_diameter",
+                measurement=None,
+                limit=Limit(min=10.0),
+                requires="occt",
+            )
+        ]
+    )
+    assert r.to_json()["checks"][0]["requires"] == "occt"
+
+
+# --------------------------------------------------------------------------
+# verdicts
+# --------------------------------------------------------------------------
+
+
+def test_unsupported_does_not_read_as_green():
+    """The property the whole tool exists to preserve."""
+    r = _report(checks=[_check(Status.PASS), _check(Status.UNSUPPORTED)])
+    assert r.verdict is Verdict.INCOMPLETE
+    assert r.exit_code != 0
+
+
+def test_no_checks_is_empty_not_pass():
+    r = _report(checks=[])
+    assert r.verdict is Verdict.EMPTY
+    assert r.exit_code != 0
+
+
+# --------------------------------------------------------------------------
+# write semantics
+# --------------------------------------------------------------------------
+
+
+def test_write_is_atomic_and_leaves_no_temp_files(tmp_path: Path):
+    _report(checks=[_check(Status.PASS)]).write(tmp_path)
+    assert json.loads((tmp_path / "report.json").read_text())["verdict"] == "pass"
+    assert not list(tmp_path.glob(".partspec-*"))
+
+
+def test_write_overwrites_rather_than_accumulating(tmp_path: Path):
+    _report(checks=[_check(Status.FAIL)]).write(tmp_path)
+    _report(checks=[_check(Status.PASS)]).write(tmp_path)
+    assert len(list(tmp_path.glob("*.json"))) == 1
+    assert json.loads((tmp_path / "report.json").read_text())["verdict"] == "pass"
+
+
+def test_placeholder_is_written_before_the_engine_runs(tmp_path: Path):
+    """A try/finally cannot survive an OCP segfault. Writing the placeholder
+    first means the worst case is a report saying the run died, never one
+    saying the part was fine."""
+    write_placeholder(tmp_path, part_id="p", contract="parts/p.py:main", argv=["check", "p"])
+    doc = json.loads((tmp_path / "report.json").read_text())
+    assert doc["verdict"] == "error"
+    assert doc["error"]
+
+
+def test_placeholder_is_replaced_by_the_real_report(tmp_path: Path):
+    write_placeholder(tmp_path, part_id="p", contract="parts/p.py:main", argv=[])
+    _report(checks=[_check(Status.PASS)]).write(tmp_path)
+    assert json.loads((tmp_path / "report.json").read_text())["verdict"] == "pass"
+
+
+def test_packages_are_not_quarantined_from_comparison():
+    """environment.packages distinguishes 'a dependency upgrade moved this
+    number' from 'the design changed' — so it must be present and comparable."""
+    assert "packages" in _report().to_json()["environment"]
+
+
+# --------------------------------------------------------------------------
+# conformance: the spec's own example
+# --------------------------------------------------------------------------
+
+
+def _spec_example() -> dict:
+    text = (DOCS / "SPEC-report.md").read_text()
+    match = re.search(r"```jsonc\n(\{\n  \"schema_version\".*?)\n```", text, re.S)
+    assert match, "the normative schema block is missing from SPEC-report.md"
+    stripped = re.sub(r"//.*", "", match.group(1)).replace("...", "")
+    return json.loads(stripped)
+
+
+def test_spec_example_is_valid_json():
+    assert _spec_example()["schema_version"] == SCHEMA_VERSION
+
+
+def test_spec_example_satisfies_its_own_counts_rule():
+    doc = _spec_example()
+    counts = doc["counts"]
+    assert counts["total"] == len(doc["checks"])
+    assert sum(v for k, v in counts.items() if k != "total") == counts["total"]
+
+
+def test_spec_example_statuses_match_its_counts():
+    doc = _spec_example()
+    tally: dict[str, int] = {}
+    for c in doc["checks"]:
+        tally[c["status"]] = tally.get(c["status"], 0) + 1
+    for status, n in tally.items():
+        assert doc["counts"][status] == n, f"counts disagree with checks for {status!r}"
+
+
+def test_spec_example_verdict_follows_from_its_statuses():
+    doc = _spec_example()
+    from partspec.status import verdict_of
+
+    statuses = [Status(c["status"]) for c in doc["checks"]]
+    assert str(verdict_of(statuses)) == doc["verdict"]
+
+
+def test_spec_example_uses_no_deleted_fields():
+    doc = _spec_example()
+    assert "units" not in doc["part"]
+    assert "tier" not in doc["engine"]
+    assert "allow_incomplete" not in doc["invocation"]
+
+
+@pytest.mark.parametrize("check", _spec_example()["checks"])
+def test_spec_example_checks_are_well_formed(check):
+    assert Status(check["status"])
+    assert check["phase"] in {"parameter", "geometry"}
+    if check["status"] == "unsupported":
+        assert check["measurement"] is None
+        assert check.get("requires"), "unsupported must name the tier that would answer"
