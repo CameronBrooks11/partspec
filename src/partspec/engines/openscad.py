@@ -16,6 +16,7 @@ Spec: SPEC-backend.md section 5, SPEC-contract.md section 3.1.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -80,8 +81,27 @@ def scad_literal(value: Any) -> str:
     raise TypeError(f"cannot render {type(value).__name__} as an OpenSCAD literal: {value!r}")
 
 
+ENV_EXECUTABLE = "PARTSPEC_OPENSCAD"
+
+
 def find_executable() -> str | None:
-    """Locate the openscad binary, preferring a nightly AppImage if present."""
+    """Locate the openscad binary.
+
+    `PARTSPEC_OPENSCAD` wins if set, because **the engine version changes the
+    artifact**. Measured on a gear library from `most-scad-libraries`: OpenSCAD
+    2021.01 honours the removed `assign()` construct and 2026.08.01 ignores it,
+    so the same source yields 648 triangles / 44463 mm3 on one and 120 / 28760
+    on the other — a part 35% smaller in every planar dimension. Both exit 0 and
+    write clean watertight meshes.
+
+    Deliberately an environment variable rather than a contract field: which
+    binary is installed is a property of the *machine*, not of the design. The
+    render backend is the opposite — a design choice — and lives in the contract.
+    The version is recorded in every report either way.
+    """
+    pinned = os.environ.get(ENV_EXECUTABLE)
+    if pinned:
+        return pinned
     nightly = Path.home() / "Applications" / "openscad" / "OpenSCAD-nightly.AppImage"
     if nightly.is_file():
         return str(nightly)

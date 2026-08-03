@@ -148,13 +148,30 @@ each was a different kind of finding — see dogfood F10–F12:
 X and Y agree exactly at the standard's `42n - 0.5` across both languages. That is the
 substitutability claim holding on real third-party code.
 
-### P6 — Dogfood *(a week of real use)*
+### P6 — Dogfood ▶ *in progress; first batch 2026-08-03*
 
 Three or more real parts, at least two engines. Then `results.md` in the `scadman-dogfood`
 house style: numbered findings, root cause, before/after regression table, and a
 **validation-payoff proof** — a case where a check predicted a real failure.
 
 **This is the deliverable.** P0–P5 are setup.
+
+**First batch, 2026-08-03.** 11 targets across three engines via `./run-batch.sh`; 0
+unexpected failures, 4 expected ones each with a recorded cause. `results.md` carries 13
+numbered findings.
+
+The success condition — *"enough evidence to decide whether to retire 'No unit tests for
+geometry'"* — now has two payoffs behind it, both on third-party code, both silent in the
+engine:
+
+- **F10:** OpenSCAD's default Manifold backend emits 4 non-manifold edges on a 2,212-star
+  gridfinity library while reporting `manifold`, `Status: NoError` and `"simple": true`.
+- **F13:** a gear library from a corpus with **zero asserts in 18 files** silently loses its
+  teeth on modern OpenSCAD, because `assign()` was removed from the language. The same
+  contract passes on 2021.01 and fails on 2026.08.01 — one variable, controlled.
+
+Neither is a rule an author forgot to write down. Both are parts that are quietly wrong and
+look fine, which is the case visual review is worst at.
 
 ---
 

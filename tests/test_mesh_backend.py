@@ -68,6 +68,26 @@ def test_strings_are_escaped():
     assert scad_literal("a\nb") == '"a\\nb"'
 
 
+def test_the_openscad_binary_can_be_pinned(monkeypatch):
+    """The engine version changes the artifact, so it must be pinnable.
+
+    Measured on a gear library: 2021.01 honours the removed `assign()` construct
+    and 2026.08.01 ignores it, so the same source yields a part 35% smaller in
+    every planar dimension — both exiting 0 with clean watertight meshes.
+
+    An environment variable rather than a contract field, because which binary
+    is installed is a property of the machine, not of the design.
+    """
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, "/some/pinned/openscad")
+    assert openscad.find_executable() == "/some/pinned/openscad"
+
+
+def test_without_the_pin_discovery_is_used(monkeypatch):
+    monkeypatch.delenv(openscad.ENV_EXECUTABLE, raising=False)
+    found = openscad.find_executable()
+    assert found is None or "openscad" in found.lower()
+
+
 def test_unrenderable_value_is_rejected_loudly():
     with pytest.raises(TypeError):
         scad_literal({"a": 1})

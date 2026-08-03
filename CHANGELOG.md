@@ -96,6 +96,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   edges (surfaces touching). trimesh's `is_watertight` conflates them, and they have
   different causes and different fixes.
 
+- **`PARTSPEC_OPENSCAD`** pins the OpenSCAD binary. The engine version changes the
+  artifact: 2021.01 honours the removed `assign()` construct and 2026.08.01 ignores it, so
+  a gear library's teeth silently vanish and the part comes out 35% smaller in every planar
+  dimension — both versions exiting 0 with clean watertight meshes. An environment variable
+  rather than a contract field, because which binary is installed is a property of the
+  machine, not of the design.
+
 ### Changed
 
 - `geometry.facets` is now `geometry.distinct_normals` (D16), named for what it measures
