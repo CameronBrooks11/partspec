@@ -21,6 +21,7 @@ that should be promoted into the product repo when it exists.
 | D13 | OpenSCAD measurement | **Ignore `--summary` entirely**; export `binstl` and measure the mesh | 2026-08-02 |
 | D14 | Mesh dependencies | `trimesh` + `manifold3d`; accept the self-intersection gap | 2026-08-02 |
 | D15 | **The measurand** | Measure the artifact **as authored and exported**, not an idealized smooth solid | 2026-08-02 |
+| D16 | Facet-resolution signal | `distinct_normals`, not a coplanar facet count — avoids a scipy dependency | 2026-08-03 |
 
 ---
 
@@ -397,3 +398,48 @@ ever find a *thinner* wall), making it `unsupported` instead. **So v0 contains n
 can produce `approximate`.** The interval machinery stays because D10 is the thesis and the
 first BREP tolerance check will need it — but it is dormant in v0, the dogfood run will not
 exercise it, and its first real test will be its first bug report.
+
+
+---
+
+## D16 — `distinct_normals` rather than a coplanar facet count
+
+D-3 (folded into D15's review) added a facet-resolution signal to the report's `geometry`
+block alongside `triangles`, described as "coplanar-grouped facet count" on the strength of
+trimesh `.facets` recovering CGAL's 70 facets exactly on a test part.
+
+**Implementing it revealed the cost.** trimesh `.facets` routes through
+`graph.connected_components`, which raises `ImportError: no graph engines available!`
+without `scipy` or `networkx`. So does `.body_count`. That is a large dependency for one
+provenance field, against D14's explicit "light, pure wheels".
+
+**Decision: count distinct face normals instead**, rounded to 4 decimals. Measured:
+
+| shape | `distinct_normals` | note |
+|---|---|---|
+| cube | 6 | matches a coplanar facet count exactly |
+| cylinder `$fn=16` | 18 | `n+2` — tracks `$fn` one-to-one |
+| cylinder `$fn=64` | 66 | |
+| cube, subdivided | 6 | unchanged by retriangulation |
+
+It serves the stated purpose — an identity signal that tracks `$fn` and survives
+retriangulation — in four lines of numpy, which is already a trimesh dependency.
+
+It differs from a true coplanar facet count only where two **disjoint** coplanar regions
+share a normal, which merges them. That is why the field is **named for what it measures**
+rather than borrowing CGAL's "facets": someone comparing our number to CGAL's on a
+non-convex part would otherwise be quietly misled, which is the failure mode this whole
+project is organised against.
+
+`solid_count` hits the same wall and takes the same route: `manifold3d.decompose()` rather
+than trimesh's `body_count`.
+
+**Also corrected here:** the claim in `DIRECTION.md` and investigation 02 that a mesh
+bounding box is *"exact and resolution-independent"*. It is exact — the polyhedron is
+measured exactly, per D15 — but **not invariant to facet settings**. The original spike used
+explicit `$fn` values, and OpenSCAD places a vertex on the +X axis for an explicit `$fn`, so
+the bbox landed on `2r` every time. With the **default** `$fa`/`$fs`, `cylinder(h=10, r=7.9)`
+measures **15.737706**, not 15.8. The invariance was an artifact of the test inputs. This is
+D15 working correctly — with default facets the part genuinely is 15.74 wide — but a
+contract author writing `envelope(max=15.8)` against a curved OpenSCAD part must know the
+number moves with `$fn`.

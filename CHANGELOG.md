@@ -26,6 +26,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cadquery-ocp-novtk` both own the top-level `OCP/` package and pip does not detect the
   conflict.
 
+- **P1 — the mesh backend.** OpenSCAD → binary STL → trimesh/manifold3d, never
+  `--summary` (D13). Implements bbox, volume, area, centre of mass, watertightness, solid
+  count, genus, min distance, intersect volume and raycast; refuses topology counts.
+  - Verified against closed-form geometry rather than against its own output: a 30x20x10
+    block with a 6x6 square through-hole checks out on volume, area, bbox, genus and centre
+    of mass, and a `$fn=16` cylinder matches the **16-gon prism** volume, not `pi*r^2*h` —
+    which is D15 in one assertion.
+  - `solid_count` via `manifold3d.decompose()` and `distinct_normals` by face-normal
+    counting, both because trimesh's equivalents need `scipy`/`networkx` (D16).
+  - `genus` is refused for multi-body parts: manifold3d reports the genus of the whole
+    complex (two disjoint boxes give -1), which answers a question nobody asked.
+
+### Changed
+
+- `geometry.facets` is now `geometry.distinct_normals` (D16), named for what it measures
+  rather than borrowing CGAL's vocabulary for a different quantity.
+- `GeometryBackend.provenance()` takes the artifact rather than reading instance state.
+- `just setup` includes the mesh extra; `just setup-all` adds the OCCT engines.
+
 ### Notes
 
 - No subcommands yet. They are absent rather than stubbed on purpose: a verb that pretends

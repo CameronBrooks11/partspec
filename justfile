@@ -7,9 +7,15 @@ set dotenv-load := false
 default:
     @just --list
 
-# Install dependencies and set up environment
+# Install dependencies and set up environment.
+# The mesh extra is included by default: it is light (pure wheels) and is the
+# primary v0 tier. The occt extra is opt-in — it pulls ~1.8GB of OCCT.
 setup:
-    uv sync
+    uv sync --extra mesh
+
+# Install everything, including the OCCT engines. Slow and large.
+setup-all:
+    uv sync --all-extras
 
 # Format code (mutates working tree — use locally)
 fmt:

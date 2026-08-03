@@ -74,8 +74,16 @@ self-intersection.
 Mesh before OCCT because it is the cheaper install, the faster loop, and the engine with the
 largest existing corpus (~30 personal libraries).
 
-**Exit criterion:** `bayonet-lock-scad` under contract, with its README's documented rules
-as `requires` checks, passing `just check`.
+**Exit criterion:** the backend measures `bayonet_lock.scad` and returns values verified
+against independently-known geometry (analytic where the shape allows, cross-checked against
+a second measurement path otherwise), with every quantity correctly flagged `exact` and
+topology correctly refused.
+
+> **Corrected 2026-08-03.** This criterion originally read *"`bayonet-lock-scad` under
+> contract, with its README's documented rules as `requires` checks"* — which needs the
+> contract API from **P2**. A phase whose exit criterion depends on the next phase is not a
+> phase. P1 is now verifiable at the backend's own API, which is where it belongs; the
+> combined run moves to P2.
 
 ### P2 — Contract API *(1 day)*
 
@@ -83,7 +91,9 @@ as `requires` checks, passing `just check`.
 (`<module>[:<factory>]` with the error message as discovery mechanism), and `requires`
 expression evaluation with operand capture.
 
-**Exit criterion:** the `SPEC-contract.md` §1 example runs verbatim.
+**Exit criterion:** the `SPEC-contract.md` §1 example runs verbatim, and
+`bayonet-lock-scad` passes `just check` with its README's documented rules as `requires`
+checks (inherited from P1).
 
 ### P3 — `measure` *(half a day)*
 
@@ -152,6 +162,14 @@ bolted on when OpenSCAD support arrives.
 | Silent OCP clobbering | `cadquery-ocp` and `-novtk` both own `OCP/`; pip does not notice | Pin + lock + CI assertion (P4) |
 | Contract weakening undetected | Known gap: needs `diff`, out of v0 scope | Recorded in `SPEC-report.md` §7.1. `counts.total` + `contract_digest` make it detectable on comparison |
 | Scope creep into assemblies | The absorbed design's best ideas are assembly-level | `POST-V0.md` exists to hold them |
+
+### Deferred setup
+
+- **Branch protection is OFF, deliberately** (decided 2026-08-03) — requiring PRs and the
+  `ok` check on a solo repo costs velocity during bootstrap, and the gate already reports
+  correctly. Turn on before the first outside contributor, or before v0.1.0 is tagged,
+  whichever comes first. Squash-only merges are already locked; what remains is requiring
+  the `ok` status check and linear history.
 
 ---
 

@@ -117,7 +117,7 @@ class GeometryBackend(Protocol):
         """Run the engine and return an opaque artifact handle."""
         ...
 
-    def provenance(self) -> dict[str, Any]:
+    def provenance(self, a: Any) -> dict[str, Any]:
         """Populate the report's `geometry` block.
 
         Mesh tier emits `triangles` and `facets`; both, not either. `facets` is

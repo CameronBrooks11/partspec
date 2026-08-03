@@ -1,6 +1,6 @@
 # SPEC — the `partspec` geometry backend
 
-**Status:** draft 1 · 2026-08-02
+**Status:** draft 2 · 2026-08-03
 **Scope:** the protocol a geometry backend implements, the two v0 implementations, and how
 `exactness`, `bounds` and capability gating are determined.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
@@ -61,7 +61,7 @@ class GeometryBackend(Protocol):
 
     # --- lifecycle ---
     def build(self, source: SourceRef, params: dict) -> Artifact | BuildError: ...
-    def provenance(self) -> dict:  ...      # -> report.geometry block
+    def provenance(self, a) -> dict: ...    # -> report.geometry block
 
     # --- the twelve primitives (investigation 03 §2) ---
     def bbox(self, a) -> Measured: ...
@@ -218,12 +218,18 @@ change alters triangulation and therefore `geometry.triangles`.
 
 ## 6. Provenance
 
-`provenance()` populates `report.geometry`. Mesh tier emits `triangles` and `facets`; OCCT
-tier emits neither (`SPEC-report.md` §7.1) and MAY emit nothing at all in v0.
+`provenance(a)` populates `report.geometry`. Mesh tier emits `triangles` and
+`distinct_normals`; OCCT tier emits neither (`SPEC-report.md` §7.1) and MAY emit nothing at
+all in v0.
 
-`facets` is the coplanar-grouped count — retriangulation-invariant and tracking `$fn` nearly
-one-to-one (trimesh `.facets` recovered CGAL's 70 exactly). `triangles` is the drift
-explainer, because chord error scales with edge length. Both, not either.
+`distinct_normals` counts distinct face normals — retriangulation-invariant and tracking
+`$fn` one-to-one (`$fn=n` on a cylinder yields `n+2`; a cube yields 6). `triangles` is the
+drift explainer, because chord error scales with edge length. Both, not either.
+
+**Not** trimesh's `.facets` coplanar grouping, which requires `scipy` or `networkx` — see
+D16. Likewise `solid_count` uses `manifold3d.decompose()` rather than trimesh's
+`body_count`, which routes through the same graph machinery and raises `ImportError`
+without it.
 
 ---
 

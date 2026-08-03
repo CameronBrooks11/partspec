@@ -1,6 +1,6 @@
 # SPEC — the `partspec` report
 
-**Status:** draft 4 · 2026-08-02 · Q7 resolved by `SPEC-contract.md` §5
+**Status:** draft 5 · 2026-08-03 · `facets` → `distinct_normals` (D16)
 **Scope:** the JSON artifact `partspec check` emits, and the process exit code that
 accompanies it.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
@@ -391,7 +391,7 @@ an unknown major version rather than best-effort parse it.
 
   "geometry": {
     "triangles": 3748,               // mesh tier only; drift explainer (chord error ~ edge length)
-    "facets": 70                     // mesh tier only; coplanar-grouped, tracks $fn, retriangulation-invariant
+    "distinct_normals": 70           // mesh tier only; identity signal, tracks $fn, retriangulation-invariant
   },
 
   "verdict": "incomplete",
@@ -499,12 +499,18 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   Module-scoping is deliberate, not an oversight: digesting only the resolved symbol would
   miss an edit to a module-level constant such as `MIN_WALL`, which is precisely the
   attack. Over-firing is the right direction of error here.
-- **`geometry.triangles`** and **`geometry.facets`** — both recorded, because `$fn` lives
-  *inside* the `.scad` and is invisible to the tool while these are not. `facets` is the
-  coplanar-grouped count: it tracks `$fn` nearly one-to-one and is invariant under
-  retriangulation, making it the better *identity* signal. `triangles` is the better
-  *drift explainer*, because chord error scales with edge length. Neither substitutes for
-  the other. Both are mesh-tier only and MUST be absent on the OCCT tier.
+- **`geometry.triangles`** and **`geometry.distinct_normals`** — both recorded, because
+  `$fn` lives *inside* the `.scad` and is invisible to the tool while these are not.
+  `distinct_normals` is the count of distinct face normals: it tracks `$fn` one-to-one (a
+  cylinder at `$fn=n` yields `n+2`) and is invariant under retriangulation, making it the
+  better *identity* signal. `triangles` is the better *drift explainer*, because chord error
+  scales with edge length. Neither substitutes for the other. Both are mesh-tier only and
+  MUST be absent on the OCCT tier.
+
+  It is deliberately **not** a coplanar-region facet count (D16): that needs `scipy` or
+  `networkx`, a large dependency for one provenance field. The two agree on convex solids
+  and differ only where disjoint coplanar regions share a normal, so the field is named for
+  what it measures rather than borrowing CGAL's vocabulary for a different quantity.
 - **`checks[].requires`** — present only on `unsupported`, naming the tier that would answer
   **for an equivalent part**. The hedge is load-bearing: porting a 16-gon bore to build123d
   does not merely enable the check, it **changes the part** (investigation 04 §4). This is
@@ -635,7 +641,8 @@ immediately. But two consequences must be accepted openly:
   *which* component failed. Record per-component statuses, or leave it to `detail`?
 
 *Resolved in draft 2:* Q5 (`--allow-incomplete` withheld from v0, §6.2).
-*Resolved in draft 3:* Q4 (`geometry.facets` added alongside `triangles`, §7.1).
+*Resolved in draft 3:* Q4 (a facet-resolution signal added alongside `triangles`, §7.1;
+implemented as `distinct_normals` per D16).
 *Resolved in draft 4:* Q7 — parameter predicates are **not** measurements. A `requires`
 check carries `expr` and `operands` instead of `measurement`/`limit`; `bool` is gone from
 the unit table. See `SPEC-contract.md` §5.
