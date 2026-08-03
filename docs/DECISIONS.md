@@ -339,6 +339,30 @@ exists **only in unreleased nightlies**.
 `binstl` specifically, because lib3mf cannot read ASCII STL and 2021.01's STL default *is*
 ASCII.
 
+> ### Reinforced 2026-08-03 by a stronger case than the one above
+>
+> This decision was made on the basis that `--summary` **omits** the validity key on
+> degenerate input. Dogfooding found it **asserting a false one**, which is worse.
+>
+> A community gridfinity bin (kennetek, 2,212★) rendered by OpenSCAD 2026.08.01's **default
+> Manifold backend** produces a mesh with **4 non-manifold edges**. OpenSCAD reports:
+>
+> ```
+> Top level object is a 3D object (manifold):
+> Status:     NoError
+> exit code:  0
+> --summary:  { "facets": 10022, "simple": true, ... }
+> ```
+>
+> It says *manifold*. It says *`"simple": true`*. Both are wrong. The same source under
+> `--backend CGAL` renders clean, so it is a meshing artifact rather than a design error.
+>
+> "Never let OpenSCAD self-report validity" is therefore not conservatism. It is the
+> difference between catching this and shipping it.
+>
+> **Consequence:** the render backend is selectable (`openscad(..., backend=...)`) and
+> recorded as `engine.render_backend`, because it determines whether the artifact is valid.
+
 **Consequence, and the reason this is the right call:** it dissolves the version problem.
 With `--summary` unused, 2021.01 and the nightly become near-interchangeable and the schema
 drift stops mattering. No nightly install becomes a prerequisite for v0.

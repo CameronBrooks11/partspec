@@ -1,6 +1,6 @@
 # SPEC — the `partspec` report
 
-**Status:** draft 5 · 2026-08-03 · `facets` → `distinct_normals` (D16)
+**Status:** draft 6 · 2026-08-03 · adds `engine.render_backend`
 **Scope:** the JSON artifact `partspec check` emits, and the process exit code that
 accompanies it.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
@@ -384,6 +384,7 @@ an unknown major version rather than best-effort parse it.
     "kind": "openscad",              // openscad | build123d | cadquery
     "version": "2021.01",
     "backend": "mesh",               // mesh | occt
+    "render_backend": "CGAL",        // engine-specific, when pinned; OpenSCAD: Manifold | CGAL
     "adopted_via": null              // "wrapped" when a cadquery shape entered the occt backend
   },
 
@@ -511,6 +512,11 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   `networkx`, a large dependency for one provenance field. The two agree on convex solids
   and differ only where disjoint coplanar regions share a normal, so the field is named for
   what it measures rather than borrowing CGAL's vocabulary for a different quantity.
+- **`engine.render_backend`** — present when the contract pins one. Recorded because it
+  **changes the artifact, not merely the speed of producing it**: measured on a community
+  gridfinity bin, OpenSCAD's default Manifold backend emitted 4 non-manifold edges where
+  CGAL emitted none, from identical source. Two reports that differ only here are not
+  comparable on mesh validity.
 - **`checks[].requires`** — present only on `unsupported`, naming the tier that would answer
   **for an equivalent part**. The hedge is load-bearing: porting a 16-gon bore to build123d
   does not merely enable the check, it **changes the part** (investigation 04 §4). This is
