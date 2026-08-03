@@ -55,15 +55,23 @@ class Source:
     path: Path
     params: dict[str, Any] = field(default_factory=dict)
     method: str | None = None
+    backend: str | None = None
+    """Engine-specific render backend. OpenSCAD only, for now."""
 
 
-def openscad(path: str | Path, /, method: str | None = None, **params: Any) -> Source:
+def openscad(
+    path: str | Path, /, method: str | None = None, backend: str | None = None, **params: Any
+) -> Source:
     """An OpenSCAD source. Parameters become `-D name=value` overrides.
 
     With `method`, they instead become arguments to a call appended to a
     throwaway copy of the source; the file itself is never modified.
+
+    `backend` selects the render backend ("Manifold" or "CGAL"). It is worth
+    pinning: the two produce different meshes from identical source, and the
+    default changed between OpenSCAD releases.
     """
-    return Source(engine="openscad", path=Path(path), params=params, method=method)
+    return Source(engine="openscad", path=Path(path), params=params, method=method, backend=backend)
 
 
 def build123d(path: str | Path, /, method: str | None = None, **params: Any) -> Source:

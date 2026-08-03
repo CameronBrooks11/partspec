@@ -122,7 +122,7 @@ pillow block whose `genus 5` counts one bearing bore plus four bolt holes.
 > import on 0.11.1), and community models are *scripts*, not parameterised callables, so a
 > real contract usually ships a small explicit adapter.
 
-### P5 — The differential test *(half a day)*
+### P5 — The differential test ✅ *done 2026-08-03*
 
 The substitutability proof, and the phase that makes engine-neutrality a property rather
 than an assertion. One contract, the same specified part in two engines, reports compared
@@ -132,10 +132,21 @@ Subject: **gridfinity**, which exists in all three engines under MIT
 (`kennetek/gridfinity-rebuilt-openscad`, `Ruudjhuu/gridfinity_build123d`,
 `michaelgale/cq-gridfinity`). Any divergence is a tool bug, not a design difference.
 
-⚠️ Expect this to fail first time in an interesting way. Under D15 the OpenSCAD and
-build123d gridfinity implementations are *different parts* — rounded corners will differ by
-tessellation. **That is the test working.** The contract must be written to the properties
-that should genuinely agree (envelope, solid count, genus) and not to volume.
+⚠️ Expect this to fail first time in an interesting way. **It did, three times over**, and
+each was a different kind of finding — see dogfood F10–F12:
+
+1. **A real defect.** OpenSCAD's *default* Manifold backend emitted 4 non-manifold edges
+   where CGAL emitted none, from identical source — while reporting `manifold`,
+   `Status: NoError`, `"simple": true` and exit 0. The payoff F1 said was missing.
+2. **A wrong claim of mine.** The shared set asserted `genus(0)`; kennetek's bin enables
+   Gridfinity Refined base holes by default, so a 2x1 bin is genus 8. Assert what the
+   *specification* fixes, not what the first implementation you looked at does.
+3. **Legitimate design difference.** Envelope Z differs (24.5479 vs 24.8) — both checks
+   PASS and the measurements still differ, which is precisely what recording measurements
+   on pass exists to surface.
+
+X and Y agree exactly at the standard's `42n - 0.5` across both languages. That is the
+substitutability claim holding on real third-party code.
 
 ### P6 — Dogfood *(a week of real use)*
 

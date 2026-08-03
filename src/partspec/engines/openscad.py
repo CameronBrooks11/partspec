@@ -42,6 +42,16 @@ class OpenSCADSource:
     appended to a throwaway copy of the source. Otherwise they override
     top-level variables via -D. The source file is never modified either way."""
 
+    backend: str | None = None
+    """OpenSCAD render backend: "Manifold", "CGAL", or None for the engine's
+    default (Manifold on current builds, CGAL on 2021.01).
+
+    Selectable because it **changes the artifact**, not merely its speed.
+    Measured on a community gridfinity bin: the Manifold backend produced a mesh
+    with 4 non-manifold edges where CGAL produced a clean one, from identical
+    source. The flag does not exist on 2021.01, so it is only passed when set.
+    """
+
 
 def scad_literal(value: Any) -> str:
     """Render a Python value as an OpenSCAD literal.
@@ -131,10 +141,12 @@ def render(
         else:
             render_path, defines = source.path, _define_args(source.params)
 
+        backend_args = ["--backend", source.backend] if source.backend else []
         cmd = [
             executable,
             "--export-format",
             "binstl",
+            *backend_args,
             "-o",
             str(stl),
             *defines,

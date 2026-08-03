@@ -87,6 +87,10 @@ def _evaluate(part: Part, report: Report, out_dir: Path) -> None:
         "backend": backend.kind,
         "adopted_via": "wrapped" if part.source.engine == "cadquery" else None,
     }
+    if part.source.backend:
+        # Recorded because it changes the artifact: the same source rendered by
+        # Manifold and by CGAL differ in mesh validity, not just in speed.
+        report.engine["render_backend"] = part.source.backend
 
     artifact = backend.build(_engine_source(part), out_dir)
     if isinstance(artifact, BuildError):
@@ -181,7 +185,13 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         )
 
     assert spec.limit is not None
-    return CheckResult(**common, status=adjudicate(outcome, spec.limit), measurement=outcome)
+    status = adjudicate(outcome, spec.limit)
+    detail = None
+    if status is Status.FAIL:
+        explain = getattr(backend, f"{spec.kind}_detail", None)
+        if explain is not None:
+            detail = explain(artifact)
+    return CheckResult(**common, status=status, measurement=outcome, detail=detail)
 
 
 # --------------------------------------------------------------------------
@@ -204,7 +214,10 @@ def _engine_source(part: Part) -> Any:
         from .engines.openscad import OpenSCADSource
 
         return OpenSCADSource(
-            path=part.source.path, params=part.source.params, method=part.source.method
+            path=part.source.path,
+            params=part.source.params,
+            method=part.source.method,
+            backend=part.source.backend,
         )
 
     from .engines.pycad import PyCADSource

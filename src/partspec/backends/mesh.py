@@ -134,6 +134,35 @@ class MeshBackend:
     def watertight(self, a: Any) -> Measurement:
         return Measurement(bool(a.is_watertight), "bool", exact=True)
 
+    def watertight_detail(self, a: Any) -> str | None:
+        """Why a mesh is not watertight — boundary edges or non-manifold ones.
+
+        trimesh's `is_watertight` means "every edge is used by exactly two
+        faces", which conflates two different defects: an edge used **once** is
+        a hole, an edge used **more than twice** is a non-manifold junction
+        where surfaces touch. They have different causes and different fixes, so
+        reporting only "not watertight" makes the reader go and find out which.
+
+        Found by dogfooding: a community gridfinity bin rendered by OpenSCAD's
+        default Manifold backend has 0 boundary edges and 4 non-manifold ones,
+        and "not watertight" alone reads as "it has holes", which it does not.
+        """
+        import numpy as np
+
+        if a.is_watertight:
+            return None
+        _, counts = np.unique(a.edges_sorted, axis=0, return_counts=True)
+        boundary = int((counts == 1).sum())
+        nonmanifold = int((counts > 2).sum())
+        parts = []
+        if boundary:
+            parts.append(f"{boundary} boundary edge(s) — the surface is open")
+        if nonmanifold:
+            parts.append(
+                f"{nonmanifold} non-manifold edge(s) — more than two faces meet along them"
+            )
+        return "; ".join(parts) or "not watertight for an unclassified reason"
+
     def solid_count(self, a: Any) -> Measurement:
         """Connected component count, via manifold3d.
 

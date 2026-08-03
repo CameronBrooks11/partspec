@@ -114,6 +114,8 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     artifact = backend.build(_engine_source(part), out)
     if isinstance(artifact, BuildError):
         print(f"partspec: {artifact.message}", file=sys.stderr)
+        if artifact.hint:
+            print(f"  hint: {artifact.hint}", file=sys.stderr)
         return 4
 
     measured: dict[str, object] = {

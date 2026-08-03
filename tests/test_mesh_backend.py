@@ -116,6 +116,43 @@ def test_open_shell_is_not_watertight(backend: MeshBackend):
     assert backend.watertight(mesh).value is False
 
 
+def test_watertight_detail_distinguishes_the_two_defects(backend: MeshBackend):
+    """ "Not watertight" conflates a hole with a non-manifold junction.
+
+    trimesh's `is_watertight` means "every edge used by exactly two faces". An
+    edge used **once** is a hole; an edge used **more than twice** is a place
+    where surfaces touch. Different causes, different fixes — and dogfooding hit
+    the second on a community gridfinity bin whose mesh has 0 boundary edges and
+    4 non-manifold ones, where "not watertight" alone reads as "it has holes".
+    """
+    open_shell = trimesh.Trimesh(
+        vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        faces=[[0, 1, 2], [0, 1, 3], [0, 2, 3]],
+    )
+    detail = backend.watertight_detail(open_shell)
+    assert detail is not None and "boundary edge" in detail
+
+    # Two tetrahedra sharing a single edge: closed, but non-manifold along it.
+    verts = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [0, -1, 0]]
+    faces = [
+        [0, 1, 2],
+        [0, 1, 3],
+        [0, 2, 3],
+        [1, 2, 3],
+        [0, 4, 5],
+        [0, 4, 3],
+        [0, 5, 3],
+        [4, 5, 3],
+    ]
+    touching = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+    detail = backend.watertight_detail(touching)
+    assert detail is not None and "non-manifold" in detail
+
+
+def test_watertight_detail_is_none_when_fine(backend: MeshBackend):
+    assert backend.watertight_detail(trimesh.creation.box(extents=(1, 1, 1))) is None
+
+
 def test_solid_count_without_scipy(backend: MeshBackend):
     """Via manifold3d. trimesh's body_count needs a graph engine we do not ship."""
     a = trimesh.creation.box(extents=(5, 5, 5))
@@ -242,6 +279,21 @@ def test_every_measured_quantity_is_flagged_exact(backend: MeshBackend, tmp_path
         result = measure(mesh)
         assert result.exact, measure.__name__
         assert result.bounds is None, measure.__name__
+
+
+@needs_openscad
+def test_render_backend_is_passed_through_when_set(backend: MeshBackend, tmp_path: Path):
+    """The backend changes the artifact, not just the speed: on a community
+    gridfinity bin, Manifold produced 4 non-manifold edges where CGAL produced
+    a clean mesh from identical source. So it must be selectable and recorded.
+
+    Only asserts the flag is accepted and geometry still measures — the two
+    backends agree on a simple polyhedron, which is the point.
+    """
+    src = OpenSCADSource(path=FIXTURES / "block_with_hole.scad", backend="CGAL")
+    mesh = backend.build(src, tmp_path)
+    assert not isinstance(mesh, BuildError), mesh
+    assert backend.volume(mesh).value == pytest.approx(30 * 20 * 10 - 6 * 6 * 10)
 
 
 @needs_openscad

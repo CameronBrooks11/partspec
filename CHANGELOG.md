@@ -85,6 +85,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   322 files) with no conflict detection, and novtk landed last, stripping the VTK modules.
   Fixed with a `[tool.uv] override-dependencies` marker that drops novtk from resolution.
 
+- **P5 — the differential test.** One contract, the same specified part in OpenSCAD and
+  CadQuery, reports compared field-by-field. No tool feature was needed: the contract is
+  Python, so sharing claims across implementations is a function.
+- **`openscad(..., backend=...)`** selects the render backend, recorded as
+  `engine.render_backend`. It changes the *artifact*, not just the speed — measured, the
+  default Manifold backend produced 4 non-manifold edges on a community gridfinity bin
+  where CGAL produced a clean mesh from identical source.
+- **`watertight` now says why it failed** — boundary edges (a hole) versus non-manifold
+  edges (surfaces touching). trimesh's `is_watertight` conflates them, and they have
+  different causes and different fixes.
+
 ### Changed
 
 - `geometry.facets` is now `geometry.distinct_normals` (D16), named for what it measures
