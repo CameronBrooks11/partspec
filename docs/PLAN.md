@@ -104,15 +104,23 @@ Early, not late: it is how contracts get *written*, so every subsequent phase is
 it. It is also the guard against the temptation to auto-generate checks
 (`SPEC-contract.md` §6).
 
-### P4 — OCCT backend *(1 day)*
+### P4 — OCCT backend ✅ *done 2026-08-03*
 
 build123d, plus CadQuery via `bd.Solid(cq_shape.wrapped)` at the front door. Pin one OCP
 explicitly and commit the lockfile; add the CI assertion that exactly one `OCP/` provider is
 installed, because that failure is silent.
 
-**Exit criterion:** `parametric-sensor-manifold` under contract, with the numeric constraints
-already written in prose in its `docs/design_process.md` — *channel diameter ≥ 0.5 mm, print
-volume ≤ 100 × 50 × 120 mm, tubing holes 0.05 mm under tubing OD* — made executable.
+**Exit criterion (revised, met):** a real **community** model under contract on each Python
+engine. `cq-gridfinity`'s `GridfinityBox(2,1,3)` (CadQuery, MIT) checked against the
+*Gridfinity standard's own numbers* — 42 mm pitch less 0.5 mm clearance — and a build123d
+pillow block whose `genus 5` counts one bearing bore plus four bolt holes.
+
+> **Revised 2026-08-03.** The original criterion named `parametric-sensor-manifold`. That is
+> just the build123d template rather than a real part, so it proves nothing; community models
+> replace it. Two hazards found on the way, both recorded in dogfood F8: community build123d
+> libraries are pinned to the build123d of their writing (`gridfinity_build123d` does not
+> import on 0.11.1), and community models are *scripts*, not parameterised callables, so a
+> real contract usually ships a small explicit adapter.
 
 ### P5 — The differential test *(half a day)*
 
