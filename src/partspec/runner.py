@@ -1,0 +1,262 @@
+"""Run a contract against a part and produce a report.
+
+The phase order and its consequences are the whole of this module:
+
+    parameter checks -> (short-circuit?) -> build -> geometry checks -> report
+
+A failing parameter check stops the engine from running, because building
+geometry from inputs already known to be invalid wastes time and produces a
+shape whose measurements describe something the contract has already rejected.
+The geometry checks then appear as `skipped` rather than vanishing — an absent
+check is indistinguishable from one that was never declared, which is the
+vacuous-green failure wearing a different hat.
+
+Spec: SPEC-report.md sections 4, 5, 6; SPEC-contract.md sections 4, 6.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import time
+from pathlib import Path
+from typing import Any
+
+from . import expr as expr_mod
+from .backend import BuildError, Unsupported
+from .contract import GEOMETRY, GEOMETRY_KINDS, CheckSpec, Part
+from .report import CheckResult, Report
+from .status import ContractError, Limit, Measurement, Status, adjudicate
+
+__all__ = ["run"]
+
+_TOOL_VERSION_FALLBACK = "0.0.0+unknown"
+
+
+def run(
+    part: Part, *, out_dir: Path, argv: list[str] | None = None, contract_path: Path | None = None
+) -> Report:
+    """Evaluate every declared check and return the report."""
+    started = time.perf_counter()
+    report = Report(
+        part_id=part.id,
+        contract=str(contract_path) if contract_path else "<in-memory>",
+        tool_version=_tool_version(),
+        contract_digest=_digest(contract_path),
+        source=str(part.source.path),
+        source_digest=_digest(part.source.path),
+        params=dict(part.source.params),
+        argv=argv or [],
+    )
+
+    try:
+        _evaluate(part, report, out_dir)
+    except ContractError as exc:
+        # A malformed question has no answer: every declared check is reported
+        # as skipped rather than failed, and the verdict is error.
+        report.error = f"{type(exc).__name__}: {exc}"
+        report.hint = "the contract is wrong, not the part"
+        report.checks = [
+            _skipped(spec, "not evaluated: the contract raised") for spec in _all_specs(part)
+        ]
+
+    report.duration_ms = int((time.perf_counter() - started) * 1000)
+    return report
+
+
+# --------------------------------------------------------------------------
+
+
+def _evaluate(part: Part, report: Report, out_dir: Path) -> None:
+    parameter_specs = [s for s in part.checks if s.phase != GEOMETRY]
+    geometry_specs = [s for s in part.checks if s.phase == GEOMETRY]
+
+    results = [_run_parameter_check(spec, part.source.params) for spec in parameter_specs]
+
+    blocker = next((r for r in results if r.status is Status.FAIL), None)
+    if blocker is not None:
+        reason = f"not evaluated: parameter check {blocker.id!r} failed"
+        results.append(_skipped(_builds_spec(), reason))
+        results.extend(_skipped(spec, reason) for spec in geometry_specs)
+        report.checks = results
+        return
+
+    backend = _backend_for(part.source.engine)
+    report.engine = {
+        "kind": part.source.engine,
+        "version": backend.engine_version,
+        "backend": backend.kind,
+        "adopted_via": None,
+    }
+
+    artifact = backend.build(_engine_source(part), out_dir)
+    if isinstance(artifact, BuildError):
+        results.append(
+            CheckResult(
+                id="builds",
+                kind="builds",
+                phase=GEOMETRY,
+                status=Status.FAIL,
+                detail=artifact.message,
+                part_refs=(part.id,),
+            )
+        )
+        report.hint = artifact.hint
+        results.extend(
+            _skipped(spec, "not evaluated: the part did not build") for spec in geometry_specs
+        )
+        report.checks = results
+        return
+
+    results.append(
+        CheckResult(
+            id="builds", kind="builds", phase=GEOMETRY, status=Status.PASS, part_refs=(part.id,)
+        )
+    )
+    report.geometry = backend.provenance(artifact)
+    results.extend(_run_geometry_check(spec, backend, artifact, part.id) for spec in geometry_specs)
+    report.checks = results
+
+
+def _run_parameter_check(spec: CheckSpec, params: dict[str, Any]) -> CheckResult:
+    if spec.kind == "requires":
+        assert spec.expr is not None
+        ok, operands = expr_mod.evaluate(spec.expr, params)
+        return CheckResult(
+            id=spec.id,
+            kind=spec.kind,
+            phase=spec.phase,
+            status=Status.PASS if ok else Status.FAIL,
+            expr=spec.expr,
+            operands=operands,
+            detail=None if ok else expr_mod.describe(spec.expr, operands),
+        )
+
+    if spec.kind == "param_range":
+        assert spec.expr is not None and spec.limit is not None
+        value = params[spec.expr]
+        measurement = Measurement(value, _unit_for(value), exact=True)
+        status = adjudicate(measurement, spec.limit)
+        return CheckResult(
+            id=spec.id,
+            kind=spec.kind,
+            phase=spec.phase,
+            status=status,
+            measurement=measurement,
+            limit=spec.limit,
+            detail=None
+            if status is Status.PASS
+            else f"{spec.expr}={value!r} outside {_render(spec.limit)}",
+        )
+
+    raise ContractError(f"unknown parameter check kind: {spec.kind!r}")
+
+
+def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: str) -> CheckResult:
+    primitive_name = GEOMETRY_KINDS.get(spec.kind)
+    if primitive_name is None:
+        raise ContractError(f"unknown geometry check kind: {spec.kind!r}")
+
+    common = {
+        "id": spec.id,
+        "kind": spec.kind,
+        "phase": spec.phase,
+        "limit": spec.limit,
+        "part_refs": (part_id,),
+    }
+
+    # Capability is static and consulted first, so an unanswerable check costs
+    # nothing to report.
+    if primitive_name not in backend.capabilities():
+        return CheckResult(
+            **common,
+            status=Status.UNSUPPORTED,
+            detail=f"the {backend.kind} backend cannot evaluate {spec.kind}",
+            requires="occt",
+        )
+
+    outcome = getattr(backend, primitive_name)(artifact)
+    if isinstance(outcome, Unsupported):
+        return CheckResult(
+            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
+        )
+
+    assert spec.limit is not None
+    return CheckResult(**common, status=adjudicate(outcome, spec.limit), measurement=outcome)
+
+
+# --------------------------------------------------------------------------
+
+
+def _backend_for(engine: str) -> Any:
+    if engine == "openscad":
+        from .backends.mesh import MeshBackend
+
+        return MeshBackend()
+    if engine in ("build123d", "cadquery"):
+        raise ContractError(
+            f"the {engine} backend is not implemented yet (P4 in docs/PLAN.md). "
+            f"It is absent rather than stubbed: a backend that pretended to measure "
+            f"would defeat the point of the tool."
+        )
+    raise ContractError(f"unknown engine: {engine!r}")
+
+
+def _engine_source(part: Part) -> Any:
+    from .engines.openscad import OpenSCADSource
+
+    return OpenSCADSource(
+        path=part.source.path, params=part.source.params, method=part.source.method
+    )
+
+
+def _builds_spec() -> CheckSpec:
+    return CheckSpec(id="builds", kind="builds", phase=GEOMETRY)
+
+
+def _all_specs(part: Part) -> list[CheckSpec]:
+    return [*part.checks, _builds_spec()]
+
+
+def _skipped(spec: CheckSpec, reason: str) -> CheckResult:
+    return CheckResult(
+        id=spec.id,
+        kind=spec.kind,
+        phase=spec.phase,
+        status=Status.SKIPPED,
+        limit=spec.limit,
+        expr=spec.expr if spec.kind == "requires" else None,
+        operands={} if spec.kind == "requires" else None,
+        detail=reason,
+    )
+
+
+def _unit_for(value: Any) -> str:
+    if isinstance(value, bool):
+        return "count"
+    return "mm" if isinstance(value, float) else "count"
+
+
+def _render(limit: Limit) -> str:
+    parts = []
+    if limit.min is not None:
+        parts.append(f"min={limit.min}")
+    if limit.max is not None:
+        parts.append(f"max={limit.max}")
+    if limit.equals is not None:
+        parts.append(f"equals={limit.equals}")
+    return ", ".join(parts)
+
+
+def _digest(path: Path | None) -> str | None:
+    if path is None or not path.is_file():
+        return None
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _tool_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("partspec")
+    except PackageNotFoundError:
+        return _TOOL_VERSION_FALLBACK

@@ -9,7 +9,9 @@ than a convention someone has to remember (SPEC-contract.md 1.1).
 from __future__ import annotations
 
 from .backend import BBox, BuildError, GeometryBackend, Tier, Unsupported, Vec3
+from .contract import CheckSpec, Part, Source, build123d, cadquery, openscad
 from .report import CheckResult, Report, write_placeholder
+from .runner import run
 from .status import (
     ContractError,
     Limit,
@@ -26,19 +28,26 @@ __all__ = [
     "BBox",
     "BuildError",
     "CheckResult",
+    "CheckSpec",
     "ContractError",
     "GeometryBackend",
     "Limit",
     "Measurement",
+    "Part",
     "Report",
+    "Source",
     "Status",
     "Tier",
     "Unsupported",
     "Vec3",
     "Verdict",
     "adjudicate",
+    "build123d",
+    "cadquery",
     "epsilon",
     "exit_code",
+    "openscad",
+    "run",
     "verdict_of",
     "write_placeholder",
 ]

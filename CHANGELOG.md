@@ -38,6 +38,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `genus` is refused for multi-body parts: manifold3d reports the genus of the whole
     complex (two disjoint boxes give -1), which answers a question nobody asked.
 
+- **P2 — the contract API.** `Part` with the closed v0 check vocabulary, engine-declaring
+  source constructors, target resolution (`<module>[:<factory>]`, where the error message
+  lists the available factories rather than saying "ambiguous"), and a `requires` evaluator
+  that records the operands it read.
+  - Phase ordering with short-circuiting: a failing parameter check stops the engine from
+    running, and the geometry checks are reported `skipped` naming the blocker rather than
+    quietly omitted.
+  - `check` and `measure` subcommands. `measure` emits nothing that would be unsupported
+    and produces no verdict — it is the adoption path, and partspec deliberately will not
+    auto-generate checks from it.
+  - A worked example under `examples/spacer/`.
+
+### Fixed
+
+- **A contract declaring no checks exited 0.** The implicit `builds` check satisfied the
+  emptiness test, so the tool defeated its own vacuous-green guard. `Report.verdict` now
+  excludes implicit kinds; a contract that asserts nothing is `EMPTY` with exit 3, as
+  `SPEC-contract.md` §6 had already specified.
+- **Relative source paths resolved against the CWD**, so a contract worked or failed
+  depending on the shell's history. They now anchor to the contract file's directory.
+- **`operands_of` returned names in `ast.walk` order**, which is breadth-first: `z + a*z + m`
+  came back as `(z, m, a)`. Now sorted by source position, since the order reaches a report
+  that gets diffed.
+
 ### Changed
 
 - `geometry.facets` is now `geometry.distinct_normals` (D16), named for what it measures

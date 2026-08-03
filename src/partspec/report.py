@@ -133,9 +133,26 @@ class Report:
     duration_ms: int | None = None
     argv: list[str] = field(default_factory=list)
 
+    IMPLICIT_KINDS = ("builds",)
+    """Checks partspec adds itself. They are real results, but they are not
+    something the author *asserted*, so they must not satisfy the emptiness
+    test — see `verdict`."""
+
     @property
     def verdict(self) -> Verdict:
-        return verdict_of([c.status for c in self.checks], errored=self.error is not None)
+        """Verdict, with the vacuous-green guard applied to *declared* checks.
+
+        `builds` is added by the tool, so a contract that asserts nothing still
+        produces one passing check. Counting it toward emptiness would let the
+        single most important guard in the tool be defeated by the tool itself:
+        a contract with no claims would exit 0 and read as a proven part.
+        """
+        if self.error is not None:
+            return Verdict.ERROR
+        declared = [c for c in self.checks if c.kind not in self.IMPLICIT_KINDS]
+        if not declared:
+            return Verdict.EMPTY
+        return verdict_of([c.status for c in self.checks])
 
     @property
     def exit_code(self) -> int:
