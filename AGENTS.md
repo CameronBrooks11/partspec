@@ -36,11 +36,12 @@ docs/           # the specs and decision log — normative, not background readi
 ## Commands
 
 ```sh
-just setup        # uv sync
+just setup        # uv sync --all-extras (ALL engines — matches CI exactly)
 just fmt          # ruff format + ruff check --fix
 just check        # fmt-check + lint + typecheck (CI-equivalent)
 just test         # pytest
 just run -- --version
+just setup-mesh   # light path: mesh tier only. NOT what CI runs
 just ocp-guard    # assert exactly one OCP provider is installed
 ```
 
@@ -70,7 +71,13 @@ just ocp-guard    # assert exactly one OCP provider is installed
   part's genuine long-term state. Shipping the escape hatch alongside the discipline means
   the discipline is never tested.
 - **Pin exactly one OCP provider.** `cadquery-ocp` and `cadquery-ocp-novtk` both own the
-  top-level `OCP/` package and pip does not detect the conflict — one silently clobbers the
-  other. This is why `uv.lock` is committed rather than ignored.
+  top-level `OCP/` package (326 vs 322 files) and pip does not detect the conflict — one
+  silently clobbers the other, and when novtk wins **CadQuery cannot import at all**. A
+  `[tool.uv] override-dependencies` marker drops novtk from resolution; `just ocp-guard`
+  asserts the outcome in CI. This is also why `uv.lock` is committed rather than ignored.
+- **`just setup` installs ALL extras, and CI runs the same recipe.** The lighter mesh-only
+  sync produced real CI drift: pyright resolved build123d locally and not in CI, so
+  `just check` gave two different answers. If you use `just setup-mesh`, expect `just check`
+  to differ from the gate.
 - Do not add a dependency without justification; the core is stdlib-only by design.
 - Do not commit secrets or credentials.

@@ -8,14 +8,21 @@ default:
     @just --list
 
 # Install dependencies and set up environment.
-# The mesh extra is included by default: it is light (pure wheels) and is the
-# primary v0 tier. The occt extra is opt-in — it pulls ~1.8GB of OCCT.
+#
+# ALL extras, deliberately. The lighter `uv sync --extra mesh` was tempting —
+# OCCT is ~1.8GB — but it produced exactly the CI drift dev-toolbox warns about:
+# pyright resolved build123d locally and not in CI, so `just check` gave two
+# different answers. One environment, one answer.
+#
+# It also means the OCP resolution is exercised everywhere rather than only on
+# the machine that happens to have both engines. See `just ocp-guard`.
 setup:
-    uv sync --extra mesh
-
-# Install everything, including the OCCT engines. Slow and large.
-setup-all:
     uv sync --all-extras
+
+# The light path: mesh tier only, no OCCT. For quick OpenSCAD-only iteration.
+# NOT what CI runs — if you use this, `just check` may differ from the gate.
+setup-mesh:
+    uv sync --extra mesh
 
 # Format code (mutates working tree — use locally)
 fmt:
