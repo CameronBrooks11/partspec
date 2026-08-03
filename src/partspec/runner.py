@@ -85,7 +85,7 @@ def _evaluate(part: Part, report: Report, out_dir: Path) -> None:
         "kind": part.source.engine,
         "version": backend.engine_version,
         "backend": backend.kind,
-        "adopted_via": None,
+        "adopted_via": "wrapped" if part.source.engine == "cadquery" else None,
     }
 
     artifact = backend.build(_engine_source(part), out_dir)
@@ -193,19 +193,27 @@ def _backend_for(engine: str) -> Any:
 
         return MeshBackend()
     if engine in ("build123d", "cadquery"):
-        raise ContractError(
-            f"the {engine} backend is not implemented yet (P4 in docs/PLAN.md). "
-            f"It is absent rather than stubbed: a backend that pretended to measure "
-            f"would defeat the point of the tool."
-        )
+        from .backends.occt import OcctBackend
+
+        return OcctBackend(engine)
     raise ContractError(f"unknown engine: {engine!r}")
 
 
 def _engine_source(part: Part) -> Any:
-    from .engines.openscad import OpenSCADSource
+    if part.source.engine == "openscad":
+        from .engines.openscad import OpenSCADSource
 
-    return OpenSCADSource(
-        path=part.source.path, params=part.source.params, method=part.source.method
+        return OpenSCADSource(
+            path=part.source.path, params=part.source.params, method=part.source.method
+        )
+
+    from .engines.pycad import PyCADSource
+
+    return PyCADSource(
+        path=part.source.path,
+        engine=part.source.engine,
+        params=part.source.params,
+        method=part.source.method,
     )
 
 

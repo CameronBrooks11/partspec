@@ -37,6 +37,27 @@ Repository = "https://github.com/CameronBrooks11/partspec"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.uv]
+# THE OCP LANDMINE, and the fix.
+#
+# build123d depends on `cadquery-ocp-novtk`; CadQuery depends on `cadquery-ocp`.
+# Both wheels install the SAME top-level `OCP/` package (326 vs 322 files) and
+# neither pip nor uv detects the conflict — whichever lands last wins. When
+# novtk wins, `OCP.IVtkOCC` loses its VTK bindings and **CadQuery cannot even
+# import**, which is a hard failure with no warning anywhere.
+#
+# Measured here: a plain `uv sync --all-extras` produced exactly that, and
+# `import cadquery` died with
+#   ImportError: cannot import name 'IVtkOCC_Shape' from 'OCP.IVtkOCC'
+#
+# The marker below never matches, which drops novtk from resolution entirely and
+# leaves the VTK-enabled `cadquery-ocp` as the sole provider. It is a superset,
+# so build123d is unaffected. PartCAD solves the same problem by re-asserting
+# the VTK build last in its sandbox setup; this is the declarative equivalent.
+#
+# `just ocp-guard` asserts the outcome, because the failure is silent.
+override-dependencies = ["cadquery-ocp-novtk ; sys_platform == 'never'"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

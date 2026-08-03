@@ -62,6 +62,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   came back as `(z, m, a)`. Now sorted by source position, since the order reaches a report
   that gets diffed.
 
+- **P4 — the OCCT backend.** One implementation serving build123d *and* CadQuery, with
+  adoption at the front door (`adopted_via: "wrapped"` records it). Answers
+  `topology_counts`, which the mesh tier refuses — that asymmetry is the point of tiers.
+  - `genus` via the Euler-Poincare form `G = S - (V - E + 2F - W)/2`. The naive
+    `V - E + F` is wrong on a BREP and quietly so: OCCT faces carry inner wires, so it
+    reports a through-hole as genus 0 and a *blind* hole as genus -1. Verified on a box,
+    one and two through-holes, a blind hole, a tube, and a real pillow block (genus 5).
+  - `engines/pycad.py` builds from either Python engine. Adoption dispatches on
+    `ShapeType()`, because `build123d.Shape.cast` returns `None` in 0.11.1 and
+    `Compound(topods_solid)` constructs happily while reporting volume 0.
+  - Models are called as `method(**params)` — no signature inspection, no guessing. A
+    differently-shaped model gets an explicit adapter in the contract.
+
+### Fixed
+
+- **`is_valid` was called as a method** on the OCCT backend, raising
+  `TypeError: 'bool' object is not callable`. build123d exposes it as a property —
+  the exact divergence `SPEC-backend.md` §4 documents as the reason the adopt shim exists.
+- **CadQuery could not import at all** after adding the OCCT extras.
+  `cadquery-ocp` and `cadquery-ocp-novtk` both install a top-level `OCP/` package (326 vs
+  322 files) with no conflict detection, and novtk landed last, stripping the VTK modules.
+  Fixed with a `[tool.uv] override-dependencies` marker that drops novtk from resolution.
+
 ### Changed
 
 - `geometry.facets` is now `geometry.distinct_normals` (D16), named for what it measures

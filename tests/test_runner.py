@@ -170,16 +170,15 @@ def test_a_build_failure_fails_builds_and_skips_the_rest(tmp_path: Path):
     assert report.verdict is Verdict.FAIL
 
 
-def test_an_unimplemented_engine_errors_rather_than_pretending(tmp_path: Path):
-    """P4 has not landed. A backend that pretended to measure would defeat the
-    point of the tool, so the run errors instead."""
-    from partspec import build123d
+def test_an_unknown_engine_errors_rather_than_pretending(tmp_path: Path):
+    """A backend that pretended to measure would defeat the point of the tool."""
+    from partspec.contract import Source
 
-    p = Part("later", build123d("model.py")).watertight()
+    p = Part("later", Source(engine="freecad", path=Path("model.py"))).watertight()
     report = run(p, out_dir=tmp_path)
     assert report.verdict is Verdict.ERROR
     assert report.exit_code == 4
-    assert "not implemented" in (report.error or "")
+    assert "unknown engine" in (report.error or "")
     assert all(c.status is Status.SKIPPED for c in report.checks)
 
 
