@@ -10,17 +10,13 @@ import json
 from pathlib import Path
 
 import pytest
+from support import needs_openscad
 
 from partspec import Part, Status, Verdict, openscad, run
-from partspec.engines import openscad as openscad_engine
 
 pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
-
-needs_openscad = pytest.mark.skipif(
-    openscad_engine.find_executable() is None, reason="openscad binary not installed"
-)
 
 # 30x20x10 block with a 6x6 square through-hole.
 BLOCK = FIXTURES / "block_with_hole.scad"

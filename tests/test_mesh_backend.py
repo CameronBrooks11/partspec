@@ -3,10 +3,12 @@
 Two tiers of test, deliberately separated:
 
 * Measurement tests build their input with trimesh, so they run anywhere the
-  mesh extra is installed — including CI, which has no OpenSCAD binary.
-* Engine tests shell out to OpenSCAD and skip when it is absent. Their fixtures
-  are chosen so every expected number has a closed form; asserting against
-  whatever the tool produced would test nothing.
+  mesh extra is installed.
+* Engine tests shell out to OpenSCAD and skip when it is absent — but CI sets
+  `PARTSPEC_REQUIRE_ENGINES=1`, which turns that skip into a hard failure, so
+  "absent" is a local convenience and never a silent gap in the gate. Their
+  fixtures are chosen so every expected number has a closed form; asserting
+  against whatever the tool produced would test nothing.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import math
 from pathlib import Path
 
 import pytest
-from support import measured, refused
+from support import measured, needs_openscad, openscad_supports_backend_flag, refused
 
 from partspec.backend import BuildError, Tier, Unsupported
 from partspec.backends.mesh import MeshBackend
@@ -25,10 +27,6 @@ from partspec.engines.openscad import OpenSCADSource, scad_literal
 trimesh = pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
-
-needs_openscad = pytest.mark.skipif(
-    openscad.find_executable() is None, reason="openscad binary not installed"
-)
 
 
 @pytest.fixture
@@ -83,10 +81,43 @@ def test_the_openscad_binary_can_be_pinned(monkeypatch):
     assert openscad.find_executable() == "/some/pinned/openscad"
 
 
-def test_without_the_pin_discovery_is_used(monkeypatch):
+def test_without_the_pin_the_engine_comes_from_path(monkeypatch, tmp_path: Path):
     monkeypatch.delenv(openscad.ENV_EXECUTABLE, raising=False)
-    found = openscad.find_executable()
-    assert found is None or "openscad" in found.lower()
+    fake = tmp_path / "openscad"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert openscad.find_executable() == str(fake)
+
+
+def test_no_engine_is_resolved_from_outside_the_pin_and_path(monkeypatch):
+    """There is no third source, and there must not be.
+
+    `find_executable` once preferred `~/Applications/openscad/OpenSCAD-nightly
+    .AppImage` ahead of `PATH`. On the machine that had one, `which openscad`
+    said 2021.01 and every render used 2026.08.01 — and F13 is the finding that
+    those two build *different parts* from the same source. An engine chosen by
+    a path nobody declared is the failure this function exists to prevent, so
+    an empty `PATH` and no pin must resolve to nothing at all.
+    """
+    monkeypatch.delenv(openscad.ENV_EXECUTABLE, raising=False)
+    monkeypatch.setenv("PATH", "")
+    assert openscad.find_executable() is None
+
+
+def test_a_broken_pin_fails_by_name_rather_than_by_traceback(monkeypatch, tmp_path: Path):
+    """A typo in the pin used to raise `FileNotFoundError` out of `run()`.
+
+    Which is the one failure mode this tool cannot have: an uncaught exception
+    escapes the report machinery, so there is no artifact, no verdict and no
+    exit code — just a stack trace. Every engine failure has to arrive as a
+    `BuildError`, including the ones caused by the operator.
+    """
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, "/nonexistent/openscad")
+    result = openscad.render(OpenSCADSource(path=FIXTURES / "block_with_hole.scad"), tmp_path)
+    assert isinstance(result, BuildError)
+    assert "/nonexistent/openscad" in result.message
+    assert openscad.ENV_EXECUTABLE in (result.hint or ""), "say where the bad path came from"
 
 
 def test_unrenderable_value_is_rejected_loudly():
@@ -606,11 +637,22 @@ def test_render_backend_is_passed_through_when_set(backend: MeshBackend, tmp_pat
     gridfinity bin, Manifold produced 4 non-manifold edges where CGAL produced
     a clean mesh from identical source. So it must be selectable and recorded.
 
-    Only asserts the flag is accepted and geometry still measures — the two
-    backends agree on a simple polyhedron, which is the point.
+    Both sides are asserted, because `--backend` did not exist in 2021.01 and
+    2021.01 is what Debian and Ubuntu ship. A contract written against a newer
+    engine must not quietly render with the old default on an older one — that
+    would substitute a different artifact for the requested one, silently. It
+    fails, and the message has to carry the engine's own words.
     """
     src = OpenSCADSource(path=FIXTURES / "block_with_hole.scad", backend="CGAL")
     mesh = backend.build(src, tmp_path)
+
+    if not openscad_supports_backend_flag():
+        assert isinstance(mesh, BuildError)
+        assert "backend" in (mesh.hint or ""), (
+            f"the refusal must name what the engine rejected, not just the exit code: {mesh}"
+        )
+        return
+
     assert not isinstance(mesh, BuildError), mesh
     assert measured(backend.volume(mesh)).value == pytest.approx(30 * 20 * 10 - 6 * 6 * 10)
 

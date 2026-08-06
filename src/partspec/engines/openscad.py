@@ -107,13 +107,18 @@ def find_executable() -> str | None:
     binary is installed is a property of the *machine*, not of the design. The
     render backend is the opposite — a design choice — and lives in the contract.
     The version is recorded in every report either way.
+
+    Only two rules, in this order: the pin, then `PATH`. An earlier version also
+    preferred `~/Applications/openscad/OpenSCAD-nightly.AppImage` — a convenience
+    for one machine that had no business in library code. It meant `which
+    openscad` reported 2021.01 while every render silently used 2026.08.01, on a
+    tool whose own finding is that the version changes the part. A build whose
+    engine is chosen by an undeclared path is the thing this function exists to
+    prevent; set the pin instead, where the choice is visible.
     """
     pinned = os.environ.get(ENV_EXECUTABLE)
     if pinned:
         return pinned
-    nightly = Path.home() / "Applications" / "openscad" / "OpenSCAD-nightly.AppImage"
-    if nightly.is_file():
-        return str(nightly)
     return shutil.which("openscad") or shutil.which("openscad-nightly")
 
 
@@ -187,6 +192,17 @@ def render(
             )
         except subprocess.TimeoutExpired:
             return BuildError(f"openscad timed out after {timeout_s}s")
+        except OSError as exc:
+            # A mistyped PARTSPEC_OPENSCAD reaches here. The pin is returned
+            # as given rather than validated away, because silently falling
+            # back to PATH would answer with an engine the user did not choose
+            # — and the version is the part (F13). So it fails, by name.
+            return BuildError(
+                f"could not run the openscad binary at {executable!r}: {exc.strerror}",
+                hint=f"{ENV_EXECUTABLE} is set to this path"
+                if os.environ.get(ENV_EXECUTABLE)
+                else None,
+            )
 
         if proc.returncode != 0:
             return BuildError(
@@ -207,10 +223,22 @@ def render(
 
 
 def _first_error_line(stderr: str) -> str | None:
-    for line in stderr.splitlines():
+    """The engine's own diagnosis, preferring its ERROR/WARNING lines.
+
+    The fallback is the point. Matching only ERROR/WARNING silently discarded
+    every failure OpenSCAD reports in its own voice — `unrecognised option
+    '--backend=CGAL'`, which is exactly what a 2021.01 engine says to a contract
+    written against a newer one, reduced to `openscad exited 1` and no hint.
+    A failure that is visible but unexplained sends a reader off to guess, which
+    is a quieter version of the thing this tool is against.
+    """
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    for line in lines:
         if "ERROR" in line or "WARNING" in line:
-            return line.strip()
-    return None
+            return line
+    # CLI-level failures are diagnosed before any compilation output, so the
+    # first line is the reason and everything after it is a usage dump.
+    return lines[0] if lines else None
 
 
 # --------------------------------------------------------------------------
