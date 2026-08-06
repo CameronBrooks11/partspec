@@ -157,8 +157,10 @@ house style: numbered findings, root cause, before/after regression table, and a
 **This is the deliverable.** P0–P5 are setup.
 
 **First batch, 2026-08-03.** 11 targets across three engines via `./run-batch.sh`; 0
-unexpected failures, 4 expected ones each with a recorded cause. `results.md` carries 13
-numbered findings.
+unexpected failures, 4 expected ones each with a recorded cause.
+
+**Self-review, 2026-08-05.** 12 targets, 0 unexpected failures, 5 expected. `results.md`
+carries 14 numbered findings.
 
 The success condition — *"enough evidence to decide whether to retire 'No unit tests for
 geometry'"* — now has two payoffs behind it, both on third-party code, both silent in the
@@ -172,6 +174,19 @@ engine:
 
 Neither is a rule an author forgot to write down. Both are parts that are quietly wrong and
 look fine, which is the case visual review is worst at.
+
+**F14 is a third kind, and it is about the tool.** A step-back review found partspec itself
+committing failure mode two: on the F10 bin, a contract that declared `volume`,
+`solid_count` and `genus` but not `watertight` scored four green checks and exit 0. Two root
+causes — a dependency's `Error.NotManifold` status read straight past, and absolute
+measurements sourced from a library that rebuilds its input (25.31 mm³ of drift on a *clean*
+part). Fixed under D17.
+
+It belongs in this phase's record for a reason that bears on §0's success condition: **169
+tests passed throughout**, every one of them measuring a mesh that was already sound, and
+neither cause was findable by reading the code. It took a deliberately broken input and an
+independently computed reference. That is this project's own argument about CAD, holding
+when turned on the project.
 
 ---
 
