@@ -54,9 +54,15 @@ just check           # fmt-check + lint + typecheck (CI-equivalent)
 just test            # pytest
 just run -- --version
 just setup-mesh      # light path: mesh tier only. NOT what CI runs
-just test-mesh-only  # mesh tests against a throwaway scipy-free [mesh] install
+just test-mesh-only  # mesh tests against a throwaway scipy-free [mesh] install (CI runs this)
 just ocp-guard       # assert exactly one OCP provider is installed
 ```
+
+`PARTSPEC_OPENSCAD` pins the engine; `PARTSPEC_REQUIRE_ENGINES=1` turns a missing one from
+a skip into a hard failure. CI sets both, across a **two-version matrix** — apt 2021.01 and
+a pinned 2026.08.01 snapshot — because F13 is the finding that the same source builds a
+different part on a different engine, and because `--backend` does not exist on 2021.01.
+Run the suite under both before touching `engines/openscad.py`.
 
 ## Conventions
 
@@ -98,8 +104,13 @@ just ocp-guard       # assert exactly one OCP provider is installed
   manifold3d's rejected objects still answer `.decompose()` and `.genus()`.
 - **Do not make the mesh tier depend on scipy.** It reaches a dev machine only through
   build123d/cadquery, so such a dependency passes locally *and* in CI while breaking every
-  `pip install partspec[mesh]` user. `just test-mesh-only` is the guard; run it when you
-  touch `backends/mesh.py`.
+  `pip install partspec[mesh]` user. `just test-mesh-only` is the guard, and CI runs it as
+  its own job — it was local-only for a while, which meant the detector for a
+  "passes-in-CI" failure was itself absent from CI.
+- **A skipped test is not a passing test.** The suite once reported 195 passed / 23 skipped
+  in CI because no runner had OpenSCAD, and those 23 were the entire end-to-end path. If you
+  add a `skipif` for a missing tool, add the tool to `PARTSPEC_REQUIRE_ENGINES` handling in
+  `tests/conftest.py` so CI cannot lose it silently.
 - **Never let an unevaluated check exit 0.** `Verdict.INCOMPLETE` maps to exit 2 on purpose.
 - **Do not add a `--allow-incomplete` flag** without a recorded case where `incomplete` is a
   part's genuine long-term state. Shipping the escape hatch alongside the discipline means

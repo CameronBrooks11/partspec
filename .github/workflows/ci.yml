@@ -57,10 +57,81 @@ jobs:
         run: just check
 
   test:
-    name: Test
+    name: Test (openscad ${{ matrix.openscad }})
     # Not gated on `changes`: the test suite asserts that the schema example in
     # docs/SPEC-report.md conforms to its own rules, so a docs-only change can
     # genuinely break it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Two engines, because F13 is the finding that the same source builds a
+      # *different part* on a different OpenSCAD — the gear library loses its
+      # teeth on the newer one, both exiting 0 with clean watertight meshes.
+      # Running one version would leave that a written-up anecdote; running
+      # both makes it a standing guard. The pair also spans a real capability
+      # boundary: `--backend` does not exist in 2021.01, which is what Debian
+      # and Ubuntu ship.
+      matrix:
+        include:
+          - openscad: "2021.01"
+            source: apt
+          - openscad: "2026.08.01"
+            source: snapshot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install OpenSCAD (apt)
+        if: matrix.source == 'apt'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openscad
+
+      # Extracted rather than run in place: the runner image has no libfuse2,
+      # so the AppImage cannot mount itself. Snapshots are pruned on a rolling
+      # ~1-year window, so this URL will eventually 404 — which fails the job
+      # loudly and is the point. A silently-skipped engine is what this whole
+      # matrix exists to stop.
+      - name: Install OpenSCAD (pinned snapshot)
+        if: matrix.source == 'snapshot'
+        run: |
+          url="https://files.openscad.org/snapshots/OpenSCAD-${{ matrix.openscad }}-x86_64.AppImage"
+          curl -fsSL --retry 3 -o openscad.AppImage "$url"
+          chmod +x openscad.AppImage
+          ./openscad.AppImage --appimage-extract >/dev/null
+          echo "PARTSPEC_OPENSCAD=$PWD/squashfs-root/AppRun" >> "$GITHUB_ENV"
+
+      # Without this the matrix can silently collapse to one version — apt
+      # bumps its package and both legs quietly test the same engine while
+      # still reporting two green checks.
+      - name: Assert the engine is the one this leg declares
+        run: |
+          binary="${PARTSPEC_OPENSCAD:-openscad}"
+          actual="$("$binary" --version 2>&1 | head -1)"
+          echo "$actual"
+          case "$actual" in
+            *"${{ matrix.openscad }}"*) ;;
+            *) echo "::error::expected OpenSCAD ${{ matrix.openscad }}, got: $actual"; exit 1 ;;
+          esac
+
+      - name: Setup
+        run: just setup
+      - name: Test
+        env:
+          PARTSPEC_REQUIRE_ENGINES: "1"
+        run: just test
+
+  # The mesh extra, alone, in a throwaway environment. `just setup` takes all
+  # extras and scipy reaches the machine only via build123d/cadquery, so a
+  # mesh-tier dependency on it passes every other job here and breaks everyone
+  # who installed `partspec[mesh]`. This job is the only place that install
+  # exists.
+  mesh-only:
+    name: Mesh-only install
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -69,15 +140,21 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Setup
-        run: just setup
+      - name: Install OpenSCAD (apt)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openscad
       - name: Test
-        run: just test
+        # A subset: the *absence* of build123d and cadquery is what this job
+        # proves, so requiring them would fail the honest run.
+        env:
+          PARTSPEC_REQUIRE_ENGINES: "openscad,trimesh,manifold3d"
+        run: just test-mesh-only
 
   ok:
     name: ok
     if: always()
-    needs: [changes, check, test]
+    needs: [changes, check, test, mesh-only]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
