@@ -99,6 +99,16 @@ jobs:
       - name: Install OpenSCAD (pinned snapshot)
         if: matrix.source == 'snapshot'
         run: |
+          # The AppImage bundles Qt but not the graphics stack it links against,
+          # and a bare runner has none of it — the binary will not even answer
+          # `--version` without libEGL. This list is every NEEDED library the
+          # extracted `usr/bin/openscad` resolves outside its own bundle and
+          # that the image lacks; apt pulls the rest transitively. OpenSCAD
+          # links these even to export an STL with no display attached.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libopengl0 libgbm1 libwayland-client0 \
+            libfontconfig1 libharfbuzz0b libgmp10
           url="https://files.openscad.org/snapshots/OpenSCAD-${{ matrix.openscad }}-x86_64.AppImage"
           curl -fsSL --retry 3 -o openscad.AppImage "$url"
           chmod +x openscad.AppImage

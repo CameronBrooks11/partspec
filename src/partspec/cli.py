@@ -118,12 +118,10 @@ def _cmd_measure(args: argparse.Namespace) -> int:
             print(f"  hint: {artifact.hint}", file=sys.stderr)
         return 4
 
-    measured: dict[str, object] = {
-        "part": part.id,
-        "engine": {"kind": part.source.engine, "version": backend.engine_version},
-        "geometry": backend.provenance(artifact),
-        "measurements": {},
-    }
+    measurements: dict[str, object] = {}
+    refused: dict[str, str] = {}
+    unavailable: list[str] = []
+
     # `is_valid` and `topology_counts` are here but are not check kinds — the
     # first because its meaning differs by tier, the second because it is
     # answerable on only one. Both are useful to *see* while writing a contract,
@@ -140,9 +138,11 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         "topology_counts",
     ):
         if name not in backend.capabilities():
+            unavailable.append(name)
             continue
         result = getattr(backend, name)(artifact)
         if isinstance(result, Unsupported):
+            refused[name] = result.reason
             continue
         entry: dict[str, object] = {
             "value": list(result.value) if result.is_vector else result.value,
@@ -151,7 +151,30 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         }
         if result.axes:
             entry["axes"] = list(result.axes)
-        measured["measurements"][name] = entry  # type: ignore[index]
+        measurements[name] = entry
+
+    measured: dict[str, object] = {
+        "part": part.id,
+        "engine": {
+            "kind": part.source.engine,
+            "tier": backend.kind,
+            "version": backend.engine_version,
+        },
+        "geometry": backend.provenance(artifact),
+        "measurements": measurements,
+    }
+    # Two different silences, separated because conflating them is a bug this
+    # verb once had. `unavailable` is a property of the tier and the same for
+    # every part it measures; `refused` is a property of *this* part, and its
+    # reason names the defect. Before D17 only the first kind existed and
+    # dropping it was honest. Now an open mesh drops `volume`, `genus` and
+    # `center_of_mass`, and a reader writing their first contract from this
+    # output would see no volume and decline to claim one — the omission
+    # teaching exactly the wrong lesson, in the verb that exists for adoption.
+    if refused:
+        measured["refused"] = refused
+    if unavailable:
+        measured["unavailable"] = unavailable
 
     print(json.dumps(measured, indent=2))
     return 0
