@@ -36,10 +36,15 @@ GEOMETRY_KINDS: dict[str, str] = {
     "genus": "genus",
     "volume": "volume",
     "area": "area",
+    "topology": "topology_counts",
 }
 """v0's closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
-whether the engine produced anything at all."""
+whether the engine produced anything at all.
+
+`topology` is the only entry whose primitive is **not** on both tiers, and that
+is why it earns its place: it is the one check that makes the tier difference
+visible to a contract author rather than merely documented."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +212,45 @@ class Part:
     ) -> Part:
         return self._add(
             CheckSpec(id=id or "area", kind="area", phase=GEOMETRY, limit=Limit(min=min, max=max))
+        )
+
+    def topology(
+        self,
+        *,
+        faces: int | None = None,
+        edges: int | None = None,
+        vertices: int | None = None,
+        id: str | None = None,
+    ) -> Part:
+        """Modelled face, edge and vertex counts. **OCCT tier only.**
+
+        Constrain any subset; an omitted axis is simply not claimed.
+
+        This is the one check in v0 that a tier cannot answer, and that is the
+        point of having it. On build123d or CadQuery it compares real modelled
+        topology; on OpenSCAD it reports `unsupported` with `requires: "occt"`,
+        because a triangle mesh has faces only in the sense that a mosaic has
+        colours. Reporting a triangle count here is the PartCAD failure (D12) and
+        is refused structurally, by the mesh backend not declaring the capability
+        at all.
+
+        So a contract carrying a `topology` check is portable in the sense that
+        matters — it means the same thing everywhere, and says so where it cannot
+        be evaluated. It is not portable in the sense of turning green
+        everywhere, and a part that needs it to pass belongs on a BREP engine.
+        """
+        if faces is None and edges is None and vertices is None:
+            raise ContractError(
+                "topology() must constrain at least one of faces, edges or vertices; "
+                "a check that claims nothing cannot pass"
+            )
+        return self._add(
+            CheckSpec(
+                id=id or "topology",
+                kind="topology",
+                phase=GEOMETRY,
+                limit=Limit(equals=(faces, edges, vertices)),
+            )
         )
 
     # -- internals ---------------------------------------------------------

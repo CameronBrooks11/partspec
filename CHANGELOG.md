@@ -96,6 +96,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   edges (surfaces touching). trimesh's `is_watertight` conflates them, and they have
   different causes and different fixes.
 
+- **`p.topology(faces=, edges=, vertices=)`** — modelled face/edge/vertex counts, and the
+  first v0 check that a tier cannot answer. On build123d or CadQuery it compares real
+  topology; on OpenSCAD it reports `unsupported` with `requires: "occt"`, because a triangle
+  mesh has no modelled faces and returning a triangle count is the PartCAD failure. That
+  path was previously unreachable from any contract — every other kind resolved to a
+  primitive both backends declare — so `requires` had never appeared in a real report.
+  Any subset of the three may be constrained; `p.topology()` with none is a `ContractError`.
+
 - **`PARTSPEC_OPENSCAD`** pins the OpenSCAD binary. The engine version changes the
   artifact: 2021.01 honours the removed `assign()` construct and 2026.08.01 ignores it, so
   a gear library's teeth silently vanish and the part comes out 35% smaller in every planar
@@ -110,6 +118,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GeometryBackend.provenance()` takes the artifact rather than reading instance state.
 - `just setup` installs **all** extras, matching CI exactly; `just setup-mesh` is the
   lighter OpenSCAD-only path and is explicitly not what the gate runs.
+- `measure` now also reports `is_valid` and, on the OCCT tier, `topology_counts` — a
+  deliberate superset of the check vocabulary. `is_valid` is not a check kind because it
+  means different things per tier (an open shell is valid on OCCT, invalid on mesh), and a
+  kind whose meaning moves with the backend breaks the one-contract property.
+- A vector limit may now leave components unconstrained — `equals=(6, None, None)` claims a
+  face count and nothing else. Those axes are skipped rather than adjudicated; previously
+  they raised, because a per-component `Limit` of three `None`s trips its own validation.
+  A limit that constrains *no* component is a `ContractError`, since folding zero components
+  would return `pass`.
 - `volume`, `center_of_mass`, `solid_count` and `genus` may now return `Unsupported`. The
   protocol signatures widened to match; `bbox`, `area` and `watertight` stay total.
 

@@ -133,10 +133,43 @@ on. `p.requires` is the escape hatch for anything relational.
 | `p.genus(n)` | `genus` | scalar, `count`, exact | both |
 | `p.volume(min=, max=)` | `volume` | scalar, `mm3` | both |
 | `p.area(min=, max=)` | `area` | scalar, `mm2` | both |
+| `p.topology(faces=, edges=, vertices=)` | `topology` | vector, `count`, exact | **occt only** |
 
 `builds` is **implicit and always present**: every part gets it, and it fails if the engine
 exits non-zero or emits no artifact. It is the one check an author cannot forget, and it is
 why a contract with no declared checks still reports `empty` rather than crashing.
+
+### 4.2.2 `topology` — the check that makes the tiers visible
+
+Every other v0 kind maps to a primitive both backends declare. `topology` is the exception,
+deliberately: on the OCCT tier it compares real modelled counts, and on the mesh tier it
+reports `unsupported` with `requires: "occt"`, because a triangle mesh has faces only in the
+sense that a mosaic has colours. Returning a triangle count is the PartCAD failure (D12), and
+it is prevented structurally — the mesh backend does not declare the capability, so the
+refusal happens before dispatch and no measurement is produced to be misread.
+
+Its inclusion is what makes the degradation path **reachable from a contract**. Until it
+existed, `SPEC-report.md`'s `requires` field was never populated in a real report and the
+capability-refusal branch was unreachable code. A property that cannot be exercised is a
+property that has not been tested.
+
+Any subset may be constrained; an omitted axis carries no claim. Edge and vertex counts move
+with modelling choices that are rarely intent, so `faces=` alone is usually the honest claim.
+`p.topology()` with no arguments is a `ContractError`, not an empty pass — the vacuous-green
+guard applies to a single check as much as to a whole contract.
+
+**Its practical use is thin today, and that is recorded rather than papered over.** No part
+in the dogfood corpus carries a face count that is *intent* rather than *incident* — the
+pillow block's 15 faces are an artefact of how it was modelled, and Gridfinity's standard
+fixes no topology, so asserting either would repeat the mistake F12 already caught. What
+justifies the kind in v0 is that OCCT-only checks are a **class** the design already
+committed to (`hole_diameter`, `fillet_radius`, `bolt_circle`, all post-v0), and shipping
+one cheap honest member exercises the machinery those depend on instead of leaving it
+unreachable until the first one lands.
+
+A `topology` contract is portable in the sense that matters: it means the same thing on every
+engine and says so where it cannot be evaluated. It is **not** portable in the sense of
+turning green everywhere, and a part that needs it green belongs on a BREP engine.
 
 ### 4.2.1 A consequence of D15 worth stating plainly
 
@@ -173,6 +206,16 @@ difference*, which is a thing the tool should report loudly rather than absorb q
 - **`overhang`** — mesh-native and genuinely better there than on BREP, so it is *cheap*;
   deferred only because printability is a separate concern from dimensional intent and
   would widen v0's story.
+- **`is_valid`** — implemented on both backends and reachable through `measure`, but
+  deliberately **not** a check kind, because it does not mean the same thing on both. On the
+  mesh tier it is "closed, consistently wound, non-zero volume"; on the OCCT tier it is
+  "passes `BRepCheck_Analyzer`". Those disagree on real input — an open shell is `is_valid`
+  **True** on OCCT and **False** on mesh. A kind whose meaning changes with the tier breaks
+  "one contract, evaluated identically wherever it can be", which is a worse failure than
+  the gap it would close. `watertight` already carries the portable half of the claim.
+- **`center_of_mass`** — tier-consistent and cheap, and it will probably land; held back
+  only because nothing in the dogfood corpus has needed it yet, and v0's vocabulary grows on
+  demonstrated need rather than on availability. Visible through `measure` meanwhile.
 
 ---
 
@@ -250,6 +293,13 @@ This is the adoption path and the answer to "how do I retrofit contracts onto 30
 OpenSCAD libraries": measure, read, decide which numbers are *intent* rather than
 *incident*, and write those as checks. The judgement stays with the author; the arithmetic
 does not.
+
+`measure` deliberately reports a **superset** of the check vocabulary. `is_valid` and
+`topology_counts` appear here and are not kinds (§4.3) — the first because its meaning
+differs by tier, the second because only one tier can answer it. Both are worth *seeing*
+while deciding what to claim, which is what this verb is for, and neither can mislead here
+because the output carries no verdict. The rule that it emits nothing `unsupported` does the
+rest: on a mesh, `topology_counts` is simply absent rather than present-and-wrong.
 
 ---
 

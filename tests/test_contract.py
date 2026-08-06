@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from partspec import Part, openscad
+from partspec.contract import GEOMETRY_KINDS
 from partspec.expr import evaluate, operands_of
 from partspec.status import ContractError
 from partspec.target import Target, TargetError, resolve
@@ -125,6 +126,51 @@ def test_param_must_name_a_declared_parameter():
 def test_a_part_needs_an_id():
     with pytest.raises(ContractError):
         Part("", openscad("x.scad"))
+
+
+# --------------------------------------------------------------------------
+# topology — the one check a tier cannot answer
+# --------------------------------------------------------------------------
+
+
+def test_topology_records_the_axes_it_was_given():
+    p = _part()
+    p.topology(faces=6, edges=12, vertices=8)
+    assert p.checks[0].kind == "topology"
+    assert p.checks[0].limit is not None
+    assert p.checks[0].limit.equals == (6, 12, 8)
+
+
+def test_topology_may_constrain_a_subset():
+    """A face count is often the whole claim; edge and vertex counts move with
+    modelling choices that are not intent."""
+    p = _part()
+    p.topology(faces=6)
+    assert p.checks[0].limit is not None
+    assert p.checks[0].limit.equals == (6, None, None)
+
+
+def test_topology_claiming_nothing_is_refused():
+    """Caught at declaration, not left to adjudication: `equals=(None, None,
+    None)` is a limit that constrains nothing, and a check that claims nothing
+    must never be able to report pass."""
+    p = _part()
+    with pytest.raises(ContractError, match="at least one of faces"):
+        p.topology()
+
+
+def test_topology_maps_to_the_only_tier_specific_primitive():
+    """Every other v0 kind resolves to a primitive both backends declare, which
+    left the capability-refusal path — and `requires: "occt"` with it —
+    unreachable from any contract. This is the entry that exercises it."""
+    from partspec.backends.mesh import CAPABILITIES as MESH
+    from partspec.backends.occt import CAPABILITIES as OCCT
+
+    assert GEOMETRY_KINDS["topology"] == "topology_counts"
+    assert "topology_counts" in OCCT
+    assert "topology_counts" not in MESH
+    others = {v for k, v in GEOMETRY_KINDS.items() if k != "topology"}
+    assert others <= MESH & OCCT, "no other v0 check should depend on the tier"
 
 
 def test_source_records_the_engine_explicitly():

@@ -133,6 +133,41 @@ def test_a_cylinder_has_analytic_faces_not_facets(backend: OcctBackend):
     assert backend.topology_counts(bd.Cylinder(radius=5, height=10)).value[0] == 3
 
 
+def test_a_topology_contract_is_answered_on_this_tier(tmp_path):
+    """The counterpart of `test_a_tier_that_cannot_answer_says_which_one_can`:
+    the identical check that reports `unsupported` on OpenSCAD passes here.
+
+    That asymmetry, reachable from one contract, is the whole claim of having
+    tiers — the check means the same thing on both, and says so where it cannot
+    be evaluated rather than inventing an answer.
+    """
+    from partspec import Part, Status, Verdict, build123d, run
+
+    model = tmp_path / "m.py"
+    model.write_text("import build123d as bd\ndef make_part():\n    return bd.Box(10, 20, 30)\n")
+
+    p = Part("topo-box", build123d(model))
+    p.topology(faces=6, edges=12, vertices=8)
+
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "topology")
+    assert check.status is Status.PASS
+    assert check.measurement is not None
+    assert check.measurement.value == (6, 12, 8)
+    assert report.verdict is Verdict.PASS
+
+
+def test_a_wrong_topology_claim_fails(tmp_path):
+    from partspec import Part, Status, build123d, run
+
+    model = tmp_path / "m.py"
+    model.write_text("import build123d as bd\ndef make_part():\n    return bd.Box(10, 20, 30)\n")
+
+    p = Part("topo-box", build123d(model)).topology(faces=7)
+    report = run(p, out_dir=tmp_path)
+    assert next(c for c in report.checks if c.id == "topology").status is Status.FAIL
+
+
 # --------------------------------------------------------------------------
 # genus — where the naive formula is wrong
 # --------------------------------------------------------------------------

@@ -169,6 +169,30 @@ def test_vector_requires_axes():
         Measurement((1.0, 2.0, 3.0), "mm")
 
 
+def test_an_unconstrained_component_is_not_a_claim():
+    """`equals=(6, None, None)` means "six faces, no claim about the rest".
+
+    The unclaimed axes are skipped rather than adjudicated. Before this they
+    raised, because building a per-component `Limit` out of three Nones trips
+    `Limit.__post_init__` — which made partial vector claims impossible to
+    express at all.
+    """
+    m = Measurement((6, 12, 8), "count", axes=("faces", "edges", "vertices"))
+    assert adjudicate(m, Limit(equals=(6, None, None))) is Status.PASS
+    assert adjudicate(m, Limit(equals=(7, None, None))) is Status.FAIL
+    assert adjudicate(m, Limit(equals=(None, 12, 8))) is Status.PASS
+    assert adjudicate(m, Limit(equals=(None, 12, 9))) is Status.FAIL
+
+
+def test_a_limit_constraining_nothing_is_a_contract_error():
+    """The vacuous-green guard, reached through a limit rather than an empty
+    contract. `Limit.__post_init__` cannot catch this — `(None, None, None)` is
+    not None — and folding zero components would return PASS."""
+    m = Measurement((6, 12, 8), "count", axes=("faces", "edges", "vertices"))
+    with pytest.raises(ContractError, match="claims nothing"):
+        adjudicate(m, Limit(equals=(None, None, None)))
+
+
 # --------------------------------------------------------------------------
 # verdicts and exit codes
 # --------------------------------------------------------------------------

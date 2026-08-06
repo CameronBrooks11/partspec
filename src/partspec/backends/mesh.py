@@ -41,6 +41,7 @@ CAPABILITIES = frozenset(
         "volume",
         "area",
         "center_of_mass",
+        "is_valid",
         "watertight",
         "solid_count",
         "genus",
@@ -159,6 +160,16 @@ class MeshBackend:
         return Measurement(com, "mm", exact=True, axes=("x", "y", "z"))
 
     def is_valid(self, a: Any) -> Measurement:
+        """Diagnostic only — deliberately not a check kind.
+
+        `is_volume` here means closed, consistently wound and of non-zero
+        volume; on the OCCT tier `is_valid` means the BREP passes
+        `BRepCheck_Analyzer`, which is a different question with a different
+        answer (an open shell is `is_valid` True there and False here). A check
+        whose meaning changes with the tier is exactly what "one contract,
+        evaluated identically wherever it can be" forbids, so this is surfaced
+        through `measure` and left out of the vocabulary.
+        """
         return Measurement(bool(a.is_volume), "bool", exact=True)
 
     def watertight(self, a: Any) -> Measurement:

@@ -124,7 +124,21 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         "geometry": backend.provenance(artifact),
         "measurements": {},
     }
-    for name in ("bbox", "volume", "area", "center_of_mass", "watertight", "solid_count", "genus"):
+    # `is_valid` and `topology_counts` are here but are not check kinds — the
+    # first because its meaning differs by tier, the second because it is
+    # answerable on only one. Both are useful to *see* while writing a contract,
+    # which is what this verb is for.
+    for name in (
+        "bbox",
+        "volume",
+        "area",
+        "center_of_mass",
+        "is_valid",
+        "watertight",
+        "solid_count",
+        "genus",
+        "topology_counts",
+    ):
         if name not in backend.capabilities():
             continue
         result = getattr(backend, name)(artifact)

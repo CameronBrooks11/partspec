@@ -279,7 +279,10 @@ def adjudicate(measurement: Measurement, limit: Limit) -> Status:
     wall at 2.4mm +/-0.01 against a 2.0mm minimum genuinely passes; the same
     wall at 2.01mm +/-0.05 does not, because the tool does not know.
 
-    Vector measurements adjudicate per component and take the worst.
+    Vector measurements adjudicate per component and take the worst. A component
+    the limit does not constrain — `equals=(6, None, None)`, meaning "six faces,
+    no claim about edges or vertices" — is skipped rather than adjudicated, since
+    there is nothing to decide.
     """
     if not measurement.is_vector:
         return _adjudicate_scalar(measurement.value, measurement.bounds, limit)
@@ -291,13 +294,25 @@ def adjudicate(measurement: Measurement, limit: Limit) -> Status:
 
     per_component: list[Status] = []
     for i, v in enumerate(values):
-        component_limit = Limit(
-            min=_component(limit.min, i, len(values)),
-            max=_component(limit.max, i, len(values)),
-            equals=_component(limit.equals, i, len(values)),
-            choices=limit.choices,
+        fields = {
+            "min": _component(limit.min, i, len(values)),
+            "max": _component(limit.max, i, len(values)),
+            "equals": _component(limit.equals, i, len(values)),
+            "choices": limit.choices,
+        }
+        if all(f is None for f in fields.values()):
+            continue
+        per_component.append(_adjudicate_scalar(v, bounds[i], Limit(**fields)))
+
+    if not per_component:
+        # Every component unconstrained. `Limit.__post_init__` cannot catch this
+        # — `equals=(None, None, None)` is not None — and folding an empty list
+        # would return PASS, which is the vacuous green this tool exists to
+        # prevent, reached through a limit rather than through an empty contract.
+        raise ContractError(
+            "this limit constrains no component of the measurement; a check that "
+            "claims nothing must not report pass"
         )
-        per_component.append(_adjudicate_scalar(v, bounds[i], component_limit))
     return worst(per_component)
 
 

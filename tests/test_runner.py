@@ -110,6 +110,28 @@ def test_unsupported_does_not_read_as_green(tmp_path: Path):
 
 
 @needs_openscad
+def test_a_tier_that_cannot_answer_says_which_one_can(tmp_path: Path):
+    """The capability-refusal path, which no contract could reach until
+    `topology` existed: every other v0 check maps to a primitive both backends
+    declare, so `requires` was never populated in a real report.
+
+    A triangle mesh has no modelled faces, so this is refused *before* dispatch
+    — the mesh backend does not declare the capability — rather than answered
+    with a triangle count, which is the PartCAD failure (D12).
+    """
+    p = Part("block", openscad(BLOCK))
+    p.topology(faces=6)
+
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "topology")
+    assert check.status is Status.UNSUPPORTED
+    assert check.requires == "occt"
+    assert check.measurement is None, "a refusal must not carry a number"
+    assert report.verdict is Verdict.INCOMPLETE
+    assert report.exit_code == 2
+
+
+@needs_openscad
 def test_a_failing_parameter_check_short_circuits_the_engine(tmp_path: Path):
     """Building geometry from inputs already rejected wastes time and produces a
     shape describing something the contract has ruled out."""

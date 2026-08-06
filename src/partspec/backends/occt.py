@@ -29,6 +29,7 @@ CAPABILITIES = frozenset(
         "volume",
         "area",
         "center_of_mass",
+        "is_valid",
         "watertight",
         "solid_count",
         "genus",
