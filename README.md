@@ -2,8 +2,10 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha.** The report/status seam is implemented. The contract API and the
-> geometry backends are not. There is nothing useful to run yet.
+> **Status: pre-alpha, and unreleased.** It runs end to end — `check` and `measure`, across
+> all three engines — and is being dogfooded on real parts. The check vocabulary is
+> deliberately small; [`docs/POST-V0.md`](docs/POST-V0.md) records what is withheld and why.
+> Expect the API to move.
 
 ## What it is for
 
@@ -12,24 +14,60 @@ bore that has to clear an 8 mm shaft. Usually it lives in a README, a comment, o
 head, and nothing checks it. `partspec` lets you declare it next to the model and enforce
 it in CI.
 
+This is [`examples/spacer/spec.py`](examples/spacer/spec.py) — the whole contract, less its
+docstring:
+
 ```python
 from partspec import Part, openscad
 
-def lock() -> Part:
-    p = Part("bayonet-lock-pin", openscad(
-        "bayonet_lock.scad",
-        half="lock", interface_radius=8, allowance=0.2,
-        part_height=8, shell_thickness=2.5, pin_radius=1.0,
+PLATE = (40.0, 30.0, 6.0)
+BORE_D = 8.0
+WALL_MIN = 2.0
+
+
+def spacer() -> Part:
+    p = Part("example-spacer", openscad(
+        "spacer.scad",
+        plate_x=PLATE[0], plate_y=PLATE[1], plate_z=PLATE[2],
+        bore_d=BORE_D, wall=WALL_MIN,
     ))
-    p.requires("pin_radius + allowance/2 <= shell_thickness")
-    p.envelope(max=(40, 40, 15))
+
+    # Parameter phase — arithmetic over the inputs, no engine needed.
+    p.requires("bore_d + 2 * wall <= plate_y")
+    p.requires("bore_d > 0")
+    p.param("plate_z", min=1.0)
+
+    # Geometry phase.
+    p.envelope(max=PLATE)
     p.watertight()
+    p.solid_count(1)
+    p.genus(1)  # one bore straight through
+
     return p
 ```
 
 ```console
-$ partspec check parts/bayonet:lock
+$ partspec check examples/spacer/spec.py:spacer
+  ok   bore_d_2_wall_plate_y
+  ok   bore_d_0
+  ok   param:plate_z
+  ok   builds
+  ok   envelope
+  ok   watertight
+  ok   solid_count
+  ok   genus
+
+PASS: 8 pass
+  examples/spacer/outputs/spec-spacer/report.json
 ```
+
+The JSON report is the actual product surface; the console summary is a courtesy. Exit
+codes: `0` pass, `1` fail, `2` incomplete, `3` empty, `4` error, `64` bad usage.
+
+Writing a contract for a part you did not model? `partspec measure` dumps every quantity
+the backend can honestly produce, with no verdict — so you can see the numbers before
+deciding which of them are *intent*. It will not write the checks for you: a check the tool
+wrote is a check nobody decided.
 
 ## The idea it is built around
 
@@ -54,16 +92,44 @@ of fitting a circle to the facets and reporting a confident wrong number. (An Op
 `cylinder($fn=16)` is a real 16-sided prism: fitting recovers Ø10.000 for a bore that
 actually clears Ø9.808, and the error is always in the unsafe direction.)
 
+It also matters on broken output. A CAD engine will happily exit `0` having written a mesh
+that is open or non-manifold, and most measurement libraries will then hand you a volume
+for it — a number that is not a bad estimate, but not a volume at all. Every measurement
+here states its precondition and refuses when it fails, naming the defect:
+
+```console
+n/a  volume — volume is the integral over a closed surface; this mesh has 4 non-manifold edge(s)
+```
+
+Refusal is kept as narrow as the mathematics allows. An *open* mesh still determines its own
+body count, so `solid_count` still answers there; only a non-manifold junction, where
+counting through and counting across disagree, makes it refuse. An unnecessary
+`unsupported` is its own way of failing to answer an answerable question.
+
 ## Engines
 
 | engine | tier | notes |
 |---|---|---|
-| OpenSCAD | mesh | via binary STL + trimesh/manifold3d |
+| OpenSCAD | mesh | via binary STL, measured with trimesh |
 | build123d | OCCT | native |
 | CadQuery | OCCT | adopted into the build123d backend via `.wrapped` — same kernel, no conversion |
 
 One contract, evaluated identically wherever it can be, with honest degradation where it
 cannot.
+
+## Install
+
+Not on PyPI yet. From a clone:
+
+```sh
+uv sync --all-extras     # or: just setup
+uv run partspec check examples/spacer/spec.py:spacer
+```
+
+Engines are optional extras — `mesh`, `occt`, `cadquery` — so `uv sync --extra mesh` is
+enough for OpenSCAD-only work. The `openscad` binary itself is a system dependency;
+`PARTSPEC_OPENSCAD` pins which one is used, and the version is recorded in every report
+because it changes the artifact.
 
 ## Documentation
 
@@ -76,6 +142,7 @@ The specs are normative and were written before the implementation:
 - [`docs/SPEC-backend.md`](docs/SPEC-backend.md) — the geometry backend protocol.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — every design decision, with its reasoning.
 - [`docs/PLAN.md`](docs/PLAN.md) — what v0 is and how it gets built.
+- [`docs/POST-V0.md`](docs/POST-V0.md) — what is deliberately not here yet, and why.
 
 ## Prior art
 
