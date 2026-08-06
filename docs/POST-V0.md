@@ -71,6 +71,12 @@ Needs a numeric tolerance (`1e-6`), not exact float equality — rebuilding iden
 through a different transform-composition order perturbs coordinates at ~1e-13, and exact
 comparison would report noise and bury signal.
 
+**It must also honour `part.source_closure.partial`** (`SPEC-report.md` §8.3). Matching
+digests on a partial closure mean "nothing we looked at changed", not "nothing changed", and
+a differ that reports the two as identical inputs would be making the same
+silence-as-success mistake at the provenance layer. Treat it as `unsupported` is treated for
+a check.
+
 ---
 
 ## 3. MCP server

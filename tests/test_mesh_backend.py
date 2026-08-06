@@ -95,6 +95,99 @@ def test_unrenderable_value_is_rejected_loudly():
 
 
 # --------------------------------------------------------------------------
+# the include closure — provenance, no engine needed
+# --------------------------------------------------------------------------
+
+
+def _scad(directory: Path, name: str, body: str) -> Path:
+    path = directory / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    return path
+
+
+def test_a_lone_file_is_its_own_closure(tmp_path: Path):
+    entry = _scad(tmp_path, "a.scad", "cube([1,2,3]);\n")
+    closure = openscad.include_closure(entry)
+    assert closure.files == (entry.resolve(),)
+    assert not closure.partial
+
+
+def test_the_closure_is_transitive(tmp_path: Path):
+    _scad(tmp_path, "c.scad", "// leaf\n")
+    _scad(tmp_path, "b.scad", "use <c.scad>\n")
+    entry = _scad(tmp_path, "a.scad", "include <b.scad>\n")
+    assert len(openscad.include_closure(entry).files) == 3
+
+
+def test_includes_resolve_against_the_including_file(tmp_path: Path):
+    """OpenSCAD's actual rule, and the one that matters on real libraries: the
+    path is relative to the file containing the statement, not to the entry.
+
+    gridfinity's `src/core/cutouts.scad` says `include <standard.scad>` and means
+    its own sibling. Resolving against the entry would miss it and report it
+    unresolved.
+    """
+    _scad(tmp_path, "src/core/standard.scad", "// sibling\n")
+    _scad(tmp_path, "src/core/cutouts.scad", "include <standard.scad>\n")
+    entry = _scad(tmp_path, "top.scad", "use <src/core/cutouts.scad>\n")
+
+    closure = openscad.include_closure(entry)
+    assert len(closure.files) == 3
+    assert not closure.unresolved
+
+
+def test_a_cycle_terminates(tmp_path: Path):
+    """Mutual includes are legal OpenSCAD."""
+    _scad(tmp_path, "b.scad", "include <a.scad>\n")
+    entry = _scad(tmp_path, "a.scad", "include <b.scad>\n")
+    assert len(openscad.include_closure(entry).files) == 2
+
+
+@pytest.mark.parametrize(
+    ("label", "body"),
+    [
+        ("line comment", "// include <ghost.scad>\n"),
+        ("block comment", "/* include <ghost.scad> */\n"),
+        ("string literal", 'x = "include <ghost.scad>";\n'),
+    ],
+)
+def test_a_non_include_is_not_followed(tmp_path: Path, label, body):
+    """A false positive here is not harmless: the phantom would not resolve, so
+    the closure would report itself partial on a file that is complete."""
+    entry = _scad(tmp_path, "a.scad", body)
+    closure = openscad.include_closure(entry)
+    assert closure.files == (entry.resolve(),), label
+    assert not closure.partial, label
+
+
+def test_a_string_containing_a_slash_slash_does_not_start_a_comment(tmp_path: Path):
+    """Strings have to be tracked, not merely skipped."""
+    _scad(tmp_path, "b.scad", "// leaf\n")
+    entry = _scad(tmp_path, "a.scad", 'url = "http://example.com";\ninclude <b.scad>\n')
+    assert len(openscad.include_closure(entry).files) == 2
+
+
+def test_an_unresolvable_include_is_reported_not_swallowed(tmp_path: Path):
+    entry = _scad(tmp_path, "a.scad", "include <nowhere/missing.scad>\n")
+    closure = openscad.include_closure(entry)
+    assert closure.unresolved == ("nowhere/missing.scad",)
+    assert closure.partial, "a closure missing a member must say so"
+
+
+def test_external_data_makes_the_closure_partial(tmp_path: Path):
+    """`import()` and `surface()` name real build inputs whose paths may be
+    computed at render time, so no static reader can resolve them. Recorded
+    rather than ignored — the closure must not claim to be complete when
+    something it cannot see may have changed."""
+    entry = _scad(tmp_path, "a.scad", 'import("part.stl");\n')
+    closure = openscad.include_closure(entry)
+    assert closure.reads_external_data
+    assert closure.partial
+    assert not closure.unresolved, "this is a different gap from a missing include"
+
+
+# --------------------------------------------------------------------------
 # measurement — analytic, engine-free
 # --------------------------------------------------------------------------
 

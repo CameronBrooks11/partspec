@@ -377,7 +377,11 @@ an unknown major version rather than best-effort parse it.
     "contract": "parts/bayonet/spec.py:lock",
     "contract_digest": "sha256:4a17...",
     "source": "vendor/bayonet_lock.scad",
-    "source_digest": "sha256:9f2c..."
+    "source_digest": "sha256:9f2c...",
+    "source_closure": {                // §8.3 — every file the render reads
+      "digest": "sha256:b304...",      // over sorted content hashes, not paths
+      "files": 16
+    }
   },
 
   "engine": {
@@ -579,6 +583,50 @@ The report is compared across runs, so instability is a correctness bug.
    comparator MUST therefore apply a numeric tolerance (`1e-6` recommended) rather than
    exact equality, or it will report noise and bury signal.
 4. **Paths** are project-relative, POSIX-separated.
+
+### 8.3 `part.source_closure` — identifying the whole input
+
+`source_digest` covers the entry file. On real OpenSCAD libraries that is a small fraction
+of the build: the gridfinity bin in the dogfood corpus is one file of **sixteen**. Edit a
+helper three levels down and the part changes while `source_digest` does not, so two
+genuinely different builds compare as identical inputs. This is F13's failure class — a
+library moving underneath a source that did not change — arriving in the provenance layer,
+and a comparator would have inherited it silently.
+
+An OpenSCAD report therefore carries:
+
+```json
+"source_closure": {
+  "digest": "sha256:…",
+  "files": 16,
+  "unresolved": ["some/missing.scad"],
+  "reads_external_data": true,
+  "partial": true
+}
+```
+
+- **`digest`** is taken over the member **content hashes, sorted** — never over paths. A
+  comparator's whole purpose is comparing a CI run against a laptop run, and a
+  path-sensitive digest would differ on every one of them. The trade is deliberate: it
+  identifies the set of file *contents*, not the layout, so relocating a file without
+  editing it does not move the digest.
+- **`unresolved`** lists `include`/`use` targets not found on any search path. Resolution
+  follows OpenSCAD's rule — relative to the file containing the statement, then
+  `OPENSCADPATH`, then the library directories.
+- **`reads_external_data`** is `true` when `import()` or `surface()` appears anywhere in the
+  closure. Those name STL/DXF/DAT files that genuinely are build inputs, and their paths may
+  be computed at render time, so no static reader can resolve them.
+- **`partial`** is `true` whenever either of the previous two is non-empty. It is stated
+  positively so a consumer cannot read the *absence* of those fields as a completeness
+  guarantee the closure never made. **A comparator MUST treat a `partial` closure as
+  inconclusive evidence of sameness**, exactly as `unsupported` is treated for a check:
+  matching digests then mean "nothing we looked at changed", not "nothing changed".
+
+**The Python engines emit no `source_closure` at all**, and that is a claim withheld rather
+than a claim made. Imports resolve through the interpreter; for installed packages
+`environment.packages` already answers the question, and local helper modules sitting beside
+a model are a **known gap**. Emitting a closure of one file there would assert coverage that
+does not exist, which is worse than the silence.
 
 ---
 

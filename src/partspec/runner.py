@@ -44,6 +44,7 @@ def run(
         contract_digest=_digest(contract_path),
         source=str(part.source.path),
         source_digest=_digest(part.source.path),
+        source_closure=_closure(part.source),
         params=dict(part.source.params),
         argv=argv or [],
     )
@@ -272,6 +273,43 @@ def _digest(path: Path | None) -> str | None:
     if path is None or not path.is_file():
         return None
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _closure(source: Any) -> dict[str, Any] | None:
+    """Digest every file the build reads, not just the entry point.
+
+    OpenSCAD only. The Python engines resolve imports through the interpreter,
+    where the honest answer for installed packages is already
+    `environment.packages`; local helper modules beside a model remain a
+    recorded gap (`SPEC-report.md` §8.3) rather than a silently-wrong claim.
+
+    The digest is over **content hashes, sorted** — not over paths — so it is
+    identical on two machines that check the same tree out at different
+    locations. A comparator's whole purpose is comparing runs from CI and a
+    laptop, and a path-sensitive digest would differ on every one of them.
+    """
+    if source.engine != "openscad" or not source.path.is_file():
+        return None
+
+    from .engines.openscad import include_closure
+
+    closure = include_closure(source.path)
+    members = sorted(
+        hashlib.sha256(f.read_bytes()).hexdigest() for f in closure.files if f.is_file()
+    )
+    out: dict[str, Any] = {
+        "digest": "sha256:" + hashlib.sha256("".join(members).encode()).hexdigest(),
+        "files": len(members),
+    }
+    if closure.unresolved:
+        out["unresolved"] = list(closure.unresolved)
+    if closure.reads_external_data:
+        out["reads_external_data"] = True
+    if closure.partial:
+        # Stated positively so a consumer cannot mistake absence of the two
+        # fields above for a guarantee it never made.
+        out["partial"] = True
+    return out
 
 
 def _tool_version() -> str:

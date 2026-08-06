@@ -17,9 +17,11 @@ Spec: SPEC-backend.md section 5, SPEC-contract.md section 3.1.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,7 +29,14 @@ from typing import Any
 
 from ..backend import BuildError
 
-__all__ = ["OpenSCADSource", "find_executable", "render", "scad_literal"]
+__all__ = [
+    "Closure",
+    "OpenSCADSource",
+    "find_executable",
+    "include_closure",
+    "render",
+    "scad_literal",
+]
 
 DEFAULT_TIMEOUT_S = 300
 
@@ -202,6 +211,130 @@ def _first_error_line(stderr: str) -> str | None:
         if "ERROR" in line or "WARNING" in line:
             return line.strip()
     return None
+
+
+# --------------------------------------------------------------------------
+# The include closure — what a report's provenance actually has to cover
+# --------------------------------------------------------------------------
+
+_INCLUDE_RE = re.compile(r"\b(?:include|use)\s*<([^>\n]*)>")
+_EXTERNAL_DATA_RE = re.compile(r"\b(?:import|surface)\s*\(")
+
+
+@dataclass(frozen=True, slots=True)
+class Closure:
+    """Every source file a render reads, and an honest account of the rest.
+
+    A digest over the entry file alone is not an identifier for the build. The
+    gridfinity bin in the dogfood corpus is one file of **sixteen**; edit a
+    helper three levels down and the part changes while the entry file's hash
+    does not. That is the same class of silent drift as F13, and `diff` would
+    have inherited it.
+    """
+
+    files: tuple[Path, ...]
+    """Resolved members, entry file included, in sorted order."""
+
+    unresolved: tuple[str, ...] = ()
+    """`include`/`use` targets that could not be found on any search path."""
+
+    reads_external_data: bool = False
+    """True if `import()` or `surface()` appears anywhere in the closure.
+
+    Those name STL/DXF/DAT files that are genuinely build inputs, and this does
+    not resolve them — the path may be computed at render time, so no static
+    reader can. Recorded rather than ignored: the closure must not claim to be
+    complete when something it cannot see may have changed.
+    """
+
+    @property
+    def partial(self) -> bool:
+        """True when the closure is known not to cover every input."""
+        return bool(self.unresolved) or self.reads_external_data
+
+
+def _strip_noise(text: str) -> str:
+    """Blank out comments and string interiors before scanning.
+
+    Strings must be *tracked* rather than skipped, or a `//` inside one starts a
+    comment that swallows the rest of the line. Their contents must not be
+    scanned, or `x = "include <a.scad>"` is read as a dependency and reported
+    unresolved — a false alarm, which is its own kind of dishonesty.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append('""')
+            i = j + 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j == -1 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j == -1 else j + 2
+            out.append(" ")
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
+def library_path() -> list[Path]:
+    """Where OpenSCAD looks for a library, after the including file's directory."""
+    dirs = [Path(p) for p in os.environ.get("OPENSCADPATH", "").split(os.pathsep) if p]
+    dirs.append(Path.home() / ".local/share/OpenSCAD/libraries")
+    dirs.append(Path("/usr/share/openscad/libraries"))
+    return dirs
+
+
+def include_closure(entry: Path) -> Closure:
+    """Walk `include`/`use` transitively from `entry`.
+
+    Resolution follows OpenSCAD's own rule: relative to the directory of the
+    file containing the statement — *not* the top-level file — then the library
+    path. Cycles are legal in OpenSCAD and terminate here on the visited set.
+
+    A file that cannot be read is skipped rather than raised on: this is
+    provenance, and failing a check because provenance was awkward would be the
+    tail wagging the dog.
+    """
+    entry = entry.resolve()
+    seen: set[Path] = {entry}
+    unresolved: set[str] = set()
+    external = False
+    queue: deque[Path] = deque([entry])
+    search = library_path()
+
+    while queue:
+        current = queue.popleft()
+        try:
+            text = _strip_noise(current.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        if _EXTERNAL_DATA_RE.search(text):
+            external = True
+        for raw in _INCLUDE_RE.findall(text):
+            ref = raw.strip()
+            if not ref:
+                continue
+            found = next(
+                (c for c in ((b / ref) for b in (current.parent, *search)) if c.is_file()), None
+            )
+            if found is None:
+                unresolved.add(ref)
+            elif (resolved := found.resolve()) not in seen:
+                seen.add(resolved)
+                queue.append(resolved)
+
+    return Closure(
+        files=tuple(sorted(seen)),
+        unresolved=tuple(sorted(unresolved)),
+        reads_external_data=external,
+    )
 
 
 def version(executable: str | None = None) -> str:

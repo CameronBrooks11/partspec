@@ -124,6 +124,16 @@ class Report:
     contract_digest: str | None = None
     source: str | None = None
     source_digest: str | None = None
+    source_closure: dict[str, Any] | None = None
+    """Every source file the build reads, not just the entry point.
+
+    `source_digest` covers one file. For an OpenSCAD part that is routinely a
+    small fraction of the input — the gridfinity bin in the dogfood corpus is
+    one of sixteen — so two builds can share a `source_digest` and be different
+    parts. This closes that for the engine where it was demonstrated; see
+    `SPEC-report.md` §8.3 for what it does and does not cover.
+    """
+
     engine: dict[str, Any] = field(default_factory=dict)
     params: dict[str, Any] = field(default_factory=dict)
     geometry: dict[str, Any] = field(default_factory=dict)
@@ -178,6 +188,8 @@ class Report:
             part["source"] = self.source
         if self.source_digest:
             part["source_digest"] = self.source_digest
+        if self.source_closure:
+            part["source_closure"] = self.source_closure
 
         return {
             "schema_version": SCHEMA_VERSION,

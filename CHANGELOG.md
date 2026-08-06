@@ -96,6 +96,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   edges (surfaces touching). trimesh's `is_watertight` conflates them, and they have
   different causes and different fixes.
 
+- **`part.source_closure`** — a digest over *every* file an OpenSCAD render reads, not just
+  the entry point. `source_digest` covers one file, and on real libraries that is a small
+  fraction of the build: the gridfinity bin in the dogfood corpus is one file of sixteen, so
+  editing a helper three levels down changes the part while the entry hash does not. That is
+  F13's failure class arriving in the provenance layer, and `diff` would have inherited it.
+  - Digested over sorted **content** hashes rather than paths, so a CI run and a laptop run
+    of the same tree agree.
+  - Reports what it could not cover: `unresolved` includes, and `reads_external_data` when
+    `import()`/`surface()` name files whose paths may be computed at render time. Either
+    sets `partial`, stated positively so absence cannot be read as a guarantee.
+  - Python engines emit none — a claim withheld rather than one made. `environment.packages`
+    already covers installed deps; local helper modules beside a model are a recorded gap.
+
 - **`p.topology(faces=, edges=, vertices=)`** — modelled face/edge/vertex counts, and the
   first v0 check that a tier cannot answer. On build123d or CadQuery it compares real
   topology; on OpenSCAD it reports `unsupported` with `requires: "occt"`, because a triangle

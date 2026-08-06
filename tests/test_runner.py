@@ -109,6 +109,89 @@ def test_unsupported_does_not_read_as_green(tmp_path: Path):
     assert report.exit_code == 2, "not proven is not the same as fine"
 
 
+# --------------------------------------------------------------------------
+# provenance — the closure, not just the entry file
+# --------------------------------------------------------------------------
+
+
+def _closure_of(source) -> dict:
+    from partspec.runner import _closure
+
+    result = _closure(source)
+    assert result is not None
+    return result
+
+
+def test_a_transitive_edit_is_visible_where_source_digest_is_blind(tmp_path: Path):
+    """The reason the closure exists.
+
+    An OpenSCAD entry file is routinely a small fraction of its own build — the
+    gridfinity bin in the dogfood corpus is one file of sixteen. Editing a helper
+    three levels down changes the part and leaves `source_digest` identical, so
+    two genuinely different builds compare as the same inputs.
+    """
+    (tmp_path / "helper.scad").write_text("W = 10;\n")
+    (tmp_path / "mid.scad").write_text("include <helper.scad>\n")
+    entry = tmp_path / "a.scad"
+    entry.write_text("include <mid.scad>\ncube([W, W, W]);\n")
+
+    source = openscad(entry)
+    before = _closure_of(source)
+    entry_digest_before = entry.read_bytes()
+
+    (tmp_path / "helper.scad").write_text("W = 20;\n")  # a different part
+    after = _closure_of(source)
+
+    assert entry.read_bytes() == entry_digest_before, "premise: the entry file is untouched"
+    assert before["files"] == after["files"] == 3
+    assert before["digest"] != after["digest"], "the closure must see it"
+
+
+def test_the_closure_digest_does_not_depend_on_where_the_tree_lives(tmp_path: Path):
+    """Digested over sorted content hashes rather than paths, because the whole
+    point of a comparator is comparing a CI run against a laptop run, and a
+    path-sensitive digest would differ on every one of them."""
+    import shutil
+
+    a = tmp_path / "one"
+    a.mkdir()
+    (a / "lib.scad").write_text("X = 1;\n")
+    (a / "top.scad").write_text("include <lib.scad>\n")
+    b = tmp_path / "two"
+    shutil.copytree(a, b)
+
+    assert (
+        _closure_of(openscad(a / "top.scad"))["digest"]
+        == (_closure_of(openscad(b / "top.scad"))["digest"])
+    )
+
+
+def test_a_partial_closure_says_so_in_the_report(tmp_path: Path):
+    entry = tmp_path / "a.scad"
+    entry.write_text("include <gone.scad>\n")
+    closure = _closure_of(openscad(entry))
+    assert closure["partial"] is True
+    assert closure["unresolved"] == ["gone.scad"]
+
+
+def test_a_complete_closure_carries_no_partial_flag(tmp_path: Path):
+    entry = tmp_path / "a.scad"
+    entry.write_text("cube([1,2,3]);\n")
+    assert "partial" not in _closure_of(openscad(entry))
+
+
+def test_python_engines_get_no_closure(tmp_path: Path):
+    """Claiming nothing beats claiming wrongly. Python resolves imports through
+    the interpreter; installed packages are already covered by
+    `environment.packages`, and local helper modules are a recorded gap."""
+    from partspec import build123d
+    from partspec.runner import _closure
+
+    model = tmp_path / "m.py"
+    model.write_text("def make_part():\n    pass\n")
+    assert _closure(build123d(model)) is None
+
+
 @needs_openscad
 def test_a_tier_that_cannot_answer_says_which_one_can(tmp_path: Path):
     """The capability-refusal path, which no contract could reach until
