@@ -153,3 +153,19 @@ That gap is a genuine opportunity if this project ever wants one.
 - **PartCAD as a parts source** — out of scope for v0 (D12), but its `interfaces:`/mating
   model remains the best existing prior art for declaring mechanical interfaces as data, and
   is the natural reference when assemblies land.
+
+---
+
+## 8. In-process batching invalidates a stale Python model cache
+
+Found while adding the Python source closure (2026-08-05). D5 answers OCP's multi-second
+import cost with **batching** — one process evaluating many contracts — rather than a daemon.
+That is still right, but it has a consequence nothing currently handles: `sys.modules` caches
+a model's helper modules, so a second contract in the same process that imports an edited
+helper gets the *previous* version of it.
+
+No live bug in v0: the CLI is one process per target and `run-batch.sh` invokes it per target.
+It becomes real the moment either the MCP server (§3) or a multi-target `check` lands, and it
+fails in the worst available way — a stale build reported as a fresh one, with a closure
+digest computed from the edited file on disk that never reached the interpreter. Whichever
+lands first owns invalidating the model's directory subtree from `sys.modules` between runs.

@@ -176,16 +176,75 @@ def test_a_complete_closure_carries_no_partial_flag(tmp_path: Path):
     assert "partial" not in _closure_of(openscad(entry))
 
 
-def test_python_engines_get_no_closure(tmp_path: Path):
-    """Claiming nothing beats claiming wrongly. Python resolves imports through
-    the interpreter; installed packages are already covered by
-    `environment.packages`, and local helper modules are a recorded gap."""
+def test_the_python_closure_is_not_computed_before_the_build(tmp_path: Path):
+    """A Python model's imports are not knowable until it has run.
+
+    So `_closure` — which runs while the report is being constructed — declines,
+    and the runner fills the field in after a successful build instead.
+    """
     from partspec import build123d
     from partspec.runner import _closure
 
     model = tmp_path / "m.py"
     model.write_text("def make_part():\n    pass\n")
     assert _closure(build123d(model)) is None
+
+
+@pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
+    reason="occt extra not installed",
+)
+def test_a_helper_beside_a_python_model_is_part_of_the_build(tmp_path: Path):
+    """The same gap the OpenSCAD closure closed, on the other tier.
+
+    `engines/pycad.py` puts the model's directory on `sys.path` specifically so
+    a model can import helpers beside it, which makes those helpers build
+    inputs by design. Editing one changed the part and left `source_digest`
+    byte-identical, so two different builds compared as the same input.
+    """
+    (tmp_path / "dims.py").write_text("SIZE = 10.0\n")
+    model = tmp_path / "m.py"
+    model.write_text(
+        "from build123d import Box\nfrom dims import SIZE\n\n\n"
+        "def make_part():\n    return Box(SIZE, SIZE, SIZE)\n"
+    )
+
+    from partspec import build123d
+
+    def closure_of() -> dict:
+        report = run(Part("m", build123d(model)).watertight(), out_dir=tmp_path)
+        assert report.verdict is Verdict.PASS, report.error
+        assert report.source_closure is not None
+        return report.source_closure
+
+    model_before = model.read_bytes()
+    before = closure_of()
+
+    (tmp_path / "dims.py").write_text("SIZE = 20.0\n")  # a different part
+    after = closure_of()
+
+    assert model.read_bytes() == model_before, "premise: the model file is untouched"
+    assert before["files"] == after["files"] == 2
+    assert before["digest"] != after["digest"], "the closure must see the helper"
+    assert after["partial"] is True, "Python can import from anywhere; never claim completeness"
+    assert after["scope"] == "model_directory"
+
+
+def test_the_contract_is_not_folded_into_the_source_closure(tmp_path: Path):
+    """`contract_digest` already covers it, and a source closure that moved
+    whenever a *claim* changed would answer a different question than the one
+    it is named for."""
+    from partspec.runner import _python_closure
+
+    contract = tmp_path / "spec.py"
+    contract.write_text("# a claim\n")
+    model = tmp_path / "m.py"
+    model.write_text("def make_part():\n    pass\n")
+
+    from partspec import build123d
+
+    closure = _python_closure(build123d(model), contract)
+    assert closure["files"] == 0, "nothing imported yet, and the contract does not count"
 
 
 @needs_openscad

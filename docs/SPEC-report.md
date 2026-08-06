@@ -622,11 +622,37 @@ An OpenSCAD report therefore carries:
   inconclusive evidence of sameness**, exactly as `unsupported` is treated for a check:
   matching digests then mean "nothing we looked at changed", not "nothing changed".
 
-**The Python engines emit no `source_closure` at all**, and that is a claim withheld rather
-than a claim made. Imports resolve through the interpreter; for installed packages
-`environment.packages` already answers the question, and local helper modules sitting beside
-a model are a **known gap**. Emitting a closure of one file there would assert coverage that
-does not exist, which is worse than the silence.
+A **Python** report carries a closure too, of a different shape:
+
+```json
+"source_closure": {
+  "digest": "sha256:…",
+  "files": 2,
+  "scope": "model_directory",
+  "partial": true
+}
+```
+
+- **`scope`** names the boundary: local modules imported from the model's own directory.
+  That is not arbitrary. `engines/pycad.py` puts exactly that directory on `sys.path` before
+  exec'ing the model, so a model can import helpers beside it — which makes those helpers
+  build inputs by design.
+- Membership is read from `sys.modules` **after the build**, so it records what was
+  imported rather than what appears importable, and catches helpers imported lazily inside
+  the factory.
+- The contract file is excluded. `contract_digest` already covers it, and a *source* closure
+  that moved whenever a claim changed would answer a different question than its name.
+- **`partial` is unconditional here.** Python can import from anywhere on `sys.path`, read
+  data files at run time and load C extensions, none of which this sees.
+
+> **Reversed 2026-08-05.** This section previously specified that the Python engines emit no
+> closure at all, on the grounds that partial coverage would "assert coverage that does not
+> exist, which is worse than the silence." That was wrong, and the mistake is worth keeping
+> visible: silence here is not the absence of a claim, because `source_digest` remains in the
+> report asserting that **one file** identifies the build. The choice was never between a
+> claim and no claim — it was between a flagged partial claim and an unflagged overclaim.
+> `partial` is the mechanism this very section defines for known-incomplete coverage, so a
+> comparator treats matching Python digests as inconclusive rather than proven.
 
 ---
 

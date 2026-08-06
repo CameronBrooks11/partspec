@@ -17,6 +17,7 @@ Spec: SPEC-report.md sections 4, 5, 6; SPEC-contract.md sections 4, 6.
 from __future__ import annotations
 
 import hashlib
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,7 @@ def run(
     )
 
     try:
-        _evaluate(part, report, out_dir)
+        _evaluate(part, report, out_dir, contract_path)
     except ContractError as exc:
         # A malformed question has no answer: every declared check is reported
         # as skipped rather than failed, and the verdict is error.
@@ -67,7 +68,7 @@ def run(
 # --------------------------------------------------------------------------
 
 
-def _evaluate(part: Part, report: Report, out_dir: Path) -> None:
+def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | None = None) -> None:
     parameter_specs = [s for s in part.checks if s.phase != GEOMETRY]
     geometry_specs = [s for s in part.checks if s.phase == GEOMETRY]
 
@@ -111,6 +112,12 @@ def _evaluate(part: Part, report: Report, out_dir: Path) -> None:
         )
         report.checks = results
         return
+
+    # After the build, not before: a Python model's imports are only knowable
+    # once it has run, and helpers imported lazily inside the factory would be
+    # invisible to a snapshot taken any earlier.
+    if part.source.engine != "openscad":
+        report.source_closure = _python_closure(part.source, contract_path)
 
     results.append(
         CheckResult(
@@ -275,13 +282,58 @@ def _digest(path: Path | None) -> str | None:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _python_closure(source: Any, contract_path: Path | None) -> dict[str, Any]:
+    """The local modules a Python model actually imported.
+
+    Scoped to the model's own directory, which is not an arbitrary boundary:
+    `engines/pycad.py` puts exactly that directory on `sys.path` before exec'ing
+    the model, precisely so a model can import helpers beside it. Those helpers
+    are build inputs by design, and until now nothing recorded them — editing
+    one changed the part and left `source_digest` identical, which is F13's
+    failure class on the tier where it had not been closed.
+
+    Read from `sys.modules` rather than parsed, so it reports what was imported
+    instead of what appears importable. The contract file is excluded: it is
+    already `contract_digest`, and folding it in here would make the *source*
+    closure move whenever a claim changed.
+
+    `partial` is unconditional. Python can import from anywhere on `sys.path`,
+    read data files at runtime and load C extensions, none of which this sees.
+    An earlier draft of `SPEC-report.md` §8.3 concluded that this uncertainty
+    argued for emitting nothing at all. That was the wrong call: silence is not
+    the absence of a claim here, because `source_digest` is still sitting in the
+    report asserting that one file identifies the build. A `partial` closure is
+    the shape the spec already defines for known-incomplete coverage, and it
+    makes a comparator treat sameness as inconclusive rather than proven.
+    """
+    root = source.path.resolve().parent
+    excluded = {contract_path.resolve()} if contract_path is not None else set()
+
+    members: set[Path] = set()
+    for module in list(sys.modules.values()):
+        filename = getattr(module, "__file__", None)
+        if not filename:
+            continue
+        path = Path(filename).resolve()
+        if path in excluded or not path.is_relative_to(root) or not path.is_file():
+            continue
+        members.add(path)
+
+    hashes = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in members)
+    return {
+        "digest": "sha256:" + hashlib.sha256("".join(hashes).encode()).hexdigest(),
+        "files": len(hashes),
+        "scope": "model_directory",
+        "partial": True,
+    }
+
+
 def _closure(source: Any) -> dict[str, Any] | None:
     """Digest every file the build reads, not just the entry point.
 
-    OpenSCAD only. The Python engines resolve imports through the interpreter,
-    where the honest answer for installed packages is already
-    `environment.packages`; local helper modules beside a model remain a
-    recorded gap (`SPEC-report.md` §8.3) rather than a silently-wrong claim.
+    OpenSCAD only — the Python tier is handled after its build, by
+    `_python_closure`, because its imports are not knowable until the model has
+    run.
 
     The digest is over **content hashes, sorted** — not over paths — so it is
     identical on two machines that check the same tree out at different
