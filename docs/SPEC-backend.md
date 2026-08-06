@@ -126,6 +126,14 @@ notably build123d's `is_valid` is a **property** while CadQuery's `isValid()` is
 
 Every quantity is `exact=True` on this tier. `bounds` is `None` throughout.
 
+**But exactness still presumes a solid.** `volume` and `center_of_mass` MUST return
+`Unsupported` for a shape bounding none. The failure is quieter here than on the mesh tier
+rather than absent: an open shell and a bare face both report `volume 0.0` while `is_valid`
+is `True`, so validity does not catch it, and `volume(max=…)` on a shape containing no
+material would pass. `center()` is worse than a wrong number — it answers with the centroid
+of the *surface*, a different quantity under the same name. `area` and `solid_count` stay
+answerable: an area is defined for a face, and `0 solids` is a true answer.
+
 ### 4.1 Dependency pinning — mandatory
 
 `cadquery-ocp` and `cadquery-ocp-novtk` **both install a top-level `OCP/` package, and
@@ -165,6 +173,62 @@ the distinction is not about measurement accuracy. It is about **design identity
 is reported through `geometry.facets` and `geometry.triangles` rather than through error
 bars.
 
+> **Corrected 2026-08-05 (dogfood F14).** The paragraph above is true of a mesh that
+> *is* a polyhedron, and the first implementation read it as though every mesh were. It is
+> not: OpenSCAD exits 0 on meshes that are open, non-manifold or inconsistently wound.
+> Exactness is therefore **conditional on a precondition per quantity**, stated in §5.1.1.
+> Where the precondition fails a backend MUST return `Unsupported`, naming the defect.
+> Reporting a number instead is failure mode two of `SPEC-report.md` §1.1, and this backend
+> was doing exactly that: a cube missing one face measured `volume 500.0` (against 1000.0
+> closed), `genus 1` and a centre of mass outside the material — all flagged `exact`.
+
+#### 5.1.1 Preconditions
+
+| quantity | precondition | if it fails |
+|---|---|---|
+| `bbox`, `area`, `triangles`, `distinct_normals` | none — statements about the triangles as exported | always answered |
+| `watertight` | none — it *is* the closedness test | always answered |
+| `volume`, `center_of_mass` | closed **and** consistently wound: the divergence theorem sums signed contributions, so a flipped triangle subtracts where it should add | `Unsupported` |
+| `genus` | closed, and exactly one body | `Unsupported` |
+| `solid_count` | no edge shared by more than two faces | `Unsupported` |
+
+`solid_count`'s precondition is narrower than the others *on purpose*. An **open** mesh still
+has a determinate body count — every edge is used once or twice, so face adjacency is
+unambiguous — and refusing there would be over-refusal, which inflates `incomplete` and is
+its own way of not answering an answerable question. A **non-manifold** mesh does not:
+counting through a junction where four faces meet and counting across it give different
+answers, and nothing in the mesh says which was meant. Measured on the F10 gridfinity bin,
+manifold3d welds and reports 1 body while the exported triangles give 3 (the bin plus two
+stray 2-triangle slivers). Both are defensible, which is exactly why neither may be reported
+as `exact`.
+
+#### 5.1.2 Measure the artifact, not a library's rebuild of it
+
+A backend MUST NOT read an absolute measurement out of a library that reconstructs its
+input, because the reconstruction is not the exported artifact and D15 fixes the measurand as
+the artifact.
+
+This is not hypothetical. Handed the *clean*, watertight, consistently-wound CGAL render of
+the gridfinity bin — same 5,330 vertices, none displaced — `manifold3d` retriangulated 55 of
+10,688 triangles and moved the enclosed volume by **25.31 mm³ (0.078 %)**. An independent
+float64 divergence-theorem sum agrees with trimesh (32341.840738) and not with manifold3d
+(32367.150544). Sourcing `volume` from one library and `genus`/`solid_count` from the other
+therefore put measurements of **two different solids** in one report, every one flagged
+`exact`.
+
+Consequently the mesh backend computes body count and genus itself, over the exported
+triangles: components by shared-edge adjacency, genus as `(2 − χ)/2` with `χ = V − E + F`.
+Unlike the BREP tier — where faces carry inner wires and the naive form is quietly wrong —
+every face of a triangle mesh is a disc, so `V − E + F` is simply correct. Counting only
+*referenced* vertices keeps a stray unreferenced one from inflating `V`; duplicate coincident
+vertices would break it but cannot occur, because closedness means every edge is used exactly
+twice, which is impossible on an unwelded mesh. The precondition guarantees its own input.
+
+A library that *rejects* input must also be believed. `manifold3d` returns an object
+reporting `Error.NotManifold`, `is_empty()` and zero triangles — on which `.decompose()`
+still returns a one-element list and `.genus()` still returns 1. Any wrapper MUST check
+`status()` before reading anything off it.
+
 ### 5.2 The one real bound: float32 quantization
 
 The single rigorously derivable inexactness on this tier, and the only source of
@@ -189,7 +253,8 @@ Propagation:
 - **volume / area** — a first-order bound follows from the coordinate perturbation, of order
   `1e-7` relative. Real, computable, and far below any engineering tolerance.
 - **watertight / solid_count / genus** — topological and therefore **unaffected**;
-  quantization cannot open a closed mesh at these magnitudes. Report `exact=True`.
+  quantization cannot open a closed mesh at these magnitudes. Report `exact=True` *when
+  answered at all* — §5.1.1 governs whether they are.
 
 Backends SHOULD report bbox, volume and area as `exact=True` when the resulting interval is
 narrower than `SPEC-report.md` §3.3's epsilon, because an interval below the comparison
@@ -205,7 +270,15 @@ epsilon that justifies it, never convenience.
 - **Topology counts are meaningless** and MUST return `Unsupported(requires="occt")`. A
   triangle count is not a face count, and returning one is the PartCAD failure.
 - **`min_distance` is exact for polyhedra** via `manifold3d.min_gap` (verified: returned
-  exactly 7.5). Under D15 that is simply exact — the polyhedron is the part.
+  exactly 7.5). Under D15 that is simply exact — the polyhedron is the part. It is the one
+  primitive still routed through manifold3d, tolerable only because it is relational: it
+  compares two shapes rather than reporting an absolute quantity about one. §5.1.2 forbids
+  the absolute case.
+- **`body_count` is computed here, not delegated.** trimesh's routes through
+  `scipy.sparse`, and scipy reaches a developer machine only via build123d/cadquery — so a
+  mesh-tier dependency on it passes both locally and in CI while breaking anyone who
+  installed `partspec[mesh]`. `just test-mesh-only` exercises that install in a throwaway
+  scipy-free environment.
 
 ### 5.4 OpenSCAD version floor
 

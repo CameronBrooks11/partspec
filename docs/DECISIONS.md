@@ -22,6 +22,7 @@ that should be promoted into the product repo when it exists.
 | D14 | Mesh dependencies | `trimesh` + `manifold3d`; accept the self-intersection gap | 2026-08-02 |
 | D15 | **The measurand** | Measure the artifact **as authored and exported**, not an idealized smooth solid | 2026-08-02 |
 | D16 | Facet-resolution signal | `distinct_normals`, not a coplanar facet count — avoids a scipy dependency | 2026-08-03 |
+| D17 | **Measurement preconditions** | Per-quantity, refused **narrowly**; never measure a library's rebuild of the artifact | 2026-08-05 |
 
 ---
 
@@ -458,6 +459,12 @@ project is organised against.
 `solid_count` hits the same wall and takes the same route: `manifold3d.decompose()` rather
 than trimesh's `body_count`.
 
+> **Superseded 2026-08-05 by D17.** The wall was correctly identified — trimesh's
+> `body_count` does need scipy — but `manifold3d.decompose()` was the wrong way round it,
+> because manifold3d rebuilds the mesh before answering. `solid_count` and `genus` are now
+> computed directly over the exported triangles. `distinct_normals` is unaffected and the
+> reasoning above still stands for it.
+
 **Also corrected here:** the claim in `DIRECTION.md` and investigation 02 that a mesh
 bounding box is *"exact and resolution-independent"*. It is exact — the polyhedron is
 measured exactly, per D15 — but **not invariant to facet settings**. The original spike used
@@ -467,3 +474,57 @@ measures **15.737706**, not 15.8. The invariance was an artifact of the test inp
 D15 working correctly — with default facets the part genuinely is 15.74 wide — but a
 contract author writing `envelope(max=15.8)` against a curved OpenSCAD part must know the
 number moves with `$fn`.
+
+---
+
+## D17 — Measurement preconditions are per-quantity, and refusal is narrow
+
+**Date:** 2026-08-05. Prompted by dogfood F14, which found the tool committing the failure
+mode it exists to prevent.
+
+D15 fixed the measurand as *the artifact as authored and exported*, and `SPEC-backend.md`
+§5.1 concluded that a mesh, being a polyhedron, is measured exactly. Both are right. The
+implementation read them as though **every** mesh were a polyhedron bounding a solid, which
+does not follow: OpenSCAD exits 0 on meshes that are open, non-manifold or inconsistently
+wound, and on those the integrals and the Euler characteristic are not merely imprecise —
+they are undefined. Measured, a cube missing one face reported `volume 500.0`, `genus 1` and
+a centre of mass outside the material, all flagged `exact`.
+
+**Decision, in three parts.**
+
+**1. Each quantity declares its own precondition** and returns `Unsupported` naming the
+defect when it fails (`SPEC-backend.md` §5.1.1). Not one global "is this mesh sound" gate:
+`bbox`, `area` and `watertight` are statements about the triangles as exported and stay
+answerable however broken the mesh is.
+
+**2. Refusal is as narrow as the mathematics allows.** `solid_count` is refused only where
+an edge is shared by more than two faces, *not* for an open mesh. An open mesh still fixes
+its own component count — every edge is used once or twice, so adjacency is unambiguous. A
+non-manifold one does not: counting through a four-face junction and counting across it give
+different answers, and the mesh does not say which was meant. On the F10 bin manifold3d
+welds and reports 1 body while the exported triangles give 3.
+
+This is the part worth defending. Over-refusal looks like caution and is not — every
+unnecessary `unsupported` pushes a part to `incomplete`, which is also a way of failing to
+answer an answerable question, and a tool that refuses too much gets its refusals ignored.
+`Unsupported` only means anything if it is reserved for questions that genuinely have no
+answer.
+
+**3. No absolute measurement may be read from a library that rebuilds its input.** manifold3d
+retriangulated 55 of 10,688 triangles on a *clean* gridfinity render, shifting the enclosed
+volume by 25.31 mm³ (0.078 %) — verified against an independent divergence-theorem sum, which
+agrees with trimesh. Sourcing `volume` from one library and `genus`/`solid_count` from
+another therefore put two different solids in one report. Both are now computed over the
+exported triangles: components by shared-edge adjacency, genus as `(2 − χ)/2`. Relational
+primitives (`min_distance`, `intersect_volume`) may still use manifold3d, because they
+compare two shapes rather than reporting an absolute quantity about one.
+
+A library that *rejects* its input must also be believed: manifold3d returns an errored,
+empty object whose `.decompose()` and `.genus()` still answer, so `status()` is checked
+before anything is read off it.
+
+**Consequence for the domain profile.** Neither root cause was findable by reading the code
+— both took a deliberately broken mesh and an independently computed reference — while 169
+tests passed throughout, every one of them measuring a mesh that was already sound. That is
+the project's own thesis turned on the project, and it is evidence for the success condition
+in `PLAN.md` §0 rather than against it.

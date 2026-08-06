@@ -8,6 +8,14 @@ approximated, so there is no tessellation error to bound. Changing $fn does not
 degrade a measurement; it produces a *different part*, which is a design change
 the tool should report loudly rather than absorb into an error bar.
 
+**Exactness is conditional on the mesh being what the measurement presumes.**
+Volume and centre of mass are integrals over a closed, consistently-wound
+surface; genus is the Euler characteristic of a closed one; a body count is
+determined only where no edge is shared by more than two faces. Where a mesh
+fails the precondition, the honest answer is `Unsupported` — returning a number
+anyway is the second of the three failure modes this tool exists to prevent, and
+it was doing exactly that until 2026-08-05 (dogfood F14).
+
 The one genuine inexactness is float32 quantisation in binary STL (~1e-7
 relative), which is narrower than the comparison epsilon and so carries no
 information — see `SPEC-backend.md` 5.2 for why collapsing it is permitted here
@@ -118,13 +126,35 @@ class MeshBackend:
         extents = tuple(float(v) for v in a.extents)
         return Measurement(extents, "mm", exact=True, axes=("x", "y", "z"))
 
-    def volume(self, a: Any) -> Measurement:
+    def volume(self, a: Any) -> Measurement | Unsupported:
+        """Enclosed volume, by the divergence theorem over the triangles.
+
+        Refused unless the mesh is a closed, consistently-wound surface, because
+        the integral presumes one. On an open mesh it does not diverge or raise —
+        it quietly returns a plausible number: a cube missing one face reported
+        500.0 against a true 1000.0, flagged exact. That number is not a bad
+        estimate of the volume, it is not a volume at all.
+        """
+        reason = _not_a_solid(a)
+        if reason is not None:
+            return Unsupported(f"volume is the integral over a closed surface; {reason}")
         return Measurement(float(a.volume), "mm3", exact=True)
 
     def area(self, a: Any) -> Measurement:
+        """Surface area — the sum of the triangle areas.
+
+        Ungated, unlike volume: a sum over the exported triangles is well defined
+        whatever they enclose, and refusing it would be its own dishonesty.
+        """
         return Measurement(float(a.area), "mm2", exact=True)
 
-    def center_of_mass(self, a: Any) -> Measurement:
+    def center_of_mass(self, a: Any) -> Measurement | Unsupported:
+        """Centroid of the enclosed solid — the same integral as `volume`, and
+        refused on the same precondition. The open cube above put its centre of
+        mass at (-2.5, 0, 0), outside the material."""
+        reason = _not_a_solid(a)
+        if reason is not None:
+            return Unsupported(f"centre of mass is an integral over a closed surface; {reason}")
         com = tuple(float(v) for v in a.center_mass)
         return Measurement(com, "mm", exact=True, axes=("x", "y", "z"))
 
@@ -147,13 +177,9 @@ class MeshBackend:
         default Manifold backend has 0 boundary edges and 4 non-manifold ones,
         and "not watertight" alone reads as "it has holes", which it does not.
         """
-        import numpy as np
-
         if a.is_watertight:
             return None
-        _, counts = np.unique(a.edges_sorted, axis=0, return_counts=True)
-        boundary = int((counts == 1).sum())
-        nonmanifold = int((counts > 2).sum())
+        boundary, nonmanifold = _edge_defects(a)
         parts = []
         if boundary:
             parts.append(f"{boundary} boundary edge(s) — the surface is open")
@@ -163,32 +189,63 @@ class MeshBackend:
             )
         return "; ".join(parts) or "not watertight for an unclassified reason"
 
-    def solid_count(self, a: Any) -> Measurement:
-        """Connected component count, via manifold3d.
+    def solid_count(self, a: Any) -> Measurement | Unsupported:
+        """Connected bodies, counted over the exported triangles.
 
-        Not trimesh's `body_count`, which routes through
-        `graph.connected_components` and raises ImportError without scipy or
-        networkx. manifold3d is already a dependency and answers directly.
+        Computed here rather than delegated, because both obvious delegates are
+        wrong. trimesh's `body_count` routes through `graph.connected_components`
+        and raises ImportError without scipy, which the `mesh` extra does not
+        install. manifold3d answers, but only after silently rebuilding the mesh
+        — measured on a clean gridfinity bin it retriangulated 55 of 10,688
+        triangles and moved the enclosed volume by 25.31 mm3, so its answer
+        describes its own reconstruction rather than the exported artifact,
+        which D15 forbids.
+
+        Refused where any edge is shared by more than two faces, because there
+        the count is **not determined by the geometry**: counting through such a
+        junction and counting across it give different answers, and nothing in
+        the mesh says which was meant. On the F10 bin manifold3d welds and says
+        1 while the exported triangles say 3 (a body plus two stray 2-triangle
+        slivers). Both are defensible, which is precisely why neither may be
+        reported as exact.
         """
-        return Measurement(len(_manifold(a).decompose()), "count", exact=True)
+        reason = _bodies_undetermined(a)
+        if reason is not None:
+            return Unsupported(reason)
+        return Measurement(_body_count(a), "count", exact=True)
 
     def genus(self, a: Any) -> Measurement | Unsupported:
-        """Topological genus — through-holes — for a single-body part.
+        """Topological genus — through-holes — for a single closed body.
 
-        Refused for multi-body parts, and the reason is worth stating: genus is
-        defined per body, but manifold3d reports the genus of the whole complex,
-        which is a different number. Two disjoint boxes give -1, not 0. Rather
-        than return a mathematically correct value that answers a question nobody
-        asked, this reports unsupported and says to check `solid_count` first.
+        From the Euler characteristic of the exported triangles, `g = (2 - X)/2`
+        with `X = V - E + F`. Unlike the BREP tier, where faces carry inner wires
+        and the naive form is quietly wrong, on a triangle mesh every face is a
+        disc and `V - E + F` is simply correct.
+
+        Two preconditions, both refused rather than assumed:
+
+        * **Closed.** The Euler characteristic of an open surface does not give a
+          genus. A cube missing one face reported genus 1 before this was
+          checked — a through-hole that does not exist.
+        * **One body.** Genus is defined per body; the characteristic of a
+          complex is a different number. Two disjoint boxes give -1, not 0.
+
+        `V` counts *referenced* vertices only, so a stray unreferenced vertex
+        cannot inflate it. Duplicate coincident vertices would break the count,
+        but cannot occur here: closedness means every edge is used exactly twice,
+        which is impossible on an unwelded mesh, so the precondition guarantees
+        its own input.
         """
-        manifold = _manifold(a)
-        bodies = len(manifold.decompose())
+        reason = _not_closed(a)
+        if reason is not None:
+            return Unsupported(f"genus is defined for a closed surface; {reason}")
+        bodies = _body_count(a)
         if bodies != 1:
             return Unsupported(
                 f"genus is defined per body; this part has {bodies} solids "
                 f"(check solid_count first, or split the part)"
             )
-        return Measurement(int(manifold.genus()), "count", exact=True)
+        return Measurement((2 - _euler_characteristic(a)) // 2, "count", exact=True)
 
     def topology_counts(self, a: Any) -> Unsupported:
         """Always refused on this tier.
@@ -207,11 +264,21 @@ class MeshBackend:
     def triangles(self, a: Any) -> Any:
         return a.triangles
 
-    def min_distance(self, a: Any, b: Any) -> Measurement:
-        return Measurement(float(_manifold(a).min_gap(_manifold(b), 1e6)), "mm", exact=True)
+    def min_distance(self, a: Any, b: Any) -> Measurement | Unsupported:
+        ma, mb = _manifold(a), _manifold(b)
+        if isinstance(ma, Unsupported):
+            return ma
+        if isinstance(mb, Unsupported):
+            return mb
+        return Measurement(float(ma.min_gap(mb, 1e6)), "mm", exact=True)
 
-    def intersect_volume(self, a: Any, b: Any) -> Measurement:
-        return Measurement(float((_manifold(a) ^ _manifold(b)).volume()), "mm3", exact=True)
+    def intersect_volume(self, a: Any, b: Any) -> Measurement | Unsupported:
+        ma, mb = _manifold(a), _manifold(b)
+        if isinstance(ma, Unsupported):
+            return ma
+        if isinstance(mb, Unsupported):
+            return mb
+        return Measurement(float((ma ^ mb).volume()), "mm3", exact=True)
 
     def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> list[Vec3]:
         locations = a.ray.intersects_location(
@@ -240,14 +307,154 @@ def _distinct_normals(mesh: Any, decimals: int = _NORMAL_DECIMALS) -> int:
     return int(len(np.unique(normals, axis=0)))
 
 
-def _manifold(mesh: Any) -> Any:
-    """Wrap a trimesh into a manifold3d Manifold."""
-    import numpy as np
-    from manifold3d import Manifold, Mesh
+# --------------------------------------------------------------------------
+# Surface classification — the preconditions the measurements presume
+# --------------------------------------------------------------------------
 
-    return Manifold(
+
+def _edge_defects(mesh: Any) -> tuple[int, int]:
+    """`(boundary_edges, non_manifold_edges)` — edges used once, and more than twice.
+
+    The two defects are kept apart everywhere because they mean different things:
+    a boundary edge is a hole in the surface, a non-manifold edge is a place
+    where more than two sheets meet. They have different causes, different fixes,
+    and — see `solid_count` — different consequences for what stays answerable.
+    """
+    import numpy as np
+
+    _, counts = np.unique(mesh.edges_sorted, axis=0, return_counts=True)
+    return int((counts == 1).sum()), int((counts > 2).sum())
+
+
+def _not_closed(mesh: Any) -> str | None:
+    """Why this surface is not closed, or None if it is."""
+    if mesh.is_watertight:
+        return None
+    boundary, nonmanifold = _edge_defects(mesh)
+    if boundary and nonmanifold:
+        return f"this mesh has {boundary} boundary edge(s) and {nonmanifold} non-manifold edge(s)"
+    if boundary:
+        return f"this mesh is open along {boundary} boundary edge(s)"
+    if nonmanifold:
+        return f"this mesh has {nonmanifold} non-manifold edge(s)"
+    return "this mesh is not watertight"
+
+
+def _not_a_solid(mesh: Any) -> str | None:
+    """Why this mesh does not bound a solid, or None if it does.
+
+    Closedness plus consistent winding. Winding matters only here: the divergence
+    theorem sums signed contributions, so a flipped triangle subtracts where it
+    should add, whereas the combinatorial quantities are indifferent to it.
+    """
+    reason = _not_closed(mesh)
+    if reason is not None:
+        return reason
+    if not mesh.is_winding_consistent:
+        return "this mesh is closed but its triangle winding is inconsistent"
+    return None
+
+
+def _bodies_undetermined(mesh: Any) -> str | None:
+    """Why the body count is not fixed by this mesh, or None if it is.
+
+    Only non-manifold edges are disqualifying. An *open* mesh still has a
+    determinate component count — every edge is used once or twice, so adjacency
+    is unambiguous — and refusing there would be over-refusal, which inflates
+    `incomplete` and is its own way of not answering an answerable question.
+    """
+    _, nonmanifold = _edge_defects(mesh)
+    if not nonmanifold:
+        return None
+    return (
+        f"this mesh has {nonmanifold} non-manifold edge(s), where counting "
+        f"through the junction and counting across it give different answers"
+    )
+
+
+def _face_components(mesh: Any) -> Any:
+    """Label every face with its connected component under shared-edge adjacency.
+
+    Hooking plus pointer-jumping rather than a union-find, purely for speed: the
+    scalar version costs 3.0 s on a 684k-triangle part against 1.8 s here and
+    46 ms against 2.8 ms at a more typical 10k. Verified to produce partitions
+    identical to union-find across closed, open, multi-body and non-manifold
+    inputs.
+
+    Terminates because labels are bounded below and never increase.
+
+    Only ever called where `_bodies_undetermined` passed, which matters:
+    trimesh's `face_adjacency` silently omits non-manifold edges, so on a mesh
+    carrying them this would split components that the omitted edges joined.
+    """
+    import numpy as np
+
+    n = len(mesh.faces)
+    adjacency = np.asarray(mesh.face_adjacency, dtype=np.int64)
+    labels = np.arange(n, dtype=np.int64)
+    if len(adjacency) == 0:
+        return labels
+
+    left, right = adjacency[:, 0], adjacency[:, 1]
+    while True:
+        nxt = labels.copy()
+        np.minimum.at(nxt, left, labels[right])
+        np.minimum.at(nxt, right, labels[left])
+        while True:  # collapse each chain to its root before the next round
+            root = nxt[nxt]
+            if np.array_equal(root, nxt):
+                break
+            nxt = root
+        if np.array_equal(nxt, labels):
+            return labels
+        labels = nxt
+
+
+def _body_count(mesh: Any) -> int:
+    import numpy as np
+
+    return int(len(np.unique(_face_components(mesh))))
+
+
+def _euler_characteristic(mesh: Any) -> int:
+    """`V - E + F` over the exported triangles.
+
+    `V` counts referenced vertices rather than `len(mesh.vertices)`, so a stray
+    unreferenced vertex — which is not part of the surface — cannot inflate it.
+    """
+    import numpy as np
+
+    faces = np.asarray(mesh.faces)
+    vertices = int(len(np.unique(faces)))
+    edges = int(len(np.unique(np.asarray(mesh.edges_sorted), axis=0)))
+    return vertices - edges + int(len(faces))
+
+
+def _manifold(mesh: Any) -> Any | Unsupported:
+    """Wrap a trimesh into a manifold3d Manifold, or refuse if it will not take.
+
+    The guard is not defensive padding. Handed a cube missing one face,
+    manifold3d returns an object reporting `Error.NotManifold`, `is_empty()` and
+    zero triangles — and `.decompose()` on that empty object still returns a
+    one-element list, `.genus()` still returns 1. Reading those without checking
+    `status()` is how this backend came to report a through-hole in an open
+    shell: the dependency raised its hand and nothing looked.
+
+    Note also that manifold3d rebuilds the mesh it is given (see `solid_count`),
+    so anything measured through here describes its reconstruction rather than
+    the exported artifact. Tolerable for the relational primitives below, which
+    compare two shapes; not tolerable for absolute measurements, which is why
+    none now route through it.
+    """
+    import numpy as np
+    from manifold3d import Error, Manifold, Mesh
+
+    manifold = Manifold(
         Mesh(
             vert_properties=np.asarray(mesh.vertices, dtype=np.float32),
             tri_verts=np.asarray(mesh.faces, dtype=np.uint32),
         )
     )
+    if manifold.status() != Error.NoError:
+        return Unsupported(f"manifold3d rejected this mesh: {manifold.status()}")
+    return manifold

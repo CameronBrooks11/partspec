@@ -108,13 +108,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `geometry.facets` is now `geometry.distinct_normals` (D16), named for what it measures
   rather than borrowing CGAL's vocabulary for a different quantity.
 - `GeometryBackend.provenance()` takes the artifact rather than reading instance state.
-- `just setup` includes the mesh extra; `just setup-all` adds the OCCT engines.
+- `just setup` installs **all** extras, matching CI exactly; `just setup-mesh` is the
+  lighter OpenSCAD-only path and is explicitly not what the gate runs.
+- `volume`, `center_of_mass`, `solid_count` and `genus` may now return `Unsupported`. The
+  protocol signatures widened to match; `bbox`, `area` and `watertight` stay total.
+
+### Fixed
+
+- **The mesh tier answered questions it could not answer** (dogfood F14) — the second of
+  the three failure modes `docs/SPEC-report.md` §1.1 names, in the tool built to prevent
+  it. A contract declaring `volume`, `solid_count` and `genus` but not `watertight` scored
+  four green checks and exit 0 on a community gridfinity bin that partspec itself knew
+  carried 4 non-manifold edges. Reduced: a cube missing one face reported `volume 500.0`
+  (against 1000.0 closed), `genus 1` and a centre of mass outside the material — all
+  flagged `exact`.
+
+  Each quantity now declares its precondition (`docs/SPEC-backend.md` §5.1.1) and refuses
+  with the defect named rather than returning a number. Deliberately narrow: `solid_count`
+  is refused only for non-manifold edges, since an *open* mesh still determines its own
+  component count and over-refusal is its own way of not answering.
+
+- **A dependency's error status was discarded.** Handed an open mesh, manifold3d returns an
+  object reporting `Error.NotManifold`, `is_empty()` and zero triangles — on which
+  `.decompose()` still returns a one-element list and `.genus()` still returns 1. Both were
+  read without checking `status()`. Now checked.
+
+- **Two libraries were measuring two different solids into one report.** `volume` came from
+  trimesh and `genus`/`solid_count` from manifold3d, which rebuilds its input: on the clean
+  CGAL gridfinity render — same 5,330 vertices, none displaced — it retriangulated 55 of
+  10,688 triangles and moved the enclosed volume by 25.31 mm³ (0.078 %). An independent
+  divergence-theorem sum agrees with trimesh, not manifold3d. Body count and genus are now
+  computed over the exported triangles, which is what D15 requires. Verified equivalent to
+  manifold3d on sound meshes.
+
+- **`same-source` OCCT gap closed too:** `volume` and `center_of_mass` refuse for a shape
+  bounding no solid. An open shell reports `volume 0.0` with `is_valid` True, so
+  `volume(max=…)` would have passed on a shape containing no material.
 
 ### Notes
 
-- No subcommands yet. They are absent rather than stubbed on purpose: a verb that pretends
-  to check something is the failure this tool exists to prevent.
 - The `approximate` machinery ships dormant. As v0 is scoped no check can produce it, so it
   is covered by direct unit tests rather than by use — see `docs/SPEC-report.md` §10.
+- `just test-mesh-only` runs the mesh tests against a throwaway `partspec[mesh]` install.
+  Because `just setup` takes all extras and scipy arrives only via build123d/cadquery, a
+  mesh-tier dependency on scipy would otherwise pass both locally and in CI while breaking
+  every mesh-only user.
 
 [Unreleased]: https://github.com/CameronBrooks11/partspec/compare/main...HEAD

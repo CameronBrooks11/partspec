@@ -48,6 +48,23 @@ check: fmt-check lint typecheck
 test:
     uv run pytest
 
+# Run the mesh tests against a mesh-ONLY install, in a throwaway environment.
+#
+# Because `setup` installs all extras, the mesh-only install is exercised
+# nowhere else — and scipy reaches this machine only via build123d/cadquery, so
+# a mesh-tier code path that quietly depends on it passes locally and in CI and
+# breaks for anyone who installed just `partspec[mesh]`. trimesh's `body_count`
+# is exactly such a path, which is why the backend counts bodies itself.
+test-mesh-only:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env="$(mktemp -d)/venv"
+    trap 'rm -rf "$(dirname "$env")"' EXIT
+    uv venv --quiet "$env"
+    uv pip install --quiet --python "$env/bin/python" -e '.[mesh]' pytest
+    "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("scipy") is None, "scipy leaked in — this recipe no longer proves anything"'
+    "$env/bin/python" -m pytest tests/test_mesh_backend.py -q
+
 # Run main entrypoint
 run *ARGS:
     uv run partspec {{ARGS}}

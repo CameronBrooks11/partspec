@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from support import measured, refused
 
 from partspec.backend import BuildError, Tier, Unsupported
 from partspec.backends.occt import OcctBackend
@@ -86,10 +87,11 @@ def test_a_non_shape_is_a_build_error():
 
 def test_closed_form_measurements(backend: OcctBackend):
     box = bd.Box(10, 20, 30)
-    assert backend.volume(box).value == pytest.approx(6000.0)
+    assert measured(backend.volume(box)).value == pytest.approx(6000.0)
     assert backend.area(box).value == pytest.approx(2 * (200 + 600 + 300))
     assert backend.bbox(box).value == pytest.approx((10.0, 20.0, 30.0))
-    assert backend.center_of_mass(box).value == pytest.approx((0.0, 0.0, 0.0), abs=1e-9)
+    com = measured(backend.center_of_mass(box))
+    assert com.value == pytest.approx((0.0, 0.0, 0.0), abs=1e-9)
     assert backend.watertight(box).value is True
     assert backend.solid_count(box).value == 1
 
@@ -98,7 +100,7 @@ def test_everything_on_this_tier_is_exact(backend: OcctBackend):
     """No tessellation anywhere, so nothing carries an error bound."""
     box = bd.Box(10, 20, 30)
     for measure in (backend.volume, backend.area, backend.bbox, backend.center_of_mass):
-        result = measure(box)
+        result = measured(measure(box))
         assert result.exact and result.bounds is None
 
 
@@ -108,8 +110,9 @@ def test_curved_geometry_is_analytic_not_faceted(backend: OcctBackend):
     import math
 
     cyl = bd.Cylinder(radius=5, height=10)
-    assert backend.volume(cyl).value == pytest.approx(math.pi * 25 * 10, rel=1e-9)
-    assert backend.volume(cyl).exact
+    volume = measured(backend.volume(cyl))
+    assert volume.value == pytest.approx(math.pi * 25 * 10, rel=1e-9)
+    assert volume.exact
 
 
 # --------------------------------------------------------------------------
@@ -173,9 +176,40 @@ def test_the_naive_euler_formula_would_be_wrong():
 
 def test_genus_is_refused_for_multi_body_parts(backend: OcctBackend):
     two = bd.Box(5, 5, 5) + bd.Box(5, 5, 5).moved(bd.Location((20, 0, 0)))
-    result = backend.genus(two)
-    assert isinstance(result, Unsupported)
-    assert "per body" in result.reason
+    assert "per body" in refused(backend.genus(two)).reason
+
+
+# --------------------------------------------------------------------------
+# refusal — a shape that bounds no solid
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def open_shell():
+    """A box with one face removed: valid as a shape, but encloses nothing."""
+    return bd.Shell(bd.Box(10, 10, 10).faces()[:-1])
+
+
+def test_volume_is_refused_when_no_solid_is_bounded(backend: OcctBackend, open_shell):
+    """`is_valid` does not catch this — an open shell reports True — and the raw
+    `volume` is 0.0, which `volume(max=...)` would happily pass."""
+    assert backend.is_valid(open_shell).value is True, "premise: validity does not catch it"
+    assert open_shell.volume == 0.0, "premise: the raw property answers anyway"
+    assert "bounds no solid" in refused(backend.volume(open_shell)).reason
+
+
+def test_center_of_mass_is_refused_when_no_solid_is_bounded(backend: OcctBackend, open_shell):
+    """build123d's `center()` still answers here, with the centroid of the
+    *surface* — a different quantity under the same name."""
+    assert pytest.approx(-1.0) == open_shell.center().Z, "premise: it answers, wrongly"
+    assert "bounds no solid" in refused(backend.center_of_mass(open_shell)).reason
+
+
+def test_area_and_solid_count_stay_answerable(backend: OcctBackend, open_shell):
+    """Refuse the undefined, not the merely unusual: five faces of a 10mm cube
+    have an area whatever they enclose, and `0 solids` is a true answer."""
+    assert backend.area(open_shell).value == pytest.approx(500.0)
+    assert backend.solid_count(open_shell).value == 0
 
 
 # --------------------------------------------------------------------------
@@ -216,7 +250,7 @@ def test_model_is_called_with_params(backend: OcctBackend, tmp_path: Path):
     source = PyCADSource(path=model, engine="build123d", params={"w": 4.0, "h": 5.0})
     shape = backend.build(source, tmp_path)
     assert not isinstance(shape, BuildError), shape
-    assert backend.volume(shape).value == pytest.approx(80.0)
+    assert measured(backend.volume(shape)).value == pytest.approx(80.0)
 
 
 def test_a_signature_mismatch_explains_the_calling_convention(backend: OcctBackend, tmp_path: Path):

@@ -88,13 +88,34 @@ class OcctBackend:
             (float(size.X), float(size.Y), float(size.Z)), "mm", exact=True, axes=("x", "y", "z")
         )
 
-    def volume(self, a: Any) -> Measurement:
+    def volume(self, a: Any) -> Measurement | Unsupported:
+        """Refused for a shape that bounds no solid.
+
+        The mesh tier's version of this returned a plausible wrong number; here
+        it returns a plausible wrong *zero*. An open shell and a bare face both
+        report `volume 0.0` while `is_valid` is True, so validity does not catch
+        it — and `volume(max=...)` on a shape containing no material would pass.
+        """
+        if not a.solids():
+            return Unsupported(
+                "this shape bounds no solid, so it has no volume (check solid_count first)"
+            )
         return Measurement(float(a.volume), "mm3", exact=True)
 
     def area(self, a: Any) -> Measurement:
+        """Total surface area. Total, like the mesh tier's — defined for a face
+        and a shell as much as for a solid."""
         return Measurement(float(a.area), "mm2", exact=True)
 
-    def center_of_mass(self, a: Any) -> Measurement:
+    def center_of_mass(self, a: Any) -> Measurement | Unsupported:
+        """Refused on the same precondition as `volume`, and for a sharper
+        reason: on a shape with no solid, build123d's `center()` still answers,
+        but with the centroid of the *surface* — a different quantity under the
+        same name."""
+        if not a.solids():
+            return Unsupported(
+                "this shape bounds no solid, so it has no centre of mass (check solid_count first)"
+            )
         c = a.center()
         return Measurement(
             (float(c.X), float(c.Y), float(c.Z)), "mm", exact=True, axes=("x", "y", "z")
