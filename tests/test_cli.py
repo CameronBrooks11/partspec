@@ -142,6 +142,25 @@ def test_an_unresolvable_target_is_a_usage_error_not_a_crash(tmp_path: Path):
     assert main(["measure", str(tmp_path / "nope.py")]) == 64
 
 
+@pytest.mark.parametrize("verb", ["check", "measure"])
+def test_a_contract_that_raises_does_not_exit_as_a_failing_part(tmp_path: Path, verb: str):
+    """Found by mistyping a keyword argument while writing a real contract.
+
+    The traceback escaped `main` and the interpreter exited 1, which is this
+    tool's code for *the part failed its contract*. A malformed question would
+    have been recorded in CI as a wrong answer about the design, and the two
+    are indistinguishable from the outside. Exit 4: nothing was evaluated, so
+    nothing may be said about the part.
+    """
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def make() -> Part:\n"
+        "    return Part('x', openscad('x.scad')).envelope(max=(1, 1, 1), tol=0.05)\n"
+    )
+    assert main([verb, f"{module}:make"]) == exit_code(Verdict.ERROR)
+
+
 def test_no_arguments_prints_help(capsys):
     assert main([]) == 64
     assert "usage:" in capsys.readouterr().out

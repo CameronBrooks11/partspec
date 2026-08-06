@@ -15,12 +15,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 from pathlib import Path
 
+from .contract import Part
 from .report import write_placeholder
 from .runner import run
-from .status import EXIT_USAGE, Status, Verdict
-from .target import TargetError, resolve
+from .status import EXIT_USAGE, Status, Verdict, exit_code
+from .target import Target, TargetError, resolve
 
 __all__ = ["main"]
 
@@ -60,18 +62,39 @@ def build_parser() -> argparse.ArgumentParser:
 def _out_dir(target_spec: str, explicit: Path | None) -> Path:
     if explicit is not None:
         return explicit
-    from .target import Target
-
     target = Target.parse(target_spec)
     return target.path.resolve().parent / "outputs" / target.slug
 
 
-def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
+def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
+    """Resolve a target, turning any failure into an exit code rather than a
+    traceback.
+
+    The second clause is the load-bearing one. A contract is Python, so it can
+    raise anything — a typo in a keyword argument raises `TypeError` — and an
+    uncaught exception leaves the interpreter exiting **1**, which is this
+    tool's code for *the part failed its contract*. A broken question would
+    report as a wrong answer, and in CI the two are indistinguishable. It is
+    `EXIT_ERROR` for the same reason a `ContractError` raised during a run is:
+    nothing was evaluated, so nothing may be said about the part.
+    """
     try:
-        part, target = resolve(args.target)
+        return resolve(spec)
     except TargetError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    except Exception as exc:  # noqa: BLE001 - a contract may raise anything
+        traceback.print_exc()
+        print(f"\npartspec: the contract raised {type(exc).__name__}: {exc}", file=sys.stderr)
+        print("  the contract is wrong, not the part", file=sys.stderr)
+        return exit_code(Verdict.ERROR)
+
+
+def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
+    resolved = _resolve_or_report(args.target)
+    if isinstance(resolved, int):
+        return resolved
+    part, target = resolved
 
     out = _out_dir(args.target, args.out)
     # Written before the engine runs: a try/finally cannot survive a native
@@ -94,11 +117,10 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     deliberately does not auto-generate checks from this — a check the tool wrote
     is a check nobody decided.
     """
-    try:
-        part, _ = resolve(args.target)
-    except TargetError as exc:
-        print(f"partspec: {exc}", file=sys.stderr)
-        return EXIT_USAGE
+    resolved = _resolve_or_report(args.target)
+    if isinstance(resolved, int):
+        return resolved
+    part, _ = resolved
 
     from .backend import BuildError, Unsupported
     from .runner import _backend_for, _engine_source
