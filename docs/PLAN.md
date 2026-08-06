@@ -19,6 +19,8 @@ retire *"No unit tests for geometry; rely on visual / diff review"* from the CAD
 profile in `~/.claude/skills/scaffold-new-project/domain-profiles.md`. That is the claim
 this project exists to test, and it is falsifiable.
 
+**Answered 2026-08-05 — see §7.**
+
 **v0 is done when** three real parts across two engines are under contract, the differential
 test passes, and `results.md` exists. Not when the feature list is complete.
 
@@ -148,7 +150,7 @@ each was a different kind of finding — see dogfood F10–F12:
 X and Y agree exactly at the standard's `42n - 0.5` across both languages. That is the
 substitutability claim holding on real third-party code.
 
-### P6 — Dogfood ▶ *in progress; first batch 2026-08-03*
+### P6 — Dogfood ✅ *done 2026-08-05; first batch 2026-08-03*
 
 Three or more real parts, at least two engines. Then `results.md` in the `scadman-dogfood`
 house style: numbered findings, root cause, before/after regression table, and a
@@ -159,8 +161,8 @@ house style: numbered findings, root cause, before/after regression table, and a
 **First batch, 2026-08-03.** 11 targets across three engines via `./run-batch.sh`; 0
 unexpected failures, 4 expected ones each with a recorded cause.
 
-**Self-review, 2026-08-05.** 12 targets, 0 unexpected failures, 5 expected. `results.md`
-carries 14 numbered findings.
+**Self-review, 2026-08-05.** 15 targets, 0 unexpected failures, 7 expected. `results.md`
+carries 17 numbered findings.
 
 The success condition — *"enough evidence to decide whether to retire 'No unit tests for
 geometry'"* — now has two payoffs behind it, both on third-party code, both silent in the
@@ -187,6 +189,24 @@ tests passed throughout**, every one of them measuring a mesh that was already s
 neither cause was findable by reading the code. It took a deliberately broken input and an
 independently computed reference. That is this project's own argument about CAD, holding
 when turned on the project.
+
+**F15 supplies the before/after table this phase was still missing**, and from a *design*
+change rather than a version change. One parameter on a NEMA 17 mount plate — `l_slot`
+6 → 8 mm, a plausible edit to gain belt adjustment — breaks the mounting holes out through
+the plate edge. Four of the five checks report no difference: it still builds, is still
+watertight, is still one solid, is still exactly 42×42×4. Only `genus` moves, 5 → 1, because
+a hole that reaches the boundary is a notch. The plate cannot hold a motor and does not look
+wrong. Pushed further the same parameter walks the part through two more silent states — 2
+non-manifold edges at 14 mm, six disconnected solids at 16 mm — every one of them exiting 0.
+
+**F16 is the cheapest kind of payoff and the hardest to argue with.** `bearing(608)` measures
+22.5 mm where ISO 15 says 22.0, with no comment saying why, in a file whose width dimension
+is exactly nominal. F15's library has the same shape of defect — a header comment claiming a
+22 mm collar over code declaring 28 — which makes it a property of the corpus rather than one
+author's slip.
+
+**Exit criterion met.** Fifteen targets, three engines, five libraries, three payoffs on
+third-party code and one on the tool. §7 answers the success condition.
 
 ---
 
@@ -240,3 +260,65 @@ Each has a recorded reason. None is "we ran out of time."
 To `partspec/docs/`: `DECISIONS.md` (renumbered from D1), the three specs, `POST-V0.md`.
 Archived here: the investigations, `SYNTHESIS.md`, `TRIAGE.md`, `DIRECTION.md` — the
 reasoning trail, per D7 of the scadman precedent (*"only its stable outputs are promoted"*).
+
+---
+
+## 7. The success condition, answered
+
+**Verdict: retire the line — but not by replacing it with "write unit tests for geometry."**
+
+### What the evidence says
+
+Five findings across the dogfood corpus where a declared check caught something that had
+already survived the alternative the profile recommends:
+
+| | what was wrong | what visual / diff review sees |
+|---|---|---|
+| **F10** | OpenSCAD's default backend emitted 4 non-manifold edges on a 2,212-star library | a correct-looking bin; the engine reports `manifold`, `Status: NoError`, `"simple": true`, exit 0 |
+| **F13** | a gear silently lost its teeth on a newer OpenSCAD — 35% smaller in every planar dimension | **nothing in a diff**: the source is byte-identical and correct. Visible on re-render, if anyone re-renders that part |
+| **F14** | partspec itself scored four green checks on a part it knew was non-manifold | nothing — 169 tests passed throughout |
+| **F15** | `l_slot` 6 → 8 mm broke the mount holes out through the plate edge | a plate that still renders, is still watertight, is still one solid, is still 42×42×4. Open-ended slots look deliberate |
+| **F16** | a part named `bearing(608)` is 22.5 mm where ISO 15 says 22.0 | nothing. A ring 2% oversize is a ring |
+
+Four of the five are invisible to both halves of the recommendation. F13 is invisible to
+diff review specifically, which is the half that scales.
+
+### The load-bearing qualification
+
+**Every payoff came from a claim derived outside the model.** ISO 15's 22 mm, the Gridfinity
+standard's `42n − 0.5`, the NEMA 17 mounting pattern, involute gear theory, a topological
+invariant. Not one came from measuring the part and asserting the result.
+
+That distinction decides what should replace the retired line. A geometry "unit test" written
+the way unit tests usually get written — run the code, record what it produced, assert that
+next time — would have passed on **every broken part above**, because each one is a faithful
+render of its own source. `measure` exists to make writing contracts cheap and deliberately
+refuses to generate checks from its own output (`SPEC-contract.md` §6); this is the evidence
+for that refusal, and it is the single most transferable result here.
+
+So the replacement is not "unit-test your geometry." It is:
+
+> Geometry is verifiable, but only against a reference the model does not contain — a
+> standard, a datasheet, a derivation, or an invariant. Visual review cannot see dimensional
+> or topological divergence in a part that renders correctly, and diff review cannot see a
+> part that changed without its source changing.
+
+### Where the old line was right, and stays right
+
+- **F1.** The first subject, `bayonet-lock-scad`, carries 12 of its own `assert()`s, so the
+  engine already rejected every invalid parameterisation and the contract's `requires` checks
+  were redundant. On a well-defended library the profile's advice costs nothing.
+- **F12.** A claim I wrote by hand (`genus 0`) was simply wrong about the standard. Authoring
+  checks has its own error rate; the tool caught this one, but only because a second
+  implementation disagreed. Checks are not free and are not automatically right.
+- The `approximate` machinery is unexercised by anything in the corpus, as §4 predicted.
+  Some of what a checker could assert about geometry, v0 still cannot assert honestly.
+
+### Confidence
+
+Moderate, and bounded by the corpus. Fifteen targets, three engines, five libraries, and
+F15 and F16 come from the same collection by the same curator — so the pattern they share
+(an allowance baked into a constant named for a nominal dimension) is not yet established
+beyond it. What is well established is the negative claim, and it is the one the profile
+line turns on: **a part that renders cleanly, exits 0 and looks right is not thereby
+correct**, and four of the five findings above were found no other way.

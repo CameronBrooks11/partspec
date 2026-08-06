@@ -184,4 +184,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mesh-tier dependency on scipy would otherwise pass both locally and in CI while breaking
   every mesh-only user.
 
+- `PARTSPEC_REQUIRE_ENGINES` turns a missing engine from a skipped test into a hard failure.
+  CI reported 195 passed / 23 skipped because no runner had an OpenSCAD binary, and the 23
+  were the entire end-to-end path. The gate was green because the tests were absent.
+- CI runs the mesh tier across **two OpenSCAD versions** — apt 2021.01 and a pinned
+  2026.08.01 snapshot — because F13 found the same source builds a different part on each,
+  and one version leaves that an anecdote. A step asserts each leg got the engine it
+  declares, so an apt bump cannot collapse the matrix while still reporting two green checks.
+  `just test-mesh-only` becomes a CI job; it guards a failure mode defined as "passes
+  locally and in CI" and had been running only locally.
+- `tests/test_cli.py` — the verbs had no tests at all, on a design whose D5 makes the exit
+  code half the product contract. Every verdict now round-trips through `main` on a real
+  render.
+
+### Fixed
+
+- **`measure` went silent exactly where it became most useful.** It dropped every
+  `Unsupported` result, which was honest while a refusal only meant "this tier cannot answer
+  this quantity". Since D17 it also means "this part is broken, and here is the defect", and
+  the two arrived identically: absent. On a cube missing one face, `measure` printed area,
+  bbox and solid_count with no volume, centre of mass or genus — in the verb that exists so
+  somebody can see the numbers before deciding which are intent. `refused` now carries the
+  reason per quantity and `unavailable` lists tier gaps separately.
+- **A contract that raises exited 1** — this tool's code for *the part failed its contract*.
+  A mistyped keyword argument raised `TypeError` out of `resolve()` and the traceback escaped
+  `main`, so a malformed question was reported as a wrong answer about the design. Now exit
+  4, for the same reason a `ContractError` during a run is.
+- **The engine was resolved from a hardcoded path in `$HOME`.** `find_executable` preferred
+  `~/Applications/openscad/OpenSCAD-nightly.AppImage` ahead of `PATH`, so `which openscad`
+  said 2021.01 while every render used 2026.08.01 — on a tool whose own F13 says the version
+  changes the part. The dogfood write-up claimed the wrong engine for two days as a result;
+  the reports never did. The rule is now the pin, then `PATH`.
+- **OpenSCAD's own diagnosis was discarded** unless it contained `ERROR` or `WARNING`, so
+  `unrecognised option '--backend=CGAL'` — what 2021.01 says to a contract written against a
+  newer engine — became `openscad exited 1` with no hint.
+- **A mistyped `PARTSPEC_OPENSCAD` raised `FileNotFoundError` out of `run()`**, escaping the
+  report machinery entirely: no artifact, no verdict, no exit code. Now a `BuildError`.
+- **The Python tier recorded one file as the whole build input.** `engines/pycad.py` puts the
+  model's directory on `sys.path` so a model can import helpers beside it, which makes those
+  helpers build inputs by design — and editing one changed the part while `source_digest`
+  stayed identical. `part.source_closure` now covers them, read from `sys.modules` after the
+  build, with `partial` unconditional. `SPEC-report.md` §8.3 previously specified emitting
+  nothing here; the reversal and its reasoning are recorded in place.
+
 [Unreleased]: https://github.com/CameronBrooks11/partspec/compare/main...HEAD
