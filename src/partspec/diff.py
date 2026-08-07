@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .report import SCHEMA_VERSION
 from .status import _SEVERITY, Status, epsilon
 
 __all__ = ["DIFF_SCHEMA_VERSION", "DiffUsageError", "diff_reports", "exit_code_of", "summary_of"]
@@ -52,29 +53,40 @@ def _values_equal(old: Any, new: Any) -> bool:
 def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
     """The difference one joined check pair contributes, or None."""
     base = {"id": new["id"], "kind": new["kind"]}
+    claim_fields = [f for f in ("limit", "region", "hole") if old.get(f) != new.get(f)]
+    claim = (
+        {
+            "old": {f: old.get(f) for f in claim_fields},
+            "new": {f: new.get(f) for f in claim_fields},
+        }
+        if claim_fields
+        else None
+    )
+    old_value = (old.get("measurement") or {}).get("value")
+    new_value = (new.get("measurement") or {}).get("value")
+    value_moved = not _values_equal(old_value, new_value)
+
     if old["status"] != new["status"]:
+        # A status change does not get to hide what else moved: loosening a
+        # limit until a failing check passes is the flagship weakening move,
+        # and an entry saying only "fixed" would report the attack as an
+        # improvement. The claim and value deltas ride along.
         worse = _SEVERITY[Status(new["status"])] > _SEVERITY[Status(old["status"])]
-        return {
+        entry = {
             **base,
             "change": "regressed" if worse else "fixed",
             "status": {"old": old["status"], "new": new["status"]},
         }
+        if claim is not None:
+            entry["claim"] = claim
+        if value_moved:
+            entry["value"] = {"old": old_value, "new": new_value}
+        return entry
 
-    claim_fields = [f for f in ("limit", "region", "hole") if old.get(f) != new.get(f)]
-    if claim_fields:
-        return {
-            **base,
-            "change": "limit_changed",
-            "status": old["status"],
-            "claim": {
-                "old": {f: old.get(f) for f in claim_fields},
-                "new": {f: new.get(f) for f in claim_fields},
-            },
-        }
+    if claim is not None:
+        return {**base, "change": "limit_changed", "status": old["status"], "claim": claim}
 
-    old_value = (old.get("measurement") or {}).get("value")
-    new_value = (new.get("measurement") or {}).get("value")
-    if not _values_equal(old_value, new_value):
+    if value_moved:
         return {
             **base,
             "change": "drifted",
@@ -101,9 +113,13 @@ def _closure_state(old_part: dict[str, Any], new_part: dict[str, Any]) -> str | 
     if old_closure is None and new_closure is None:
         return None
     if not (old_closure and new_closure):
-        # One run recorded a closure and the other did not: identity cannot be
-        # called same, whatever the digests say.
-        return "changed"
+        # One run recorded a closure and the other did not — the ordinary
+        # v0.1.0 upgrade path for every Python part, since its closure landed
+        # after the tag. "Changed" would be a claim about the source; nothing
+        # here supports one, and calling it changed let the identical claim
+        # through unearned (PR #88 review, B1). Inconclusive, which blocks
+        # `identical` and nothing else.
+        return "inconclusive"
     if old_closure.get("digest") != new_closure.get("digest"):
         return "changed"
     if old_closure.get("partial") or new_closure.get("partial"):
@@ -114,11 +130,22 @@ def _closure_state(old_part: dict[str, Any], new_part: dict[str, Any]) -> str | 
 def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str) -> dict[str, Any]:
     """Compare two parsed reports. Raises DiffUsageError on unusable input."""
     for label, report in (("old", old), ("new", new)):
-        if report.get("schema_version") != 1:
+        if not isinstance(report, dict):
+            raise DiffUsageError(f"the {label} input is not a report (top level is not an object)")
+        if report.get("schema_version") != SCHEMA_VERSION:
             raise DiffUsageError(
                 f"the {label} report has schema_version {report.get('schema_version')!r}; "
-                f"this diff understands report schema 1 and must not best-effort parse "
-                f"anything else (SPEC-report.md 7.1)"
+                f"this diff understands report schema {SCHEMA_VERSION} and must not "
+                f"best-effort parse anything else (SPEC-report.md 7.1)"
+            )
+        total = report.get("counts", {}).get("total")
+        if total is not None and total != len(report.get("checks", [])):
+            # counts.total is redundant by construction in an honest report;
+            # an input that violates its own invariant is corrupt, and no
+            # claim over corrupt input is earned.
+            raise DiffUsageError(
+                f"the {label} report is corrupt: counts.total is {total} but it "
+                f"carries {len(report.get('checks', []))} checks"
             )
     old_part, new_part = old.get("part", {}), new.get("part", {})
     if old_part.get("id") != new_part.get("id"):
@@ -127,12 +154,15 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
             f"{new_part.get('id')!r}); diff compares two runs of one part"
         )
 
-    indeterminate: list[str] = []
+    indeterminate: list[dict[str, str]] = []
     for label, report in (("old", old), ("new", new)):
         if report.get("verdict") == "error":
             indeterminate.append(
-                f"the {label} report's run did not complete (verdict: error); "
-                f"its checks measured nothing to compare"
+                {
+                    "code": "input_error",
+                    "reason": f"the {label} report's run did not complete (verdict: "
+                    f"error); its checks measured nothing to compare",
+                }
             )
 
     old_checks = {c["id"]: c for c in old.get("checks", [])}
@@ -161,9 +191,12 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         # `identical` on that evidence is silence-as-success at the
         # provenance layer.
         indeterminate.append(
-            "no differences found, but the source identity rests on a closure "
-            "marked partial: nothing this diff can see changed, which is not "
-            "the same claim as nothing changed"
+            {
+                "code": "partial_closure",
+                "reason": "no differences found, but the source identity rests on a "
+                "closure marked partial or absent: nothing this diff can see changed, "
+                "which is not the same claim as nothing changed",
+            }
         )
         outcome = "indeterminate"
     else:
@@ -216,7 +249,8 @@ def summary_of(doc: dict[str, Any]) -> str:
     if doc["outcome"] == "identical":
         return f"identical: {doc['part']} — no semantic differences"
     if doc["outcome"] == "indeterminate":
-        return f"indeterminate: {doc['part']} — {doc['indeterminate'][0]}"
+        reasons = "; ".join(entry["reason"] for entry in doc["indeterminate"])
+        return f"indeterminate: {doc['part']} — {reasons}"
     contract = doc["contract"]
     parts = []
     if contract["removed"]:

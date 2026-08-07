@@ -165,7 +165,7 @@ def test_identical_on_a_partial_closure_is_indeterminate_not_clean():
     doc = _diff(old, new)
     assert doc["outcome"] == "indeterminate"
     assert exit_code_of(doc["outcome"]) == 2
-    assert "partial" in doc["indeterminate"][0]
+    assert doc["indeterminate"][0]["code"] == "partial_closure"
     assert doc["source"]["closure"] == "inconclusive"
 
 
@@ -177,6 +177,7 @@ def test_a_found_difference_survives_a_partial_closure():
     for doc_ in (old, new):
         doc_["part"]["source_closure"]["partial"] = True
     new["checks"] = [c for c in new["checks"] if c["id"] != "wall_gt_2"]
+    new["counts"]["total"] -= 1
 
     assert _diff(old, new)["outcome"] == "different"
 
@@ -186,7 +187,8 @@ def test_an_error_report_compares_nothing():
     new = _doc(verdict="error", error="boom")
     doc = _diff(old, new)
     assert doc["outcome"] == "indeterminate"
-    assert "did not complete" in doc["indeterminate"][0]
+    assert doc["indeterminate"][0]["code"] == "input_error"
+    assert "did not complete" in doc["indeterminate"][0]["reason"]
 
 
 def test_different_parts_are_a_usage_error_not_a_finding():
@@ -305,3 +307,93 @@ def test_cli_diff_usage_errors(tmp_path: Path):
     not_json = tmp_path / "junk.json"
     not_json.write_text("{nope")
     assert _run_cli("diff", str(not_json), str(present))[0] == 64
+
+
+# --------------------------------------------------------------------------
+# review hardening (PR #88)
+# --------------------------------------------------------------------------
+
+
+def test_a_missing_closure_on_one_side_blocks_the_identical_claim():
+    """The ordinary v0.1.0 upgrade path: Python-engine reports written by the
+    released tag carry no source_closure at all. Calling that 'changed' let
+    the identical claim through unearned (review B1) — it is inconclusive."""
+    old = _doc()
+    del old["part"]["source_closure"]
+    new = _doc()
+    new["part"]["source_closure"]["partial"] = True
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "indeterminate"
+    assert doc["source"]["closure"] == "inconclusive"
+    assert doc["indeterminate"][0]["code"] == "partial_closure"
+
+
+def test_a_partial_closure_on_only_the_new_side_still_blocks_identical():
+    """Pins the .partial check on both sides — a mutant reading only the old
+    side survived the original suite (review M6)."""
+    old = _doc()
+    new = _doc()
+    new["part"]["source_closure"]["partial"] = True
+    assert _diff(old, new)["outcome"] == "indeterminate"
+
+
+def test_weakening_that_flips_a_status_still_shows_the_moved_limit():
+    """The flagship attack: loosen the limit until a failing check passes.
+    An entry saying only 'fixed' reports the attack as an improvement
+    (review S1); the claim delta must ride along."""
+    old = _doc()
+    new = _doc()
+    old_check = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    old_check["status"] = "fail"
+    old["verdict"] = "fail"
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 0.001}
+
+    doc = _diff(old, new)
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert entry["change"] == "fixed"
+    assert entry["claim"]["old"] == {"limit": {"min": 2.0}}
+    assert entry["claim"]["new"] == {"limit": {"min": 0.001}}
+
+
+def test_a_verdict_only_tamper_is_a_difference():
+    """Identical checks, tampered verdict: still different (review M1 — this
+    clause was untested and a mutant deleting it survived)."""
+    old = _doc()
+    new = _doc(verdict="fail")
+    doc = _diff(old, new)
+    assert doc["outcome"] == "different"
+    assert doc["checks"] == []
+    assert "verdict changed" in summary_of(doc)
+
+
+def test_a_report_contradicting_its_own_counts_is_corrupt_input():
+    """counts.total is redundant by construction; an input violating its own
+    invariant is corrupt, and no claim over corrupt input is earned
+    (review S4)."""
+    bad = _doc()
+    bad["counts"]["total"] = 99
+    with pytest.raises(DiffUsageError, match="corrupt"):
+        _diff(_doc(), bad)
+
+
+def test_cli_malformed_reports_and_usage_typos_exit_64_not_a_verdict(tmp_path: Path):
+    """A status outside the enum, a JSON array, and a forgotten argument all
+    used to reach exit 4 or argparse's exit 2 — which reads as incomplete
+    (review S2/S3). All unusable input is 64."""
+    good = tmp_path / "good.json"
+    good.write_text(json.dumps(_doc()))
+
+    bogus_status = _doc()
+    bogus_status["checks"][0]["status"] = "bogus"
+    tampered = tmp_path / "tampered.json"
+    tampered.write_text(json.dumps(bogus_status))
+    assert _run_cli("diff", str(good), str(tampered))[0] == 64
+
+    array = tmp_path / "array.json"
+    array.write_text("[]")
+    assert _run_cli("diff", str(good), str(array))[0] == 64
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_cli("diff", str(good))  # forgotten second argument
+    assert excinfo.value.code == 64

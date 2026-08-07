@@ -35,7 +35,7 @@ that requires comparable, fully-identified inputs — not a fallthrough.
 | `0` | `identical` | compared conclusively; no semantic difference |
 | `1` | `different` | compared; at least one semantic difference found |
 | `2` | `indeterminate` | the comparison could not be made conclusively |
-| `64` | — | unusable input: unreadable file, unknown `schema_version` (§7.1 requires rejection, not best-effort parsing), or two reports that do not describe the same part |
+| `64` | — | unusable input: unreadable file, unknown `schema_version` (§7.1 requires rejection, not best-effort parsing), a report violating its own `counts.total` invariant or otherwise malformed, or two reports that do not describe the same part. A forgotten argument is also `64` — argparse's default usage exit is `2`, which would read as `indeterminate` |
 
 Rules:
 
@@ -44,8 +44,9 @@ Rules:
 2. A report whose `verdict` is `"error"` compares nothing — its checks are all `skipped` and
    its run did not complete. Either input erroring MUST make the outcome `indeterminate`.
 3. **The partial-closure rule** (§8.3): when no differences are found but the inputs' source
-   identity rests on a closure marked `partial`, matching digests mean "nothing we looked at
-   changed", not "nothing changed". The outcome MUST be `indeterminate`, with the reason
+   identity rests on a closure marked `partial` — or absent from either input, which is the
+   ordinary v0.1.0 upgrade path for Python-engine reports — matching digests mean "nothing
+   we looked at changed", not "nothing changed". The outcome MUST be `indeterminate`, with the reason
    stated — claiming `identical` there is the silence-as-success mistake at the provenance
    layer. Found differences are real regardless of closure partiality, so this rule only
    ever blocks the `identical` claim, never the `different` one.
@@ -58,7 +59,10 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   silent-weakening signal and is always a difference, whatever the statuses were.
 - **`regressed` / `fixed`** — status changed, ordered by the severity that `verdict_of`
   already uses (`fail` > `unsupported` > `approximate` > `skipped` > `pass`). Any status
-  change is a difference.
+  change is a difference. A status-change entry MUST also carry the claim and value deltas
+  when those moved: loosening a limit until a failing check passes is the flagship
+  weakening move, and an entry saying only "fixed" would report the attack as an
+  improvement.
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
@@ -87,7 +91,10 @@ explanation than the design changing).
   "tool": { "name": "partspec-diff", "version": "0.2.0" },
   "part": "example-spacer",
   "outcome": "different",           // identical | different | indeterminate
-  "indeterminate": [],              // reasons, when outcome is indeterminate
+  "indeterminate": [],              // {code, reason} entries when indeterminate; codes are
+                                    // machine-readable: "input_error" | "partial_closure",
+                                    // so CI can tolerate the honest Python-tier case
+                                    // narrowly instead of tolerating exit 2 wholesale
   "verdict": { "old": "pass", "new": "fail" },
   "counts_total": { "old": 8, "new": 7 },
   "contract": {

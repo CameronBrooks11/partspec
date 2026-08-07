@@ -378,6 +378,15 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     except DiffUsageError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    except (KeyError, ValueError, AttributeError, TypeError) as exc:
+        # A parseable file that is not a well-formed report (a check without
+        # an id, a status outside the enum, a JSON array) is unusable input —
+        # exit 64, never the catch-all's ERROR, and never a finding.
+        print(
+            f"partspec: these inputs are not well-formed reports ({type(exc).__name__}: {exc})",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
 
     json.dump(doc, sys.stdout, indent=2)
     sys.stdout.write("\n")
@@ -392,7 +401,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return EXIT_USAGE
 
-    args = parser.parse_args(args_list)
+    try:
+        args = parser.parse_args(args_list)
+    except SystemExit as exc:
+        # argparse exits 2 on a usage error, and 2 is this tool's exit for
+        # `incomplete` — a forgotten argument must not read as a verdict.
+        # --help and --version exit 0 and pass through untouched.
+        raise SystemExit(EXIT_USAGE if exc.code == 2 else exc.code) from None
 
     # The catch-all sits here, around the dispatch, and not inside `run`. Several
     # of the ways this fires never reach `run` at all: `--out` pointing at an
