@@ -229,6 +229,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         # Attached before any early return: a refusal must still state what was
         # claimed, or the reader cannot judge what went unanswered.
         common["region"] = {**spec.region.to_json(), "shell": spec.shell}
+    if spec.hole is not None:
+        common["hole"] = dict(spec.hole)
 
     # Capability is static and consulted first, so an unanswerable check costs
     # nothing to report. `requires` names the tier that would answer; for the
@@ -244,6 +246,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
 
     if spec.kind in ("keep_out", "keep_in"):
         return _run_region_check(spec, backend, artifact, common)
+    if spec.kind == "hole_diameter":
+        return _run_hole_check(spec, backend, artifact, common)
 
     outcome = getattr(backend, primitive_name)(artifact)
     if isinstance(outcome, Unsupported):
@@ -298,6 +302,58 @@ def _failing_axes(outcome: Measurement, limit: Limit, components: dict[str, Stat
         assert sub is not None  # a constrained status implies a constraint
         parts.append(f"{axis}={values[axis]:g} outside {_render(sub)}")
     return "; ".join(parts)
+
+
+def _run_hole_check(
+    spec: CheckSpec, backend: Any, artifact: Any, common: dict[str, Any]
+) -> CheckResult:
+    """Adjudicate a hole_diameter claim: exactly N detected bores in the band.
+
+    The measurement is the matched diameters themselves, not the count — the
+    count is derivable from the vector's length, and the diameters are what a
+    comparator tracks drift on when an author uses a real tolerance band. No
+    match measured nothing for this claim, so `measurement` is null and the
+    detail carries the full bore inventory instead.
+    """
+    assert spec.limit is not None and spec.hole is not None
+    outcome = backend.bores(artifact)
+    if isinstance(outcome, Unsupported):
+        return CheckResult(
+            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
+        )
+
+    all_bores = tuple(float(x) for x in outcome.value)
+    lo, hi = spec.limit.min, spec.limit.max
+    # Plain interval membership: the band IS the tolerance, already widened by
+    # the author's tol or the comparison epsilon at declaration. Applying
+    # epsilon again here would tolerance the tolerance.
+    matched = tuple(x for x in all_bores if lo <= x <= hi)
+    expected = int(spec.hole["count"])
+
+    measurement = None
+    if matched:
+        measurement = Measurement(
+            matched,
+            "mm",
+            exact=True,
+            axes=tuple(f"bore_{i + 1}" for i in range(len(matched))),
+        )
+    detail = None
+    if len(matched) != expected:
+        # :.9g, not :g — a tight band rendered as "[8, 8]" reads as an empty
+        # interval and hides exactly the sub-micrometre disagreement a tight
+        # tol exists to surface.
+        inventory = ", ".join(f"Ø{x:.9g}" for x in all_bores) if all_bores else "none"
+        detail = (
+            f"found {len(matched)} bore(s) with diameter in [{lo:.9g}, {hi:.9g}] mm, "
+            f"expected {expected}; bores on this part: {inventory}"
+        )
+    return CheckResult(
+        **common,
+        status=Status.PASS if len(matched) == expected else Status.FAIL,
+        measurement=measurement,
+        detail=detail,
+    )
 
 
 def _run_region_check(
@@ -445,6 +501,7 @@ def _skipped(spec: CheckSpec, reason: str) -> CheckResult:
         expr=spec.expr if spec.kind == "requires" else None,
         operands={} if spec.kind == "requires" else None,
         region={**spec.region.to_json(), "shell": spec.shell} if spec.region is not None else None,
+        hole=dict(spec.hole) if spec.hole is not None else None,
         detail=reason,
     )
 

@@ -209,18 +209,21 @@ def test_topology_claiming_nothing_is_refused():
         p.topology()
 
 
-def test_topology_maps_to_the_only_tier_specific_primitive():
-    """Every other v0 kind resolves to a primitive both backends declare, which
-    left the capability-refusal path — and `requires: "occt"` with it —
-    unreachable from any contract. This is the entry that exercises it."""
+def test_the_tier_specific_kinds_are_exactly_the_declared_ones():
+    """v0 shipped `topology` as the single deliberate tier-gated kind, to make
+    the capability-refusal path reachable; `hole_diameter` is the first BREP
+    dimension that machinery existed for. Everything else must stay
+    tier-neutral — a kind that silently becomes OCCT-only is a portability
+    regression this pins."""
     from partspec.backends.mesh import CAPABILITIES as MESH
     from partspec.backends.occt import CAPABILITIES as OCCT
 
-    assert GEOMETRY_KINDS["topology"] == "topology_counts"
-    assert "topology_counts" in OCCT
-    assert "topology_counts" not in MESH
-    others = {v for k, v in GEOMETRY_KINDS.items() if k != "topology"}
-    assert others <= MESH & OCCT, "no other v0 check should depend on the tier"
+    occt_only = {"topology", "hole_diameter"}
+    for kind in occt_only:
+        assert GEOMETRY_KINDS[kind] in OCCT
+        assert GEOMETRY_KINDS[kind] not in MESH
+    others = {v for k, v in GEOMETRY_KINDS.items() if k not in occt_only}
+    assert others <= MESH & OCCT, "no other check may depend on the tier"
 
 
 def test_source_records_the_engine_explicitly():
@@ -366,3 +369,52 @@ def test_a_residual_collision_names_both_expressions():
         p.requires(long + "1")  # same 60-char prefix after truncation
     message = str(exc.value)
     assert long in message and long + "1" in message
+
+
+# --------------------------------------------------------------------------
+# hole_diameter declaration (#80)
+# --------------------------------------------------------------------------
+
+
+def test_hole_diameter_records_band_and_count():
+    p = _part()
+    p.hole_diameter(8.0, count=2, tol=0.1)
+    spec = p.checks[0]
+    assert spec.kind == "hole_diameter"
+    assert spec.id == "hole_d8"
+    assert spec.hole == {"d": 8.0, "count": 2}
+    assert spec.limit is not None
+    assert spec.limit.min == pytest.approx(7.9) and spec.limit.max == pytest.approx(8.1)
+
+
+def test_hole_diameter_default_band_is_the_comparison_epsilon():
+    from partspec.status import epsilon
+
+    p = _part()
+    p.hole_diameter(8.5)
+    spec = p.checks[0]
+    assert spec.id == "hole_d8_5", "a dot in an id would break the diff join key style"
+    assert spec.limit is not None
+    assert spec.limit.max - spec.limit.min == pytest.approx(2 * epsilon(8.5))
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"d": 0}, "d > 0"),
+        ({"d": -8.0}, "d > 0"),
+        ({"d": float("nan")}, "d > 0"),
+        ({"d": 8.0, "count": 0}, "count >= 1"),
+        ({"d": 8.0, "count": 2.0}, "count >= 1"),
+        ({"d": 8.0, "count": True}, "count >= 1"),
+        ({"d": 8.0, "tol": 0.0}, "tol must be > 0"),
+        ({"d": 8.0, "tol": float("nan")}, "tol must be > 0"),
+    ],
+)
+def test_degenerate_hole_claims_are_refused(kwargs, match):
+    with pytest.raises(ContractError, match=match):
+        _part().hole_diameter(kwargs.pop("d"), **kwargs)
+
+
+def test_hole_diameter_gates_on_the_bores_primitive():
+    assert GEOMETRY_KINDS["hole_diameter"] == "bores"

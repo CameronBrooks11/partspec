@@ -39,11 +39,80 @@ CAPABILITIES = frozenset(
         "min_distance",
         "intersect_volume",
         "region_solid",
+        "bores",
     }
 )
 
 
 _EMPTY_REASON = "this shape contains no geometry, so there is nothing to measure"
+
+
+def _radial(
+    point: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    direction: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """The outward radial vector from a cylinder's axis to a surface point."""
+    rel = tuple(p - o for p, o in zip(point, origin, strict=True))
+    along = sum(r * d for r, d in zip(rel, direction, strict=True))
+    return tuple(r - along * d for r, d in zip(rel, direction, strict=True))  # type: ignore[return-value]
+
+
+def _axis_key(
+    origin: tuple[float, float, float], direction: tuple[float, float, float], radius: float
+) -> tuple[tuple, tuple[float, ...]]:
+    """A grouping key identifying (axis line, radius) up to representation,
+    plus the canonical direction it chose.
+
+    Two faces of one bore can carry the axis with opposite directions and
+    different origin points along the same line; the key must not care. The
+    direction is sign-normalised on its first non-negligible component, and the
+    origin is replaced by the axis line's foot of perpendicular from the world
+    origin — the one point every representation of the line agrees on. Rounding
+    to 6 decimals absorbs kernel noise; two genuinely distinct axes closer than
+    a micrometre are a modelling pathology this deliberately merges rather than
+    guesses about.
+    """
+    # The sign threshold matches the rounding quantum below: deciding the flip
+    # on a component the rounding then erases would give two representations
+    # of one axis line different keys, splitting a bore's faces into sub-2π
+    # groups and reporting a hole that exists as absent.
+    canonical = direction
+    if next((c for c in canonical if abs(c) > 5e-7), 1.0) < 0:
+        canonical = tuple(-c for c in canonical)  # type: ignore[assignment]
+    along = sum(o * d for o, d in zip(origin, canonical, strict=True))
+    foot = tuple(o - along * d for o, d in zip(origin, canonical, strict=True))
+    key = (
+        tuple(round(c, 6) for c in canonical),
+        tuple(round(c, 6) for c in foot),
+        round(radius, 6),
+    )
+    return key, canonical
+
+
+def _clustered_wraps(spans: list[tuple[float, float, float, float]]) -> list[tuple[float, float]]:
+    """Per contiguous axial cluster: (summed angular extent, surface radius).
+
+    Faces whose axial spans touch or overlap belong to one bore (a seam-split
+    cylinder, a bore interrupted by nothing); a gap along the axis separates
+    two bores that merely share an axis line — the clevis's two lugs. The
+    radius carried out is a member face's un-rounded surface parameter, so the
+    caller reports a measurement rather than the grouping key's quantisation.
+    """
+    wraps: list[tuple[float, float]] = []
+    hi: float | None = None
+    wrap = 0.0
+    radius = 0.0
+    for lo, span_hi, extent, face_radius in sorted(spans):
+        if hi is None or lo > hi + 1e-6:
+            if hi is not None:
+                wraps.append((wrap, radius))
+            hi, wrap, radius = span_hi, extent, face_radius
+        else:
+            hi, wrap = max(hi, span_hi), wrap + extent
+    if hi is not None:
+        wraps.append((wrap, radius))
+    return wraps
 
 
 def _empty(a: Any) -> bool:
@@ -250,6 +319,84 @@ class OcctBackend:
         points = [bd.Vector(*p) for p in region.base_polygon()]
         face = bd.Face(bd.Wire.make_polygon(points, close=True))
         return bd.extrude(face, amount=region.h, dir=region.axis_vector())
+
+    def bores(self, a: Any) -> Measurement | Unsupported:
+        """Diameters of every cylindrical bore on the shape, sorted descending.
+
+        A bore is a set of cylindrical faces sharing one axis line, one radius
+        and one **contiguous axial span**, that (a) face **inward** — the
+        surface normal points toward the axis, so material surrounds the void;
+        a boss is the same surface facing out — and (b) wrap the **full
+        circle**: angular extents summing to 2π. Full-wrap is what keeps a
+        concave fillet (a quarter-wrap) and a half-round groove (a half-wrap)
+        from being counted as holes they are not. Coaxial groups of different
+        radius stay distinct, so a counterbore reports one bore per diameter —
+        each portion is a real seat with a real drawing callout. The axial-span
+        clustering is what makes two aligned holes through two clevis lugs
+        count as the two bores the drawing calls out, not one.
+
+        Diameters are read from the BREP surface parameter, so they are exact:
+        the predicted first exercise of `approximate` (POST-V0 §4) did not
+        materialise, because a modelled cylinder's radius is a parameter, not
+        an estimate.
+        """
+        if _empty(a):
+            return Unsupported(_EMPTY_REASON)
+        import math
+
+        from build123d import GeomType
+        from OCP.BRepAdaptor import BRepAdaptor_Surface  # type: ignore[attr-defined]
+        from OCP.BRepTools import BRepTools  # type: ignore[attr-defined]
+
+        # key -> list of (axial_lo, axial_hi, angular_extent, radius) per
+        # inward face
+        groups: dict[tuple, list[tuple[float, float, float, float]]] = {}
+        for face in a.faces().filter_by(GeomType.CYLINDER):
+            # BRepAdaptor, not the raw Geom surface: a planar cut part-way
+            # around a cylinder (a slit clamp, an obround slot) wraps the
+            # surface in Geom_RectangularTrimmedSurface, which the GeomType
+            # filter sees through and the raw surface object cannot answer
+            # Cylinder() on — the mismatch crashed on ordinary geometry.
+            cylinder = BRepAdaptor_Surface(face.wrapped).Cylinder()
+            radius = float(cylinder.Radius())
+            axis_location, axis_direction = cylinder.Axis().Location(), cylinder.Axis().Direction()
+            origin = (axis_location.X(), axis_location.Y(), axis_location.Z())
+            direction = (axis_direction.X(), axis_direction.Y(), axis_direction.Z())
+
+            umin, umax, vmin, vmax = BRepTools.UVBounds_s(face.wrapped)
+            surface_point = face.position_at(0.5, 0.5)  # u, v are normalised here
+            point = (float(surface_point.X), float(surface_point.Y), float(surface_point.Z))
+            normal_vec = face.normal_at(surface_point)
+            normal = (float(normal_vec.X), float(normal_vec.Y), float(normal_vec.Z))
+            radial = _radial(point, origin, direction)
+            if sum(n * r for n, r in zip(normal, radial, strict=True)) >= 0:
+                continue  # faces outward: a boss, not a bore
+
+            key, canonical = _axis_key(origin, direction, radius)
+            # The v parameter measures axial distance from the face's own
+            # surface origin along its own direction; both vary by face, so
+            # spans are re-expressed on the canonical axis before comparison.
+            base = sum(o * d for o, d in zip(origin, canonical, strict=True))
+            sign = sum(d0 * d for d0, d in zip(direction, canonical, strict=True))
+            ends = sorted((base + sign * vmin, base + sign * vmax))
+            groups.setdefault(key, []).append((ends[0], ends[1], umax - umin, radius))
+
+        diameters: list[float] = []
+        for spans in groups.values():
+            # The rounded key groups; the surface parameter is the
+            # measurement. Reporting the key's quantised radius flipped
+            # verdicts at tolerances below its 1e-6 quantum — a false pass
+            # with the true value appearing nowhere in the report.
+            for wrap, radius in _clustered_wraps(spans):
+                if wrap >= 2 * math.pi - 1e-6:
+                    diameters.append(radius * 2)
+        diameters.sort(reverse=True)
+        return Measurement(
+            tuple(diameters),
+            "mm",
+            exact=True,
+            axes=tuple(f"bore_{i + 1}" for i in range(len(diameters))),
+        )
 
     def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> Unsupported:
         """Not implemented on this tier yet.

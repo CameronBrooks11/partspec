@@ -329,6 +329,16 @@ class MeshBackend:
             return mb
         return Measurement(float((ma ^ mb).volume()), "mm3", exact=True)
 
+    def bores(self, a: Any) -> Unsupported:
+        """Defense-in-depth, like `topology_counts`: the capability is not
+        declared so the runner never dispatches here, but a direct caller must
+        get the refusal, not an AttributeError."""
+        return Unsupported(
+            "a triangle mesh has no cylindrical face; a bore diameter fitted to "
+            "facets would be a confident wrong number in the unsafe direction",
+            requires=Tier.OCCT,
+        )
+
     def region_solid(self, region: Any) -> Any:
         """Materialize a declared region as this tier's native solid.
 

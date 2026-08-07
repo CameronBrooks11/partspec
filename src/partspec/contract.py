@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .region import BoxRegion, CylinderRegion, Region
-from .status import ContractError, Limit
+from .status import ContractError, Limit, epsilon
 
 __all__ = [
     "GEOMETRY_KINDS",
@@ -42,14 +42,17 @@ GEOMETRY_KINDS: dict[str, str] = {
     "topology": "topology_counts",
     "keep_out": "region_solid",
     "keep_in": "region_solid",
+    "hole_diameter": "bores",
 }
 """The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
 whether the engine produced anything at all.
 
-`topology` is the only entry whose primitive is **not** on both tiers, and that
-is why it earns its place: it is the one check that makes the tier difference
-visible to a contract author rather than merely documented.
+`topology` and `hole_diameter` are the entries whose primitives are **not** on
+both tiers — the checks that make the tier difference visible to a contract
+author rather than merely documented. `topology` was v0's single deliberate
+member of that class; `hole_diameter` is the first of the BREP dimensions it
+existed to pave the way for.
 
 `keep_out` / `keep_in` map to the primitive that gates them; their evaluation is
 composed in the runner from `region_solid` and `intersect_volume` rather than
@@ -133,6 +136,10 @@ class CheckSpec:
     """The declared region and its mandatory shell thickness, for `keep_out` /
     `keep_in` only. Not a `Limit`: the claim is a paired one (empty here, solid
     nearby, or the reverse) that no limit form expresses."""
+    hole: dict[str, Any] | None = None
+    """The declared bore for `hole_diameter` only: `{"d": ..., "count": ...}`.
+    The diameter band lives in `limit`; this carries what the band was derived
+    from and how many bores must fall inside it."""
 
 
 class Part:
@@ -307,6 +314,47 @@ class Part:
                 kind="topology",
                 phase=GEOMETRY,
                 limit=Limit(equals=(faces, edges, vertices)),
+            )
+        )
+
+    def hole_diameter(
+        self, d: float, *, count: int = 1, tol: float | None = None, id: str | None = None
+    ) -> Part:
+        """Exactly `count` cylindrical bores of diameter `d` exist. **OCCT tier
+        only** — a triangle mesh has no cylindrical face, and fitting one to
+        the facets recovers a confident wrong number in the unsafe direction.
+
+        There are no selectors (SPEC-contract.md 8), so this is a count claim
+        over *detected* bores, not an assertion about a named hole: a bore is a
+        full-circle inward cylindrical surface over one contiguous axial span.
+        A counterbore counts once per diameter (each portion is a real seat), a
+        concave fillet and a half-round groove do not count at all, and two
+        aligned holes through two clevis lugs count twice.
+
+        `tol` is the acceptance half-width from the drawing callout (Ø8 ±0.1 →
+        `tol=0.1`). Omitted, the band is the comparison epsilon — "modelled
+        exactly as drawn" — which is the right default for CAD-as-code, where
+        the model is the nominal geometry, not a measured article.
+        """
+        if not isinstance(d, int | float) or not math.isfinite(d) or d <= 0:
+            raise ContractError(f"hole_diameter needs d > 0 (got {d!r})")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise ContractError(
+                f"hole_diameter needs count >= 1 (got {count!r}); a claim that zero "
+                f"holes exist is a keep_out, not a hole_diameter"
+            )
+        if tol is not None and (
+            not isinstance(tol, int | float) or not math.isfinite(tol) or tol <= 0
+        ):
+            raise ContractError(f"hole_diameter tol must be > 0 when given (got {tol!r})")
+        band = float(tol) if tol is not None else epsilon(float(d))
+        return self._add(
+            CheckSpec(
+                id=id or f"hole_d{d:g}".replace(".", "_"),
+                kind="hole_diameter",
+                phase=GEOMETRY,
+                limit=Limit(min=float(d) - band, max=float(d) + band),
+                hole={"d": float(d), "count": count},
             )
         )
 
