@@ -1,0 +1,73 @@
+# Release: push a v* tag -> build -> verify the artifact -> publish to PyPI.
+#
+# Publishing uses PyPI Trusted Publishing (OIDC) — no token lives in this repo.
+# The publisher registered on PyPI names this exact workflow file and the
+# `pypi` environment; renaming either silently breaks the binding.
+#
+# This workflow verifies the *artifact* — it builds, its metadata is valid, the
+# wheel installs cold and answers `--version`. Correctness of the code is the
+# `ok` gate's job, which every commit on main has already passed (main requires
+# a PR with `ok` green and linear history). Tags are expected to point at main.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: Build and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      # A tag that disagrees with pyproject would publish a version whose name
+      # lies about its content. Fail here, before anything is built.
+      - name: Assert the tag matches the package version
+        run: |
+          declared=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          tagged="${GITHUB_REF_NAME#v}"
+          echo "pyproject: $declared, tag: $tagged"
+          [ "$declared" = "$tagged" ] || { echo "::error::tag $GITHUB_REF_NAME does not match version $declared"; exit 1; }
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Check metadata
+        run: uvx twine check --strict dist/*
+
+      # Cold install into an empty venv — the environment every `pip install
+      # partspec` user starts from, which no other job here reproduces. Core
+      # only, no extras: importing partspec must not require a CAD engine, and
+      # this is where that claim gets exercised against the built wheel rather
+      # than the source tree.
+      - name: Smoke-test the wheel
+        run: |
+          uv venv /tmp/smoke
+          VIRTUAL_ENV=/tmp/smoke uv pip install dist/*.whl
+          /tmp/smoke/bin/partspec --version
+          version=$(/tmp/smoke/bin/partspec --version)
+          [ "$version" = "partspec ${GITHUB_REF_NAME#v}" ] || { echo "::error::--version says '$version'"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
