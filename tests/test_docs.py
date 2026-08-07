@@ -102,3 +102,18 @@ def test_the_readme_does_not_claim_the_backends_are_unimplemented():
         text = doc.read_text().lower()
         assert "backends are\nnot" not in text, doc.name
         assert "nothing useful to run yet" not in text, doc.name
+
+
+def test_readme_links_survive_pypi():
+    """pyproject embeds README.md verbatim as the wheel's long description, so
+    a repo-relative link 404s on pypi.org. Absolute blob URLs or nothing (#61).
+    """
+    text = README.read_text()
+    # Positive invariant, not banned prefixes: `](./docs/`, a root-file link
+    # (`](LICENSE)`) or a reference-style definition would evade a denylist
+    # while 404ing identically. Every markdown link target must be absolute
+    # or an in-page anchor.
+    for target in re.findall(r"\]\(([^)]+)\)", text):
+        assert re.match(r"^(https?://|#)", target), f"README link would 404 on PyPI: {target}"
+    assert "<a href=" not in text
+    assert not re.search(r"^\[[^\]]+\]:", text, re.MULTILINE), "reference-style link definition"

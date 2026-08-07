@@ -4,7 +4,7 @@ Verify CAD-as-code parts against declared engineering intent.
 
 > **Status: pre-alpha, and unreleased.** It runs end to end — `check` and `measure`, across
 > all three engines — and is being dogfooded on real parts. The check vocabulary is
-> deliberately small; [`docs/POST-V0.md`](docs/POST-V0.md) records what is withheld and why.
+> deliberately small; [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is withheld and why.
 > Expect the API to move.
 
 ## What it is for
@@ -14,7 +14,7 @@ bore that has to clear an 8 mm shaft. Usually it lives in a README, a comment, o
 head, and nothing checks it. `partspec` lets you declare it next to the model and enforce
 it in CI.
 
-This is [`examples/spacer/spec.py`](examples/spacer/spec.py) — the whole contract, less its
+This is [`examples/spacer/spec.py`](https://github.com/CameronBrooks11/partspec/blob/main/examples/spacer/spec.py) — the whole contract, less its
 docstring:
 
 ```python
@@ -129,7 +129,7 @@ uv run partspec check examples/spacer/spec.py:spacer
 Engines are optional extras — `mesh`, `occt`, `cadquery` — so `uv sync --extra mesh` is
 enough for OpenSCAD-only work. The `mcp` extra adds `partspec-mcp`, a stdio MCP server
 exposing `check` and `measure` as stateless tools: each call runs the CLI and returns the
-same report artifact, per the boundary in [D18](docs/DECISIONS.md). The `openscad` binary itself is a system dependency;
+same report artifact, per the boundary in [D18](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md). The `openscad` binary itself is a system dependency;
 `PARTSPEC_OPENSCAD` pins which one is used, and the version is recorded in every report
 because it changes the artifact.
 
@@ -152,14 +152,14 @@ not as a failing part.
 
 The specs are normative and were written before the implementation:
 
-- [`docs/SPEC-report.md`](docs/SPEC-report.md) — the report schema and exit codes. This is
+- [`docs/SPEC-report.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-report.md) — the report schema and exit codes. This is
   the actual contract; the CLI verbs are not.
-- [`docs/SPEC-contract.md`](docs/SPEC-contract.md) — the Python contract API and check
+- [`docs/SPEC-contract.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-contract.md) — the Python contract API and check
   vocabulary.
-- [`docs/SPEC-backend.md`](docs/SPEC-backend.md) — the geometry backend protocol.
-- [`docs/DECISIONS.md`](docs/DECISIONS.md) — every design decision, with its reasoning.
-- [`docs/PLAN.md`](docs/PLAN.md) — what v0 is and how it gets built.
-- [`docs/POST-V0.md`](docs/POST-V0.md) — what is deliberately not here yet, and why.
+- [`docs/SPEC-backend.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-backend.md) — the geometry backend protocol.
+- [`docs/DECISIONS.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md) — every design decision, with its reasoning.
+- [`docs/PLAN.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/PLAN.md) — what v0 is and how it gets built.
+- [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) — what is deliberately not here yet, and why.
 
 ## Prior art
 
@@ -171,7 +171,7 @@ packaging, and its `-D` parameter-passing approach is adopted directly.
 [build123d-mcp](https://github.com/pzfreo/build123d-mcp) is the complement on the authoring
 side — a stateful interactive session an agent designs *in*; `partspec` is the stateless
 gate the result must pass, and deliberately does not own that loop
-([D18](docs/DECISIONS.md)).
+([D18](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md)).
 
 ## License
 
