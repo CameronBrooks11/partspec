@@ -13,6 +13,8 @@ Nothing here is scheduled. This is a holding pen, not a roadmap.
 ## 1. Assemblies — the largest item
 
 Everything below is from `investigations/03-cad-khana-absorption.md` and is deferred whole.
+**Scheduling decision, 2026-08-07:** D19 places assemblies after v1.0 — the v1.0 budget
+goes to part-level depth of intent. This section is the design basis for when they begin.
 
 **The design constraints v0 must honour to keep this cheap** (all adopted at no cost, per
 `SPEC-contract.md` §9): `checks[].id` is a free-form string so dotted paths fit; every check
