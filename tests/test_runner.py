@@ -895,3 +895,114 @@ def test_an_approximate_axis_is_never_claimed_outside_its_bound():
     assert components == {"a": Status.FAIL, "b": Status.APPROXIMATE}
     assert components is not None
     assert _failing_axes(m, limit, components) == "a=5 outside min=6.0"
+
+
+# --------------------------------------------------------------------------
+# hole_diameter (#80)
+# --------------------------------------------------------------------------
+
+_HOLE_MODEL = (
+    "from build123d import Align, Box, Cylinder, Location\n\n"
+    "A = (Align.CENTER, Align.CENTER, Align.MIN)\n\n\n"
+    "def make_part():\n"
+    "    plate = Box(60, 40, 10, align=(Align.MIN, Align.MIN, Align.MIN))\n"
+    "    return (\n"
+    "        plate\n"
+    "        - (Location((15, 20, -1)) * Cylinder(4, 12, align=A))\n"
+    "        - (Location((30, 20, -1)) * Cylinder(4, 12, align=A))\n"
+    "        + (Location((50, 20, 10)) * Cylinder(3, 5, align=A))\n"
+    "    )\n"
+)
+
+needs_build123d = pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
+    reason="occt extra not installed",
+)
+
+
+@needs_build123d
+def test_hole_diameter_passes_and_records_the_matched_diameters(tmp_path: Path):
+    from partspec import build123d
+
+    model = tmp_path / "m.py"
+    model.write_text(_HOLE_MODEL)
+    p = Part("plate", build123d(model)).hole_diameter(8.0, count=2)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.kind == "hole_diameter")
+    assert check.status is Status.PASS
+    assert check.measurement is not None
+    assert check.measurement.value == (8.0, 8.0)
+    assert check.hole == {"d": 8.0, "count": 2}
+    assert report.verdict is Verdict.PASS
+
+
+@needs_build123d
+def test_a_boss_does_not_satisfy_a_hole_claim(tmp_path: Path):
+    """The Ø6 boss is a full-wrap cylindrical surface of exactly the claimed
+    diameter — facing out. Counting it would report a hole where there is a
+    pin, which is the confident wrong answer in its purest form."""
+    from partspec import build123d
+
+    model = tmp_path / "m.py"
+    model.write_text(_HOLE_MODEL)
+    p = Part("plate", build123d(model)).hole_diameter(6.0, count=1)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.kind == "hole_diameter")
+    assert check.status is Status.FAIL
+    assert check.measurement is None, "nothing matched; nothing was measured for this claim"
+    assert check.detail is not None
+    assert "found 0 bore(s)" in check.detail
+    assert "Ø8, Ø8" in check.detail, "the inventory shows what exists"
+
+
+@needs_build123d
+def test_a_count_mismatch_fails_with_the_inventory(tmp_path: Path):
+    from partspec import build123d
+
+    model = tmp_path / "m.py"
+    model.write_text(_HOLE_MODEL)
+    p = Part("plate", build123d(model)).hole_diameter(8.0, count=3)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.kind == "hole_diameter")
+    assert check.status is Status.FAIL
+    assert check.measurement is not None and check.measurement.value == (8.0, 8.0)
+    assert check.detail is not None and "expected 3" in check.detail
+
+
+@needs_build123d
+def test_the_same_hole_contract_holds_on_cadquery(tmp_path: Path):
+    """#80 acceptance names both Python engines: one OCCT implementation
+    serves them (D3), and this is the check that proves it for bores."""
+    pytest.importorskip("cadquery", reason="cadquery extra not installed")
+    from partspec import cadquery as cq_source
+
+    model = tmp_path / "m.py"
+    model.write_text(
+        "import cadquery as cq\n\n\n"
+        "def make_part():\n"
+        "    return (\n"
+        "        cq.Workplane('XY').box(60, 40, 10, centered=False)\n"
+        "        .faces('>Z').workplane()\n"
+        "        .pushPoints([(15, 20), (30, 20)]).hole(8.0)\n"
+        "    )\n"
+    )
+    p = Part("plate", cq_source(model)).hole_diameter(8.0, count=2)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.kind == "hole_diameter")
+    assert check.status is Status.PASS, check.detail
+    assert report.engine["adopted_via"] == "wrapped"
+
+
+@needs_openscad
+def test_hole_diameter_is_refused_on_the_mesh_tier_with_the_pointer(tmp_path: Path):
+    """A 64-gon bore is a real 64-sided prism; answering Ø8 for it is the
+    PartCAD failure. The refusal is structural — the capability is absent —
+    and names the tier that would answer for an equivalent part."""
+    p = Part("block", openscad(BLOCK)).hole_diameter(8.0)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.kind == "hole_diameter")
+    assert check.status is Status.UNSUPPORTED
+    assert check.requires == "occt"
+    assert check.hole == {"d": 8.0, "count": 1}, "the refusal still states the claim"
+    assert report.verdict is Verdict.INCOMPLETE
+    assert report.exit_code == 2

@@ -110,8 +110,8 @@ error.
 
 `SPEC-report.md` §7.1 declares `kind` an open vocabulary so the report format never needs
 revising when a check is added. **This document closes it at each release**: v0 shipped the
-set below through `topology`; `keep_out` / `keep_in` (§4.4) are the first post-v0.1
-additions, from epic #6.
+set below through `topology`; `keep_out` / `keep_in` (§4.4) and `hole_diameter` (§4.5) are
+the post-v0.1 additions, from epic #6.
 
 ### 4.1 Parameter phase
 
@@ -138,6 +138,7 @@ on. `p.requires` is the escape hatch for anything relational.
 | `p.topology(faces=, edges=, vertices=)` | `topology` | vector, `count`, exact | **occt only** |
 | `p.keep_out(region, shell=)` | `keep_out` | vector, `mm3`, exact | both |
 | `p.keep_in(region, shell=)` | `keep_in` | vector, `mm3`, exact | both |
+| `p.hole_diameter(d, count=, tol=)` | `hole_diameter` | vector, `mm`, exact | **occt only** |
 
 `builds` is **implicit and always present**: every part gets it, and it fails if the engine
 exits non-zero or emits no artifact. It is the one check an author cannot forget, and it is
@@ -146,7 +147,9 @@ why a contract with no declared checks still reports `empty` rather than crashin
 ### 4.2.2 `topology` — the check that makes the tiers visible
 
 Every other v0 kind maps to a primitive both backends declare. `topology` is the exception,
-deliberately: on the OCCT tier it compares real modelled counts, and on the mesh tier it
+deliberately — and since v0.1 it has company: `hole_diameter` (§4.5) is the first member of
+the OCCT-only class whose machinery `topology` shipped to exercise. On the OCCT tier it
+compares real modelled counts, and on the mesh tier it
 reports `unsupported` with `requires: "occt"`, because a triangle mesh has faces only in the
 sense that a mosaic has colours. Returning a triangle count is the PartCAD failure (D12), and
 it is prevented structurally — the mesh backend does not declare the capability, so the
@@ -270,6 +273,53 @@ a polygon). Both statuses are conclusive: every volume involved is an exact bool
 The report records the declared region and shell on the check (`SPEC-report.md` §7.1), its
 `measurement` is the vector `(region, shell)` of material volumes found, and `limit` is
 null — the paired claim has no limit form, and inventing one would misdescribe it.
+
+### 4.5 `hole_diameter` — the first drawing dimension
+
+Exactly `count` cylindrical bores of diameter `d` exist. The first BREP dimension check
+(POST-V0 §4), **OCCT tier only**: a triangle mesh has no cylindrical face, and fitting one
+to the facets is the confident-wrong-number failure §4.2.2 exists to prevent. On the mesh
+tier it reports `unsupported` with `requires: "occt"` — structurally, by the mesh backend
+not declaring the `bores` primitive.
+
+**The no-selectors resolution.** §8 deliberately provides no way to name a face, so this
+cannot be "*this* hole is Ø8". It is a **count claim over detected bores**: the backend
+enumerates every bore on the part, and the check asserts how many fall inside the diameter
+band. A **bore** is a set of cylindrical faces sharing one axis line, one radius and one
+contiguous axial span, facing *inward* (material surrounds the void — a boss is the same
+surface facing out), whose angular extents sum to the full circle. Consequences, each
+deliberate:
+
+- **A counterbore counts once per diameter.** Its coaxial portions have different radii, and
+  each is a real seat with a real drawing callout — `hole_diameter(8)` and
+  `hole_diameter(12)` both hold on a Ø12-counterbored Ø8 hole.
+- **A concave fillet (quarter-wrap) and a half-round groove (half-wrap) never count** —
+  full-wrap is what separates "a hole" from "a concave cylindrical surface".
+- **Two aligned holes through two clevis lugs count twice**: same axis, same radius,
+  disjoint axial spans. The drawing says "2× Ø8" and so does the check.
+- **Blind and through bores count alike.** Depth is not this check's claim.
+
+**What it deliberately does not claim:** position (that is `keep_out`'s and the future
+`bolt_circle`'s territory), depth, and the absence of *other* holes — a part with an extra
+Ø5 bore still passes `hole_diameter(8, count=2)`, because the claim is about the Ø8 bores.
+
+**`tol` is the drawing's acceptance band** (Ø8 ±0.1 → `tol=0.1`). Omitted, the band is the
+comparison epsilon — "modelled exactly as drawn" — the right default for CAD-as-code, where
+the model is nominal geometry rather than a measured article. The band is materialised into
+`limit` (`min`/`max`) at declaration and membership is plain interval containment: applying
+epsilon again at adjudication would tolerance the tolerance.
+
+**Exactness, recorded against a prediction.** POST-V0 §4 expected the first BREP check to
+be the first real exercise of `approximate` (`SPEC-report.md` §3.1). It is not: a modelled
+cylinder's radius is a surface *parameter*, read exactly, not an estimate carrying an error
+interval. The measurement is the vector of matched diameters (exact, `mm`, axes
+`bore_1..n`; null when nothing matched), which is what a comparator tracks drift on when a
+real tolerance band is in play. The `approximate` machinery remains unexercised, and
+POST-V0 §4 now says so.
+
+The report records the declared bore on the check as `hole: {"d", "count"}`
+(`SPEC-report.md` §7.1); a failing check's `detail` carries the full bore inventory of the
+part, so the reader sees what exists rather than only what is missing.
 
 ---
 

@@ -98,6 +98,9 @@ class CheckResult:
     region: dict[str, Any] | None = None
     """The declared region and shell of a `keep_out` / `keep_in` check, so the
     report states what was claimed, not just how it went. Additive per §7.1."""
+    hole: dict[str, Any] | None = None
+    """The declared bore of a `hole_diameter` check — `{"d": ..., "count": ...}`
+    — on the same principle as `region`. Additive per §7.1."""
     detail: str | None = None
     requires: str | None = None
     part_refs: tuple[str, ...] = ()
@@ -120,6 +123,8 @@ class CheckResult:
             out["operands"] = self.operands or {}
         if self.region is not None:
             out["region"] = self.region
+        if self.hole is not None:
+            out["hole"] = self.hole
         out["detail"] = self.detail
         if self.requires is not None:
             out["requires"] = self.requires

@@ -81,6 +81,10 @@ class GeometryBackend(Protocol):
     # --- added for keep_out / keep_in (SPEC-contract.md §4.4) ---
     def region_solid(self, region) -> Artifact: ...
 
+    # --- added for hole_diameter (SPEC-contract.md §4.5); OCCT-only, like
+    #     topology_counts — a mesh has no cylindrical face to enumerate ---
+    def bores(self, a) -> Measured | Unsupported: ...
+
     # --- honesty ---
     def capabilities(self) -> frozenset[str]: ...
 ```
@@ -99,6 +103,14 @@ tiers MUST realise **the same polyhedron from the region's canonical vertex list
 cylinder region *is* a circumscribed polygon prism everywhere, and a backend that
 substitutes its own exact cylinder — as the OCCT tier could — is answering a different
 question than the other tier (`SPEC-contract.md` §4.4).
+
+`bores` enumerates every cylindrical bore's diameter, per the bore definition in
+`SPEC-contract.md` §4.5 (inward-facing, full-wrap, one contiguous axial span per bore;
+counterbore portions distinct per diameter). Declared only by the OCCT backend — the mesh
+tier MUST NOT declare it, for the same reason as `topology_counts`: fitting cylinders to
+facets manufactures the confident wrong number this protocol exists to refuse. Diameters
+are exact (a BREP radius is a parameter, not an estimate), which is why the predicted
+first use of `approximate` did not arrive with this primitive.
 
 ### 3.1 `Unsupported` is a return value, not an exception
 

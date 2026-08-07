@@ -288,3 +288,28 @@ def test_components_serialise_between_limit_and_detail_as_strings():
         "components",
         "detail",
     ]
+
+
+def test_hole_serialises_after_region_position():
+    r = _report(
+        checks=[
+            _check(
+                Status.FAIL,
+                kind="hole_diameter",
+                hole={"d": 8.0, "count": 2},
+                detail="found 0 bore(s)",
+            )
+        ]
+    )
+    check = r.to_json()["checks"][0]
+    assert check["hole"] == {"d": 8.0, "count": 2}
+    assert list(check) == [
+        "id",
+        "kind",
+        "phase",
+        "status",
+        "measurement",
+        "limit",
+        "hole",
+        "detail",
+    ]

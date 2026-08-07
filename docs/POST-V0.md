@@ -97,13 +97,15 @@ believing a green run on an unfamiliar file").
 
 ## 4. BREP-tier checks
 
-`hole_diameter`, `hole_pattern` / bolt circle, `fillet_radius`, `draft_angle`,
-`self_intersection`, `step_roundtrip`. All `unsupported` on mesh, irreducibly — no
-conversion recovers them (`investigations/04` §4).
+~~`hole_diameter`~~ (shipped 2026-08-07, #80 — `SPEC-contract.md` §4.5), `hole_pattern` /
+bolt circle, `fillet_radius`, `draft_angle`, `self_intersection`, `step_roundtrip`. All
+`unsupported` on mesh, irreducibly — no conversion recovers them (`investigations/04` §4).
 
-**These are the first checks that will exercise the `approximate` machinery**, so whichever
-lands first should be treated as the real test of `SPEC-report.md` §3.1 rather than as a
-routine feature.
+**These were predicted to be the first checks to exercise the `approximate` machinery.**
+The prediction failed on its first member: `hole_diameter` landed exact, because a BREP
+cylinder's radius is a surface parameter, not an estimate. §3.1's real test is still
+outstanding, and whichever check first carries a genuine error interval inherits the
+obligation.
 
 `self_intersection` additionally needs a mesh-side answer that is neither GPL (libigl/CGAL)
 nor heavyweight (pymeshlab) — currently an open dependency question (D14).

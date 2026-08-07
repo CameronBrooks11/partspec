@@ -118,7 +118,7 @@ class BuildError:
 class GeometryBackend(Protocol):
     """What every backend implements.
 
-    Thirteen primitives, plus lifecycle and an explicit capability declaration.
+    Fourteen primitives, plus lifecycle and an explicit capability declaration.
     Each returns a `Measurement` carrying its own `exact` flag, so a caller
     cannot accidentally lose provenance by receiving a bare float.
     """
@@ -151,7 +151,7 @@ class GeometryBackend(Protocol):
         """
         ...
 
-    # --- the thirteen primitives ---
+    # --- the fourteen primitives ---
 
     # `bbox`, `area` and `watertight` are total: they are statements about the
     # triangles or the shape as given, and stay answerable however broken it is.
@@ -185,5 +185,15 @@ class GeometryBackend(Protocol):
         vertex list (SPEC-contract.md 4.4) — a backend that substitutes an exact
         cylinder for the polygon prism is answering a different question than
         the other tier, however much better its representation could do.
+        """
+        ...
+
+    def bores(self, a: Any) -> Measurement | Unsupported:
+        """Every cylindrical bore's diameter (SPEC-contract.md 4.5).
+
+        OCCT-only, like `topology_counts`, and for the same reason: a mesh has
+        no cylindrical face to enumerate, and fitting one to the facets
+        manufactures the confident wrong number this protocol exists to refuse.
+        The mesh backend MUST NOT declare this capability.
         """
         ...
