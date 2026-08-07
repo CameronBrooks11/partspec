@@ -117,3 +117,18 @@ def test_readme_links_survive_pypi():
         assert re.match(r"^(https?://|#)", target), f"README link would 404 on PyPI: {target}"
     assert "<a href=" not in text
     assert not re.search(r"^\[[^\]]+\]:", text, re.MULTILINE), "reference-style link definition"
+
+
+def test_readme_agent_claim_matches_the_convergence_record():
+    """The README's agent paragraph quotes the eval result; pinned to the
+    evidence so the claim cannot outlive the record (#62)."""
+    import json
+
+    data = json.loads((ROOT / "evals" / "convergence-20260807" / "results.json").read_text())
+    records = data["trials"]
+    assert len({t["case"] for t in records}) == 5
+    assert all(t["outcome"] == "converged" and t["turns_to_converge"] == 1 for t in records)
+    # "without once weakening its contract" is a claim about `gamed`, so it is
+    # pinned to the counter, not inferred from convergence.
+    assert data["summary"]["gamed"] == 0
+    assert "five defect classes in" in README.read_text()
