@@ -84,6 +84,7 @@ class GeometryBackend(Protocol):
     # --- added for hole_diameter (SPEC-contract.md §4.5); OCCT-only, like
     #     topology_counts — a mesh has no cylindrical face to enumerate ---
     def bores(self, a) -> Measured | Unsupported: ...
+    def bore_table(self, a) -> list[BoreInfo] | Unsupported: ...   # raw data, like triangles
 
     # --- honesty ---
     def capabilities(self) -> frozenset[str]: ...
@@ -110,7 +111,10 @@ counterbore portions distinct per diameter). Declared only by the OCCT backend �
 tier MUST NOT declare it, for the same reason as `topology_counts`: fitting cylinders to
 facets manufactures the confident wrong number this protocol exists to refuse. Diameters
 are exact (a BREP radius is a parameter, not an estimate), which is why the predicted
-first use of `approximate` did not arrive with this primitive.
+first use of `approximate` did not arrive with this primitive. `bore_table` is the raw
+view beneath it — per bore `{d, direction, center}` — consumed by `bolt_circle`; one
+detection implementation serves both so the bore definition cannot fork, and the mesh
+tier refuses it identically.
 
 ### 3.1 `Unsupported` is a return value, not an exception
 

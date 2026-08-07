@@ -110,8 +110,8 @@ error.
 
 `SPEC-report.md` §7.1 declares `kind` an open vocabulary so the report format never needs
 revising when a check is added. **This document closes it at each release**: v0 shipped the
-set below through `topology`; `keep_out` / `keep_in` (§4.4) and `hole_diameter` (§4.5) are
-the post-v0.1 additions, from epic #6.
+set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5) and
+`bolt_circle` (§4.6) are the post-v0.1 additions, from epic #6.
 
 ### 4.1 Parameter phase
 
@@ -139,6 +139,7 @@ on. `p.requires` is the escape hatch for anything relational.
 | `p.keep_out(region, shell=)` | `keep_out` | vector, `mm3`, exact | both |
 | `p.keep_in(region, shell=)` | `keep_in` | vector, `mm3`, exact | both |
 | `p.hole_diameter(d, count=, tol=)` | `hole_diameter` | vector, `mm`, exact | **occt only** |
+| `p.bolt_circle(d, count=, bcd=, tol=)` | `bolt_circle` | scalar, `mm`, exact | **occt only** |
 
 `builds` is **implicit and always present**: every part gets it, and it fails if the engine
 exits non-zero or emits no artifact. It is the one check an author cannot forget, and it is
@@ -331,6 +332,32 @@ POST-V0 §4 now says so.
 The report records the declared bore on the check as `hole: {"d", "count"}`
 (`SPEC-report.md` §7.1); a failing check's `detail` carries the full bore inventory of the
 part, so the reader sees what exists rather than only what is missing.
+
+### 4.6 `bolt_circle` — the mounting-interface callout
+
+Exactly `count` bores of diameter `d`, axes parallel, centres on one circle of diameter
+`bcd` — "4× Ø5 on Ø40 BCD" as one check. **OCCT tier only**, built on §4.5's bore
+detection (`bore_table`), and adjudicated with **subset semantics**: the claim is that
+such a circle of holes *exists*, so an unrelated Ø`d` bore elsewhere does not break it —
+while a fifth hole ON the claimed circle does, because "4×" is a count, not a minimum.
+Every valid circle through three or more points is determined by three of its members, so
+the search is over candidate triples, capped and refused honestly beyond 60 candidate
+bores per direction rather than answered slowly and called exhaustive.
+
+Two deliberate edges:
+
+- **`count=2` is a centre-distance claim.** Two bolts on a BCD sit diametrically
+  opposite, and a circle through two points is under-determined — so the check asserts
+  centre separation `bcd`, and *exactness of count* is only enforceable for `count >= 3`
+  (two of four holes on a Ø40 circle genuinely are "2× on Ø40").
+- **The bores' own diameters always match at the comparison epsilon**, never at `tol` —
+  `tol` is the *positional* band on the circle diameter. A toleranced diameter claim
+  belongs to `hole_diameter`; blurring the two would let a wrong-size hole satisfy a
+  position claim.
+
+The measurement is the fitted circle diameter (exact, from exact centres); `limit` is the
+`bcd` band; the declared callout is recorded as `hole: {"d", "count", "bcd"}`. On failure
+the detail carries the candidate inventory and the nearest circle found.
 
 ---
 

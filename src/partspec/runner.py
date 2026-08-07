@@ -248,6 +248,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         return _run_region_check(spec, backend, artifact, common)
     if spec.kind == "hole_diameter":
         return _run_hole_check(spec, backend, artifact, common)
+    if spec.kind == "bolt_circle":
+        return _run_bolt_circle_check(spec, backend, artifact, common)
 
     outcome = getattr(backend, primitive_name)(artifact)
     if isinstance(outcome, Unsupported):
@@ -353,6 +355,150 @@ def _run_hole_check(
         status=Status.PASS if len(matched) == expected else Status.FAIL,
         measurement=measurement,
         detail=detail,
+    )
+
+
+_BOLT_CIRCLE_SEARCH_CAP = 60
+"""Candidate bores per direction group before the triple search is refused.
+C(60,3) ≈ 34k circumcircles is cheap; a part with more same-diameter parallel
+bores than that deserves an honest refusal over an unbounded search."""
+
+
+def _run_bolt_circle_check(
+    spec: CheckSpec, backend: Any, artifact: Any, common: dict[str, Any]
+) -> CheckResult:
+    """Exactly `count` matching bores, axes parallel, concyclic at `bcd`.
+
+    Subset semantics (SPEC-contract.md 4.6): the claim is that such a circle
+    EXISTS, searched over every subset of candidate bores — an unrelated hole
+    elsewhere must not break it, and a fifth hole on the claimed circle must.
+    Every valid circle through >= 3 points is determined by 3 of its members,
+    so searching triples finds it without enumerating subsets.
+    """
+    assert spec.limit is not None and spec.hole is not None
+    table = backend.bore_table(artifact)
+    if isinstance(table, Unsupported):
+        return CheckResult(
+            **common, status=Status.UNSUPPORTED, detail=table.reason, requires=table.requires
+        )
+
+    d, count, bcd = spec.hole["d"], int(spec.hole["count"]), spec.hole["bcd"]
+    lo, hi = spec.limit.min, spec.limit.max
+    band = hi - bcd
+    candidates = [b for b in table if abs(b["d"] - d) <= epsilon(d)]
+
+    groups: dict[tuple, list[dict[str, Any]]] = {}
+    for bore in candidates:
+        groups.setdefault(tuple(round(c, 6) for c in bore["direction"]), []).append(bore)
+
+    fitted, best = None, None  # best: (members_found, circle_diameter) for the detail
+    for group in groups.values():
+        if len(group) < count:
+            continue
+        if len(group) > _BOLT_CIRCLE_SEARCH_CAP:
+            return CheckResult(
+                **common,
+                status=Status.UNSUPPORTED,
+                detail=f"{len(group)} candidate bores share this axis direction; "
+                f"refusing to search beyond {_BOLT_CIRCLE_SEARCH_CAP} rather than "
+                f"answer slowly and claim it was exhaustive",
+            )
+        points = _plane_coordinates(group)
+        fitted, best = _find_circle(points, count, bcd, band, lo, hi, best)
+        if fitted is not None:
+            break
+
+    if fitted is not None:
+        return CheckResult(
+            **common, status=Status.PASS, measurement=Measurement(fitted, "mm", exact=True)
+        )
+    if best is not None:
+        found, circle_d = best
+        near = f"; the nearest circle of Ø{circle_d:.9g} holds {found} of them"
+    else:
+        near = ""
+    return CheckResult(
+        **common,
+        status=Status.FAIL,
+        detail=f"no circle of Ø{bcd:.9g} (±{band:.9g}) holds exactly {count} parallel "
+        f"bores of Ø{d:g}; {len(candidates)} candidate bore(s) on this part{near}",
+    )
+
+
+def _plane_coordinates(group: list[dict[str, Any]]) -> list[tuple[float, float]]:
+    """Project each bore centre onto the plane perpendicular to the shared axis."""
+    dx, dy, dz = group[0]["direction"]
+    # Any vector not parallel to the axis seeds the basis.
+    ax, ay, az = (1.0, 0.0, 0.0) if abs(dx) < 0.9 else (0.0, 1.0, 0.0)
+    ux, uy, uz = dy * az - dz * ay, dz * ax - dx * az, dx * ay - dy * ax
+    norm = (ux * ux + uy * uy + uz * uz) ** 0.5
+    ux, uy, uz = ux / norm, uy / norm, uz / norm
+    vx, vy, vz = dy * uz - dz * uy, dz * ux - dx * uz, dx * uy - dy * ux
+    return [
+        (cx * ux + cy * uy + cz * uz, cx * vx + cy * vy + cz * vz)
+        for cx, cy, cz in (bore["center"] for bore in group)
+    ]
+
+
+def _find_circle(
+    points: list[tuple[float, float]],
+    count: int,
+    bcd: float,
+    band: float,
+    lo: float,
+    hi: float,
+    best: tuple[int, float] | None,
+) -> tuple[float | None, tuple[int, float] | None]:
+    """Search for a circle of ~bcd holding exactly `count` points.
+
+    Returns (fitted diameter or None, best near-miss for the failure detail).
+    """
+    import itertools
+    import math
+
+    def dist(a: tuple[float, float], b: tuple[float, float]) -> float:
+        return math.hypot(a[0] - b[0], a[1] - b[1])
+
+    if count == 2:
+        # Two bolts on a BCD sit diametrically opposite: the circle claim
+        # collapses to centre distance == bcd.
+        for a, b in itertools.combinations(points, 2):
+            separation = dist(a, b)
+            if lo <= separation <= hi:
+                return separation, best
+            if best is None or abs(separation - bcd) < abs(best[1] - bcd):
+                best = (2, separation)
+        return None, best
+
+    for triple in itertools.combinations(points, 3):
+        centre = _circumcentre(*triple)
+        if centre is None:
+            continue  # collinear
+        members = [p for p in points if abs(2 * dist(centre, p) - bcd) <= band]
+        if not members:
+            continue
+        circle_d = 2 * sum(dist(centre, p) for p in members) / len(members)
+        if len(members) == count and lo <= circle_d <= hi:
+            return circle_d, best
+        if best is None or abs(len(members) - count) < abs(best[0] - count):
+            best = (len(members), circle_d)
+    return None, best
+
+
+def _circumcentre(
+    a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]
+) -> tuple[float, float] | None:
+    d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]))
+    if abs(d) < 1e-12:
+        return None
+    a2, b2, c2 = (
+        a[0] * a[0] + a[1] * a[1],
+        b[0] * b[0] + b[1] * b[1],
+        c[0] * c[0] + c[1] * c[1],
+    )
+    return (
+        (a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d,
+        (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d,
     )
 
 

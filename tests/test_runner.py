@@ -1029,3 +1029,94 @@ def test_a_diameter_on_the_band_edge_is_inside_the_band(tmp_path: Path):
     check = next(c for c in report.checks if c.kind == "hole_diameter")
     assert check.status is Status.PASS, check.detail
     assert check.measurement is not None and check.measurement.value == (7.9,)
+
+
+# --------------------------------------------------------------------------
+# bolt_circle (#81)
+# --------------------------------------------------------------------------
+
+_FLANGE_MODEL = (
+    "import math\n"
+    "from build123d import Box, Cylinder, Location, Align\n\n"
+    "A = (Align.CENTER, Align.CENTER, Align.MIN)\n\n\n"
+    "def make_part():\n"
+    "    plate = Box(80, 80, 8, align=(Align.MIN, Align.MIN, Align.MIN))\n"
+    "    part = plate - (Location((40, 40, -1)) * Cylinder(10, 10, align=A))\n"
+    "    for k in range(4):\n"
+    "        x = 40 + 20 * math.cos(math.tau * k / 4 + 0.3)\n"
+    "        y = 40 + 20 * math.sin(math.tau * k / 4 + 0.3)\n"
+    "        part = part - (Location((x, y, -1)) * Cylinder(2.5, 10, align=A))\n"
+    "    part = part - (Location((70, 8, -1)) * Cylinder(2.5, 10, align=A))\n"
+    "    return part\n"
+)
+
+
+@needs_build123d
+def test_the_drawing_callout_passes_as_one_check(tmp_path: Path):
+    """4x Ø5 on Ø40 BCD, with a centre bore and an unrelated off-circle Ø5
+    bore that subset semantics must ignore (#81 acceptance)."""
+    from partspec import build123d
+
+    model = tmp_path / "flange.py"
+    model.write_text(_FLANGE_MODEL)
+    p = Part("flange", build123d(model)).bolt_circle(5.0, count=4, bcd=40.0)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.kind == "bolt_circle")
+    assert check.status is Status.PASS, check.detail
+    assert check.measurement is not None
+    assert check.measurement.value == pytest.approx(40.0, abs=1e-9)
+    assert check.hole == {"d": 5.0, "count": 4, "bcd": 40.0}
+
+
+@needs_build123d
+def test_wrong_bcd_missing_hole_and_extra_on_circle_all_fail(tmp_path: Path):
+    from partspec import build123d
+
+    model = tmp_path / "flange.py"
+    model.write_text(_FLANGE_MODEL)
+
+    def result(**kw):
+        p = Part("flange", build123d(model)).bolt_circle(5.0, **kw)
+        return next(c for c in run(p, out_dir=tmp_path).checks if c.kind == "bolt_circle")
+
+    wrong_bcd = result(count=4, bcd=38.0)
+    assert wrong_bcd.status is Status.FAIL
+    assert wrong_bcd.detail is not None and "5 candidate bore(s)" in wrong_bcd.detail
+
+    # "5x on Ø40" when only 4 lie on it: a count, not a minimum.
+    overcount = result(count=5, bcd=40.0)
+    assert overcount.status is Status.FAIL
+    assert overcount.detail is not None and "holds 4 of them" in overcount.detail
+
+    # Wrong hole size on the right circle: position claims never blur into
+    # diameter tolerance.
+    wrong_d = Part("flange", build123d(model)).bolt_circle(6.0, count=4, bcd=40.0)
+    check = next(c for c in run(wrong_d, out_dir=tmp_path).checks if c.kind == "bolt_circle")
+    assert check.status is Status.FAIL
+    assert check.detail is not None and "0 candidate bore(s)" in check.detail
+
+
+@needs_build123d
+def test_two_bolt_flanges_claim_centre_distance(tmp_path: Path):
+    """count=2 collapses to centre separation == bcd — two of the four holes
+    sit diametrically opposite, and a circle through two points is
+    under-determined, so this is deliberately satisfiable here."""
+    from partspec import build123d
+
+    model = tmp_path / "flange.py"
+    model.write_text(_FLANGE_MODEL)
+    p = Part("flange", build123d(model)).bolt_circle(5.0, count=2, bcd=40.0)
+    check = next(c for c in run(p, out_dir=tmp_path).checks if c.kind == "bolt_circle")
+    assert check.status is Status.PASS
+    assert check.measurement is not None
+    assert check.measurement.value == pytest.approx(40.0)
+
+
+@needs_openscad
+def test_bolt_circle_is_refused_on_the_mesh_tier(tmp_path: Path):
+    p = Part("block", openscad(BLOCK)).bolt_circle(5.0, count=4, bcd=40.0)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.kind == "bolt_circle")
+    assert check.status is Status.UNSUPPORTED
+    assert check.requires == "occt"
+    assert report.verdict is Verdict.INCOMPLETE
