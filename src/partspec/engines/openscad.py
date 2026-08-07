@@ -20,7 +20,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -50,8 +49,9 @@ class OpenSCADSource:
     params: dict[str, Any] = field(default_factory=dict)
     method: str | None = None
     """When set, parameters are passed as arguments to a call to this module,
-    appended to a throwaway copy of the source. Otherwise they override
-    top-level variables via -D. The source file is never modified either way."""
+    via a throwaway scratch entry that includes the source. Otherwise they
+    override top-level variables via -D. The source file is never modified
+    either way."""
 
     backend: str | None = None
     """OpenSCAD render backend: "Manifold", "CGAL", or None for the engine's
@@ -132,16 +132,74 @@ def _define_args(params: dict[str, Any]) -> list[str]:
 
 
 def _method_call_source(source: Path, method: str, params: dict[str, Any]) -> str:
-    """A throwaway copy of the source with a call to `method` appended.
+    """A scratch entry that includes the source and appends the call.
 
-    Adopted from PartCAD, which does the same thing for the same reason: it lets
-    a parameterised module be invoked without the source file having a top-level
-    call, and without ever mutating the file on disk.
+    An `include <>` of the absolute source path, not a copy of the body:
+    OpenSCAD resolves nested `include`/`use` relative to the file *containing*
+    the statement, so the source's own relative includes keep working wherever
+    the scratch lives. The idea is PartCAD's — invoke a parameterised module
+    without the file having a top-level call, never mutating the file.
     """
-    body = source.read_text(encoding="utf-8")
     args = ", ".join(f"{k} = {scad_literal(v)}" for k, v in params.items())
-    newline = "" if body.endswith("\n") else "\n"
-    return f"{body}{newline}{method}({args});\n"
+    return f"include <{source.resolve()}>\n{method}({args});\n"
+
+
+def _method_scratch(source: OpenSCADSource, out_dir: Path) -> Path | BuildError:
+    """Write the scratch entry, preferring the out dir over the source tree.
+
+    The artifact under inspection and the inspector's scratch space must not
+    share a directory (#39): the old in-tree copy crashed uncaught on a
+    read-only source dir and left a tmp file for any watcher or `git add -A`
+    to see. So the entry normally lives under the out dir, `.partspec-`
+    prefixed per the report writer's convention.
+
+    One measured exception. Relative `import()`/`surface()` data files
+    resolve against the MAIN entry file's directory — not the file containing
+    the statement — so an out-dir entry breaks exactly the sources
+    `include_closure` flags as `reads_external_data` (adversarial review,
+    live on 2021.01: `surface(file = "data.dat")` looked for the file in the
+    out dir). Those sources keep their entry beside the source, uniquely
+    named, and a read-only source dir becomes a *named* refusal instead of a
+    traceback.
+    """
+    assert source.method is not None
+    if ">" in str(source.path.resolve()):
+        # `include <>` has no escape syntax; a path OpenSCAD cannot express
+        # must refuse here, not surface as "Can't open include file" blaming
+        # the model.
+        return BuildError(
+            f"the source path {source.path.resolve()} contains '>', which an OpenSCAD "
+            f"include <> cannot express",
+            origin="environment",
+        )
+    body = _method_call_source(source.path, source.method, source.params)
+    if include_closure(source.path).reads_external_data:
+        import tempfile
+
+        try:
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=".partspec-", suffix=".scad", dir=source.path.parent
+            )
+        except OSError as exc:
+            return BuildError(
+                f"could not write the method scratch file in {source.path.parent}: {exc.strerror}",
+                origin="environment",
+                hint="this source reads external data files (import()/surface()), which "
+                "resolve against the entry file's directory — the scratch must sit beside "
+                "the source, and that directory is not writable",
+            )
+        with open(fd, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        return Path(tmp_name)
+    scratch = out_dir / f".partspec-{source.path.stem}-{source.method}.scad"
+    try:
+        scratch.write_text(body, encoding="utf-8")
+    except OSError as exc:
+        return BuildError(
+            f"could not write the method scratch file in {out_dir}: {exc.strerror}",
+            origin="environment",
+        )
+    return scratch
 
 
 def render(
@@ -163,7 +221,13 @@ def render(
     if not source.path.is_file():
         return BuildError(f"source not found: {source.path}", origin="environment")
 
-    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return BuildError(
+            f"could not create the output directory {out_dir}: {exc.strerror}",
+            origin="environment",
+        )
     stl = out_dir / f"{source.path.stem}.stl"
 
     # The export path is deterministic, so a previous run's mesh is sitting there
@@ -173,15 +237,23 @@ def render(
     # and report it as this one's. Removing it first makes the checks mean what
     # they read as, and makes a failed render leave nothing behind for a later
     # reader to pick up.
-    stl.unlink(missing_ok=True)
+    try:
+        stl.unlink(missing_ok=True)
+    except OSError as exc:
+        # A stale artifact in a directory this run cannot write is the same
+        # environment fault as an uncreatable one, and must not traceback.
+        return BuildError(
+            f"could not clear the previous artifact in {out_dir}: {exc.strerror}",
+            origin="environment",
+        )
 
     scratch: Path | None = None
     try:
         if source.method:
-            fd, tmp_name = tempfile.mkstemp(suffix=".scad", dir=source.path.parent)
-            scratch = Path(tmp_name)
-            with open(fd, "w", encoding="utf-8") as fh:
-                fh.write(_method_call_source(source.path, source.method, source.params))
+            prepared = _method_scratch(source, out_dir)
+            if isinstance(prepared, BuildError):
+                return prepared
+            scratch = prepared
             render_path, defines = scratch, []
         else:
             # A `-D` naming no top-level variable is silently accepted by
@@ -329,11 +401,10 @@ def render_views(
     assert executable is not None  # render() just used it
 
     if source.method:
-        fd, tmp_name = tempfile.mkstemp(suffix=".scad", dir=source.path.parent)
-        scratch = Path(tmp_name)
-        with open(fd, "w", encoding="utf-8") as fh:
-            fh.write(_method_call_source(source.path, source.method, source.params))
-        render_path, defines = scratch, []
+        prepared = _method_scratch(source, out_dir)
+        if isinstance(prepared, BuildError):
+            return prepared
+        scratch, render_path, defines = prepared, prepared, []
     else:
         scratch, render_path, defines = None, source.path, _define_args(source.params)
 
