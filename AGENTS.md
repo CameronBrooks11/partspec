@@ -34,6 +34,7 @@ src/partspec/
   target.py       # <module>[:<factory>] resolution
   runner.py       # phase orchestration: parameters -> build -> geometry -> report
   cli.py          # argparse entry point
+  mcp.py          # MCP adapter: stateless tools over check/measure, subprocess per call (D18)
   backends/
     mesh.py       # OpenSCAD tier — trimesh, measured as exported (D15, D17)
     occt.py       # build123d AND CadQuery, one implementation (D3)
@@ -55,6 +56,7 @@ just test            # pytest
 just run -- --version
 just setup-mesh      # light path: mesh tier only. NOT what CI runs
 just test-mesh-only  # mesh tests against a throwaway scipy-free [mesh] install (CI runs this)
+just test-mcp-only   # MCP tests against a throwaway engine-free [mcp] install (CI runs this)
 just ocp-guard       # assert exactly one OCP provider is installed
 ```
 

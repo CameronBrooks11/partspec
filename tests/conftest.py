@@ -14,7 +14,9 @@ import pytest
 
 REQUIRE_ENGINES = "PARTSPEC_REQUIRE_ENGINES"
 
-ALL_ENGINES = ("openscad", "trimesh", "manifold3d", "build123d", "cadquery")
+# `mcp` is not an engine, but it is the same hazard this file exists for: an
+# optional dependency whose absence silently skips the tests that prove it.
+ALL_ENGINES = ("openscad", "trimesh", "manifold3d", "build123d", "cadquery", "mcp")
 
 
 def _available(name: str) -> bool:

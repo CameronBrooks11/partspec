@@ -127,7 +127,9 @@ uv run partspec check examples/spacer/spec.py:spacer
 ```
 
 Engines are optional extras — `mesh`, `occt`, `cadquery` — so `uv sync --extra mesh` is
-enough for OpenSCAD-only work. The `openscad` binary itself is a system dependency;
+enough for OpenSCAD-only work. The `mcp` extra adds `partspec-mcp`, a stdio MCP server
+exposing `check` and `measure` as stateless tools: each call runs the CLI and returns the
+same report artifact, per the boundary in [D18](docs/DECISIONS.md). The `openscad` binary itself is a system dependency;
 `PARTSPEC_OPENSCAD` pins which one is used, and the version is recorded in every report
 because it changes the artifact.
 

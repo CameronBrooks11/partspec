@@ -65,6 +65,22 @@ test-mesh-only:
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("scipy") is None, "scipy leaked in — this recipe no longer proves anything"'
     "$env/bin/python" -m pytest tests/test_mesh_backend.py -q
 
+# Run the MCP tests against an mcp-ONLY install, in a throwaway environment.
+#
+# Proves `pip install partspec[mcp]` alone can start the server and answer:
+# the adapter is core + a subprocess per call by design (D18), so no CAD
+# engine may be required just to stand it up. The engine-dependent test
+# skips here legitimately — the absence of engines is the thing being proved.
+test-mcp-only:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env="$(mktemp -d)/venv"
+    trap 'rm -rf "$(dirname "$env")"' EXIT
+    uv venv --quiet "$env"
+    uv pip install --quiet --python "$env/bin/python" -e '.[mcp]' pytest
+    "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None and u.find_spec("build123d") is None, "a CAD engine leaked in — this recipe no longer proves anything"'
+    PARTSPEC_REQUIRE_ENGINES=mcp "$env/bin/python" -m pytest tests/test_mcp.py -q
+
 # Run main entrypoint
 run *ARGS:
     uv run partspec {{ARGS}}

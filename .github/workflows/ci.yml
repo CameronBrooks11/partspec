@@ -161,10 +161,27 @@ jobs:
           PARTSPEC_REQUIRE_ENGINES: "openscad,trimesh,manifold3d"
         run: just test-mesh-only
 
+  # The mcp extra, alone: the MCP adapter must stand up from `pip install
+  # partspec[mcp]` with no CAD engine anywhere — it is core plus a subprocess
+  # per call by design (D18), and this is the only job where that install
+  # exists (#48).
+  mcp-only:
+    name: MCP-only install
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Test
+        run: just test-mcp-only
+
   ok:
     name: ok
     if: always()
-    needs: [changes, check, test, mesh-only]
+    needs: [changes, check, test, mesh-only, mcp-only]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
