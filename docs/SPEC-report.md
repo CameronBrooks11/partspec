@@ -480,6 +480,7 @@ an unknown major version rather than best-effort parse it.
 
   "error": null,
   "hint": null,
+  "build_stderr": null,              // engine's full stderr on a build failure; hint is one selected line of it
 
   "environment": {
     "python": "3.12.7",
@@ -556,6 +557,10 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 - **`counts.total`** — MUST equal `len(checks)`, and the five status counts MUST sum to it.
   Redundant by construction and included anyway, because it is the cheapest signal that a
   contract lost checks between two runs.
+- **`build_stderr`** — the engine's complete stderr when a build failed, `null` otherwise.
+  Additive (no schema bump). `hint` is one *selected* line of engine output and selection
+  can be wrong — noise filtering must never be able to lose the diagnosis, so the
+  unabridged text travels with the report.
 - **`error` / `hint`** — `error` carries the full traceback when `verdict == "error"`;
   `hint` carries a pattern-matched one-line repair suggestion when one is recognized.
   Consumers SHOULD surface `hint` before `error`.
@@ -600,9 +605,11 @@ The report is compared across runs, so instability is a correctness bug.
    own findings.
 
    Nothing outside `environment` and `invocation` may carry a timestamp, duration,
-   hostname, or PID. **Exception:** `error` carries a traceback containing absolute
-   interpreter paths. That is intentional and outside rule 4 — a traceback with the paths
-   stripped is materially harder to act on.
+   hostname, or PID. **Exception:** `error` and `build_stderr` carry engine and
+   interpreter output verbatim — tracebacks with absolute paths, cache statistics,
+   rendering times. That is intentional and outside rules 2 and 4: a diagnosis with the
+   volatile parts stripped is materially harder to act on, and both fields are `null`
+   except on a failure, where run-to-run comparability is not the concern.
 3. **Floats.** Emitted at full `repr` precision. Byte-stability across OCCT or engine
    versions is **not** guaranteed and MUST NOT be assumed — rebuilding identical geometry
    through a different transform-composition order perturbs coordinates at ~1e-13. Any

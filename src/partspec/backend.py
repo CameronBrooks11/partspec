@@ -106,6 +106,12 @@ class BuildError:
     message: str
     hint: str | None = None
     origin: Literal["environment", "model"] = "model"
+    stderr: str | None = None
+    """The engine's full stderr, when the failure came from a subprocess.
+
+    `hint` is one selected line; selection can be wrong, so the unabridged
+    diagnosis rides along and reaches the report (#37). None for failures
+    with no engine output (missing binary, unbound parameter)."""
 
 
 @runtime_checkable

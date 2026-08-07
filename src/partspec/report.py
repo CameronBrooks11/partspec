@@ -155,6 +155,9 @@ class Report:
     PATH is not, and reporting both as `builds: fail` told a CI run with no
     OpenSCAD installed that the design was disproven.
     """
+    build_stderr: str | None = None
+    """The engine's full stderr when a build failed — the unabridged version
+    of `hint`, so a filtered hint can never lose the diagnosis (#37)."""
     duration_ms: int | None = None
     argv: list[str] = field(default_factory=list)
 
@@ -223,6 +226,7 @@ class Report:
             "error": self.error,
             "hint": self.hint,
             "build_origin": self.build_origin,
+            "build_stderr": self.build_stderr,
             "environment": self._environment(),
             "invocation": {"argv": self.argv},
         }

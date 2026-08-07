@@ -905,3 +905,71 @@ def test_a_consumed_part_refuses_to_render_views(tmp_path: Path):
     # guard) — so the claim here is the invariant: a refusal, never images.
     result = openscad.render_views(OpenSCADSource(gone), tmp_path / "out")
     assert isinstance(result, BuildError)
+
+
+# --------------------------------------------------------------------------
+# _first_error_line noise filtering (#37)
+# --------------------------------------------------------------------------
+
+
+def test_hint_skips_cache_noise_to_the_real_diagnosis():
+    # Recorded 2021.01 shape: cache statistics print FIRST, so first-wins
+    # handed an agent "Geometries in cache: 1" as the reason a build failed.
+    stderr = (
+        "Geometries in cache: 1\n"
+        "Geometry cache size in bytes: 728\n"
+        "Current top level object is empty.\n"
+    )
+    assert openscad._first_error_line(stderr) == "Current top level object is empty."
+
+
+def test_hint_skips_the_summary_block_of_a_2d_object():
+    # Recorded verbatim from 2021.01 stderr for `square([10,10]);` — including
+    # the block header and Contours line the first filter draft missed.
+    stderr = (
+        "Geometries in cache: 1\n"
+        "Geometry cache size in bytes: 144\n"
+        "CGAL Polyhedrons in cache: 0\n"
+        "CGAL cache size in bytes: 0\n"
+        "Total rendering time: 0:00:00.000\n"
+        "   Top level object is a 2D object:\n"
+        "   Contours:        1\n"
+        "Current top level object is not a 3D object.\n"
+    )
+    assert openscad._first_error_line(stderr) == "Current top level object is not a 3D object."
+
+
+def test_hint_stays_first_wins_on_the_backend_usage_dump():
+    # Recorded 2021.01 --backend=CGAL shape: the reason first, then a long
+    # usage dump. Last-wins would return a fragment of the dump — the exact
+    # regression #37's acceptance pins against.
+    stderr = (
+        "unrecognised option '--backend=CGAL'\n"
+        "Allowed options:\n"
+        "  -o [ --o ] arg    output specified file\n"
+        "  -D [ --D ] arg    var=val\n"
+    )
+    assert openscad._first_error_line(stderr) == "unrecognised option '--backend=CGAL'"
+
+
+def test_hint_is_none_when_only_noise_remains():
+    stderr = (
+        "Geometries in cache: 1\nGeometry cache size in bytes: 728\n"
+        "Vertices: 8\nHalfedges: 24\nEdges: 12\nHalffacets: 12\n"
+        "Facets: 6\nVolumes: 2\nSimple: yes\nTotal rendering time: 0:00:00.01\n"
+    )
+    assert openscad._first_error_line(stderr) is None
+
+
+@needs_openscad
+def test_a_failed_build_carries_its_full_stderr(tmp_path: Path):
+    flat = tmp_path / "flat.scad"
+    flat.write_text("square([10, 10]);\n")
+    result = openscad.render(OpenSCADSource(flat), tmp_path / "out")
+    assert isinstance(result, BuildError)
+    # The unabridged diagnosis rides along; the hint is never a cache statistic.
+    assert result.stderr
+    # The exact diagnosis, not merely "not the first noise line" — the review
+    # caught the weaker assertion passing while the hint was still a block
+    # header from the summary.
+    assert result.hint is not None and "not a 3D object" in result.hint
