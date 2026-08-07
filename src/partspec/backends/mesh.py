@@ -400,6 +400,22 @@ def _not_a_solid(mesh: Any) -> str | None:
         return reason
     if not mesh.is_winding_consistent:
         return "this mesh is closed but its triangle winding is inconsistent"
+
+    # Consistent is not the same as correct. A uniformly inverted mesh is
+    # perfectly consistent and encloses negative volume: an inside-out cube
+    # measured -1000.0 mm3, flagged exact, and `volume(max=...)` passed on it
+    # because every negative number is below every positive bound.
+    #
+    # Orientation is a precondition of the integral, not a property of the
+    # answer, so it is refused here rather than corrected with abs(). The sign
+    # is information: it says the normals point the wrong way, which is a real
+    # defect in the exported artifact that a silent abs() would hide.
+    census = _shell_census(mesh)
+    if census.solids == 0 and census.cavities > 0:
+        return (
+            "this mesh is closed but wound inside-out — every component encloses "
+            "negative volume, so its normals point inward"
+        )
     return None
 
 

@@ -839,3 +839,25 @@ def test_a_misspelled_parameter_fails_the_build(tmp_path: Path):
     assert isinstance(result, BuildError)
     assert "bore_diamter" in result.message
     assert "bore_d" in (result.hint or ""), "name what could have been meant"
+
+
+def test_an_inside_out_mesh_has_no_volume(backend: MeshBackend):
+    """Consistent winding is not correct winding. A uniformly inverted mesh is
+    perfectly consistent and encloses *negative* volume: an inside-out cube
+    measured -1000.0 mm3, flagged exact, and `volume(max=...)` passed on it
+    because every negative number is below every positive bound.
+
+    Refused rather than corrected with abs(): the sign is information. It says
+    the normals point inward, which is a real defect in the exported artifact
+    that a silent absolute value would hide.
+    """
+    inverted = trimesh.creation.box(extents=(10, 10, 10))
+    inverted.invert()
+    assert "inside-out" in refused(backend.volume(inverted)).reason
+    assert "inside-out" in refused(backend.center_of_mass(inverted)).reason
+
+
+def test_a_sealed_cavity_still_has_a_volume(backend: MeshBackend):
+    """The counterpart: an inward-wound *component* is normal in a solid with a
+    void, so the orientation gate must look at the part, not at any one shell."""
+    assert measured(backend.volume(_block_with_sealed_cavity())).value == pytest.approx(7000.0)
