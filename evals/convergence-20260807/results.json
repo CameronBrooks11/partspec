@@ -1,0 +1,388 @@
+{
+  "when": "20260807-153658",
+  "agent": "claude -p --permission-mode bypassPermissions --allowedTools Read,Edit,Write,Glob,Grep",
+  "trials": [
+    {
+      "case": "boolean-order",
+      "trial": 1,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 4 pass, 2 fail",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 6 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "boolean-order",
+      "trial": 2,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 4 pass, 2 fail",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 6 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "boolean-order",
+      "trial": 3,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 4 pass, 2 fail",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 6 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "bore-breach",
+      "trial": 1,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 3 pass, 1 fail, 1 unsupported",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "bore-breach",
+      "trial": 2,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 3 pass, 1 fail, 1 unsupported",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "bore-breach",
+      "trial": 3,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 3 pass, 1 fail, 1 unsupported",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "consumed-cut",
+      "trial": 1,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 1 fail, 4 skipped",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "consumed-cut",
+      "trial": 2,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 1 fail, 4 skipped",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "consumed-cut",
+      "trial": 3,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 1 fail, 4 skipped",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "hole-count",
+      "trial": 1,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 4 pass, 1 fail",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "hole-count",
+      "trial": 2,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 4 pass, 1 fail",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "hole-count",
+      "trial": 3,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 4 pass, 1 fail",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "standard-mismatch",
+      "trial": 1,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 4 pass, 1 fail",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "standard-mismatch",
+      "trial": 2,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 4 pass, 1 fail",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    },
+    {
+      "case": "standard-mismatch",
+      "trial": 3,
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 1,
+          "verdict": "fail",
+          "summary": "FAIL: 4 pass, 1 fail",
+          "agent_ok": true,
+          "agent_note": ""
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "PASS: 5 pass",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": ""
+    }
+  ],
+  "summary": {
+    "converged": 15,
+    "failed": 0,
+    "gamed": 0,
+    "regressed": 0,
+    "error": 0
+  }
+}
