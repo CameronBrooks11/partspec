@@ -10,10 +10,11 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha, but **runnable end to end**. `partspec check` and `partspec measure`
-work against all three engines; P0–P5 of `docs/PLAN.md` are done and P6 (dogfooding) is in
-progress. Not yet released, and the check vocabulary is deliberately small — see
-`docs/POST-V0.md` for what is withheld and why.
+Status: pre-alpha; **v0.1.0 released on PyPI** (2026-08-07, tag → trusted publishing via
+`release.yml`). `check` and `measure` work against all three engines, `render` on the mesh
+tier, and `partspec-mcp` serves all three as stateless MCP tools. P0–P6 of `docs/PLAN.md`
+are complete. The check vocabulary is deliberately small — see `docs/POST-V0.md` for what
+is withheld and why.
 
 ## Stack
 
