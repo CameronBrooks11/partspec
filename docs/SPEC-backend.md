@@ -310,7 +310,9 @@ without it.
 
 The protocol is only worth its cost if both backends genuinely agree where they claim to.
 
-**A differential test MUST exist**: the same part, specified once, implemented in OpenSCAD
+**A differential test MUST exist** (implemented: `tests/test_differential.py`, on a
+deliberately polyhedral plate; gridfinity below remains the ready-made harder subject): the same
+part, specified once, implemented in OpenSCAD
 and in build123d, checked against one contract, with the report's `checks[]` compared
 field-by-field excluding `engine` and `geometry`. Gridfinity is the ready-made subject —
 implementations exist in all three engines under MIT
