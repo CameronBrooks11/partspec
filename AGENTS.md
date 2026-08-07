@@ -36,6 +36,7 @@ src/partspec/
   target.py       # <module>[:<factory>] resolution
   runner.py       # phase orchestration: parameters -> build -> geometry -> report
   cli.py          # argparse entry point
+  diff.py         # semantic comparison of two reports (SPEC-diff.md)
   mcp.py          # MCP adapter: stateless tools over check/measure, subprocess per call (D18)
   backends/
     mesh.py       # OpenSCAD tier — trimesh, measured as exported (D15, D17)

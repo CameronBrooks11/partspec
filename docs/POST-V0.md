@@ -56,6 +56,9 @@ deliberately omitted from v0.
 
 ## 2. `diff` — and the gap it closes
 
+**Shipped 2026-08-07 (#83): `partspec diff`, spec'd in `SPEC-diff.md`.** The section
+below is the design basis it was built from.
+
 The semantic report differ. Consumes two reports, emits its own artifact. Reports
 `regressed` / `fixed` / `added` / `removed` per check, **plus value drift on checks whose
 pass/fail state did not change** — "drift the boolean can't see." A wall thinning from

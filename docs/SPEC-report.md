@@ -520,10 +520,11 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   module also changes it; and `source_digest` covers only the named file, **not** anything
   it pulls in via `include <>` / `use <>`.
 
-  > **Known undetected gap in v0: silent contract weakening.** An agent that deletes a
+  > **The v0 gap, closed post-v0.1: silent contract weakening.** An agent that deletes a
   > check produces a report that is internally consistent and green. `counts.total` and
-  > `contract_digest` make it *detectable on comparison*, not *visible on inspection*.
-  > Closing it needs `diff`, which is out of v0 scope.
+  > `contract_digest` make it *detectable on comparison*, not *visible on inspection* —
+  > and `partspec diff` (`SPEC-diff.md`) is now that comparison: a removed check is named
+  > by id, exit 1.
 
   Module-scoping is deliberate, not an oversight: digesting only the resolved symbol would
   miss an edit to a module-level constant such as `MIN_WALL`, which is precisely the
