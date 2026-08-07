@@ -56,6 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
     measure.add_argument("target", help="<module-path>[:<factory>]")
     measure.add_argument("--out", type=Path, default=None)
 
+    render = sub.add_parser(
+        "render",
+        help="write the canonical views (iso, front, top, right) as PNGs — no verdict",
+    )
+    render.add_argument("target", help="<module-path>[:<factory>]")
+    render.add_argument("--out", type=Path, default=None)
+
     return parser
 
 
@@ -219,6 +226,50 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_render(args: argparse.Namespace) -> int:
+    """Evidence, not judgement: images the report can reference (#20), framed
+    deterministically from the bounding box so iterations are comparable. No
+    verdict rides with them — rendering never substitutes for measurement."""
+    resolved = _resolve_or_report(args.target)
+    if isinstance(resolved, int):
+        return resolved
+    part, _ = resolved
+
+    if part.source.engine != "openscad":
+        # Usage, not error: nothing failed — this verb does not exist for the
+        # OCCT tier yet, and saying so beats a traceback from pretending it does.
+        print(
+            "partspec: render currently requires an OpenSCAD source "
+            "(the OCCT tier does not have it yet)",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    from .backend import BuildError
+    from .engines import openscad
+    from .runner import _engine_source
+
+    out = _out_dir(args.target, args.out)
+    result = openscad.render_views(_engine_source(part), out)
+    if isinstance(result, BuildError):
+        print(f"partspec: {result.message}", file=sys.stderr)
+        if result.hint:
+            print(f"  hint: {result.hint}", file=sys.stderr)
+        return 4
+
+    print(
+        json.dumps(
+            {
+                "part": part.id,
+                "engine": {"kind": "openscad", "version": openscad.version()},
+                "renders": {view: str(path) for view, path in result.items()},
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
 _ICON = {
     Status.PASS: "ok  ",
     Status.FAIL: "FAIL",
@@ -281,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_check(args, args_list)
         if args.command == "measure":
             return _cmd_measure(args)
+        if args.command == "render":
+            return _cmd_render(args)
     except KeyboardInterrupt:
         print("\npartspec: interrupted", file=sys.stderr)
         return 130

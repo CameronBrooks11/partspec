@@ -861,3 +861,47 @@ def test_a_sealed_cavity_still_has_a_volume(backend: MeshBackend):
     """The counterpart: an inward-wound *component* is normal in a solid with a
     void, so the orientation gate must look at the part, not at any one shell."""
     assert measured(backend.volume(_block_with_sealed_cavity())).value == pytest.approx(7000.0)
+
+
+# --------------------------------------------------------------------------
+# render_views (#17) — evidence, not judgement
+# --------------------------------------------------------------------------
+
+
+def test_camera_framing_is_derived_from_the_bbox_and_stable():
+    bbox = ((0.0, 0.0, 0.0), (10.0, 20.0, 30.0))
+    camera = openscad._camera(bbox, openscad.VIEWS["iso"])
+    # Center is the bbox midpoint; the same geometry must frame identically on
+    # every run, or no two iterations of a part are comparable.
+    assert camera.startswith("5.0,10.0,15.0,55.0,0.0,25.0,")
+    assert camera == openscad._camera(bbox, openscad.VIEWS["iso"])
+
+
+@needs_openscad
+def test_render_views_writes_the_four_views_or_refuses_naming_the_display(tmp_path: Path):
+    """Both sides of the capability boundary are asserted: 2021.01 cannot
+    rasterise without a display and must say so as an environment fault with
+    the remedy in the hint — never a segfault read back as `exited -11`."""
+    result = openscad.render_views(OpenSCADSource(FIXTURES / "block_with_hole.scad"), tmp_path)
+    if isinstance(result, BuildError):
+        assert result.origin == "environment"
+        text = f"{result.message} {result.hint or ''}"
+        assert "display" in text and "xvfb" in text
+    else:
+        assert set(result) == set(openscad.VIEWS)
+        for path in result.values():
+            data = path.read_bytes()
+            assert data[:8] == b"\x89PNG\r\n\x1a\n", f"{path} is not a PNG"
+
+
+@needs_openscad
+def test_a_consumed_part_refuses_to_render_views(tmp_path: Path):
+    # The STL stage runs first precisely so this is a refusal naming the
+    # defect, not four blank frames that look like a rendered part.
+    gone = tmp_path / "gone.scad"
+    gone.write_text("difference() { cube(10); translate([-1,-1,-1]) cube(12); }\n")
+    # The failure shape is version-dependent — 2026.08 exits 1 on an empty STL
+    # export, 2021.01 exits 0 writing nothing (caught by the no-geometry
+    # guard) — so the claim here is the invariant: a refusal, never images.
+    result = openscad.render_views(OpenSCADSource(gone), tmp_path / "out")
+    assert isinstance(result, BuildError)

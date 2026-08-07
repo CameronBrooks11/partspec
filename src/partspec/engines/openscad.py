@@ -35,6 +35,7 @@ __all__ = [
     "find_executable",
     "include_closure",
     "render",
+    "render_views",
     "scad_literal",
 ]
 
@@ -241,6 +242,145 @@ def render(
                 hint=_first_error_line(proc.stderr),
             )
         return stl
+    finally:
+        if scratch is not None:
+            scratch.unlink(missing_ok=True)
+
+
+VIEWS: dict[str, tuple[float, float, float]] = {
+    "iso": (55.0, 0.0, 25.0),
+    "front": (90.0, 0.0, 0.0),
+    "top": (0.0, 0.0, 0.0),
+    "right": (90.0, 0.0, 90.0),
+}
+"""The canonical views, as gimbal rotations. Canonical rather than arbitrary
+because an agent compares images across iterations, and a camera that moves
+makes every comparison ambiguous (#17)."""
+
+IMAGE_SIZE = (800, 800)
+
+
+def _stl_bbox(stl: Path) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Min/max corners of a binary STL, by scanning its vertices.
+
+    stdlib on purpose: the engine layer renders and the backend layer measures,
+    and pulling trimesh in here to answer a framing question would blur that
+    seam. Facets are 50 bytes — a 3-float normal, three 3-float vertices, a
+    2-byte attribute — after an 80-byte header and a facet count.
+    """
+    import struct
+
+    data = stl.read_bytes()
+    (count,) = struct.unpack_from("<I", data, 80)
+    lo = [float("inf")] * 3
+    hi = [float("-inf")] * 3
+    for f in range(count):
+        base = 84 + f * 50 + 12  # skip the normal
+        for v in range(3):
+            x, y, z = struct.unpack_from("<3f", data, base + v * 12)
+            for i, c in enumerate((x, y, z)):
+                lo[i] = min(lo[i], c)
+                hi[i] = max(hi[i], c)
+    return tuple(lo), tuple(hi)
+
+
+def _camera(bbox: tuple[tuple[float, ...], tuple[float, ...]], rot: tuple[float, ...]) -> str:
+    """A gimbal camera string derived from the bounding box, so identical
+    geometry frames identically on every run."""
+    lo, hi = bbox
+    center = [(a + b) / 2 for a, b in zip(lo, hi, strict=True)]
+    diagonal = sum((b - a) ** 2 for a, b in zip(lo, hi, strict=True)) ** 0.5
+    distance = max(2.2 * diagonal, 1.0)  # a degenerate flat part still gets a frame
+    return ",".join(repr(v) for v in (*center, *rot, distance))
+
+
+def _display_failure(returncode: int, stderr: str) -> bool:
+    """Whether a PNG render died for want of a display.
+
+    2021.01 has no EGL offscreen path: headless it prints `Unable to open a
+    connection to the X server` / `Can't create OpenGL OffscreenView`, then
+    segfaults (139) leaving a 0-byte file. That is an environment fault with a
+    known remedy, and reporting it as `openscad exited -11` with a compile-log
+    hint sends the reader off to debug their model.
+    """
+    if "OffscreenView" in stderr or "X server" in stderr:
+        return True
+    return returncode in (139, -11)
+
+
+def render_views(
+    source: OpenSCADSource, out_dir: Path, *, timeout_s: int = DEFAULT_TIMEOUT_S
+) -> dict[str, Path] | BuildError:
+    """Render the canonical views to PNG, or say exactly why not.
+
+    The STL is rendered first, deliberately: it carries the guards this path
+    must not re-invent — unbound `-D` detection, the empty-geometry refusal —
+    so a cut that consumed the part is a `BuildError` here, never four blank
+    frames that *look* like a rendered part. It also supplies the bounding box
+    the camera framing derives from. The images carry no verdict: rendering
+    never substitutes for measurement.
+    """
+    stl = render(source, out_dir, timeout_s=timeout_s)
+    if isinstance(stl, BuildError):
+        return stl
+    executable = find_executable()
+    assert executable is not None  # render() just used it
+
+    if source.method:
+        fd, tmp_name = tempfile.mkstemp(suffix=".scad", dir=source.path.parent)
+        scratch = Path(tmp_name)
+        with open(fd, "w", encoding="utf-8") as fh:
+            fh.write(_method_call_source(source.path, source.method, source.params))
+        render_path, defines = scratch, []
+    else:
+        scratch, render_path, defines = None, source.path, _define_args(source.params)
+
+    bbox = _stl_bbox(stl)
+    renders: dict[str, Path] = {}
+    try:
+        for view, rot in VIEWS.items():
+            png = out_dir / "renders" / f"{view}.png"
+            png.parent.mkdir(parents=True, exist_ok=True)
+            png.unlink(missing_ok=True)  # same stale-artifact rule as the STL
+            cmd = [
+                executable,
+                "--camera",
+                _camera(bbox, rot),
+                "--imgsize",
+                f"{IMAGE_SIZE[0]},{IMAGE_SIZE[1]}",
+                "--projection",
+                "ortho",
+                "--colorscheme",
+                "Cornfield",
+                "-o",
+                str(png),
+                *defines,
+                str(render_path),
+            ]
+            try:
+                proc = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=timeout_s, check=False
+                )
+            except subprocess.TimeoutExpired:
+                return BuildError(f"openscad timed out after {timeout_s}s", origin="environment")
+            if _display_failure(proc.returncode, proc.stderr):
+                return BuildError(
+                    "this OpenSCAD cannot render PNG without a display",
+                    origin="environment",
+                    hint="run under `xvfb-run -a`, or use a 2022+ build with EGL offscreen",
+                )
+            if proc.returncode != 0:
+                return BuildError(
+                    f"openscad exited {proc.returncode} rendering the {view} view",
+                    hint=_first_error_line(proc.stderr),
+                )
+            if not png.is_file() or png.stat().st_size == 0:
+                return BuildError(
+                    f"openscad exited 0 but wrote no {view} view",
+                    hint=_first_error_line(proc.stderr),
+                )
+            renders[view] = png
+        return renders
     finally:
         if scratch is not None:
             scratch.unlink(missing_ok=True)

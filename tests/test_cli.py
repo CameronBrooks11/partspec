@@ -216,3 +216,28 @@ def test_argparse_still_owns_its_own_exits():
     SystemExit for `--version` and usage errors is untouched."""
     with pytest.raises(SystemExit):
         main(["--version"])
+
+
+def test_render_on_a_python_engine_target_is_usage_not_a_crash(tmp_path: Path):
+    (tmp_path / "m.py").write_text("")
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    assert main(["render", f"{module}:make"]) == 64
+
+
+@needs_openscad
+def test_render_writes_the_views_or_reports_the_display(tmp_path: Path, capsys):
+    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    code = main(["render", target])
+    captured = capsys.readouterr()
+    if code == 0:
+        payload = json.loads(captured.out)
+        assert set(payload["renders"]) == {"iso", "front", "top", "right"}
+        for path in payload["renders"].values():
+            assert Path(path).stat().st_size > 0
+    else:
+        assert code == 4
+        assert "display" in captured.err
