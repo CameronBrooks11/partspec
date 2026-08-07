@@ -48,8 +48,8 @@ def spacer() -> Part:
 
 ```console
 $ partspec check examples/spacer/spec.py:spacer
-  ok   bore_d_2_wall_plate_y
-  ok   bore_d_0
+  ok   bore_d_2_wall_le_plate_y
+  ok   bore_d_gt_0
   ok   param:plate_z
   ok   builds
   ok   envelope
