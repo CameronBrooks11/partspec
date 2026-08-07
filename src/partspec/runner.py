@@ -98,6 +98,7 @@ def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | N
     if isinstance(artifact, BuildError):
         report.hint = artifact.hint
         report.build_origin = artifact.origin
+        report.build_stderr = artifact.stderr
 
         if artifact.origin == "environment":
             # Not a statement about the part. No engine on PATH, a mistyped pin,

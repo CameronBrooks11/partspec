@@ -233,6 +233,7 @@ def render(
             return BuildError(
                 f"openscad exited {proc.returncode}",
                 hint=_first_error_line(proc.stderr),
+                stderr=proc.stderr,
             )
         # OpenSCAD exits 0 on some degenerate input while writing nothing useful,
         # so the artifact is checked rather than the exit code trusted.
@@ -240,6 +241,7 @@ def render(
             return BuildError(
                 "openscad exited 0 but produced no geometry",
                 hint=_first_error_line(proc.stderr),
+                stderr=proc.stderr,
             )
         return stl
     finally:
@@ -368,22 +370,39 @@ def render_views(
                     "this OpenSCAD cannot render PNG without a display",
                     origin="environment",
                     hint="run under `xvfb-run -a`, or use a 2022+ build with EGL offscreen",
+                    stderr=proc.stderr,
                 )
             if proc.returncode != 0:
                 return BuildError(
                     f"openscad exited {proc.returncode} rendering the {view} view",
                     hint=_first_error_line(proc.stderr),
+                    stderr=proc.stderr,
                 )
             if not png.is_file() or png.stat().st_size == 0:
                 return BuildError(
                     f"openscad exited 0 but wrote no {view} view",
                     hint=_first_error_line(proc.stderr),
+                    stderr=proc.stderr,
                 )
             renders[view] = png
         return renders
     finally:
         if scratch is not None:
             scratch.unlink(missing_ok=True)
+
+
+_NOISE = re.compile(
+    r"^(Geometries in cache|Geometry cache size|CGAL Polyhedrons in cache|"
+    r"CGAL cache size|Total rendering time|Rendering finished|"
+    r"Top level object is|Contours:|"
+    r"Vertices:|Halfedges:|Edges:|Halffacets:|Facets:|Volumes:|Simple:)"
+)
+"""Bookkeeping OpenSCAD prints before (and instead of) its diagnosis: cache
+statistics on both engine versions, and the geometry-summary block that can
+accompany the exit-0-no-geometry branch. Both binaries print `Geometries in
+cache:` FIRST, so the first-wins fallback below handed an agent a cache
+statistic as the hint — confidently irrelevant — while `Current top level
+object is empty.` sat one line down (#37)."""
 
 
 def _first_error_line(stderr: str) -> str | None:
@@ -395,8 +414,17 @@ def _first_error_line(stderr: str) -> str | None:
     written against a newer one, reduced to `openscad exited 1` and no hint.
     A failure that is visible but unexplained sends a reader off to guess, which
     is a quieter version of the thing this tool is against.
+
+    First-wins, deliberately: on the 2021.01 `--backend` failure the reason is
+    printed first and a long `Allowed options:` usage dump follows, so last-wins
+    would return a fragment of the dump. Known noise is filtered before
+    selection instead, which needs no special-casing of any message.
     """
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    lines = [
+        line.strip()
+        for line in stderr.splitlines()
+        if line.strip() and not _NOISE.match(line.strip())
+    ]
     for line in lines:
         if "ERROR" in line or "WARNING" in line:
             return line
