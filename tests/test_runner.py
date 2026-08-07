@@ -281,7 +281,7 @@ def test_a_failing_parameter_check_short_circuits_the_engine(tmp_path: Path):
 
     report = run(p, out_dir=tmp_path)
     assert report.verdict is Verdict.FAIL
-    assert _status(report, "plate_x_plate_y") is Status.FAIL
+    assert _status(report, "plate_x_lt_plate_y") is Status.FAIL
     assert _status(report, "builds") is Status.SKIPPED
     assert _status(report, "envelope") is Status.SKIPPED
     assert not (tmp_path / "parametric_plate.stl").exists(), "the engine must not have run"
@@ -296,7 +296,12 @@ def test_short_circuited_checks_are_present_not_omitted(tmp_path: Path):
     p.solid_count(1)
 
     report = run(p, out_dir=tmp_path)
-    assert {c.id for c in report.checks} == {"plate_x_100", "builds", "watertight", "solid_count"}
+    assert {c.id for c in report.checks} == {
+        "plate_x_gt_100",
+        "builds",
+        "watertight",
+        "solid_count",
+    }
     assert report.counts()["total"] == 4
 
 
@@ -305,7 +310,7 @@ def test_a_failing_parameter_check_names_the_blocker(tmp_path: Path):
     p = Part("plate", openscad(PLATE, plate_x=1.0)).requires("plate_x > 100").watertight()
     report = run(p, out_dir=tmp_path)
     detail = next(c.detail for c in report.checks if c.id == "watertight")
-    assert "plate_x_100" in (detail or "")
+    assert "plate_x_gt_100" in (detail or "")
 
 
 @needs_openscad

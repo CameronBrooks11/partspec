@@ -301,10 +301,19 @@ class Part:
     # -- internals ---------------------------------------------------------
 
     def _add(self, spec: CheckSpec) -> Part:
-        if any(existing.id == spec.id for existing in self.checks):
+        clash = next((e for e in self.checks if e.id == spec.id), None)
+        if clash is not None:
+            # A residual collision (e.g. a shared 60-char prefix surviving
+            # truncation) names both claims, not just "two checks of the same
+            # kind" -- the reader must see WHICH two aliased.
+            both = (
+                f" (from {clash.expr!r} and {spec.expr!r})"
+                if clash.expr is not None and spec.expr is not None
+                else ""
+            )
             raise ContractError(
-                f"duplicate check id {spec.id!r}; pass id= to distinguish two checks of the "
-                f"same kind (ids are the join key a report diff relies on)"
+                f"duplicate check id {spec.id!r}{both}; pass id= to distinguish two checks "
+                f"of the same kind (ids are the join key a report diff relies on)"
             )
         self.checks.append(spec)
         return self
@@ -313,8 +322,29 @@ class Part:
         return f"<Part {self.id!r} {self.source.engine} checks={len(self.checks)}>"
 
 
+_OPERATOR_TOKENS = (
+    ("<=", "le"),
+    (">=", "ge"),
+    ("==", "eq"),
+    ("!=", "ne"),
+    ("<", "lt"),
+    (">", "gt"),
+)
+"""Two-char operators first, or `<=` would token as `lt` + a stray `=`."""
+
+
 def _slug(expr: str) -> str:
-    """A stable, readable id derived from an expression."""
+    """A stable, readable id derived from an expression.
+
+    Comparison operators map to distinct tokens rather than collapsing to
+    `_`: `x > 5` and `x < 5` are opposite claims and used to derive the same
+    id, so a bracketing pair of bounds — the most ordinary contract there is —
+    was refused as a duplicate, with an error blaming "two checks of the same
+    kind" (#38). The id is the join key a report diff relies on, so two
+    different claims must never alias.
+    """
+    for op, token in _OPERATOR_TOKENS:
+        expr = expr.replace(op, f" {token} ")
     keep = [c if c.isalnum() else "_" for c in expr]
     slug = "".join(keep).strip("_")
     while "__" in slug:

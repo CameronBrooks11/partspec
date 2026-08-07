@@ -149,7 +149,7 @@ def test_declaration_order_is_preserved():
     """The report lists checks in declaration order, so this is load-bearing."""
     p = _part(a=1.0)
     p.watertight().requires("a > 0").solid_count(1)
-    assert [c.id for c in p.checks] == ["watertight", "a_0", "solid_count"]
+    assert [c.id for c in p.checks] == ["watertight", "a_gt_0", "solid_count"]
 
 
 def test_duplicate_ids_are_refused():
@@ -332,3 +332,37 @@ def test_contract_raising_on_import_is_a_target_error(tmp_path: Path):
     module.write_text("raise ValueError('bang')\n")
     with pytest.raises(TargetError, match="raised on import"):
         resolve(str(module))
+
+
+# --------------------------------------------------------------------------
+# requires() slugs (#38)
+# --------------------------------------------------------------------------
+
+
+def test_each_comparison_operator_slugs_distinctly():
+    # The id is the join key a future diff relies on; two different claims
+    # must never alias. Pinned per operator.
+    from partspec.contract import _slug
+
+    assert _slug("x > 5") == "x_gt_5"
+    assert _slug("x < 5") == "x_lt_5"
+    assert _slug("x >= 5") == "x_ge_5"
+    assert _slug("x <= 5") == "x_le_5"
+    assert _slug("x == 5") == "x_eq_5"
+    assert _slug("x != 5") == "x_ne_5"
+
+
+def test_a_bracketing_pair_of_bounds_coexists():
+    p = _part(x=1.0)
+    p.requires("x > 0").requires("x < 10")
+    assert [c.id for c in p.checks] == ["x_gt_0", "x_lt_10"]
+
+
+def test_a_residual_collision_names_both_expressions():
+    p = _part(x=1.0)
+    long = "x > " + "0" * 80
+    p.requires(long)
+    with pytest.raises(ContractError) as exc:
+        p.requires(long + "1")  # same 60-char prefix after truncation
+    message = str(exc.value)
+    assert long in message and long + "1" in message
