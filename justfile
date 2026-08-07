@@ -79,3 +79,7 @@ ocp-guard:
 clean:
     rm -rf .venv dist .pytest_cache .ruff_cache .pyright
     find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+# Run the agent-convergence evals (see evals/README.md). Costs real agent calls.
+eval *ARGS:
+    python3 evals/run.py {{ARGS}}
