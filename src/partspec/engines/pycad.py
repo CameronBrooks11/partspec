@@ -162,7 +162,11 @@ def build(source: PyCADSource) -> Any | BuildError:
             hint="partspec calls the model as method(**params); wrap a differently-shaped "
             "signature in a small adapter function in the contract",
         )
-    except Exception as exc:  # noqa: BLE001 - modelling failure is a build failure
+    except KeyboardInterrupt:
+        raise
+    except BaseException as exc:  # noqa: BLE001 - modelling failure is a build failure
+        # BaseException for the same reason as the contract path: a model that
+        # calls sys.exit() must not get to pick partspec's exit code.
         return BuildError(f"{name}() raised: {type(exc).__name__}: {exc}")
 
     return adopt(result)

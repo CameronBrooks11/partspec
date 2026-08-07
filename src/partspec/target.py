@@ -66,7 +66,11 @@ def _load(path: Path) -> ModuleType:
         sys.path.insert(0, parent)
     try:
         spec.loader.exec_module(module)
-    except Exception as exc:
+    except KeyboardInterrupt:
+        raise
+    except BaseException as exc:
+        # BaseException: `sys.exit(0)` at contract import scope is user code
+        # choosing our exit status, and it chose green.
         raise TargetError(f"contract raised on import: {type(exc).__name__}: {exc}") from exc
     finally:
         if added:

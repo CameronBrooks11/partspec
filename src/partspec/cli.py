@@ -83,7 +83,17 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
     except TargetError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
-    except Exception as exc:  # noqa: BLE001 - a contract may raise anything
+    except KeyboardInterrupt:
+        print("\npartspec: interrupted", file=sys.stderr)
+        return 130
+    except BaseException as exc:  # noqa: BLE001 - a contract may raise anything
+        # BaseException, not Exception. A contract calling `sys.exit(0)` raises
+        # SystemExit, which sailed past an `except Exception` and exited the
+        # process **0** -- green, silent, zero checks evaluated. Worse, the code
+        # was the contract's to choose: `sys.exit(2)` read as `incomplete` and
+        # `sys.exit(3)` as `empty`. No exit code from user code may become a
+        # partspec verdict. Scoped to resolution, so argparse's own SystemExit
+        # (`--version`, a usage error) is untouched.
         traceback.print_exc()
         print(f"\npartspec: the contract raised {type(exc).__name__}: {exc}", file=sys.stderr)
         print("  the contract is wrong, not the part", file=sys.stderr)
@@ -91,16 +101,23 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
 
 
 def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
+    # The placeholder goes down BEFORE the contract is resolved, not after.
+    # Resolving is itself something that can fail -- a contract that raises on
+    # import, a typo in a keyword argument -- and until this moved, that path
+    # returned an exit code without touching the output directory, leaving the
+    # *previous* run's `verdict: "pass"` at the deterministic path. The exit
+    # code said error; the artifact on disk said the part was fine, and the
+    # artifact is what a later reader trusts. Making the failure quieter was a
+    # regression this ordering fixes.
+    #
+    # `_out_dir` only parses the target string, so it needs no resolved Part.
+    out = _out_dir(args.target, args.out)
+    write_placeholder(out, contract=args.target, argv=argv)
+
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
         return resolved
     part, target = resolved
-
-    out = _out_dir(args.target, args.out)
-    # Written before the engine runs: a try/finally cannot survive a native
-    # fault, and a stale verdict:"pass" left at a deterministic path is the
-    # worst failure this tool has.
-    write_placeholder(out, part_id=part.id, contract=str(target.path), argv=argv)
 
     report = run(part, out_dir=out, argv=argv, contract_path=target.path)
     path = report.write(out)
