@@ -88,7 +88,20 @@ def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | N
         "version": backend.engine_version,
         "backend": backend.kind,
         "adopted_via": "wrapped" if part.source.engine == "cadquery" else None,
+        # method= builds a different thing from the same contract file, and
+        # until it was recorded two such runs were indistinguishable in the
+        # artifact (#40). Always present, mirroring adopted_via: null states
+        # "the default entry", not "unrecorded".
+        "method": part.source.method,
     }
+    if part.source.engine == "openscad":
+        # Which way parameters reached the geometry. On the call path the
+        # digested file is not the file the engine was handed — the entry is
+        # a derived scratch including it — and the report must say so rather
+        # than let source_digest imply otherwise.
+        report.engine["param_mode"] = "call" if part.source.method else "define"
+        if part.source.method:
+            report.engine["source_rendered"] = "derived"
     if part.source.backend:
         # Recorded because it changes the artifact: the same source rendered by
         # Manifold and by CGAL differ in mesh validity, not just in speed.
