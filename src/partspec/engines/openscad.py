@@ -164,6 +164,15 @@ def render(
     out_dir.mkdir(parents=True, exist_ok=True)
     stl = out_dir / f"{source.path.stem}.stl"
 
+    # The export path is deterministic, so a previous run's mesh is sitting there
+    # before this one starts. The guards below ask whether the file exists and is
+    # non-empty — questions the *stale* file answers just as well, so an
+    # invocation that exits 0 without writing would measure the last run's part
+    # and report it as this one's. Removing it first makes the checks mean what
+    # they read as, and makes a failed render leave nothing behind for a later
+    # reader to pick up.
+    stl.unlink(missing_ok=True)
+
     scratch: Path | None = None
     try:
         if source.method:

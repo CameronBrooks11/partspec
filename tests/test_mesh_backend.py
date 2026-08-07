@@ -772,3 +772,25 @@ def test_empty_geometry_is_a_build_error(backend: MeshBackend, tmp_path: Path):
     empty.write_text("// nothing here\n")
     result = backend.build(OpenSCADSource(path=empty), tmp_path)
     assert isinstance(result, BuildError)
+
+
+@needs_openscad
+def test_a_failed_render_leaves_no_stale_artifact(tmp_path: Path):
+    """The export path is deterministic, so a previous run's mesh is already
+    sitting there when the next one starts — and the post-render guards ask only
+    whether the file exists and is non-empty, which the stale file answers just
+    as well. An invocation that exits 0 without writing would have measured the
+    last run's part and reported it as this one's."""
+    good = _scad(tmp_path, "part", "cube([10, 10, 10]);")
+    first = openscad.render(OpenSCADSource(path=good), tmp_path / "out")
+    assert isinstance(first, Path) and first.stat().st_size > 0
+    stale_size = first.stat().st_size
+
+    broken = tmp_path / "part.scad"
+    broken.write_text("this is not openscad;\n")
+    second = openscad.render(OpenSCADSource(path=broken), tmp_path / "out")
+
+    assert isinstance(second, BuildError), "premise: the second render fails"
+    assert not first.exists(), (
+        f"a {stale_size}-byte mesh from the previous run survived a failed render"
+    )
