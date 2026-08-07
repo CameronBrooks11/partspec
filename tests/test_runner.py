@@ -1006,3 +1006,26 @@ def test_hole_diameter_is_refused_on_the_mesh_tier_with_the_pointer(tmp_path: Pa
     assert check.hole == {"d": 8.0, "count": 1}, "the refusal still states the claim"
     assert report.verdict is Verdict.INCOMPLETE
     assert report.exit_code == 2
+
+
+@needs_build123d
+def test_a_diameter_on_the_band_edge_is_inside_the_band(tmp_path: Path):
+    """The band is closed: a drawing's Ø8 +0/-0.1 puts a shaft-fit bore at
+    exactly 7.9, and 'within tolerance' includes its own limits. Also pins
+    containment against a strict-inequality mutant nothing else catches."""
+    from partspec import build123d
+
+    model = tmp_path / "m.py"
+    model.write_text(
+        "from build123d import Align, Box, Cylinder, Location\n\n\n"
+        "def make_part():\n"
+        "    plate = Box(30, 30, 10, align=(Align.MIN, Align.MIN, Align.MIN))\n"
+        "    hole = Location((15, 15, -1)) * Cylinder(\n"
+        "        3.95, 12, align=(Align.CENTER, Align.CENTER, Align.MIN))\n"
+        "    return plate - hole\n"
+    )
+    p = Part("plate", build123d(model)).hole_diameter(8.0, tol=0.1)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.kind == "hole_diameter")
+    assert check.status is Status.PASS, check.detail
+    assert check.measurement is not None and check.measurement.value == (7.9,)

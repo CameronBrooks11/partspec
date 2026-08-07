@@ -340,9 +340,12 @@ def _run_hole_check(
         )
     detail = None
     if len(matched) != expected:
-        inventory = ", ".join(f"Ø{x:g}" for x in all_bores) if all_bores else "none"
+        # :.9g, not :g — a tight band rendered as "[8, 8]" reads as an empty
+        # interval and hides exactly the sub-micrometre disagreement a tight
+        # tol exists to surface.
+        inventory = ", ".join(f"Ø{x:.9g}" for x in all_bores) if all_bores else "none"
         detail = (
-            f"found {len(matched)} bore(s) with diameter in [{lo:g}, {hi:g}] mm, "
+            f"found {len(matched)} bore(s) with diameter in [{lo:.9g}, {hi:.9g}] mm, "
             f"expected {expected}; bores on this part: {inventory}"
         )
     return CheckResult(

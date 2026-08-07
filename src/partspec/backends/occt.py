@@ -73,8 +73,12 @@ def _axis_key(
     a micrometre are a modelling pathology this deliberately merges rather than
     guesses about.
     """
+    # The sign threshold matches the rounding quantum below: deciding the flip
+    # on a component the rounding then erases would give two representations
+    # of one axis line different keys, splitting a bore's faces into sub-2π
+    # groups and reporting a hole that exists as absent.
     canonical = direction
-    if next((c for c in canonical if abs(c) > 1e-9), 1.0) < 0:
+    if next((c for c in canonical if abs(c) > 5e-7), 1.0) < 0:
         canonical = tuple(-c for c in canonical)  # type: ignore[assignment]
     along = sum(o * d for o, d in zip(origin, canonical, strict=True))
     foot = tuple(o - along * d for o, d in zip(origin, canonical, strict=True))
@@ -86,24 +90,28 @@ def _axis_key(
     return key, canonical
 
 
-def _clustered_wraps(spans: list[tuple[float, float, float]]) -> list[float]:
-    """Sum angular extents within each contiguous axial cluster.
+def _clustered_wraps(spans: list[tuple[float, float, float, float]]) -> list[tuple[float, float]]:
+    """Per contiguous axial cluster: (summed angular extent, surface radius).
 
     Faces whose axial spans touch or overlap belong to one bore (a seam-split
     cylinder, a bore interrupted by nothing); a gap along the axis separates
-    two bores that merely share an axis line — the clevis's two lugs.
+    two bores that merely share an axis line — the clevis's two lugs. The
+    radius carried out is a member face's un-rounded surface parameter, so the
+    caller reports a measurement rather than the grouping key's quantisation.
     """
-    wraps: list[float] = []
-    hi = wrap = None
-    for lo, span_hi, extent in sorted(spans):
+    wraps: list[tuple[float, float]] = []
+    hi: float | None = None
+    wrap = 0.0
+    radius = 0.0
+    for lo, span_hi, extent, face_radius in sorted(spans):
         if hi is None or lo > hi + 1e-6:
-            if wrap is not None:
-                wraps.append(wrap)
-            hi, wrap = span_hi, extent
+            if hi is not None:
+                wraps.append((wrap, radius))
+            hi, wrap, radius = span_hi, extent, face_radius
         else:
-            hi, wrap = max(hi, span_hi), (wrap or 0.0) + extent
-    if wrap is not None:
-        wraps.append(wrap)
+            hi, wrap = max(hi, span_hi), wrap + extent
+    if hi is not None:
+        wraps.append((wrap, radius))
     return wraps
 
 
@@ -337,12 +345,19 @@ class OcctBackend:
         import math
 
         from build123d import GeomType
+        from OCP.BRepAdaptor import BRepAdaptor_Surface  # type: ignore[attr-defined]
         from OCP.BRepTools import BRepTools  # type: ignore[attr-defined]
 
-        # key -> list of (axial_lo, axial_hi, angular_extent) per inward face
-        groups: dict[tuple, list[tuple[float, float, float]]] = {}
+        # key -> list of (axial_lo, axial_hi, angular_extent, radius) per
+        # inward face
+        groups: dict[tuple, list[tuple[float, float, float, float]]] = {}
         for face in a.faces().filter_by(GeomType.CYLINDER):
-            cylinder = face.geom_adaptor().Cylinder()
+            # BRepAdaptor, not the raw Geom surface: a planar cut part-way
+            # around a cylinder (a slit clamp, an obround slot) wraps the
+            # surface in Geom_RectangularTrimmedSurface, which the GeomType
+            # filter sees through and the raw surface object cannot answer
+            # Cylinder() on — the mismatch crashed on ordinary geometry.
+            cylinder = BRepAdaptor_Surface(face.wrapped).Cylinder()
             radius = float(cylinder.Radius())
             axis_location, axis_direction = cylinder.Axis().Location(), cylinder.Axis().Direction()
             origin = (axis_location.X(), axis_location.Y(), axis_location.Z())
@@ -364,13 +379,17 @@ class OcctBackend:
             base = sum(o * d for o, d in zip(origin, canonical, strict=True))
             sign = sum(d0 * d for d0, d in zip(direction, canonical, strict=True))
             ends = sorted((base + sign * vmin, base + sign * vmax))
-            groups.setdefault(key, []).append((ends[0], ends[1], umax - umin))
+            groups.setdefault(key, []).append((ends[0], ends[1], umax - umin, radius))
 
         diameters: list[float] = []
-        for key, spans in groups.items():
-            for wrap in _clustered_wraps(spans):
+        for spans in groups.values():
+            # The rounded key groups; the surface parameter is the
+            # measurement. Reporting the key's quantised radius flipped
+            # verdicts at tolerances below its 1e-6 quantum — a false pass
+            # with the true value appearing nowhere in the report.
+            for wrap, radius in _clustered_wraps(spans):
                 if wrap >= 2 * math.pi - 1e-6:
-                    diameters.append(key[-1] * 2)
+                    diameters.append(radius * 2)
         diameters.sort(reverse=True)
         return Measurement(
             tuple(diameters),

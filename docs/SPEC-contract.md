@@ -298,6 +298,17 @@ deliberate:
 - **Two aligned holes through two clevis lugs count twice**: same axis, same radius,
   disjoint axial spans. The drawing says "2× Ø8" and so does the check.
 - **Blind and through bores count alike.** Depth is not this check's claim.
+- **A cross-drilled hole severed by a larger crossing hole counts once per severed span.**
+  This is the clevis rule applied where the drawing disagrees with it: "1× Ø4 cross hole"
+  through a Ø8 main bore is two disjoint Ø4 spans, so it counts as two — while two crossing
+  holes of *equal* diameter still count once each, because their split spans touch at the
+  intersection. An author cross-drilling through a larger bore should declare the count the
+  geometry has, not the count the callout abbreviates.
+- **A sealed internal cylindrical cavity counts.** The definition is a claim about surfaces,
+  not about reachability — a tube's inner wall is a bore (the bearing-seat use case is
+  exactly that), and a fully enclosed cylindrical void is the same surface with no opening.
+  Nothing distinguishes them at the surface level, and inventing a reachability analysis to
+  try would claim more than the check measures.
 
 **What it deliberately does not claim:** position (that is `keep_out`'s and the future
 `bolt_circle`'s territory), depth, and the absence of *other* holes — a part with an extra

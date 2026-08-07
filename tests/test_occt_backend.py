@@ -484,3 +484,78 @@ def test_bores_refuses_an_empty_shape(backend: OcctBackend):
     from build123d import Compound
 
     refused(backend.bores(Compound()))
+
+
+def test_a_trimmed_cylindrical_face_does_not_crash_the_enumeration(backend: OcctBackend):
+    """A planar cut part-way around a cylinder — a slit clamp, an obround
+    slot — wraps the surface in Geom_RectangularTrimmedSurface. The GeomType
+    filter sees through the wrapper; the raw-surface extractor did not, and
+    `bores` raised AttributeError on ordinary geometry (PR #87 review
+    blocker). The slit clamp's severed bore also must not count as full-wrap."""
+    from build123d import Align, Box, Cylinder, Location
+
+    a = (Align.CENTER, Align.CENTER, Align.MIN)
+    clamp = (
+        Box(30, 30, 10, align=(Align.MIN, Align.MIN, Align.MIN))
+        - (Location((15, 15, -1)) * Cylinder(4, 12, align=a))
+        - (Location((15, 27, -1)) * Box(2, 26, 12, align=a))
+    )
+    m = measured(backend.bores(clamp))
+    assert 8.0 not in m.value, "a slit bore is not a full circle a pin can bear on"
+
+
+def test_an_obround_slot_is_not_a_bore(backend: OcctBackend):
+    """Two half-cylinders joined by planes: each wraps half the circle on its
+    own axis, so neither reaches full-wrap. Also pins the 2π threshold — a
+    mutant accepting half-wraps counts this slot twice."""
+    from build123d import Align, Box, Cylinder, Location
+
+    a = (Align.CENTER, Align.CENTER, Align.MIN)
+    slot = (
+        Location((10, 15, -1)) * Cylinder(4, 12, align=a)
+        + Location((20, 15, -1)) * Cylinder(4, 12, align=a)
+        + Location((15, 15, -1)) * Box(10, 8, 12, align=a)
+    )
+    part = Box(40, 30, 10, align=(Align.MIN, Align.MIN, Align.MIN)) - slot
+    assert measured(backend.bores(part)).value == ()
+
+
+def test_the_reported_diameter_is_the_surface_parameter_not_the_grouping_key(
+    backend: OcctBackend,
+):
+    """Grouping rounds to 1e-6 to absorb kernel noise; the *measurement* must
+    be the un-rounded radius. Reporting the key produced a demonstrated false
+    pass at tol below the quantum, with the true value nowhere in the report."""
+    from build123d import Align, Box, Cylinder, Location
+
+    a = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Box(30, 30, 10, align=(Align.MIN, Align.MIN, Align.MIN)) - (
+        Location((15, 15, -1)) * Cylinder(4.0000004, 12, align=a)
+    )
+    m = measured(backend.bores(part))
+    assert m.value == (8.0000008,), "the exact modelled diameter, not its quantisation"
+
+
+def test_axis_sign_normalisation_agrees_with_its_own_rounding():
+    """The flip threshold must sit at the rounding quantum: deciding the sign
+    on a component the rounding then erases keys one axis line two ways,
+    splitting a bore into sub-2pi groups — a hole that exists, reported
+    absent."""
+    from partspec.backends.occt import _axis_key
+
+    noisy_pos, _ = _axis_key((0, 0, 0), (2e-9, -1.0, 0.0), 4.0)
+    noisy_neg, _ = _axis_key((0, 0, 0), (-2e-9, -1.0, 0.0), 4.0)
+    clean, _ = _axis_key((0, 0, 0), (0.0, -1.0, 0.0), 4.0)
+    assert noisy_pos == noisy_neg == clean
+
+
+def test_the_grouping_quantum_is_a_micrometre():
+    """1e-6 rounding absorbs kernel noise without merging real features: radii
+    a nanometre apart share a key, radii ten micrometres apart do not."""
+    from partspec.backends.occt import _axis_key
+
+    same_a, _ = _axis_key((0, 0, 0), (0, 0, 1.0), 4.0)
+    same_b, _ = _axis_key((0, 0, 0), (0, 0, 1.0), 4.00000001)
+    distinct, _ = _axis_key((0, 0, 0), (0, 0, 1.0), 4.00001)
+    assert same_a == same_b
+    assert same_a != distinct

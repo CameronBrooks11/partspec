@@ -88,7 +88,7 @@ def test_measure_separates_a_tier_gap_from_a_broken_part(tmp_path: Path, capsys)
     "fix your model".
     """
     doc = _measure(_contract(tmp_path, "open_box.scad", ""), capsys)
-    assert doc["unavailable"] == ["topology_counts"]
+    assert doc["unavailable"] == ["topology_counts", "bores"]
     assert "topology_counts" not in doc["refused"]
 
 
