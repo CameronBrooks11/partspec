@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from support import OPENSCAD
+from support import OPENSCAD, needs_openscad
 
 from partspec.mcp import build_server
 
@@ -58,11 +58,11 @@ def _call(tool: str, args: dict[str, Any]) -> dict[str, Any]:
     return result.structured_content
 
 
-def test_the_server_lists_check_and_measure_and_nothing_else():
-    # "Nothing else" is the claim worth guarding: no `render` until one can
-    # answer honestly (#17, #27) — a listed tool that cannot work is the
-    # tool-list version of silence reading as success.
-    assert _tool_names() == {"check", "measure"}
+def test_the_server_lists_the_three_verbs_and_nothing_else():
+    # "Nothing else" is the claim worth guarding: a listed tool that cannot
+    # work is the tool-list version of silence reading as success. `render`
+    # joined only once #17 gave it something honest to return.
+    assert _tool_names() == {"check", "measure", "render"}
 
 
 def test_the_entry_point_serves_over_stdio():
@@ -78,7 +78,7 @@ def test_the_entry_point_serves_over_stdio():
         async with Client(stdio_client(params)) as client:
             return await client.list_tools()
 
-    assert {tool.name for tool in anyio.run(go).tools} == {"check", "measure"}
+    assert {tool.name for tool in anyio.run(go).tools} == {"check", "measure", "render"}
 
 
 def test_check_on_a_missing_contract_is_usage_plus_the_error_placeholder(tmp_path: Path):
@@ -130,3 +130,45 @@ def test_check_returns_the_same_artifact_the_cli_writes(tmp_path: Path):
     assert payload["report"]["verdict"] == "pass"
     on_disk = json.loads(Path(payload["report_path"]).read_text())
     assert payload["report"] == on_disk, "the tool must return the artifact, not a paraphrase"
+
+
+@needs_openscad
+def test_render_tool_returns_view_paths_or_the_display_refusal(tmp_path: Path):
+    # Engine-level only — no trimesh in the loop — so this runs even in the
+    # mcp-only environment, where the display refusal is the honest branch.
+    shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('subject', openscad('block_with_hole.scad'))\n"
+    )
+    payload = _call("render", {"target": f"{module}:make", "out": str(tmp_path / "out")})
+    if payload["exit_code"] == 0:
+        assert set(payload["renders"]) == {"iso", "front", "top", "right"}
+        for path in payload["renders"].values():
+            assert Path(path).stat().st_size > 0
+    else:
+        assert payload["exit_code"] == 4
+        assert payload["renders"] is None
+        assert "display" in payload["stderr"]
+
+
+@needs_mesh_tier
+def test_check_with_render_records_the_views_in_the_returned_report(tmp_path: Path):
+    shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    p = Part('subject', openscad('block_with_hole.scad'))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    payload = _call(
+        "check", {"target": f"{module}:make", "out": str(tmp_path / "out"), "render": True}
+    )
+    if payload["exit_code"] == 0:
+        assert set(payload["report"]["renders"]) == {"iso", "front", "top", "right"}
+    else:
+        # No display: the run fails loudly and the artifact stays honest.
+        assert payload["exit_code"] == 4
+        assert "renders" not in payload["report"]

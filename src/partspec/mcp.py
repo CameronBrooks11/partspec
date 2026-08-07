@@ -60,7 +60,7 @@ def _run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _check(target: str, out: str | None) -> dict[str, Any]:
+def _check(target: str, out: str | None, render: bool = False) -> dict[str, Any]:
     # Private import, deliberately: the report's location is the CLI's rule
     # (`<contract dir>/outputs/<slug>` unless --out), and duplicating the rule
     # here would let the two drift apart silently. `Target.parse` is total, so
@@ -73,6 +73,8 @@ def _check(target: str, out: str | None) -> dict[str, Any]:
     args = ["check", target, "--quiet"]
     if out is not None:
         args += ["--out", out]
+    if render:
+        args.append("--render")
     proc = _run_cli(args)
 
     result: dict[str, Any] = {
@@ -87,6 +89,19 @@ def _check(target: str, out: str | None) -> dict[str, Any]:
         # evidence there is, so it rides along; when a report exists it is
         # the whole story and stderr would only restate it.
         result["report_path"] = None
+        result["stderr"] = proc.stderr[-_STDERR_TAIL:]
+    return result
+
+
+def _render(target: str, out: str | None) -> dict[str, Any]:
+    args = ["render", target]
+    if out is not None:
+        args += ["--out", out]
+    proc = _run_cli(args)
+    result: dict[str, Any] = {"exit_code": proc.returncode, "renders": None}
+    try:
+        result["renders"] = json.loads(proc.stdout)["renders"]
+    except (json.JSONDecodeError, KeyError):
         result["stderr"] = proc.stderr[-_STDERR_TAIL:]
     return result
 
@@ -107,21 +122,20 @@ def build_server() -> MCPServer:
     server = MCPServer("partspec", instructions=_INSTRUCTIONS)
 
     # The verbs match the CLI by name and meaning — agents use the same
-    # commands as humans (D5). No `render` tool until one can answer honestly
-    # (#17, #27): a listed tool that cannot work is the tool-list version of
-    # silence reading as success.
+    # commands as humans (D5).
 
     @server.tool()
-    def check(target: str, out: str | None = None) -> dict[str, Any]:
+    def check(target: str, out: str | None = None, render: bool = False) -> dict[str, Any]:
         """Build a part and check it against its contract.
 
         `target` is `<module-path>[:<factory>]`, e.g. `specs/bracket.py:bracket`.
         Returns the report the CLI writes, its path, and the exit code:
         0 pass, 1 fail, 2 incomplete (unproven, not failing), 3 empty
         (the contract asserts nothing), 4 error (partspec or the environment
-        failed — no verdict on the part), 64 bad usage.
+        failed — no verdict on the part), 64 bad usage. With `render=True`
+        the report also records the canonical view images it produced.
         """
-        return _check(target, out)
+        return _check(target, out, render)
 
     @server.tool()
     def measure(target: str) -> dict[str, Any]:
@@ -133,6 +147,17 @@ def build_server() -> MCPServer:
         check the tool wrote is a check nobody decided.
         """
         return _measure(target)
+
+    @server.tool()
+    def render(target: str, out: str | None = None) -> dict[str, Any]:
+        """Write the canonical views (iso, front, top, right) as PNGs.
+
+        Deterministically framed from the bounding box, so two runs of the
+        same geometry are comparable. Returns view name -> file path. The
+        images are evidence, not judgement — no verdict rides with them, and
+        rendering never substitutes for measurement.
+        """
+        return _render(target, out)
 
     return server
 
