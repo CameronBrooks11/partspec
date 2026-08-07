@@ -251,7 +251,11 @@ def _write_json(path: Path, payload: dict[str, Any]) -> Path:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".partspec-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
+            # allow_nan=False: a bare NaN/Infinity literal is not JSON and no
+            # conforming parser will read it back. Measurement refuses
+            # non-finite values already; this is the backstop that keeps an
+            # unreadable artifact from ever reaching disk.
+            json.dump(payload, fh, indent=2, allow_nan=False)
             fh.write("\n")
             fh.flush()
             os.fsync(fh.fileno())

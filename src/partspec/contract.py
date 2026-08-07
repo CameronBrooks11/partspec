@@ -10,6 +10,7 @@ Spec: SPEC-contract.md.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,27 @@ class Source:
     method: str | None = None
     backend: str | None = None
     """Engine-specific render backend. OpenSCAD only, for now."""
+
+    def __post_init__(self) -> None:
+        """A parameter that is not a number is refused where it enters.
+
+        `float("nan")` reached adjudication and **passed**: every comparison
+        against NaN is False, so `_satisfies_scalar` — which asks
+        `not (value > hi + epsilon)` — is vacuously satisfied by any range.
+        `param("x", min=1.0, max=20.0)` on a NaN reported `ok param:x`, exit 0.
+
+        Caught here rather than at the measurement, because a non-finite
+        parameter is a fact about the contract, not about the part: it also
+        reaches `params` in the report, where it cannot be serialised as JSON at
+        all. A ContractError makes it `verdict: "error"` and exit 4, which is
+        what "the tool could not evaluate this" means.
+        """
+        for name, value in self.params.items():
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ContractError(
+                    f"parameter {name!r} is {value}, which is not a number; "
+                    f"a non-finite parameter cannot be rendered or compared"
+                )
 
 
 def openscad(

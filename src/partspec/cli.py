@@ -198,7 +198,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     if unavailable:
         measured["unavailable"] = unavailable
 
-    print(json.dumps(measured, indent=2))
+    print(json.dumps(measured, indent=2, allow_nan=False))
     return 0
 
 
