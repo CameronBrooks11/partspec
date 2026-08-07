@@ -843,3 +843,55 @@ def test_region_clauses_appear_as_components():
         shell=3.0,
     )
     assert ok.components == {"region": Status.PASS, "shell": Status.PASS}
+
+    # The asymmetric cases are what pin WHICH clause each entry reports: with
+    # the two swapped, a report would blame the shell for the region's
+    # intrusion — and the symmetric cases above cannot see it.
+    intruded = _region_result(
+        _box_part((4, 4, 4), (6, 6, 6)), "keep_out", box(min=(0, 0, 0), max=(5, 5, 5)), shell=2.0
+    )
+    assert intruded.components == {"region": Status.FAIL, "shell": Status.PASS}
+
+    nothing_around = _region_result(
+        _box_part((100, 100, 100), (110, 110, 110)),
+        "keep_out",
+        box(min=(0, 0, 0), max=(5, 5, 5)),
+        shell=2.0,
+    )
+    assert nothing_around.components == {"region": Status.PASS, "shell": Status.FAIL}
+
+
+def test_components_respect_the_same_epsilon_the_status_does():
+    """The headline invariant, tested at the boundary where it can break: the
+    binary-STL float32 round-trip that `epsilon()` exists for. A recompute of
+    components with a naive comparison would fail x here while the folded
+    status passes — a report contradicting its own attribution."""
+    from partspec import Limit, adjudicate
+    from partspec.runner import _components_of
+
+    m = Measurement((120.30000305, 80.69999695, 40.09999847), "mm", axes=("x", "y", "z"))
+    limit = Limit(max=(120.3, 80.7, 40.1))
+    assert adjudicate(m, limit) is Status.PASS
+    assert _components_of(m, limit) == {"x": Status.PASS, "y": Status.PASS, "z": Status.PASS}
+
+
+def test_an_approximate_axis_is_never_claimed_outside_its_bound():
+    """'outside' is a conclusive claim. An axis whose error band straddles the
+    limit is APPROXIMATE — the tool does not know — and the detail must stay
+    silent about it rather than rounding indeterminate into violated. No
+    backend emits vector bounds today; this pins the path before one does."""
+    from partspec import Limit
+    from partspec.runner import _components_of, _failing_axes
+
+    m = Measurement(
+        (5.0, 2.01),
+        "mm",
+        exact=False,
+        bounds=((4.9, 5.1), (1.96, 2.06)),
+        axes=("a", "b"),
+    )
+    limit = Limit(min=(6.0, 2.0))
+    components = _components_of(m, limit)
+    assert components == {"a": Status.FAIL, "b": Status.APPROXIMATE}
+    assert components is not None
+    assert _failing_axes(m, limit, components) == "a=5 outside min=6.0"

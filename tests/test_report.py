@@ -256,6 +256,13 @@ def test_spec_example_checks_are_well_formed(check):
     if check["status"] == "unsupported":
         assert check["measurement"] is None
         assert check.get("requires"), "unsupported must name the tier that would answer"
+    if "components" in check:
+        # Attribution must agree with the verdict it attributes: every value a
+        # real status, and the worst of them exactly the check's own.
+        from partspec.status import worst
+
+        statuses = [Status(v) for v in check["components"].values()]
+        assert worst(statuses) == Status(check["status"])
 
 
 def test_components_serialise_between_limit_and_detail_as_strings():

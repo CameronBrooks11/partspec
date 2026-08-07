@@ -288,7 +288,11 @@ def _failing_axes(outcome: Measurement, limit: Limit, components: dict[str, Stat
     axis_index = {axis: i for i, axis in enumerate(outcome.axes or ())}
     parts = []
     for axis, status in components.items():
-        if status is Status.PASS:
+        # Only conclusive violations: "outside" is a claim, and an APPROXIMATE
+        # axis is one the tool does not know to be outside. No backend emits
+        # vector bounds today, but the message must not be a lie waiting for
+        # the first one that does.
+        if status is not Status.FAIL:
             continue
         sub = component_limit(limit, axis_index[axis], n)
         assert sub is not None  # a constrained status implies a constraint
