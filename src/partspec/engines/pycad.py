@@ -91,7 +91,24 @@ def adopt(obj: Any) -> Any | BuildError:
     wrapper = _shape_map().get(raw.ShapeType())
     if wrapper is None:
         return BuildError(f"unsupported shape type: {raw.ShapeType()}")
-    return wrapper(raw)
+    shape = wrapper(raw)
+
+    # A cut that consumes its own operand -- `Box(s) - Box(2s)`, an ordinary slip
+    # -- yields a non-null but *empty* Compound, which `IsNull()` does not catch.
+    # It then measured as a legitimate part: bbox (0,0,0), area 0.0, watertight
+    # False, all reported exact, and a contract asserting only those three passed
+    # green on a part that does not exist.
+    #
+    # The test is "no vertices", not "no faces". A Wire or an Edge has no faces
+    # and is still real geometry that bbox and area answer for honestly; only a
+    # shape with nothing in it at all has no vertices. D17 part 2 forbids the
+    # broader gate.
+    if not shape.vertices():
+        return BuildError(
+            "model returned a shape containing no geometry "
+            "(an empty compound -- did a cut consume the whole part?)"
+        )
+    return shape
 
 
 def _load(path: Path) -> Any:
