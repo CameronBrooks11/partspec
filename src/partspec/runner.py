@@ -26,7 +26,7 @@ from . import expr as expr_mod
 from .backend import BuildError, Unsupported
 from .contract import GEOMETRY, GEOMETRY_KINDS, CheckSpec, Part
 from .report import CheckResult, Report
-from .status import ContractError, Limit, Measurement, Status, adjudicate
+from .status import ContractError, Limit, Measurement, Status, adjudicate, epsilon
 
 __all__ = ["run"]
 
@@ -227,6 +227,9 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
             requires="occt",
         )
 
+    if spec.kind in ("keep_out", "keep_in"):
+        return _run_region_check(spec, backend, artifact, common)
+
     outcome = getattr(backend, primitive_name)(artifact)
     if isinstance(outcome, Unsupported):
         return CheckResult(
@@ -241,6 +244,86 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         if explain is not None:
             detail = explain(artifact)
     return CheckResult(**common, status=status, measurement=outcome, detail=detail)
+
+
+def _run_region_check(
+    spec: CheckSpec, backend: Any, artifact: Any, common: dict[str, Any]
+) -> CheckResult:
+    """Adjudicate a keep_out / keep_in region with its verification shell.
+
+    The core claim and its anti-vacuity guard are decided together
+    (SPEC-contract.md 4.4): a keep_out's region must hold no material AND its
+    shell must not be entirely empty; a keep_in's region must be entirely
+    material AND its shell must not be entirely solid. The pairing is what makes
+    a deleted part fail a keep_out and a solid brick fail a keep_in.
+
+    Every volume — including the region's own — is read through
+    `intersect_volume`, never from a closed form. The mesh tier's booleans run
+    on a float32 reconstruction (see `_manifold`), so a float64 closed-form
+    total would disagree with a measured coverage by ~2e-7 relative — above the
+    1e-7 comparison epsilon — and a fully-covered keep_in could fail on
+    quantisation it did not cause. Measured against itself, the reconstruction
+    cancels.
+    """
+    assert spec.region is not None and spec.shell is not None
+    region = spec.region
+    outer = region.expand(spec.shell)
+    common = {**common, "region": {**region.to_json(), "shell": spec.shell}}
+
+    region_solid = backend.region_solid(region)
+    outer_solid = backend.region_solid(outer)
+    volumes = []
+    for a, b in (
+        (artifact, region_solid),
+        (artifact, outer_solid),
+        (region_solid, region_solid),
+        (outer_solid, outer_solid),
+    ):
+        outcome = backend.intersect_volume(a, b)
+        if isinstance(outcome, Unsupported):
+            return CheckResult(
+                **common,
+                status=Status.UNSUPPORTED,
+                detail=outcome.reason,
+                requires=outcome.requires,
+            )
+        volumes.append(float(outcome.value))
+    in_region, in_outer, region_volume, outer_volume = volumes
+    in_shell = max(0.0, in_outer - in_region)
+
+    if spec.kind == "keep_out":
+        failures = [
+            f"{in_region:.6g} mm3 of material intrudes into the keep-out region"
+            if in_region > epsilon(0.0)
+            else None,
+            f"the region is empty, but so is its entire {spec.shell:g} mm shell: "
+            f"nothing surrounds this region, and an absent part satisfies any "
+            f"keep-out — this is not evidence the feature exists"
+            if not in_shell > epsilon(0.0)
+            else None,
+        ]
+    else:
+        deficit = region_volume - in_region
+        shell_volume = max(0.0, outer_volume - region_volume)
+        failures = [
+            f"the region is missing {deficit:.6g} mm3 of the {region_volume:.6g} mm3 "
+            f"of material it must contain"
+            if deficit > epsilon(region_volume)
+            else None,
+            f"the region is solid, but so is its entire {spec.shell:g} mm shell: "
+            f"an unbounded block satisfies any keep-in — nothing bounds the "
+            f"feature this region describes"
+            if not shell_volume - in_shell > epsilon(shell_volume)
+            else None,
+        ]
+
+    failed = [f for f in failures if f is not None]
+    return CheckResult(
+        **common,
+        status=Status.FAIL if failed else Status.PASS,
+        measurement=Measurement((in_region, in_shell), "mm3", exact=True, axes=("region", "shell")),
+        detail="; ".join(failed) if failed else None,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -296,6 +379,7 @@ def _skipped(spec: CheckSpec, reason: str) -> CheckResult:
         limit=spec.limit,
         expr=spec.expr if spec.kind == "requires" else None,
         operands={} if spec.kind == "requires" else None,
+        region={**spec.region.to_json(), "shell": spec.shell} if spec.region is not None else None,
         detail=reason,
     )
 

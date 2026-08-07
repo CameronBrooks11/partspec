@@ -388,3 +388,35 @@ def test_a_missing_engine_is_an_environment_fault_not_a_failing_part(tmp_path: P
     assert isinstance(result, BuildError)
     assert result.origin == "environment", "not a verdict on the part"
     assert "not importable" in result.message
+
+
+# --------------------------------------------------------------------------
+# region materialization (#49)
+# --------------------------------------------------------------------------
+
+
+def test_region_solid_realises_the_canonical_polyhedron(backend: OcctBackend):
+    """The materialized solid must match the region's own closed form — which is
+    computed from the same vertex list the mesh tier triangulates. A true OCCT
+    cylinder here would be a different (larger-by-zero, rounder) region than the
+    other tier adjudicates, so exact volume agreement is the pin."""
+    from partspec.region import box, cylinder
+
+    b = backend.region_solid(box(min=(1, 2, 3), max=(4, 6, 9)))
+    assert b.volume == pytest.approx(72.0, abs=1e-9)
+
+    for axis in ("x", "y", "z"):
+        r = cylinder(d=5, h=6, at=(1, 2, 3), axis=axis)
+        s = backend.region_solid(r)
+        assert s.volume == pytest.approx(r.volume(), abs=1e-9)
+
+
+def test_intersect_volume_of_disjoint_shapes_is_zero_not_a_crash(backend: OcctBackend):
+    """build123d's `&` returns None for disjoint shapes, and the naive
+    `.volume` read crashed on it — found by this primitive's first caller,
+    whose conforming case (an empty keep-out) is exactly two disjoint shapes."""
+    a = bd.Box(2, 2, 2)
+    b = bd.Pos(10, 10, 10) * bd.Box(2, 2, 2)
+    m = measured(backend.intersect_volume(a, b))
+    assert m.value == 0.0
+    assert m.unit == "mm3"

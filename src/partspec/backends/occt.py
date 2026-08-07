@@ -38,6 +38,7 @@ CAPABILITIES = frozenset(
         "triangles",
         "min_distance",
         "intersect_volume",
+        "region_solid",
     }
 )
 
@@ -221,7 +222,34 @@ class OcctBackend:
         return Measurement(float(a.distance_to(b)), "mm", exact=True)
 
     def intersect_volume(self, a: Any, b: Any) -> Measurement:
-        return Measurement(float((a & b).volume), "mm3", exact=True)
+        """Volume of the boolean common.
+
+        The empty case is explicit because build123d's `&` returns `None` for
+        disjoint shapes rather than an empty compound — found by this
+        primitive's first caller (keep_out, whose conforming case is exactly
+        "these two shapes are disjoint"); `(a & b).volume` crashed on it.
+        """
+        common = a & b
+        return Measurement(0.0 if common is None else float(common.volume), "mm3", exact=True)
+
+    def region_solid(self, region: Any) -> Any:
+        """Materialize a declared region as a native solid.
+
+        A cylinder region is extruded from the same polygon vertex list the mesh
+        tier triangulates (SPEC-contract.md 4.4): the two tiers must adjudicate
+        the identical polyhedron, so a true OCCT cylinder — available here —
+        is deliberately not used.
+        """
+        import build123d as bd
+
+        from ..region import BoxRegion
+
+        if isinstance(region, BoxRegion):
+            (x0, y0, z0), (x1, y1, z1) = region.min, region.max
+            return bd.Pos(x0, y0, z0) * bd.Solid.make_box(x1 - x0, y1 - y0, z1 - z0)
+        points = [bd.Vector(*p) for p in region.base_polygon()]
+        face = bd.Face(bd.Wire.make_polygon(points, close=True))
+        return bd.extrude(face, amount=region.h, dir=region.axis_vector())
 
     def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> Unsupported:
         """Not implemented on this tier yet.

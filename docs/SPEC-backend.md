@@ -63,7 +63,7 @@ class GeometryBackend(Protocol):
     def build(self, source: SourceRef, params: dict) -> Artifact | BuildError: ...
     def provenance(self, a) -> dict: ...    # -> report.geometry block
 
-    # --- the twelve primitives (investigation 03 §2) ---
+    # --- the primitives (the original twelve: investigation 03 §2) ---
     def bbox(self, a) -> Measured: ...
     def volume(self, a) -> Measured: ...
     def area(self, a) -> Measured: ...
@@ -78,14 +78,27 @@ class GeometryBackend(Protocol):
     def triangles(self, a) -> Tris: ...
     def raycast(self, a, origin, direction) -> list[Vec3] | Unsupported: ...
 
+    # --- added for keep_out / keep_in (SPEC-contract.md §4.4) ---
+    def region_solid(self, region) -> Artifact: ...
+
     # --- honesty ---
     def capabilities(self) -> frozenset[str]: ...
 ```
 
-`min_distance` / `intersect_volume` / `raycast` are present because they are part of the
-twelve and the mesh backend implements them cheaply; **no v0 check calls them** (they serve
-`clearance` / `interference` / `min_wall`, all post-v0 per `SPEC-contract.md` §4.3). They
-are specified now so the protocol does not change when those land.
+`min_distance` / `raycast` are present because they are part of the original twelve and the
+mesh backend implements them cheaply; **no check calls them yet** (they serve `clearance` /
+`interference` / `min_wall`, all deferred per `SPEC-contract.md` §4.3). They are specified
+now so the protocol does not change when those land. `intersect_volume` gained its first
+caller with `keep_out` / `keep_in`; its empty case is normative — **disjoint inputs MUST
+return a `0.0` measurement, not raise**, because the conforming case of a `keep_out` is
+exactly two disjoint shapes (build123d's `&` returns `None` there, and the naive
+`.volume` read crashed on the first real call).
+
+`region_solid` materializes a declared `partspec.region` as the backend's native solid. Both
+tiers MUST realise **the same polyhedron from the region's canonical vertex list**: a
+cylinder region *is* a circumscribed polygon prism everywhere, and a backend that
+substitutes its own exact cylinder — as the OCCT tier could — is answering a different
+question than the other tier (`SPEC-contract.md` §4.4).
 
 ### 3.1 `Unsupported` is a return value, not an exception
 

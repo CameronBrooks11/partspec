@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 from support import OPENSCAD
 
-from partspec import Part, build123d, openscad
+from partspec import Part, build123d, openscad, region
 from partspec.runner import run
 from partspec.status import Status
 
@@ -51,10 +51,14 @@ def _contracted(part: Part) -> Part:
     part.genus(1)
     part.volume(min=10999.99, max=11000.01)
     # Area catches what volume cannot: a reshaped slot (5 x 20, volume-
-    # identical) changes wall area. A purely TRANSLATED slot still passes —
-    # no v0 check pins feature position; that is #49's territory (keep-in /
-    # keep-out), and this test does not claim otherwise.
+    # identical) changes wall area. A purely TRANSLATED slot is what the
+    # keep_out below pins — the residual this file used to declare open.
     part.area(min=3999.99, max=4000.01)
+    # Every coordinate is exactly float32-representable, so the mesh tier's
+    # quantised booleans and the OCCT tier's doubles must agree to float
+    # tolerance, not merely to a loose band.
+    part.keep_out(region.box(min=(16, 11, 1), max=(24, 19, 9)), shell=3.0, id="slot_clear")
+    part.keep_in(region.box(min=(2, 2, 2), max=(12, 8, 8)), shell=3.0, id="web_solid")
     return part
 
 

@@ -106,10 +106,12 @@ error.
 
 ---
 
-## 4. Check vocabulary — closed for v0
+## 4. Check vocabulary — closed at each release
 
 `SPEC-report.md` §7.1 declares `kind` an open vocabulary so the report format never needs
-revising when a check is added. **This document closes it for v0.**
+revising when a check is added. **This document closes it at each release**: v0 shipped the
+set below through `topology`; `keep_out` / `keep_in` (§4.4) are the first post-v0.1
+additions, from epic #6.
 
 ### 4.1 Parameter phase
 
@@ -134,6 +136,8 @@ on. `p.requires` is the escape hatch for anything relational.
 | `p.volume(min=, max=)` | `volume` | scalar, `mm3` | both |
 | `p.area(min=, max=)` | `area` | scalar, `mm2` | both |
 | `p.topology(faces=, edges=, vertices=)` | `topology` | vector, `count`, exact | **occt only** |
+| `p.keep_out(region, shell=)` | `keep_out` | vector, `mm3`, exact | both |
+| `p.keep_in(region, shell=)` | `keep_in` | vector, `mm3`, exact | both |
 
 `builds` is **implicit and always present**: every part gets it, and it fails if the engine
 exits non-zero or emits no artifact. It is the one check an author cannot forget, and it is
@@ -216,6 +220,56 @@ difference*, which is a thing the tool should report loudly rather than absorb q
 - **`center_of_mass`** — tier-consistent and cheap, and it will probably land; held back
   only because nothing in the dogfood corpus has needed it yet, and v0's vocabulary grows on
   demonstrated need rather than on availability. Visible through `measure` meanwhile.
+
+### 4.4 `keep_out` / `keep_in` — interface intent without a second body
+
+A region of space the part MUST be empty in (a bolt hole, a slot, a wrench clearance) or
+solid throughout (a boss, a pin, a bearing seat). This is the one form of mechanical
+interface intent that needs no reference model and no assembly support, and it is how
+CADGenBench scores "interface match". Regions are declared as pure data from
+`partspec.region` — `region.box(min=, max=)` and `region.cylinder(d=, h=, at=, axis=,
+segments=)` — because the contract layer imports no geometry library (§1.1); each backend
+materializes them via its `region_solid` primitive.
+
+**The verification shell is mandatory, and it is the whole design.** The naive claims are
+both vacuous: "no material here" is satisfied perfectly by a part with the material
+deleted, and "material everywhere here" by an unbounded solid block. Each region is
+therefore adjudicated together with a shell of thickness `shell` grown around it, holding
+the *opposite* claim in weakened form:
+
+- `keep_out`: the region MUST contain no material, **and its shell MUST NOT be entirely
+  empty.** An absent part — and a hole whose clearance exceeds `shell` in every direction —
+  fails.
+- `keep_in`: the region MUST be entirely material, **and its shell MUST NOT be entirely
+  solid.** The brick fails, and so does a feature oversize by more than `shell` in every
+  direction.
+
+The shell claims are deliberately the weak forms ("not entirely"), not the strong ones. A
+strong keep_out shell — "entirely solid" — is failed by every clearance hole ever modelled,
+because the modelled hole is always larger than the declared keep-out and the gap between
+them is empty; the mirror kills the strong keep_in shell. `shell` is therefore read as
+**the clearance budget**: material must appear within `shell` of a keep-out, and emptiness
+within `shell` of a keep-in.
+
+**What this deliberately does not claim: shape.** A hole oversize in one direction only —
+an oval through a round keep-out — passes, because material still lies within the shell on
+the tight sides. Roundness and diameter are `hole_diameter`'s claims. A region check is a
+claim about space, and a contract that needs both should declare both.
+
+**Materialization is tier-identical by construction.** A cylinder region *is* a
+circumscribed `segments`-gon prism (flats touch the declared circle), built from one
+canonical vertex list on every tier. Circumscribed, because the polygon then contains the
+declared cylinder and an "empty" verdict is earned — no material can hide between polygon
+and circle. The cost is radial over-approximation by `sec(pi/segments) - 1` (~0.12% at the
+default 64), which fails a feature whose clearance to the declared region is micrometres; a
+zero-margin region against its own feature's modelled surface is a claim the author should
+not write, and on the mesh tier it was never available anyway (the modelled hole is itself
+a polygon). Both statuses are conclusive: every volume involved is an exact boolean, so
+`approximate` cannot arise; a mesh too broken for exact booleans reports `unsupported`.
+
+The report records the declared region and shell on the check (`SPEC-report.md` §7.1), its
+`measurement` is the vector `(region, shell)` of material volumes found, and `limit` is
+null — the paired claim has no limit form, and inventing one would misdescribe it.
 
 ---
 

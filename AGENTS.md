@@ -30,7 +30,8 @@ src/partspec/
   status.py       # statuses, verdicts, exit codes, epsilon, adjudication  <- the thesis
   report.py       # the report artifact, serialisation, write semantics
   backend.py      # GeometryBackend protocol + value types
-  contract.py     # Part, Source, the closed v0 check vocabulary
+  contract.py     # Part, Source, the closed check vocabulary
+  region.py       # keep_out/keep_in region data + the canonical polyhedron both tiers materialize
   expr.py         # restricted-AST evaluation for `requires`, with operand capture
   target.py       # <module>[:<factory>] resolution
   runner.py       # phase orchestration: parameters -> build -> geometry -> report

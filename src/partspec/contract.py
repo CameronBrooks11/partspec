@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .region import BoxRegion, CylinderRegion, Region
 from .status import ContractError, Limit
 
 __all__ = [
@@ -39,14 +40,20 @@ GEOMETRY_KINDS: dict[str, str] = {
     "volume": "volume",
     "area": "area",
     "topology": "topology_counts",
+    "keep_out": "region_solid",
+    "keep_in": "region_solid",
 }
-"""v0's closed geometry vocabulary, mapped to the backend primitive that answers
+"""The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
 whether the engine produced anything at all.
 
 `topology` is the only entry whose primitive is **not** on both tiers, and that
 is why it earns its place: it is the one check that makes the tier difference
-visible to a contract author rather than merely documented."""
+visible to a contract author rather than merely documented.
+
+`keep_out` / `keep_in` map to the primitive that gates them; their evaluation is
+composed in the runner from `region_solid` and `intersect_volume` rather than
+being one primitive call (SPEC-contract.md 4.4)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +128,11 @@ class CheckSpec:
     expr: str | None = None
     unit: str | None = None
     """Overrides the default for a `param_range` measurement. See `Part.param`."""
+    region: Region | None = None
+    shell: float | None = None
+    """The declared region and its mandatory shell thickness, for `keep_out` /
+    `keep_in` only. Not a `Limit`: the claim is a paired one (empty here, solid
+    nearby, or the reverse) that no limit form expresses."""
 
 
 class Part:
@@ -296,6 +308,50 @@ class Part:
                 phase=GEOMETRY,
                 limit=Limit(equals=(faces, edges, vertices)),
             )
+        )
+
+    def keep_out(self, region: Region, *, shell: float, id: str | None = None) -> Part:
+        """The part must be empty inside `region` — a bolt hole, a slot, a
+        wrench clearance — AND some material must lie within `shell` mm of it.
+
+        The shell is mandatory because the naive claim is vacuous: "no material
+        here" is satisfied perfectly by a part with the material deleted, which
+        is exactly the silent green this tool exists to prevent. Requiring the
+        shell to not be entirely empty makes an absent part — and a hole whose
+        clearance exceeds `shell` everywhere — fail rather than pass.
+
+        What this deliberately does not claim: shape. A hole oversize in one
+        direction only (an oval through a round keep-out) passes, because
+        material still lies within the shell on the tight sides. Roundness is a
+        `hole_diameter` claim, not a spatial one. See SPEC-contract.md 4.4.
+        """
+        return self._add(self._region_spec("keep_out", region, shell, id))
+
+    def keep_in(self, region: Region, *, shell: float, id: str | None = None) -> Part:
+        """The part must be solid throughout `region` — a boss, a pin, a
+        bearing seat — AND its `shell` mm surround must not be entirely solid.
+
+        The shell is the mirror of `keep_out`'s: "material everywhere here" is
+        satisfied perfectly by an unbounded solid block, so a keep-in without it
+        proves a feature no better than a brick would. Requiring some emptiness
+        within `shell` of the region makes the brick — and a feature oversize by
+        more than `shell` in every direction — fail. See SPEC-contract.md 4.4.
+        """
+        return self._add(self._region_spec("keep_in", region, shell, id))
+
+    def _region_spec(self, kind: str, region: Region, shell: float, id: str | None) -> CheckSpec:
+        if not isinstance(region, BoxRegion | CylinderRegion):
+            raise ContractError(
+                f"{kind}() takes a region from partspec.region "
+                f"(region.box(...) or region.cylinder(...)), not {type(region).__name__}"
+            )
+        if not isinstance(shell, int | float) or not math.isfinite(shell) or shell <= 0:
+            raise ContractError(
+                f"{kind}() needs shell > 0 (got {shell!r}); the shell is what makes "
+                f"an absent feature fail instead of vacuously passing"
+            )
+        return CheckSpec(
+            id=id or kind, kind=kind, phase=GEOMETRY, region=region, shell=float(shell)
         )
 
     # -- internals ---------------------------------------------------------
