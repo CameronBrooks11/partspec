@@ -48,7 +48,7 @@ def _measure(target: str, capsys) -> dict:
 @needs_openscad
 def test_measure_reports_the_quantities_it_can_answer(tmp_path: Path, capsys):
     doc = _measure(_contract(tmp_path, "block_with_hole.scad", ""), capsys)
-    assert doc["engine"]["tier"] == "mesh"
+    assert doc["engine"]["backend"] == "mesh"
     assert doc["measurements"]["volume"]["value"] == pytest.approx(30 * 20 * 10 - 6 * 6 * 10)
     assert "refused" not in doc, "a sound part refuses nothing"
 

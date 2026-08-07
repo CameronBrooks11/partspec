@@ -13,6 +13,7 @@ import pytest
 from support import needs_openscad
 
 from partspec import Part, Status, Verdict, openscad, run
+from partspec.runner import _run_parameter_check
 
 pytest.importorskip("trimesh", reason="mesh extra not installed")
 
@@ -401,3 +402,43 @@ def test_digests_change_with_content(tmp_path: Path):
     second = run(Part("m", openscad(scad)).watertight(), out_dir=tmp_path).source_digest
 
     assert first != second
+
+
+def test_the_part_block_carries_no_absolute_path(tmp_path: Path):
+    """Two checkouts of the same tree at different locations must produce
+    byte-identical `part` blocks.
+
+    `part.source` was absolute after `_anchor` resolved it, so the committed
+    example report leaked a developer home directory — undoing at the path layer
+    exactly the machine-independence `source_closure` was built to have.
+    """
+    for location in ("checkout-a", "checkout-b"):
+        root = tmp_path / location
+        root.mkdir()
+        (root / "box.scad").write_text("x = 10;\ncube([x, x, x]);\n")
+        p = Part("paths", openscad(root / "box.scad", x=10.0)).watertight()
+        report = run(p, out_dir=root / "out", contract_path=root / "spec.py")
+        doc = report.to_json()["part"]
+        assert doc["source"] == "box.scad"
+        assert doc["contract"] == "spec.py"
+        assert not any(str(v).startswith("/") or "\\" in str(v) for v in doc.values())
+
+
+def test_a_parameter_unit_does_not_depend_on_the_python_literal(tmp_path: Path):
+    """`40` and `40.0` are the same dimension. `_unit_for` used to give the first
+    "count" and the second "mm", so editing a declared parameter between the two
+    changed the recorded unit without changing the design — spurious drift in the
+    field SPEC-report.md 7.2 exists to keep stable."""
+    p = Part("units", openscad(tmp_path / "x.scad", a=40, b=40.0))
+    p.param("a", min=1.0)
+    p.param("b", min=1.0)
+    results = [_run_parameter_check(s, p.source.params) for s in p.checks]
+    assert {r.measurement.unit for r in results if r.measurement} == {"mm"}
+
+
+def test_a_genuine_count_says_so(tmp_path: Path):
+    p = Part("units", openscad(tmp_path / "x.scad", teeth=24))
+    p.param("teeth", min=1, unit="count")
+    result = _run_parameter_check(p.checks[0], p.source.params)
+    assert result.measurement is not None
+    assert result.measurement.unit == "count"

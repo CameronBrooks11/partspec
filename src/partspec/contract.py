@@ -119,6 +119,8 @@ class CheckSpec:
     phase: str
     limit: Limit | None = None
     expr: str | None = None
+    unit: str | None = None
+    """Overrides the default for a `param_range` measurement. See `Part.param`."""
 
 
 class Part:
@@ -150,9 +152,15 @@ class Part:
         *,
         min: float | None = None,
         max: float | None = None,
+        unit: str | None = None,
         id: str | None = None,
     ) -> Part:
         """A bound on one named parameter.
+
+        `unit` defaults to `mm`, v0's only length unit. Pass `unit="count"` for a
+        genuine count -- a tooth number, a hole count. It used to be inferred
+        from the Python literal type, so `40` and `40.0` produced different units
+        for the same dimension.
 
         Preferred over `requires` for a simple bound, because it produces a real
         measurement that a future `diff` can track drift on — a parameter
@@ -169,6 +177,7 @@ class Part:
                 phase=PARAMETER,
                 limit=Limit(min=min, max=max),
                 expr=name,
+                unit=unit,
             )
         )
 
