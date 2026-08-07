@@ -162,8 +162,57 @@ def _load(path: Path) -> Any:
     return module
 
 
+_OCP_PROVIDERS = ("cadquery-ocp", "cadquery-ocp-novtk")
+
+
+def _engine_import_error(engine: str, exc: ImportError) -> BuildError:
+    """Turn an engine import failure into something a reader can act on.
+
+    The failure this exists for is silent until it is fatal. `cadquery-ocp` and
+    `cadquery-ocp-novtk` both install the same top-level `OCP/` package and
+    neither pip nor uv detects the conflict, so whichever lands last wins. When
+    novtk wins, `OCP.IVtkOCC` loses its VTK bindings and CadQuery cannot import
+    at all:
+
+        ImportError: cannot import name 'IVtkOCC_Shape' from 'OCP.IVtkOCC'
+
+    This repo drops novtk with a `[tool.uv] override-dependencies` marker, but
+    that is a workspace setting -- it is not carried in wheel metadata, so a
+    plain `pip install partspec[occt,cadquery]` reproduces the clobber with no
+    override in scope. The guard therefore has to live in the code, not only in
+    the lockfile.
+    """
+    from importlib.metadata import PackageNotFoundError, distribution
+
+    installed = []
+    for name in _OCP_PROVIDERS:
+        try:
+            installed.append(f"{name} {distribution(name).version}")
+        except PackageNotFoundError:
+            continue
+
+    if len(installed) > 1:
+        return BuildError(
+            f"{engine} could not be imported because two OCP providers are installed "
+            f"({', '.join(installed)}); they share the same OCP/ package and one has "
+            f"clobbered the other",
+            hint="pip install --force-reinstall --no-deps cadquery-ocp",
+            origin="environment",
+        )
+    return BuildError(
+        f"{engine} is not importable: {exc}",
+        hint=f"pip install 'partspec[{'cadquery' if engine == 'cadquery' else 'occt'}]'",
+        origin="environment",
+    )
+
+
 def build(source: PyCADSource) -> Any | BuildError:
     """Import the model module, call it, and adopt the result."""
+    try:
+        __import__(source.engine)
+    except ImportError as exc:
+        return _engine_import_error(source.engine, exc)
+
     if not source.path.is_file():
         return BuildError(f"source not found: {source.path}", origin="environment")
 
