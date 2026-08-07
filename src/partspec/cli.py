@@ -48,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("target", help="<module-path>[:<factory>]")
     check.add_argument("--out", type=Path, default=None, help="report directory")
     check.add_argument("--quiet", action="store_true", help="suppress the human summary")
+    check.add_argument(
+        "--render",
+        action="store_true",
+        help="also write the canonical views and record their paths in the report",
+    )
 
     measure = sub.add_parser(
         "measure",
@@ -126,11 +131,44 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         return resolved
     part, target = resolved
 
+    if args.render and part.source.engine != "openscad":
+        # Before the run, so the refusal costs nothing and no artifact claims
+        # a render pass that was never going to happen.
+        print(
+            "partspec: --render currently requires an OpenSCAD source "
+            "(the OCCT tier does not have it yet)",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
     report = run(part, out_dir=out, argv=argv, contract_path=target.path)
+
+    render_error = None
+    if args.render and report.error is None:
+        from .backend import BuildError
+        from .engines import openscad
+        from .runner import _engine_source
+
+        views = openscad.render_views(_engine_source(part), out)
+        if isinstance(views, BuildError):
+            render_error = views
+        else:
+            # Relative to the report's own directory, POSIX-separated — the
+            # same portability rule part.source follows (SPEC-report.md §8).
+            report.renders = {v: p.relative_to(out).as_posix() for v, p in views.items()}
+
     path = report.write(out)
 
     if not args.quiet:
         _summarise(report, path)
+    if render_error is not None:
+        # The report speaks for the part; this exit speaks for the run. A
+        # requested render that failed must not exit as if it were delivered,
+        # and the report carries no renders block — absence, not a lie.
+        print(f"partspec: {render_error.message}", file=sys.stderr)
+        if render_error.hint:
+            print(f"  hint: {render_error.hint}", file=sys.stderr)
+        return exit_code(Verdict.ERROR)
     return report.exit_code
 
 

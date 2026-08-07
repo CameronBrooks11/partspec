@@ -137,6 +137,13 @@ class Report:
     engine: dict[str, Any] = field(default_factory=dict)
     params: dict[str, Any] = field(default_factory=dict)
     geometry: dict[str, Any] = field(default_factory=dict)
+    renders: dict[str, str] = field(default_factory=dict)
+    """View name -> image path, relative to the report's own directory.
+
+    Populated only when a run actually produced images (`check --render`);
+    absent otherwise — never an empty block, and never an empty-string path
+    that reads as a file (SPEC-report.md §8.4). The images carry no verdict.
+    """
     checks: list[CheckResult] = field(default_factory=list)
     error: str | None = None
     hint: str | None = None
@@ -199,13 +206,17 @@ class Report:
         if self.source_closure:
             part["source_closure"] = self.source_closure
 
-        return {
+        doc: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "tool": {"name": "partspec", "version": self.tool_version},
             "part": part,
             "engine": self.engine,
             "params": self.params,
             "geometry": self.geometry,
+        }
+        if self.renders:
+            doc["renders"] = self.renders
+        doc |= {
             "verdict": str(self.verdict),
             "counts": self.counts(),
             "checks": [c.to_json() for c in self.checks],
@@ -215,6 +226,7 @@ class Report:
             "environment": self._environment(),
             "invocation": {"argv": self.argv},
         }
+        return doc
 
     def _environment(self) -> dict[str, Any]:
         """Volatile data, quarantined by field rather than by block.

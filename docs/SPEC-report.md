@@ -411,6 +411,13 @@ an unknown major version rather than best-effort parse it.
     "distinct_normals": 70           // mesh tier only; identity signal, tracks $fn, retriangulation-invariant
   },
 
+  "renders": {                       // only when the run produced images (§8.4); omitted otherwise
+    "iso": "renders/iso.png",        // relative to the report's directory, per §8 rule 4
+    "front": "renders/front.png",
+    "top": "renders/top.png",
+    "right": "renders/right.png"
+  },
+
   "verdict": "incomplete",
   "counts": { "total": 5, "pass": 3, "fail": 0,
               "approximate": 0, "unsupported": 1, "skipped": 1 },
@@ -674,6 +681,17 @@ A **Python** report carries a closure too, of a different shape:
 > comparator treats matching Python digests as inconclusive rather than proven.
 
 ---
+
+### 8.4 `renders` — images a run produced
+
+View name → image path, relative to the report's own directory (rule 4). Present **only**
+when the invocation actually produced images (`check --render`); when nothing was rendered
+the key MUST be absent — never an empty object, and never an empty-string path, which reads
+as a file that exists. A requested render that fails exits `4` and leaves the key absent:
+the report speaks for the part, the exit code for the run.
+
+The images are evidence, not judgement — no verdict, status, or measurement may be derived
+from them (D18). §9's rule stands: paths only, never inline image data.
 
 ## 9. Non-goals for v1
 
