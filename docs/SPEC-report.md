@@ -563,6 +563,12 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 - **`checks[].id`** — stable within a contract, used as the join key by `diff`. Two checks
   in one report MUST NOT share an `id`. A contract that would emit a duplicate is a
   contract error (`verdict: "error"`), not a silently deduplicated report.
+- **`checks[].region`** — present only on `keep_out` / `keep_in` checks: the declared region
+  (`shape`, its dimensions, and the mandatory `shell` thickness), so the report states what
+  was claimed and not just how it went. These checks carry `limit: null` — the claim is a
+  paired one (empty here AND solid nearby, or the mirror) that no limit form expresses — and
+  their `measurement` is the two-component vector `(region, shell)` of material volumes.
+  Additive (no schema bump).
 - **`checks[].kind`** — an **open vocabulary**, defined in `SPEC-contract.md`. This document
   deliberately does not enumerate it: the report format must not need revising every time a
   check is added. Consumers MUST treat an unrecognized `kind` as opaque and rely on

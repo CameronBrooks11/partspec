@@ -51,6 +51,7 @@ CAPABILITIES = frozenset(
         "min_distance",
         "intersect_volume",
         "raycast",
+        "region_solid",
     }
 )
 """What this tier can answer at all. `topology_counts` is absent on purpose: a
@@ -327,6 +328,18 @@ class MeshBackend:
         if isinstance(mb, Unsupported):
             return mb
         return Measurement(float((ma ^ mb).volume()), "mm3", exact=True)
+
+    def region_solid(self, region: Any) -> Any:
+        """Materialize a declared region as this tier's native solid.
+
+        `process=False`: the vertices are the canonical list `region.mesh()`
+        computes, identical on every tier by design (SPEC-contract.md 4.4), and
+        trimesh's cleanup must not be allowed to perturb them.
+        """
+        import trimesh
+
+        vertices, faces = region.mesh()
+        return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
 
     def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> list[Vec3]:
         locations = a.ray.intersects_location(

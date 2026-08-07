@@ -90,6 +90,9 @@ class CheckResult:
     limit: Limit | None = None
     expr: str | None = None
     operands: dict[str, Any] | None = None
+    region: dict[str, Any] | None = None
+    """The declared region and shell of a `keep_out` / `keep_in` check, so the
+    report states what was claimed, not just how it went. Additive per §7.1."""
     detail: str | None = None
     requires: str | None = None
     part_refs: tuple[str, ...] = ()
@@ -108,6 +111,8 @@ class CheckResult:
         if self.expr is not None:
             out["expr"] = self.expr
             out["operands"] = self.operands or {}
+        if self.region is not None:
+            out["region"] = self.region
         out["detail"] = self.detail
         if self.requires is not None:
             out["requires"] = self.requires

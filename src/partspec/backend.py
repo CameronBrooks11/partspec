@@ -118,7 +118,7 @@ class BuildError:
 class GeometryBackend(Protocol):
     """What every backend implements.
 
-    Twelve primitives, plus lifecycle and an explicit capability declaration.
+    Thirteen primitives, plus lifecycle and an explicit capability declaration.
     Each returns a `Measurement` carrying its own `exact` flag, so a caller
     cannot accidentally lose provenance by receiving a bare float.
     """
@@ -151,7 +151,7 @@ class GeometryBackend(Protocol):
         """
         ...
 
-    # --- the twelve primitives ---
+    # --- the thirteen primitives ---
 
     # `bbox`, `area` and `watertight` are total: they are statements about the
     # triangles or the shape as given, and stay answerable however broken it is.
@@ -177,3 +177,13 @@ class GeometryBackend(Protocol):
     def min_distance(self, a: Any, b: Any) -> Measurement | Unsupported: ...
     def intersect_volume(self, a: Any, b: Any) -> Measurement | Unsupported: ...
     def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> list[Vec3] | Unsupported: ...
+
+    def region_solid(self, region: Any) -> Any:
+        """Materialize a declared `partspec.region` as this backend's native solid.
+
+        Both tiers MUST realise the same polyhedron from the region's canonical
+        vertex list (SPEC-contract.md 4.4) — a backend that substitutes an exact
+        cylinder for the polygon prism is answering a different question than
+        the other tier, however much better its representation could do.
+        """
+        ...
