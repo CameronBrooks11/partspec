@@ -2,10 +2,11 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha, and unreleased.** It runs end to end — `check` and `measure`, across
-> all three engines — and is being dogfooded on real parts. The check vocabulary is
-> deliberately small; [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is withheld and why.
-> Expect the API to move.
+> **Status: pre-alpha; v0.1.0 is on PyPI.** It runs end to end — `check` and `measure`
+> across all three engines, `render` on the mesh tier — and is dogfooded on real parts. The
+> check vocabulary is deliberately small; [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is withheld and why.
+> Expect the Python API to move: the stable surface is the report schema plus the exit
+> codes, and `partspec.run()` is internal.
 
 ## What it is for
 
@@ -58,7 +59,7 @@ $ partspec check examples/spacer/spec.py:spacer
   ok   genus
 
 PASS: 8 pass
-  examples/spacer/outputs/spec-spacer/report.json
+  /home/user/partspec/examples/spacer/outputs/spec-spacer/report.json
 ```
 
 The JSON report is the actual product surface; the console summary is a courtesy. Exit
@@ -130,7 +131,11 @@ cannot.
 
 ## Install
 
-Not on PyPI yet. From a clone:
+```sh
+pip install 'partspec[mesh]'      # OpenSCAD parts — the smallest useful install
+```
+
+Or for development, from a clone:
 
 ```sh
 uv sync --all-extras     # or: just setup
