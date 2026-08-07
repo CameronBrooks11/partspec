@@ -241,3 +241,42 @@ def test_render_writes_the_views_or_reports_the_display(tmp_path: Path, capsys):
     else:
         assert code == 4
         assert "display" in captured.err
+
+
+@needs_openscad
+def test_check_render_records_the_views_in_the_report_or_fails_the_run(tmp_path: Path):
+    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    out = tmp_path / "out"
+    code = main(["check", target, "--quiet", "--render", "--out", str(out)])
+    report = json.loads((out / "report.json").read_text())
+    if code == 0:
+        # Relative POSIX paths keyed by view, resolving against the report's
+        # own directory (SPEC-report.md section 8.4).
+        assert set(report["renders"]) == {"iso", "front", "top", "right"}
+        for rel in report["renders"].values():
+            assert not Path(rel).is_absolute()
+            assert (out / rel).stat().st_size > 0
+    else:
+        # No display: the run fails loudly and the key is absent — the report
+        # speaks for the part, the exit code for the run.
+        assert code == 4
+        assert "renders" not in report
+        assert report["verdict"] == "pass"
+
+
+@needs_openscad
+def test_a_report_without_render_carries_no_renders_key(tmp_path: Path):
+    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    out = tmp_path / "out"
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 0
+    assert "renders" not in json.loads((out / "report.json").read_text())
+
+
+def test_check_render_on_a_python_engine_target_is_usage(tmp_path: Path):
+    (tmp_path / "m.py").write_text("")
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    assert main(["check", f"{module}:make", "--render", "--quiet"]) == 64
