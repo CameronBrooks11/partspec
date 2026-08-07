@@ -267,6 +267,34 @@ An expression referencing an undeclared name is a contract error (`verdict: "err
 a failing check. Chained comparisons (`0 < sweep_angle < 360/number_of_pins`) are supported
 and record all operands.
 
+**A `requires` expression MUST be a predicate.** The grammar is recursive, not a rule about
+the outermost node:
+
+> An expression is a *predicate* iff it is a `Compare`, a `BoolOp` whose every value is a
+> predicate, a `UnaryOp(Not)` whose operand is a predicate, or a bare `Name`.
+
+Anything else is a contract error. Python coerces freely, so without this
+`requires("bore_d + 2*wall - plate_y")` — which reads like a clearance — is truthy for
+every value except exact equality, and passes green while claiming nothing. The rule has to
+recurse because `not (a - b)` and `a <= b and c` both have an admissible outermost node,
+and `not X` always yields a genuine `bool`, so no check on the *result* can catch it.
+
+A bare `Name` is admitted because bool parameters are a supported type and
+`is_threaded and pitch > 0` is an honest claim. Every `Name` in boolean position MUST
+therefore be verified to hold a `bool` **before** evaluation: `and`/`or` short-circuit, so a
+guard on the result would fire or not depending on the parameter values, and a contract-shape
+error that depends on the values is not one.
+
+Two further refusals, both of expressions that cannot fail:
+
+- An expression that reads **no declared parameter** (`operands_of(expr) == ()`) — its
+  result is the same on every run. This matches `Limit.__post_init__`, which already refuses
+  a bound that constrains nothing.
+- A comparison whose two sides are the **syntactically identical** operand (`x == x`,
+  `x >= x`). Broader semantic tautology detection (`x - x >= 0`, `x < x + 1`) is out of
+  scope: the cheap syntactic case is worth catching, and the general case is undecidable
+  enough that a partial job would mislead about what is guaranteed.
+
 ---
 
 ## 6. The vacuous-green guard

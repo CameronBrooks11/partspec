@@ -24,6 +24,56 @@ def _part(**params) -> Part:
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("expr", "why"),
+    [
+        ("bore_d + 2 * wall - plate_y", "reads like a clearance; truthy for all but equality"),
+        ("a - b", "an arithmetic value, not a claim"),
+        ("not (a - b)", "UnaryOp(Not) always yields a real bool, so no result guard sees it"),
+        (
+            "a <= b and c",
+            "BoolOp with a non-bool leaf; short-circuits, so a post-hoc check misses it",
+        ),
+        ("a == a", "compared with itself — true whatever it equals"),
+        ("b >= b", "the same tautology through a different operator"),
+    ],
+)
+def test_a_requires_that_is_not_a_predicate_is_refused(expr: str, why: str):
+    """`requires("1")` passed. So did `requires("bore_d + 2*wall - plate_y")`,
+    which reads like a clearance and is truthy for every value except exact
+    equality — decorative, and green.
+
+    The rule has to be recursive: a top-level-node rule admits both `not (...)`
+    and `... and c`, and `not X` always returns a genuine bool so nothing
+    downstream can catch it. Rejection must also be value-independent, which is
+    why the bool-leaf check runs before eval rather than on the result.
+    """
+    with pytest.raises(ContractError):
+        evaluate(expr, {"a": 1, "b": 2, "c": 3, "bore_d": 40, "wall": 2, "plate_y": 30})
+
+
+def test_a_bool_leaf_is_a_predicate_but_a_number_is_not():
+    """Bool parameters are a supported type, so `is_threaded and pitch > 0` is an
+    honest claim and must not be caught by the net above."""
+    ok, _ = evaluate("is_threaded and pitch > 0", {"is_threaded": True, "pitch": 1.5})
+    assert ok is True
+    with pytest.raises(ContractError, match="not a bool"):
+        evaluate("pitch and is_threaded", {"is_threaded": True, "pitch": 1.5})
+
+
+def test_the_bool_leaf_check_does_not_depend_on_the_values():
+    """`a <= b and c` short-circuits, so whether `c` is ever bound depends on the
+    parameters. A guard that fired only sometimes would be worse than none."""
+    for binding in ({"a": 1, "b": 2, "c": 3}, {"a": 3, "b": 2, "c": 3}):
+        with pytest.raises(ContractError, match="not a bool"):
+            evaluate("a <= b and c", binding)
+
+
+def test_a_requires_that_reads_no_parameter_claims_nothing():
+    with pytest.raises(ContractError, match="reads no declared parameter"):
+        evaluate("1 > 0", {"a": 1})
+
+
 def test_evaluate_returns_result_and_operands():
     ok, operands = evaluate("a + b <= c", {"a": 1, "b": 2, "c": 5, "unused": 99})
     assert ok is True

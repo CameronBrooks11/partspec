@@ -240,3 +240,41 @@ def test_unproven_is_not_green():
 def test_only_pass_exits_zero():
     for verdict in Verdict:
         assert (exit_code(verdict) == 0) is (verdict is Verdict.PASS)
+
+
+# --------------------------------------------------------------------------
+# non-finite values — the measurement that passes everything
+# --------------------------------------------------------------------------
+
+
+def test_nan_would_satisfy_any_range_which_is_why_it_is_refused():
+    """The premise, asserted so the guard below has a reason on record.
+
+    `_satisfies_scalar` asks `not (value > hi + epsilon)`, and every comparison
+    against NaN is False, so a NaN is vacuously inside any range. Left to
+    adjudication it does not fail — it *passes*.
+    """
+    from partspec.status import _satisfies_scalar
+
+    assert _satisfies_scalar(float("nan"), 1.0, 20.0) is True
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_measurement_is_refused(bad: float):
+    with pytest.raises(ContractError, match="not a number"):
+        Measurement(bad, "mm")
+
+
+def test_a_non_finite_vector_component_is_refused():
+    """Per component — a good x and y must not launder a bad z."""
+    with pytest.raises(ContractError, match="not a number"):
+        Measurement((1.0, 2.0, float("nan")), "mm", axes=("x", "y", "z"))
+
+
+def test_a_non_finite_parameter_is_refused_where_it_enters():
+    """Caught at the contract boundary, not the measurement: a NaN parameter also
+    reaches `params` in the report, where it is not serialisable as JSON."""
+    from partspec import openscad
+
+    with pytest.raises(ContractError, match="not a number"):
+        openscad("x.scad", bore_d=float("nan"))

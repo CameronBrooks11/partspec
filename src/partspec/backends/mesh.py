@@ -26,6 +26,7 @@ Spec: SPEC-backend.md section 5.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,7 @@ CAPABILITIES = frozenset(
         "is_valid",
         "watertight",
         "solid_count",
+        "cavities",
         "genus",
         "triangles",
         "min_distance",
@@ -201,7 +203,24 @@ class MeshBackend:
         return "; ".join(parts) or "not watertight for an unclassified reason"
 
     def solid_count(self, a: Any) -> Measurement | Unsupported:
-        """Connected bodies, counted over the exported triangles.
+        """Solids, counted over the exported triangles.
+
+        **A solid is a closed, outward-oriented surface component.** Counting
+        components instead was wrong twice over, and both errors were measured
+        against the OCCT tier, which has been right all along:
+
+        * A block with a *sealed cavity* is one solid, not two. Its boundary has
+          two components — the outer shell and the void's inner shell — and the
+          old count returned 2 where `TopoDS.solids()` returns 1. This is not
+          academic: run under an agent loop, the false failure had no model-side
+          remedy, so the agent drilled a vent bore the design never asked for in
+          order to turn the check green (`evals/BASELINE.md`).
+        * An *open* shell bounds no solid, so it is 0, not 1. The old count said
+          1 where the OCCT tier says 0.
+
+        Orientation is what separates the two: under the divergence theorem an
+        outward-oriented closed component encloses positive volume and a cavity's
+        inner shell, wound inward as seen from itself, encloses negative volume.
 
         Computed here rather than delegated, because both obvious delegates are
         wrong. trimesh's `body_count` routes through `graph.connected_components`
@@ -223,7 +242,20 @@ class MeshBackend:
         reason = _bodies_undetermined(a)
         if reason is not None:
             return Unsupported(reason)
-        return Measurement(_body_count(a), "count", exact=True)
+        return Measurement(_shell_census(a).solids, "count", exact=True)
+
+    def cavities(self, a: Any) -> Measurement | Unsupported:
+        """Sealed internal voids — closed components wound inward.
+
+        The third Betti number of the boundary, and the quantity `solid_count`
+        used to be quietly conflated with. A contract that means "one block with
+        one sealed void" can now say so, instead of being forced to describe the
+        void as a second solid.
+        """
+        reason = _bodies_undetermined(a)
+        if reason is not None:
+            return Unsupported(reason)
+        return Measurement(_shell_census(a).cavities, "count", exact=True)
 
     def genus(self, a: Any) -> Measurement | Unsupported:
         """Topological genus — through-holes — for a single closed body.
@@ -250,13 +282,18 @@ class MeshBackend:
         reason = _not_closed(a)
         if reason is not None:
             return Unsupported(f"genus is defined for a closed surface; {reason}")
-        bodies = _body_count(a)
-        if bodies != 1:
+        census = _shell_census(a)
+        if census.solids != 1:
             return Unsupported(
-                f"genus is defined per body; this part has {bodies} solids "
+                f"genus is defined per body; this part has {census.solids} solids "
                 f"(check solid_count first, or split the part)"
             )
-        return Measurement((2 - _euler_characteristic(a)) // 2, "count", exact=True)
+        # G = S - X/2 over *all* shells, matching the OCCT tier. The naive
+        # (2 - X)/2 assumes one shell and so is wrong by exactly the cavity
+        # count: a block with a sealed void has X = 4 and reported genus -1,
+        # a handle that does not exist.
+        shells = census.solids + census.cavities
+        return Measurement(shells - _euler_characteristic(a) // 2, "count", exact=True)
 
     def topology_counts(self, a: Any) -> Unsupported:
         """Always refused on this tier.
@@ -425,6 +462,62 @@ def _body_count(mesh: Any) -> int:
     import numpy as np
 
     return int(len(np.unique(_face_components(mesh))))
+
+
+@dataclass(frozen=True, slots=True)
+class _ShellCensus:
+    """Connected boundary components, split by what they bound."""
+
+    solids: int
+    """Closed and outward-oriented: each bounds a solid."""
+    cavities: int
+    """Closed and inward-oriented: each is a sealed void inside a solid."""
+    open_shells: int
+    """Not closed, so they bound nothing. Counted, never silently promoted."""
+
+
+def _shell_census(mesh: Any) -> _ShellCensus:
+    """Classify each connected component by closedness and orientation.
+
+    Signed volume is the discriminator, by the divergence theorem: summing
+    `v0 . (v1 x v2) / 6` over a component's triangles gives the volume it
+    encloses, positive when wound outward and negative when wound inward. A
+    cavity's inner shell is, seen from itself, wound inward — which is precisely
+    what distinguishes "a void in this solid" from "a second solid".
+
+    Closedness is tested per component rather than over the whole mesh: a part
+    may legitimately carry one closed body and one stray open sliver, and the
+    open one must not be counted as a solid just because its neighbour is closed.
+
+    Only ever called where `_bodies_undetermined` passed, so every edge is used
+    once or twice and component membership is unambiguous.
+    """
+    import numpy as np
+
+    faces = np.asarray(mesh.faces)
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    labels = _face_components(mesh)
+
+    solids = cavities = open_shells = 0
+    for label in np.unique(labels):
+        tris = faces[labels == label]
+
+        # Closed iff every edge in the component is shared by exactly two of its
+        # own faces.
+        edges = np.sort(np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]]), axis=1)
+        _, counts = np.unique(edges, axis=0, return_counts=True)
+        if not np.all(counts == 2):
+            open_shells += 1
+            continue
+
+        a, b, c = vertices[tris[:, 0]], vertices[tris[:, 1]], vertices[tris[:, 2]]
+        signed = float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum()) / 6.0
+        if signed >= 0.0:
+            solids += 1
+        else:
+            cavities += 1
+
+    return _ShellCensus(solids=solids, cavities=cavities, open_shells=open_shells)
 
 
 def _euler_characteristic(mesh: Any) -> int:

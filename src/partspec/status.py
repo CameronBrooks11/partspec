@@ -18,6 +18,7 @@ Spec: SPEC-report.md sections 3, 3.1, 3.3, 3.4, 6.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -203,6 +204,32 @@ class Measurement:
             )
         if self.is_vector and self.axes is None:
             raise ContractError("a vector measurement must name its axes")
+        self._reject_non_finite()
+
+    def _reject_non_finite(self) -> None:
+        """NaN and the infinities are not measurements, and are refused here.
+
+        Left to adjudication, NaN **passes**: `_satisfies_scalar` asks
+        `not (value > hi + epsilon)`, and every comparison against NaN is False,
+        so a range limit is vacuously satisfied. A part parameterised with
+        `float("nan")` reported `ok param:x` and exited 0.
+
+        It also cannot be written: `json.dump` emits a bare `NaN` literal, which
+        no conforming JSON parser will read back, so the report would be both
+        wrong and unreadable.
+
+        Raising rather than returning a status is deliberate. Nothing downstream
+        can honestly adjudicate this, and a non-finite value means either a
+        parameter that is not a number or a backend that has miscomputed — both
+        of which are `verdict: "error"`, not a claim about the part.
+        """
+        values = self.value if self.is_vector else (self.value,)
+        for v in values:
+            if isinstance(v, float) and not math.isfinite(v):
+                raise ContractError(
+                    f"measurement value is {v}, which is not a number; a "
+                    f"non-finite value cannot be compared against a limit"
+                )
 
     @property
     def is_vector(self) -> bool:

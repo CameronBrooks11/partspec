@@ -307,6 +307,49 @@ def test_solid_count_without_scipy(backend: MeshBackend):
     assert measured(backend.solid_count(trimesh.util.concatenate([a, b]))).value == 2
 
 
+def _block_with_sealed_cavity(body: float = 20.0, core: float = 10.0):
+    """A solid block enclosing a sealed cubic void.
+
+    Built by hand rather than with a boolean, so the fixture does not depend on
+    manifold3d or blinkenlights: the inner cube's winding is inverted, which is
+    exactly what makes it a cavity rather than a second body.
+    """
+    outer = trimesh.creation.box(extents=(body, body, body))
+    inner = trimesh.creation.box(extents=(core, core, core))
+    inner.invert()
+    return trimesh.util.concatenate([outer, inner])
+
+
+def test_a_sealed_cavity_is_one_solid_not_two(backend: MeshBackend):
+    """The finding from the T0 agent-convergence baseline (`evals/BASELINE.md`).
+
+    Counting boundary components said 2, which has no model-side remedy: the
+    agent under test could not reach green with the correct part, so it drilled
+    a vent bore the design never asked for. Orientation is the discriminator —
+    the void's shell is wound inward and encloses negative volume.
+    """
+    mesh = _block_with_sealed_cavity()
+    assert measured(backend.solid_count(mesh)).value == 1
+    assert measured(backend.cavities(mesh)).value == 1
+
+
+def test_a_sealed_cavity_is_not_a_handle(backend: MeshBackend):
+    """`(2 - X)/2` assumes a single shell, so it was wrong by exactly the cavity
+    count: X = 4 here, reporting genus -1 — a handle that does not exist. The
+    shell-aware `S - X/2` is the form the OCCT tier already used."""
+    assert measured(backend.genus(_block_with_sealed_cavity())).value == 0
+
+
+def test_two_disjoint_bodies_are_not_cavities(backend: MeshBackend):
+    """The counterpart the orientation rule has to keep getting right."""
+    a = trimesh.creation.box(extents=(5, 5, 5))
+    b = trimesh.creation.box(extents=(5, 5, 5))
+    b.apply_translation((20, 0, 0))
+    both = trimesh.util.concatenate([a, b])
+    assert measured(backend.solid_count(both)).value == 2
+    assert measured(backend.cavities(both)).value == 0
+
+
 def test_genus_counts_through_holes(backend: MeshBackend):
     assert measured(backend.genus(trimesh.creation.box(extents=(2, 2, 2)))).value == 0
     torus = trimesh.creation.torus(major_radius=10, minor_radius=3)
@@ -431,12 +474,13 @@ def test_body_count_is_refused_where_the_geometry_does_not_fix_it(
     assert "non-manifold" in refused(backend.solid_count(touching_tets)).reason
 
 
-def test_body_count_survives_an_open_mesh(backend: MeshBackend, open_cube):
-    """Refuse the undefined, not the merely unusual. With no non-manifold edge
-    the adjacency is unambiguous, so the count is determined even though the
-    surface is open — and over-refusal inflates `incomplete`, which is its own
-    way of failing to answer an answerable question."""
-    assert measured(backend.solid_count(open_cube)).value == 1
+def test_an_open_mesh_bounds_no_solid(backend: MeshBackend, open_cube):
+    """Still an answer, not a refusal — over-refusal inflates `incomplete` and is
+    its own way of dodging an answerable question. But the answer is 0: an open
+    shell bounds no solid. This used to say 1, where `OcctBackend.solid_count`
+    on an open shell says 0, so the two tiers disagreed about the same word."""
+    assert measured(backend.solid_count(open_cube)).value == 0
+    assert measured(backend.cavities(open_cube)).value == 0
 
 
 def test_area_and_bbox_survive_an_open_mesh(backend: MeshBackend, open_cube):
@@ -728,3 +772,70 @@ def test_empty_geometry_is_a_build_error(backend: MeshBackend, tmp_path: Path):
     empty.write_text("// nothing here\n")
     result = backend.build(OpenSCADSource(path=empty), tmp_path)
     assert isinstance(result, BuildError)
+
+
+@needs_openscad
+def test_a_failed_render_leaves_no_stale_artifact(tmp_path: Path):
+    """The export path is deterministic, so a previous run's mesh is already
+    sitting there when the next one starts — and the post-render guards ask only
+    whether the file exists and is non-empty, which the stale file answers just
+    as well. An invocation that exits 0 without writing would have measured the
+    last run's part and reported it as this one's."""
+    good = _scad(tmp_path, "part", "cube([10, 10, 10]);")
+    first = openscad.render(OpenSCADSource(path=good), tmp_path / "out")
+    assert isinstance(first, Path) and first.stat().st_size > 0
+    stale_size = first.stat().st_size
+
+    broken = tmp_path / "part.scad"
+    broken.write_text("this is not openscad;\n")
+    second = openscad.render(OpenSCADSource(path=broken), tmp_path / "out")
+
+    assert isinstance(second, BuildError), "premise: the second render fails"
+    assert not first.exists(), (
+        f"a {stale_size}-byte mesh from the previous run survived a failed render"
+    )
+
+
+def test_top_level_variables_ignores_locals_and_noise(tmp_path: Path):
+    """Only depth-zero assignments are reachable by `-D`; a name inside a module
+    body is a local. Comments and string interiors must not be read as
+    declarations either — a false positive there re-opens the hole rather than
+    merely widening it."""
+    _scad(tmp_path, "lib.scad", "helper_gap = 0.2;\n")
+    entry = _scad(
+        tmp_path,
+        "part.scad",
+        "include <lib.scad>\n"
+        "bore_d = 8;\n"
+        "// commented = 1;\n"
+        'label = "wall = 2";\n'
+        "module thing(arg) { local_only = arg * 2; cube(local_only); }\n",
+    )
+    assert openscad.top_level_variables(entry) == {"bore_d", "label", "helper_gap"}
+
+
+def test_a_parameter_binding_nothing_is_refused(tmp_path: Path):
+    """`openscad("part.scad", bore_diamter=8)` -- one transposition. OpenSCAD
+    accepts a `-D` that names no top-level variable and silently drops it, so the
+    file's own default rendered while the report listed bore_diamter=8 under
+    `params`: the artifact positively asserted a value the geometry never saw."""
+    entry = _scad(tmp_path, "part.scad", "bore_d = 8;\ncube([bore_d, 10, 10]);\n")
+    assert openscad.unbound_parameters(entry, {"bore_diamter": 8.0}) == ["bore_diamter"]
+    assert openscad.unbound_parameters(entry, {"bore_d": 8.0}) == []
+
+
+def test_special_variables_need_no_declaration(tmp_path: Path):
+    """`$fn` is built in, so a file need not assign one for `-D` to take effect."""
+    entry = _scad(tmp_path, "part.scad", "cube([1, 1, 1]);\n")
+    assert openscad.unbound_parameters(entry, {"$fn": 180}) == []
+
+
+@needs_openscad
+def test_a_misspelled_parameter_fails_the_build(tmp_path: Path):
+    entry = _scad(tmp_path, "part.scad", "bore_d = 8;\ncube([bore_d, 10, 10]);\n")
+    result = openscad.render(
+        OpenSCADSource(path=entry, params={"bore_diamter": 4.0}), tmp_path / "out"
+    )
+    assert isinstance(result, BuildError)
+    assert "bore_diamter" in result.message
+    assert "bore_d" in (result.hint or ""), "name what could have been meant"

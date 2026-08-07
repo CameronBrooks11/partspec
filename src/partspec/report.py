@@ -251,7 +251,11 @@ def _write_json(path: Path, payload: dict[str, Any]) -> Path:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".partspec-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
+            # allow_nan=False: a bare NaN/Infinity literal is not JSON and no
+            # conforming parser will read it back. Measurement refuses
+            # non-finite values already; this is the backstop that keeps an
+            # unreadable artifact from ever reaching disk.
+            json.dump(payload, fh, indent=2, allow_nan=False)
             fh.write("\n")
             fh.flush()
             os.fsync(fh.fileno())
@@ -262,7 +266,9 @@ def _write_json(path: Path, payload: dict[str, Any]) -> Path:
     return path
 
 
-def write_placeholder(directory: Path, *, part_id: str, contract: str, argv: list[str]) -> Path:
+def write_placeholder(
+    directory: Path, *, contract: str, argv: list[str], part_id: str = "unresolved"
+) -> Path:
     """Write an `error` report BEFORE the engine is invoked.
 
     A try/finally cannot survive a native fault: an OCP segfault or an OOM kill
@@ -271,17 +277,24 @@ def write_placeholder(directory: Path, *, part_id: str, contract: str, argv: lis
     agent will trust it. Writing this first means the worst case is a report
     saying the run died — never one saying the part was fine.
 
-    Only the in-process OCCT tier is exposed to this; OpenSCAD runs as a
-    subprocess whose crash the parent observes normally. The placeholder is
+    Only the in-process OCCT tier is exposed to a native fault; OpenSCAD runs as
+    a subprocess whose crash the parent observes normally. The placeholder is
     written regardless, because the cost is one file write.
+
+    `part_id` defaults because this is written **before the contract is
+    resolved**, and resolving is itself something that can fail: a contract that
+    raises on import never produced a part id, and used to leave the previous
+    run's report untouched for exactly that reason. A run that got far enough to
+    name its part overwrites this with the real id.
     """
     payload = Report(
         part_id=part_id,
         contract=contract,
         tool_version=_tool_version(),
         argv=argv,
-        error="run did not complete: the process terminated before writing a result",
-        hint="a native crash (segfault/OOM) in the CAD kernel is the usual cause",
+        error="run did not complete: no result was written for this run",
+        hint="the contract failed to resolve, or the process died before finishing "
+        "(a native segfault/OOM in the CAD kernel)",
     ).to_json()
     return _write_json(directory / REPORT_FILENAME, payload)
 

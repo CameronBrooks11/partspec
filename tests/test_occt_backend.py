@@ -88,12 +88,55 @@ def test_a_non_shape_is_a_build_error():
 def test_closed_form_measurements(backend: OcctBackend):
     box = bd.Box(10, 20, 30)
     assert measured(backend.volume(box)).value == pytest.approx(6000.0)
-    assert backend.area(box).value == pytest.approx(2 * (200 + 600 + 300))
-    assert backend.bbox(box).value == pytest.approx((10.0, 20.0, 30.0))
+    assert measured(backend.area(box)).value == pytest.approx(2 * (200 + 600 + 300))
+    assert measured(backend.bbox(box)).value == pytest.approx((10.0, 20.0, 30.0))
     com = measured(backend.center_of_mass(box))
     assert com.value == pytest.approx((0.0, 0.0, 0.0), abs=1e-9)
-    assert backend.watertight(box).value is True
+    assert measured(backend.watertight(box)).value is True
     assert backend.solid_count(box).value == 1
+
+
+def test_a_sealed_cavity_is_one_solid_with_one_void(backend: OcctBackend):
+    """This tier was always right about the solid count — a block enclosing a
+    sealed void is 1 solid and 2 shells. What was missing is that the void had
+    no name, so a contract could not say "one block, one cavity" and the mesh
+    tier's miscount had nothing to be checked against.
+
+    The mesh tier reaches the same three numbers from triangle orientation; see
+    `test_a_sealed_cavity_is_one_solid_not_two` there, and `evals/BASELINE.md`
+    for the agent-loop failure that made this load-bearing.
+    """
+    block = bd.Box(20, 20, 20) - bd.Box(10, 10, 10)
+    assert backend.solid_count(block).value == 1
+    assert backend.cavities(block).value == 1
+    assert measured(backend.genus(block)).value == 0
+    assert measured(backend.volume(block)).value == pytest.approx(7000.0)
+
+
+def test_a_plain_solid_has_no_cavities(backend: OcctBackend):
+    assert backend.cavities(bd.Box(10, 10, 10)).value == 0
+
+
+def test_a_cut_that_consumes_the_part_does_not_build():
+    """`Box(s) - Box(2s)` is an ordinary slip and yields a non-null but empty
+    Compound, which `IsNull()` does not catch. It used to be adopted as a
+    legitimate artifact and then measured: bbox (0,0,0), area 0.0, watertight
+    False, all exact, so a contract asserting those three passed green on a part
+    that does not exist."""
+    result = adopt(bd.Box(10, 10, 10) - bd.Box(20, 20, 20))
+    assert isinstance(result, BuildError)
+    assert "no geometry" in result.message
+
+
+def test_geometry_without_faces_is_still_measurable(backend: OcctBackend):
+    """The gate is "no vertices", not "no faces". A wire has no faces and no
+    solids, and its bounding box and area are honest answers about it — refusing
+    there would be the over-refusal D17 part 2 forbids."""
+    wire = bd.Wire.make_circle(5)
+    assert adopt(wire) is not None and not isinstance(adopt(wire), BuildError)
+    assert measured(backend.bbox(wire)).value == pytest.approx((10.0, 10.0, 0.0))
+    assert measured(backend.area(wire)).value == pytest.approx(0.0)
+    assert measured(backend.watertight(wire)).value is False
 
 
 def test_everything_on_this_tier_is_exact(backend: OcctBackend):
@@ -243,7 +286,7 @@ def test_center_of_mass_is_refused_when_no_solid_is_bounded(backend: OcctBackend
 def test_area_and_solid_count_stay_answerable(backend: OcctBackend, open_shell):
     """Refuse the undefined, not the merely unusual: five faces of a 10mm cube
     have an area whatever they enclose, and `0 solids` is a true answer."""
-    assert backend.area(open_shell).value == pytest.approx(500.0)
+    assert measured(backend.area(open_shell)).value == pytest.approx(500.0)
     assert backend.solid_count(open_shell).value == 0
 
 

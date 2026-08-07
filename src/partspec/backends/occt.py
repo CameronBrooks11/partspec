@@ -32,6 +32,7 @@ CAPABILITIES = frozenset(
         "is_valid",
         "watertight",
         "solid_count",
+        "cavities",
         "genus",
         "topology_counts",
         "triangles",
@@ -39,6 +40,15 @@ CAPABILITIES = frozenset(
         "intersect_volume",
     }
 )
+
+
+_EMPTY_REASON = "this shape contains no geometry, so there is nothing to measure"
+
+
+def _empty(a: Any) -> bool:
+    """No sub-shapes at all — an empty compound, not merely a shape without
+    faces. A Wire or an Edge has vertices and is honestly measurable."""
+    return not a.vertices()
 
 
 class OcctBackend:
@@ -83,7 +93,17 @@ class OcctBackend:
 
     # -- the primitives ----------------------------------------------------
 
-    def bbox(self, a: Any) -> Measurement:
+    def bbox(self, a: Any) -> Measurement | Unsupported:
+        """Refused for a shape with no geometry in it.
+
+        An empty compound is not null, so `adopt` used to pass it through and
+        this returned `(0.0, 0.0, 0.0)` flagged exact -- a number that satisfies
+        `envelope(max=...)` for a part that does not exist. `adopt` now rejects
+        it at the boundary; this is the same precondition stated where the
+        measurement is taken, so the library path is closed too.
+        """
+        if _empty(a):
+            return Unsupported(_EMPTY_REASON)
         size = a.bounding_box().size
         return Measurement(
             (float(size.X), float(size.Y), float(size.Z)), "mm", exact=True, axes=("x", "y", "z")
@@ -103,9 +123,13 @@ class OcctBackend:
             )
         return Measurement(float(a.volume), "mm3", exact=True)
 
-    def area(self, a: Any) -> Measurement:
+    def area(self, a: Any) -> Measurement | Unsupported:
         """Total surface area. Total, like the mesh tier's — defined for a face
-        and a shell as much as for a solid."""
+        and a shell as much as for a solid, and so deliberately not gated on
+        `solids()`. Gated only on there being geometry at all: `area(max=...)`
+        would otherwise pass on an empty compound's 0.0."""
+        if _empty(a):
+            return Unsupported(_EMPTY_REASON)
         return Measurement(float(a.area), "mm2", exact=True)
 
     def center_of_mass(self, a: Any) -> Measurement | Unsupported:
@@ -130,12 +154,29 @@ class OcctBackend:
         caught by a test on the adjacent path."""
         return Measurement(bool(a.is_valid), "bool", exact=True)
 
-    def watertight(self, a: Any) -> Measurement:
-        """`is_manifold` on a BREP: every edge bounded by exactly two faces."""
+    def watertight(self, a: Any) -> Measurement | Unsupported:
+        """`is_manifold` on a BREP: every edge bounded by exactly two faces.
+
+        Vacuously true of a shape with no edges, which is why the emptiness gate
+        has to sit in front of it rather than trusting the answer.
+        """
+        if _empty(a):
+            return Unsupported(_EMPTY_REASON)
         return Measurement(bool(a.is_manifold), "bool", exact=True)
 
     def solid_count(self, a: Any) -> Measurement:
         return Measurement(len(a.solids()), "count", exact=True)
+
+    def cavities(self, a: Any) -> Measurement:
+        """Sealed internal voids.
+
+        A solid is bounded by one outer shell plus one shell per enclosed void,
+        so the difference is the void count. This tier has always counted solids
+        correctly — a block with a sealed cavity is 1 solid and 2 shells — and
+        the quantity was simply never exposed. The mesh tier reaches the same
+        two numbers from triangle orientation.
+        """
+        return Measurement(max(len(a.shells()) - len(a.solids()), 0), "count", exact=True)
 
     def genus(self, a: Any) -> Measurement | Unsupported:
         """Through-holes, via the Euler-Poincare formula.

@@ -164,3 +164,55 @@ def test_a_contract_that_raises_does_not_exit_as_a_failing_part(tmp_path: Path, 
 def test_no_arguments_prints_help(capsys):
     assert main([]) == 64
     assert "usage:" in capsys.readouterr().out
+
+
+@needs_openscad
+def test_a_contract_that_raises_does_not_leave_the_previous_verdict(tmp_path: Path):
+    """The regression this ordering exists to prevent.
+
+    `write_placeholder` used to run *after* the contract resolved, so a contract
+    that raised returned exit 4 without touching the output directory — leaving
+    the previous run's `verdict: "pass"` at the deterministic path. The exit code
+    said error and the artifact said the part was fine, and the artifact is what
+    a later reader trusts.
+    """
+    scad = tmp_path / "box.scad"
+    scad.write_text("x = 10;\ncube([x, x, x]);\n")
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n"
+        "def part() -> Part:\n"
+        "    p = Part('stale', openscad('box.scad', x=10.0))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    out = tmp_path / "out"
+    assert main(["check", f"{spec}:part", "--out", str(out), "--quiet"]) == 0
+    report = out / "report.json"
+    assert json.loads(report.read_text())["verdict"] == "pass", "premise: a green run on disk"
+
+    spec.write_text(
+        "from partspec import Part\ndef part() -> Part:\n    raise RuntimeError('boom')\n"
+    )
+    assert main(["check", f"{spec}:part", "--out", str(out), "--quiet"]) == 4
+    assert json.loads(report.read_text())["verdict"] == "error", (
+        "the previous run's pass survived a contract that raised"
+    )
+
+
+def test_a_contract_calling_sys_exit_is_not_a_green_run(tmp_path: Path):
+    """`sys.exit(0)` raises SystemExit, which sailed past `except Exception` and
+    exited the process 0 — green, silent, zero checks evaluated. The exit code
+    was the contract's to choose: `sys.exit(2)` read as incomplete."""
+    spec = tmp_path / "spec.py"
+    spec.write_text("import sys\nfrom partspec import Part\ndef part() -> Part:\n    sys.exit(0)\n")
+    out = tmp_path / "out"
+    assert main(["check", f"{spec}:part", "--out", str(out), "--quiet"]) == 4
+    assert json.loads((out / "report.json").read_text())["verdict"] == "error"
+
+
+def test_argparse_still_owns_its_own_exits():
+    """The BaseException guard is scoped to contract resolution, so argparse's
+    SystemExit for `--version` and usage errors is untouched."""
+    with pytest.raises(SystemExit):
+        main(["--version"])

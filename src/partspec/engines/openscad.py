@@ -164,6 +164,15 @@ def render(
     out_dir.mkdir(parents=True, exist_ok=True)
     stl = out_dir / f"{source.path.stem}.stl"
 
+    # The export path is deterministic, so a previous run's mesh is sitting there
+    # before this one starts. The guards below ask whether the file exists and is
+    # non-empty — questions the *stale* file answers just as well, so an
+    # invocation that exits 0 without writing would measure the last run's part
+    # and report it as this one's. Removing it first makes the checks mean what
+    # they read as, and makes a failed render leave nothing behind for a later
+    # reader to pick up.
+    stl.unlink(missing_ok=True)
+
     scratch: Path | None = None
     try:
         if source.method:
@@ -173,6 +182,19 @@ def render(
                 fh.write(_method_call_source(source.path, source.method, source.params))
             render_path, defines = scratch, []
         else:
+            # A `-D` naming no top-level variable is silently accepted by
+            # OpenSCAD and dropped. `openscad("part.scad", bore_diamter=8)` --
+            # one transposition -- rendered the file's own default, and the
+            # report then listed bore_diamter=8 under `params`, so the artifact
+            # positively asserted a value the geometry never saw.
+            unbound = unbound_parameters(source.path, source.params)
+            if unbound:
+                known = ", ".join(sorted(top_level_variables(source.path))) or "none"
+                return BuildError(
+                    f"parameter(s) {', '.join(unbound)} match no top-level variable in "
+                    f"{source.path.name} or its includes, so -D would be silently dropped",
+                    hint=f"top-level variables: {known}",
+                )
             render_path, defines = source.path, _define_args(source.params)
 
         backend_args = ["--backend", source.backend] if source.backend else []
@@ -279,6 +301,62 @@ class Closure:
     def partial(self) -> bool:
         """True when the closure is known not to cover every input."""
         return bool(self.unresolved) or self.reads_external_data
+
+
+_ASSIGNMENT = re.compile(r"([A-Za-z_$][A-Za-z0-9_]*)\s*=")
+_DIRECTIVE = re.compile(r"\b(?:include|use)\s*<[^>]*>")
+
+
+def top_level_variables(entry: Path) -> set[str]:
+    """Names assignable by `-D`, across the include closure.
+
+    OpenSCAD's `-D name=value` overrides a **top-level** variable. If no such
+    variable exists it is not an error there — the define is simply accepted and
+    dropped, and the render proceeds with the file's own defaults.
+
+    Only depth-zero assignments count: `bore_d` inside a module body is a local
+    and `-D bore_d=...` does not reach it. Comments and string interiors are
+    blanked first, so `// bore_d = 8` and `x = "wall = 2"` are not mistaken for
+    declarations — a false positive here would re-open the hole rather than
+    merely widen it.
+
+    Read across the whole closure rather than the entry alone, because a
+    library's parameters routinely live in an included `standard.scad`.
+    """
+    names: set[str] = set()
+    for path in include_closure(entry).files:
+        try:
+            text = _strip_noise(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue  # provenance is best-effort; see include_closure
+        # `include <a.scad>` carries no semicolon, so it would otherwise merge
+        # with the statement after it and hide that statement's assignment.
+        text = _DIRECTIVE.sub(" ", text)
+        depth = 0
+        for statement in text.replace("\n", " ").split(";"):
+            head: list[str] = []
+            for ch in statement:
+                if ch in "{([":
+                    depth += 1
+                elif ch in "})]":
+                    depth = max(depth - 1, 0)
+                elif depth == 0:
+                    head.append(ch)
+            if depth == 0:
+                match = _ASSIGNMENT.match("".join(head).strip())
+                if match:
+                    names.add(match.group(1))
+    return names
+
+
+def unbound_parameters(entry: Path, params: dict[str, Any]) -> list[str]:
+    """Declared parameters that no top-level variable would receive.
+
+    Special variables (`$fn`, `$fa`, `$fs`) are exempt: they are built in, so a
+    file need not assign one for `-D` to take effect.
+    """
+    declared = top_level_variables(entry)
+    return sorted(n for n in params if not n.startswith("$") and n not in declared)
 
 
 def _strip_noise(text: str) -> str:
