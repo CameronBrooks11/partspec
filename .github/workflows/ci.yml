@@ -85,11 +85,15 @@ jobs:
         with:
           enable-cache: true
 
+      # xvfb because 2021.01 has no EGL offscreen path: headless PNG rendering
+      # segfaults without a display (#17). The snapshot leg needs no display,
+      # which is itself part of what the matrix proves — and the mesh-only job
+      # keeps NO xvfb on purpose, so the display-refusal branch runs in CI too.
       - name: Install OpenSCAD (apt)
         if: matrix.source == 'apt'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends openscad
+          sudo apt-get install -y --no-install-recommends openscad xvfb
 
       # Extracted rather than run in place: the runner image has no libfuse2,
       # so the AppImage cannot mount itself. Snapshots are pruned on a rolling
@@ -133,7 +137,7 @@ jobs:
       - name: Test
         env:
           PARTSPEC_REQUIRE_ENGINES: "1"
-        run: just test
+        run: ${{ matrix.source == 'apt' && 'xvfb-run -a just test' || 'just test' }}
 
   # The mesh extra, alone, in a throwaway environment. `just setup` takes all
   # extras and scipy reaches the machine only via build123d/cadquery, so a
