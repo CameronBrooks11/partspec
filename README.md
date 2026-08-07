@@ -166,6 +166,10 @@ The specs are normative and were written before the implementation:
 a diagnostics-first CLI independently and first.
 [PartCAD](https://github.com/partcad/partcad) is the reference for engine-neutral part
 packaging, and its `-D` parameter-passing approach is adopted directly.
+[build123d-mcp](https://github.com/pzfreo/build123d-mcp) is the complement on the authoring
+side — a stateful interactive session an agent designs *in*; `partspec` is the stateless
+gate the result must pass, and deliberately does not own that loop
+([D18](docs/DECISIONS.md)).
 
 ## License
 

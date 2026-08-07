@@ -1,8 +1,8 @@
 # Decisions
 
 Numbered, with the reasoning that made the call, so it isn't relitigated. Follows the
-`scadman/docs/DECISIONS.md` pattern. Status: pre-product — these are survey-stage calls
-that should be promoted into the product repo when it exists.
+`scadman/docs/DECISIONS.md` pattern. D1–D17 are survey-stage calls, promoted here when this
+repo was created; decisions from D18 on were made in this repo.
 
 | # | Decision | Call | Date |
 |---|---|---|---|
@@ -23,6 +23,8 @@ that should be promoted into the product repo when it exists.
 | D15 | **The measurand** | Measure the artifact **as authored and exported**, not an idealized smooth solid | 2026-08-02 |
 | D16 | Facet-resolution signal | `distinct_normals`, not a coplanar facet count — avoids a scipy dependency | 2026-08-03 |
 | D17 | **Measurement preconditions** | Per-quantity, refused **narrowly**; never measure a library's rebuild of the artifact | 2026-08-05 |
+| D18 | **Product boundary** | partspec is the **stateless gate**; it does not own the authoring loop | 2026-08-07 |
+| D19 | Road to v1.0 | **Depth, not width** — richer part-level intent checks; assemblies open the post-1.0 line | 2026-08-07 |
 
 ---
 
@@ -528,3 +530,91 @@ before anything is read off it.
 tests passed throughout, every one of them measuring a mesh that was already sound. That is
 the project's own thesis turned on the project, and it is evidence for the success condition
 in `PLAN.md` §0 rather than against it.
+
+---
+
+## D18 — Product boundary: the stateless gate, not the authoring loop
+
+**Date:** 2026-08-07. Filed as issue #54 out of the tracker audit; ratified by Cameron with
+the final wording delegated.
+
+**Decision.** partspec is a **stateless declarative contract checker**. Its product is a
+persisted, schema'd report and an exit code that gates CI (D5). It does not own the geometry
+loop: no session state, no incremental modelling surface, no edit–render–look cycle. The
+authoring loop belongs to authoring tools; partspec is the gate their output must pass.
+
+**The evidence that the adjacent niche is occupied.** `pzfreo/build123d-mcp` is a stateful
+interactive authoring session for agents — roughly 20 MCP tools around a persistent
+`execute` session: PNG/SVG/DXF preview, measurement, feature detection for holes and hole
+patterns, printability and fit validation, snapshots, 2D drafting. On the CADGenBench
+leaderboard (June 2026) it raised the same model's score 0.360 → 0.457 and CAD validity
+88% → 100%. Its own shipped prompt already assumes this split: *"let MCP own the geometry
+loop and the skill own visual review and manufacturing handoff."* Epics #2 and #4, as first
+filed, drifted toward that niche — where partspec would be a worse copy of a shipped tool
+with published gains. Nothing in the repo drew the line, which is why the drift was
+invisible. (Citations: `notes/RESEARCH.md` §6 and the vendored clone at
+`notes/upstream/build123d-mcp`.)
+
+**What stays on partspec's side of the line** — what the authoring tools do not have: the
+OpenSCAD tier; a persisted, schema-versioned report; adjudication in which `unsupported` and
+`approximate` are non-green (D10, D17); exit codes CI can trust; and engine-version
+determinism as a first-class concern (F13). A session tool tells the agent what it just
+made; partspec proves whether that is the part the contract meant, and persists the proof.
+
+**Consequences.**
+
+1. **partspec's own MCP server (#27) is in scope and unchanged in kind** — the boundary is
+   about state and loop ownership, not transport. Its tools are stateless verbs over
+   `check` / `measure`: every call is a fresh evaluation of a contract against a source on
+   disk, returning the same artifact the CLI writes. No tool holds geometry between calls.
+2. **Renders (epic #2) are evidence attached to a report** — failure triage and human
+   review — **not the agent's perception channel.** The primary channel is numeric. Four of
+   the five dogfood payoffs were invisible to visual review (`PLAN.md` §7), and BenchCAD
+   finds vision QA underperforming code QA by 15–20 points on identical questions. F13
+   remains the honest case *for* renders — visible on re-render — and it is one of five,
+   not the pattern.
+3. **The recommended agent stack is both tools**, an authoring session inside the loop and
+   partspec at the end of it — the relationship a REPL has to a test suite. README's Prior
+   art records build123d-mcp accordingly, per the absorb-vs-depend standard (D7, D12).
+
+---
+
+## D19 — The road to v1.0 is depth, not width
+
+**Date:** 2026-08-07. The ceiling question — is v1.0 the part, or the assembly? — was
+delegated by Cameron: *"you decide what the proper boundary point would be all things
+considered."*
+
+**Decision.** Through v1.0 the unit of verification stays the **single part**, extending
+D11 past v0, and the growth budget goes to **depth of intent** — the checks that decide
+whether a built, watertight part is the *right* part (epic #6). Assemblies are the theme
+that opens the post-1.0 line, not a v1.0 item.
+
+**Reasoning.**
+
+1. **The value is concentrated where the vocabulary is thinnest.** The 2026 benchmarks
+   (Text2CAD-Bench, MUSE; `notes/RESEARCH.md` §1) find the same three-stage cascade —
+   executes → geometrically valid → intent-aligned — with the last stage worst (the best
+   closed models land at ~39–54% intent-aligned) and **largely independent** of the first.
+   partspec's stages 1–2 are built and dogfooded; its stage-3 vocabulary is seven mostly
+   global scalars. Effort spent widening to assemblies is withheld from the stage where
+   both the failures and the differentiation live.
+
+2. **Assemblies are an occupied niche, by D18's own logic one shelf over.** cad-khana *is*
+   an assembly-relations checker, absorbed rather than depended on (D7); its best ideas —
+   `qualified()` propagation, anchors, joint windows — are recorded in `POST-V0.md` §1 and
+   keep. Re-deriving them before the part-level vocabulary has proven itself would be width
+   into someone else's depth.
+
+3. **Deferral is not foreclosure — v0 already paid the carrying cost.** Free-form check
+   ids, `part_refs` on every check, `skipped` as a legitimate run state
+   (`SPEC-contract.md` §9). Nothing in a depth-first v1.0 makes assemblies harder later.
+
+**What v1.0 therefore means.** An agent — or a CI job — given one part and one contract
+gets a verdict deep enough to prove design intent, and there is transcript evidence that
+the repair loop converges. Concretely: the agent loop shipped and measured (epic #4); the
+intent vocabulary grown where a tier can answer honestly — BREP feature checks (holes,
+patterns; the first real exercise of `approximate`, per `POST-V0.md` §4), keep-in/keep-out
+regions (#49); and `diff`, closing the known contract-weakening gap (`POST-V0.md` §2).
+Renders stay evidence (D18). Assemblies begin after that proves out, with `POST-V0.md` §1
+as the design basis.
