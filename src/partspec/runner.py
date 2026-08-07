@@ -87,6 +87,12 @@ def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | N
         "kind": part.source.engine,
         "version": backend.engine_version,
         "backend": backend.kind,
+        # Always present, pinned string or null — the unpinned run is exactly
+        # the one whose backend a reader cannot infer, because the engine
+        # default varies by version (CGAL on 2021.01, Manifold on current
+        # builds) and F10 is a mesh-validity difference between them (#41).
+        # Null means "the engine's default, whichever this version chose".
+        "render_backend": part.source.backend,
         "adopted_via": "wrapped" if part.source.engine == "cadquery" else None,
         # method= builds a different thing from the same contract file, and
         # until it was recorded two such runs were indistinguishable in the
@@ -102,10 +108,6 @@ def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | N
         report.engine["param_mode"] = "call" if part.source.method else "define"
         if part.source.method:
             report.engine["source_rendered"] = "derived"
-    if part.source.backend:
-        # Recorded because it changes the artifact: the same source rendered by
-        # Manifold and by CGAL differ in mesh validity, not just in speed.
-        report.engine["render_backend"] = part.source.backend
 
     artifact = backend.build(_engine_source(part), out_dir)
     if isinstance(artifact, BuildError):

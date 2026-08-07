@@ -494,3 +494,22 @@ def test_a_python_build_records_its_named_factory(tmp_path: Path):
     q.watertight()
     default = run(q, out_dir=tmp_path / "out2")
     assert default.engine["method"] is None
+
+
+def test_an_unpinned_run_still_carries_the_render_backend_key(tmp_path: Path):
+    # Null = "the engine's default, whichever this version chose" — the run a
+    # reader cannot infer, which is why omission was backwards (#41).
+    p = Part("u", openscad(PLATE, plate_x=40.0, plate_y=30.0, plate_z=4.0))
+    p.watertight()
+    report = run(p, out_dir=tmp_path / "out")
+    assert "render_backend" in report.engine
+    assert report.engine["render_backend"] is None
+
+
+def test_a_pinned_render_backend_reaches_the_report(tmp_path: Path):
+    # The engine block is written before the build, so the pinned string is
+    # assertable even where --backend would fail the render itself.
+    p = Part("pin", openscad(PLATE, backend="CGAL", plate_x=40.0, plate_y=30.0, plate_z=4.0))
+    p.watertight()
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.engine["render_backend"] == "CGAL"

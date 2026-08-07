@@ -400,7 +400,7 @@ an unknown major version rather than best-effort parse it.
     "kind": "openscad",              // openscad | build123d | cadquery
     "version": "2021.01",
     "backend": "mesh",               // the measurement tier: mesh | occt
-    "render_backend": "CGAL",        // engine-specific, when pinned; OpenSCAD: Manifold | CGAL
+    "render_backend": "CGAL",        // always present: the pinned choice, or null = the engine's own default
     "adopted_via": null,             // "wrapped" when a cadquery shape entered the occt backend
     "method": null,                  // the invoked callable/module when method= was set; null = the default entry
     "param_mode": "define"           // OpenSCAD only: "define" (-D) | "call" (a derived entry invoking method)
@@ -547,7 +547,11 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   `source_rendered: "derived"` records that the engine's entry was a derived scratch
   including the digested file, so `source_digest` cannot be read as naming the rendered
   input. Additive, same terms as `engine.render_backend` below.
-- **`engine.render_backend`** — present when the contract pins one. Recorded because it
+- **`engine.render_backend`** — always present: the pinned string, or `null` when the run
+  took the engine's default. `null` MUST be read against the recorded `engine.version`:
+  it means "the default for that version", which on OpenSCAD is **CGAL on 2021.01 and
+  Manifold on current builds** — so the null case is exactly the run whose backend a
+  reader could not otherwise infer. Recorded at all because it
   **changes the artifact, not merely the speed of producing it**: measured on a community
   gridfinity bin, OpenSCAD's default Manifold backend emitted 4 non-manifold edges where
   CGAL emitted none, from identical source. Two reports that differ only here are not
