@@ -64,6 +64,20 @@ worse than that: a false *negative* the agent cannot argue with, so it deforms t
 until the tool stops complaining. A false green misleads a human who may later notice. This
 silently produces the wrong part and reports success.
 
+### Fixed, and re-measured
+
+`solid_count` now counts closed, outward-oriented components, so a sealed void is a
+cavity rather than a second solid, and `cavities()` gives a contract the words to say so.
+Re-running the same case against the fixed checker:
+
+| | turns | model the agent left |
+|---|---|---|
+| before | 2 | `core = 10` **plus a 3 mm vent bore** |
+| after | 1 | `core = 10` |
+
+The full cycle — baseline finds a defect, fix lands, baseline confirms the agent's
+behaviour changed — is the thing this harness exists to do.
+
 ## What it changes
 
 1. **#11 moves up.** It is not a "wrong but loud" second-tranche item; it is the only

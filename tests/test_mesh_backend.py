@@ -307,6 +307,49 @@ def test_solid_count_without_scipy(backend: MeshBackend):
     assert measured(backend.solid_count(trimesh.util.concatenate([a, b]))).value == 2
 
 
+def _block_with_sealed_cavity(body: float = 20.0, core: float = 10.0):
+    """A solid block enclosing a sealed cubic void.
+
+    Built by hand rather than with a boolean, so the fixture does not depend on
+    manifold3d or blinkenlights: the inner cube's winding is inverted, which is
+    exactly what makes it a cavity rather than a second body.
+    """
+    outer = trimesh.creation.box(extents=(body, body, body))
+    inner = trimesh.creation.box(extents=(core, core, core))
+    inner.invert()
+    return trimesh.util.concatenate([outer, inner])
+
+
+def test_a_sealed_cavity_is_one_solid_not_two(backend: MeshBackend):
+    """The finding from the T0 agent-convergence baseline (`evals/BASELINE.md`).
+
+    Counting boundary components said 2, which has no model-side remedy: the
+    agent under test could not reach green with the correct part, so it drilled
+    a vent bore the design never asked for. Orientation is the discriminator —
+    the void's shell is wound inward and encloses negative volume.
+    """
+    mesh = _block_with_sealed_cavity()
+    assert measured(backend.solid_count(mesh)).value == 1
+    assert measured(backend.cavities(mesh)).value == 1
+
+
+def test_a_sealed_cavity_is_not_a_handle(backend: MeshBackend):
+    """`(2 - X)/2` assumes a single shell, so it was wrong by exactly the cavity
+    count: X = 4 here, reporting genus -1 — a handle that does not exist. The
+    shell-aware `S - X/2` is the form the OCCT tier already used."""
+    assert measured(backend.genus(_block_with_sealed_cavity())).value == 0
+
+
+def test_two_disjoint_bodies_are_not_cavities(backend: MeshBackend):
+    """The counterpart the orientation rule has to keep getting right."""
+    a = trimesh.creation.box(extents=(5, 5, 5))
+    b = trimesh.creation.box(extents=(5, 5, 5))
+    b.apply_translation((20, 0, 0))
+    both = trimesh.util.concatenate([a, b])
+    assert measured(backend.solid_count(both)).value == 2
+    assert measured(backend.cavities(both)).value == 0
+
+
 def test_genus_counts_through_holes(backend: MeshBackend):
     assert measured(backend.genus(trimesh.creation.box(extents=(2, 2, 2)))).value == 0
     torus = trimesh.creation.torus(major_radius=10, minor_radius=3)
@@ -431,12 +474,13 @@ def test_body_count_is_refused_where_the_geometry_does_not_fix_it(
     assert "non-manifold" in refused(backend.solid_count(touching_tets)).reason
 
 
-def test_body_count_survives_an_open_mesh(backend: MeshBackend, open_cube):
-    """Refuse the undefined, not the merely unusual. With no non-manifold edge
-    the adjacency is unambiguous, so the count is determined even though the
-    surface is open — and over-refusal inflates `incomplete`, which is its own
-    way of failing to answer an answerable question."""
-    assert measured(backend.solid_count(open_cube)).value == 1
+def test_an_open_mesh_bounds_no_solid(backend: MeshBackend, open_cube):
+    """Still an answer, not a refusal — over-refusal inflates `incomplete` and is
+    its own way of dodging an answerable question. But the answer is 0: an open
+    shell bounds no solid. This used to say 1, where `OcctBackend.solid_count`
+    on an open shell says 0, so the two tiers disagreed about the same word."""
+    assert measured(backend.solid_count(open_cube)).value == 0
+    assert measured(backend.cavities(open_cube)).value == 0
 
 
 def test_area_and_bbox_survive_an_open_mesh(backend: MeshBackend, open_cube):

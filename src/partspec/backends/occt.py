@@ -32,6 +32,7 @@ CAPABILITIES = frozenset(
         "is_valid",
         "watertight",
         "solid_count",
+        "cavities",
         "genus",
         "topology_counts",
         "triangles",
@@ -136,6 +137,17 @@ class OcctBackend:
 
     def solid_count(self, a: Any) -> Measurement:
         return Measurement(len(a.solids()), "count", exact=True)
+
+    def cavities(self, a: Any) -> Measurement:
+        """Sealed internal voids.
+
+        A solid is bounded by one outer shell plus one shell per enclosed void,
+        so the difference is the void count. This tier has always counted solids
+        correctly — a block with a sealed cavity is 1 solid and 2 shells — and
+        the quantity was simply never exposed. The mesh tier reaches the same
+        two numbers from triangle orientation.
+        """
+        return Measurement(max(len(a.shells()) - len(a.solids()), 0), "count", exact=True)
 
     def genus(self, a: Any) -> Measurement | Unsupported:
         """Through-holes, via the Euler-Poincare formula.

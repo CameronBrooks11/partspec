@@ -33,6 +33,7 @@ GEOMETRY_KINDS: dict[str, str] = {
     "envelope": "bbox",
     "watertight": "watertight",
     "solid_count": "solid_count",
+    "cavities": "cavities",
     "genus": "genus",
     "volume": "volume",
     "area": "area",
@@ -182,6 +183,19 @@ class Part:
             CheckSpec(
                 id=id or "solid_count", kind="solid_count", phase=GEOMETRY, limit=Limit(equals=n)
             )
+        )
+
+    def cavities(self, n: int, *, id: str | None = None) -> Part:
+        """Sealed internal voids.
+
+        Declaring `solid_count(1)` and `cavities(1)` says "one block with one
+        enclosed void" — which used to be inexpressible, because the void was
+        miscounted as a second solid. A part that means to have none should say
+        `cavities(0)`: a void nobody asked for is trapped powder, an unprintable
+        overhang, or a boolean that did not reach the surface.
+        """
+        return self._add(
+            CheckSpec(id=id or "cavities", kind="cavities", phase=GEOMETRY, limit=Limit(equals=n))
         )
 
     def genus(self, n: int, *, id: str | None = None) -> Part:

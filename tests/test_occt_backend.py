@@ -96,6 +96,27 @@ def test_closed_form_measurements(backend: OcctBackend):
     assert backend.solid_count(box).value == 1
 
 
+def test_a_sealed_cavity_is_one_solid_with_one_void(backend: OcctBackend):
+    """This tier was always right about the solid count — a block enclosing a
+    sealed void is 1 solid and 2 shells. What was missing is that the void had
+    no name, so a contract could not say "one block, one cavity" and the mesh
+    tier's miscount had nothing to be checked against.
+
+    The mesh tier reaches the same three numbers from triangle orientation; see
+    `test_a_sealed_cavity_is_one_solid_not_two` there, and `evals/BASELINE.md`
+    for the agent-loop failure that made this load-bearing.
+    """
+    block = bd.Box(20, 20, 20) - bd.Box(10, 10, 10)
+    assert backend.solid_count(block).value == 1
+    assert backend.cavities(block).value == 1
+    assert measured(backend.genus(block)).value == 0
+    assert measured(backend.volume(block)).value == pytest.approx(7000.0)
+
+
+def test_a_plain_solid_has_no_cavities(backend: OcctBackend):
+    assert backend.cavities(bd.Box(10, 10, 10)).value == 0
+
+
 def test_everything_on_this_tier_is_exact(backend: OcctBackend):
     """No tessellation anywhere, so nothing carries an error bound."""
     box = bd.Box(10, 20, 30)
