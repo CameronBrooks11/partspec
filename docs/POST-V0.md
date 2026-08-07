@@ -143,8 +143,8 @@ That gap is a genuine opportunity if this project ever wants one.
 
 - **`geometry.facets` on the OCCT tier** — currently mesh-only. Would need a deliberate
   tessellation, which is a design choice rather than a measurement.
-- **Per-component vector statuses** (`SPEC-report.md` Q8) — vector adjudication takes the
-  worst component, losing which one failed.
+- ~~**Per-component vector statuses** (`SPEC-report.md` Q8)~~ — shipped 2026-08-07 as
+  `checks[].components` (#84).
 - **`skipped` vs `unsupported` exit codes** (Q1) — currently share `2`; they differ in kind.
 - **`--allow-incomplete`** — withheld deliberately, not forgotten. Add only if the dogfood
   run shows a case where `incomplete` is genuinely a part's right long-term state rather

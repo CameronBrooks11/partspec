@@ -458,6 +458,7 @@ an unknown major version rather than best-effort parse it.
         "exactness": "exact", "axes": ["x", "y", "z"]
       },
       "limit": { "max": [40, 40, 15] },
+      "components": { "x": "pass", "y": "pass", "z": "pass" },
       "detail": null
     },
     {
@@ -563,6 +564,15 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 - **`checks[].id`** — stable within a contract, used as the join key by `diff`. Two checks
   in one report MUST NOT share an `id`. A contract that would emit a duplicate is a
   contract error (`verdict: "error"`), not a silently deduplicated report.
+- **`checks[].components`** — present on every check whose measurement is a vector: axis →
+  status (e.g. `{"x": "pass", "y": "pass", "z": "fail"}`), so a failure names *which*
+  component to act on instead of leaving the consumer to re-derive it from the vectors.
+  Derived from the same per-component adjudication the check status folds, never computed a
+  second way. Recorded on pass too (the §7.2 principle applied to attribution); an
+  unconstrained axis is **absent**, because an omitted claim has no status. The check-level
+  `status` remains the worst constrained component — this field adds attribution, not a new
+  verdict path. On `keep_out` / `keep_in` the two clauses appear as `region` and `shell`.
+  Additive (no schema bump). Resolves Q8.
 - **`checks[].region`** — present only on `keep_out` / `keep_in` checks: the declared region
   (`shape`, its dimensions, and the mandatory `shell` thickness), so the report states what
   was claimed and not just how it went. These checks carry `limit: null` — the claim is a
@@ -782,12 +792,12 @@ immediately. But two consequences must be accepted openly:
   two-sided bound at all** (§3.2), so they are `unsupported`, not `approximate`. What
   remains open is the middle ground: a defensible interval for mesh *volume* and *area*.
   Not a v0 blocker (§10).
-- **Q8** — Vector adjudication (§2.1) takes the worst status across components, losing
-  *which* component failed. Record per-component statuses, or leave it to `detail`?
-
 *Resolved in draft 2:* Q5 (`--allow-incomplete` withheld from v0, §6.2).
 *Resolved in draft 3:* Q4 (a facet-resolution signal added alongside `triangles`, §7.1;
 implemented as `distinct_normals` per D16).
 *Resolved in draft 4:* Q7 — parameter predicates are **not** measurements. A `requires`
 check carries `expr` and `operands` instead of `measurement`/`limit`; `bool` is gone from
 the unit table. See `SPEC-contract.md` §5.
+*Resolved post-v0.1:* Q8 — per-component statuses are recorded in `checks[].components`
+(§7.1), not left to `detail`: prose is for humans, and the failing axis is data an agent
+acts on.

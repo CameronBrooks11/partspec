@@ -26,7 +26,16 @@ from . import expr as expr_mod
 from .backend import BuildError, Unsupported
 from .contract import GEOMETRY, GEOMETRY_KINDS, CheckSpec, Part
 from .report import CheckResult, Report
-from .status import ContractError, Limit, Measurement, Status, adjudicate, epsilon
+from .status import (
+    ContractError,
+    Limit,
+    Measurement,
+    Status,
+    adjudicate,
+    adjudicate_components,
+    component_limit,
+    epsilon,
+)
 
 __all__ = ["run"]
 
@@ -244,12 +253,47 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
 
     assert spec.limit is not None
     status = adjudicate(outcome, spec.limit)
+    components = _components_of(outcome, spec.limit)
     detail = None
     if status is Status.FAIL:
         explain = getattr(backend, f"{spec.kind}_detail", None)
         if explain is not None:
             detail = explain(artifact)
-    return CheckResult(**common, status=status, measurement=outcome, detail=detail)
+        elif components is not None:
+            detail = _failing_axes(outcome, spec.limit, components)
+    return CheckResult(
+        **common, status=status, measurement=outcome, components=components, detail=detail
+    )
+
+
+def _components_of(outcome: Measurement, limit: Limit) -> dict[str, Status] | None:
+    """Axis -> status for a vector measurement; None for scalars.
+
+    Derived from the same `adjudicate_components` call that `adjudicate` folds,
+    never recomputed by other means — two adjudications of one claim is one
+    adjudication too many.
+    """
+    if not outcome.is_vector or outcome.axes is None:
+        return None
+    per = adjudicate_components(outcome, limit)
+    return {axis: s for axis, s in zip(outcome.axes, per, strict=True) if s is not None}
+
+
+def _failing_axes(outcome: Measurement, limit: Limit, components: dict[str, Status]) -> str:
+    """Name each non-passing axis with its value and the bound it broke —
+    the difference between a report an agent can act on in one edit and one
+    it must bisect."""
+    values = dict(zip(outcome.axes or (), tuple(outcome.value), strict=True))
+    n = len(tuple(outcome.value))
+    axis_index = {axis: i for i, axis in enumerate(outcome.axes or ())}
+    parts = []
+    for axis, status in components.items():
+        if status is Status.PASS:
+            continue
+        sub = component_limit(limit, axis_index[axis], n)
+        assert sub is not None  # a constrained status implies a constraint
+        parts.append(f"{axis}={values[axis]:g} outside {_render(sub)}")
+    return "; ".join(parts)
 
 
 def _run_region_check(
@@ -332,6 +376,13 @@ def _run_region_check(
         **common,
         status=Status.FAIL if failed else Status.PASS,
         measurement=Measurement((in_region, in_shell), "mm3", exact=True, axes=("region", "shell")),
+        # The two clauses are this check's components, same shape as an
+        # envelope's axes: the reader learns which side failed without parsing
+        # the prose.
+        components={
+            "region": Status.FAIL if failures[0] is not None else Status.PASS,
+            "shell": Status.FAIL if failures[1] is not None else Status.PASS,
+        },
         detail="; ".join(failed) if failed else None,
     )
 

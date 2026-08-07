@@ -769,3 +769,77 @@ def test_keep_in_tolerance_scales_with_region_volume():
     assert result.status is Status.PASS
     assert result.measurement is not None
     assert result.measurement.value[0] == pytest.approx(200 * 200 * 250)
+
+
+# --------------------------------------------------------------------------
+# per-component attribution (#84)
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_a_failing_envelope_names_the_failing_axis(tmp_path: Path):
+    """The block is 30x20x10. Only z breaks its bound, and the report must say
+    so as data — an agent acting on 'envelope failed' has to bisect; one acting
+    on 'z=10 outside max=5' edits once."""
+    p = Part("block", openscad(BLOCK)).envelope(max=(30, 20, 5))
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "envelope")
+    assert check.status is Status.FAIL
+    assert check.components == {"x": Status.PASS, "y": Status.PASS, "z": Status.FAIL}
+    assert check.detail == "z=10 outside max=5"
+
+
+@needs_openscad
+def test_components_are_recorded_on_pass_too(tmp_path: Path):
+    """The 7.2 principle applied to attribution: drift analysis needs the
+    passing shape as much as the failing one."""
+    p = Part("block", openscad(BLOCK)).envelope(max=(30, 20, 10))
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "envelope")
+    assert check.status is Status.PASS
+    assert check.components == {"x": Status.PASS, "y": Status.PASS, "z": Status.PASS}
+    assert check.detail is None
+
+
+@needs_openscad
+def test_a_scalar_check_carries_no_components(tmp_path: Path):
+    p = Part("block", openscad(BLOCK)).volume(min=1.0)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "volume")
+    assert check.components is None
+    assert "components" not in check.to_json()
+
+
+@pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
+    reason="occt extra not installed",
+)
+def test_an_unconstrained_topology_axis_is_absent_from_components(tmp_path: Path):
+    """faces= alone claims nothing about edges or vertices, so those axes must
+    not appear — a status on an unmade claim would be an answer to a question
+    nobody asked."""
+    from partspec import build123d
+
+    model = tmp_path / "m.py"
+    model.write_text("from build123d import Box\n\n\ndef make_part():\n    return Box(1, 1, 1)\n")
+    p = Part("cube", build123d(model)).topology(faces=6)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "topology")
+    assert check.status is Status.PASS
+    assert check.components == {"faces": Status.PASS}
+
+
+def test_region_clauses_appear_as_components():
+    from partspec.region import box
+
+    part = _box_part((1, 1, 1), (2, 2, 2))
+    both = _region_result(part, "keep_out", box(min=(0, 0, 0), max=(5, 5, 5)), shell=1.0)
+    assert both.components == {"region": Status.FAIL, "shell": Status.FAIL}
+
+    ok = _region_result(
+        _box_part((0, 0, 0), (10, 10, 10)),
+        "keep_out",
+        box(min=(12, 0, 0), max=(14, 10, 10)),
+        shell=3.0,
+    )
+    assert ok.components == {"region": Status.PASS, "shell": Status.PASS}

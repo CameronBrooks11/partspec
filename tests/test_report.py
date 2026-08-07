@@ -256,3 +256,28 @@ def test_spec_example_checks_are_well_formed(check):
     if check["status"] == "unsupported":
         assert check["measurement"] is None
         assert check.get("requires"), "unsupported must name the tier that would answer"
+
+
+def test_components_serialise_between_limit_and_detail_as_strings():
+    r = _report(
+        checks=[
+            _check(
+                Status.FAIL,
+                measurement=Measurement((45.0, 20.0, 10.0), "mm", axes=("x", "y", "z")),
+                limit=Limit(max=(40, 40, 15)),
+                components={"x": Status.FAIL, "y": Status.PASS, "z": Status.PASS},
+            )
+        ]
+    )
+    check = r.to_json()["checks"][0]
+    assert check["components"] == {"x": "fail", "y": "pass", "z": "pass"}
+    assert list(check) == [
+        "id",
+        "kind",
+        "phase",
+        "status",
+        "measurement",
+        "limit",
+        "components",
+        "detail",
+    ]

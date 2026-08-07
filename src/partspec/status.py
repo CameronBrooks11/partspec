@@ -32,6 +32,8 @@ __all__ = [
     "Status",
     "Verdict",
     "adjudicate",
+    "adjudicate_components",
+    "component_limit",
     "epsilon",
     "exit_code",
     "verdict_of",
@@ -314,23 +316,7 @@ def adjudicate(measurement: Measurement, limit: Limit) -> Status:
     if not measurement.is_vector:
         return _adjudicate_scalar(measurement.value, measurement.bounds, limit)
 
-    values = tuple(measurement.value)
-    bounds = tuple(measurement.bounds) if measurement.bounds is not None else (None,) * len(values)
-    if len(bounds) != len(values):
-        raise ContractError("bounds length does not match value length")
-
-    per_component: list[Status] = []
-    for i, v in enumerate(values):
-        fields = {
-            "min": _component(limit.min, i, len(values)),
-            "max": _component(limit.max, i, len(values)),
-            "equals": _component(limit.equals, i, len(values)),
-            "choices": limit.choices,
-        }
-        if all(f is None for f in fields.values()):
-            continue
-        per_component.append(_adjudicate_scalar(v, bounds[i], Limit(**fields)))
-
+    per_component = [s for s in adjudicate_components(measurement, limit) if s is not None]
     if not per_component:
         # Every component unconstrained. `Limit.__post_init__` cannot catch this
         # — `equals=(None, None, None)` is not None — and folding an empty list
@@ -341,6 +327,44 @@ def adjudicate(measurement: Measurement, limit: Limit) -> Status:
             "claims nothing must not report pass"
         )
     return worst(per_component)
+
+
+def adjudicate_components(measurement: Measurement, limit: Limit) -> tuple[Status | None, ...]:
+    """Per-component statuses for a vector measurement, positionally aligned.
+
+    `None` marks a component the limit does not constrain — an omitted axis
+    carries no claim, so it has no status. `adjudicate` folds this to the worst
+    constrained component; the components themselves reach the report so a
+    failure names *which* axis to act on (SPEC-report.md 7.1) rather than
+    leaving an agent to re-derive it from the vectors.
+    """
+    if not measurement.is_vector:
+        raise ContractError("component adjudication is for vector measurements")
+
+    values = tuple(measurement.value)
+    bounds = tuple(measurement.bounds) if measurement.bounds is not None else (None,) * len(values)
+    if len(bounds) != len(values):
+        raise ContractError("bounds length does not match value length")
+
+    out: list[Status | None] = []
+    for i, v in enumerate(values):
+        sub = component_limit(limit, i, len(values))
+        out.append(None if sub is None else _adjudicate_scalar(v, bounds[i], sub))
+    return tuple(out)
+
+
+def component_limit(limit: Limit, index: int, expected_len: int) -> Limit | None:
+    """The scalar limit one component of a vector is held to, or None for no
+    claim. Scalar limit values broadcast across every component."""
+    fields = {
+        "min": _component(limit.min, index, expected_len),
+        "max": _component(limit.max, index, expected_len),
+        "equals": _component(limit.equals, index, expected_len),
+        "choices": limit.choices,
+    }
+    if all(f is None for f in fields.values()):
+        return None
+    return Limit(**fields)
 
 
 def _component(limit_value: Any, index: int, expected_len: int) -> Any:
