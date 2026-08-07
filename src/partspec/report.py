@@ -140,6 +140,14 @@ class Report:
     checks: list[CheckResult] = field(default_factory=list)
     error: str | None = None
     hint: str | None = None
+    build_origin: str | None = None
+    """Why a build failed, when one did: `"environment"` or `"model"`.
+
+    A field rather than prose in `detail`, so a consumer can branch on it. A
+    design that does not compile is a statement about the part; no engine on
+    PATH is not, and reporting both as `builds: fail` told a CI run with no
+    OpenSCAD installed that the design was disproven.
+    """
     duration_ms: int | None = None
     argv: list[str] = field(default_factory=list)
 
@@ -203,6 +211,7 @@ class Report:
             "checks": [c.to_json() for c in self.checks],
             "error": self.error,
             "hint": self.hint,
+            "build_origin": self.build_origin,
             "environment": self._environment(),
             "invocation": {"argv": self.argv},
         }

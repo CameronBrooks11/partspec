@@ -322,12 +322,33 @@ def test_operands_are_recorded_on_a_failed_predicate(tmp_path: Path):
 
 
 @needs_openscad
-def test_a_build_failure_fails_builds_and_skips_the_rest(tmp_path: Path):
+def test_a_build_the_environment_prevented_is_not_a_failing_part(tmp_path: Path):
+    """A missing source file is a fact about the machine, not about the design.
+
+    This used to be `builds: fail` / `verdict: fail` / exit 1 -- the code that
+    means "the part failed its contract". So a CI run on a box with no OpenSCAD
+    installed reported every design as disproven, and exit 1 is the one an agent
+    is most likely to answer by editing the model.
+    """
     p = Part("missing", openscad(tmp_path / "nope.scad")).watertight()
     report = run(p, out_dir=tmp_path)
+    assert report.verdict is Verdict.ERROR
+    assert report.build_origin == "environment"
+    assert _status(report, "builds") is Status.SKIPPED, "never reported as a failing check"
+    assert _status(report, "watertight") is Status.SKIPPED
+
+
+@needs_openscad
+def test_a_design_that_does_not_compile_does_fail_builds(tmp_path: Path):
+    """The other half of the split: this one *is* a statement about the part."""
+    source = tmp_path / "bad.scad"
+    source.write_text("this is not openscad;\n")
+    p = Part("broken", openscad(source)).watertight()
+    report = run(p, out_dir=tmp_path)
+    assert report.verdict is Verdict.FAIL
+    assert report.build_origin == "model"
     assert _status(report, "builds") is Status.FAIL
     assert _status(report, "watertight") is Status.SKIPPED
-    assert report.verdict is Verdict.FAIL
 
 
 def test_an_unknown_engine_errors_rather_than_pretending(tmp_path: Path):

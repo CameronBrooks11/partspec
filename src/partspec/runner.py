@@ -96,6 +96,23 @@ def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | N
 
     artifact = backend.build(_engine_source(part), out_dir)
     if isinstance(artifact, BuildError):
+        report.hint = artifact.hint
+        report.build_origin = artifact.origin
+
+        if artifact.origin == "environment":
+            # Not a statement about the part. No engine on PATH, a mistyped pin,
+            # a missing package, an absent source, a render out of time -- none
+            # of these disprove anything, and reporting them as `builds: fail`
+            # made a CI run on a machine without OpenSCAD say the *design* was
+            # disproven. `builds` is not emitted as failing at all; every
+            # declared check is skipped and the verdict is `error`.
+            report.error = artifact.message
+            reason = f"not evaluated: {artifact.message}"
+            results.append(_skipped(_builds_spec(), reason))
+            results.extend(_skipped(spec, reason) for spec in geometry_specs)
+            report.checks = results
+            return
+
         results.append(
             CheckResult(
                 id="builds",
@@ -106,7 +123,6 @@ def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | N
                 part_refs=(part.id,),
             )
         )
-        report.hint = artifact.hint
         results.extend(
             _skipped(spec, "not evaluated: the part did not build") for spec in geometry_specs
         )

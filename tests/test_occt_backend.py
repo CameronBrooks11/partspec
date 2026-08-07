@@ -46,12 +46,26 @@ def test_cadquery_shape_is_adopted_losslessly():
 
 
 def test_cadquery_multi_solid_adopts_as_a_compound():
+    """Replaced, not adjusted. The old fixture used the default `combine=True`,
+    so its stack was already a single Compound and it stayed green against the
+    bug below. It has to be a stack of *separate* Solids to test anything."""
     cq = pytest.importorskip("cadquery", reason="cadquery extra not installed")
-    w = cq.Workplane("XY").box(5, 5, 5).moveTo(20, 0).box(5, 5, 5)
-    adopted = adopt(cq.Compound.makeCompound(w.vals()))
+    w = cq.Workplane("XY").rect(20, 20, forConstruction=True).vertices().box(5, 5, 5, combine=False)
+    assert len(w.vals()) == 4, "premise: four separate solids on the stack"
+
+    adopted = adopt(w)
     assert not isinstance(adopted, BuildError)
-    assert len(adopted.solids()) == 2
-    assert adopted.volume == pytest.approx(250.0)
+    assert len(adopted.solids()) == 4, "`.val()` kept one and discarded three"
+    assert adopted.volume == pytest.approx(500.0)
+
+
+def test_a_single_body_workplane_is_unchanged():
+    """The default combine=True path must not grow a Compound wrapper."""
+    cq = pytest.importorskip("cadquery", reason="cadquery extra not installed")
+    adopted = adopt(cq.Workplane("XY").box(10, 10, 10))
+    assert not isinstance(adopted, BuildError)
+    assert adopted.volume == pytest.approx(1000.0)
+    assert len(adopted.solids()) == 1
 
 
 def test_wrong_wrapper_would_have_been_worse_than_failing():

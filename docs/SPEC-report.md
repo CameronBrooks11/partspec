@@ -314,9 +314,21 @@ The verdict is `fail` (a check failed), so the exit code is `1`, not `2`.
 
 Computed from the check statuses, in this precedence order:
 
+A build failure is split by **cause**, because the two mean opposite things to a
+reader. A design that does not compile is a statement about the part: `builds` fails,
+`verdict: "fail"`, exit `1`. An *environment* fault — no engine on `PATH`, a mistyped
+`PARTSPEC_OPENSCAD`, a missing engine package, a source file that is not there, a render
+that exceeded its timeout — is not a statement about the part at all, and MUST NOT be
+reported as one. It is `verdict: "error"`, exit `4`, with every declared check `skipped`
+and `builds` never `fail`. A CI run on a machine with no OpenSCAD installed must not
+report the design as disproven.
+
+The distinction is carried in `BuildError.origin` (`"environment"` or `"model"`) and
+surfaced in the report as a field a consumer can branch on — not as prose in `detail`.
+
 | verdict | condition |
 |---|---|
-| `error` | the build or the contract itself raised |
+| `error` | the contract raised, or the build could not be *attempted* (see above) |
 | `empty` | zero checks were declared |
 | `fail` | ≥1 `fail` |
 | `incomplete` | no `fail`, but ≥1 `approximate` / `unsupported` / `skipped` |
@@ -334,7 +346,7 @@ it does not know what to assert.
 | `1` | `fail` | something asserted was disproven |
 | `2` | `incomplete` | nothing disproven, **not everything proven** |
 | `3` | `empty` | no checks declared |
-| `4` | `error` | build failed, or the contract raised |
+| `4` | `error` | the contract raised, or the environment prevented a build |
 | `64` | — | usage error: unresolvable target, bad arguments (`EX_USAGE`) |
 
 **`2` is the load-bearing one.** It is what stops D10 from being a comment. A tool that

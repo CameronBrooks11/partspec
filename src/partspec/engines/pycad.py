@@ -19,7 +19,7 @@ import importlib.util
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..backend import BuildError
 
@@ -66,15 +66,44 @@ def _shape_map() -> dict[Any, Any]:
 def adopt(obj: Any) -> Any | BuildError:
     """Normalise a build123d or CadQuery result into a build123d shape.
 
-    A CadQuery `Workplane` is reduced with `.val()`; anything exposing
-    `.wrapped` is rewrapped by shape type. The rewrap is a handle operation, not
-    a geometric rebuild, so nothing is converted or lost.
+    A CadQuery `Workplane` is reduced over its whole stack — one value is taken
+    as-is, several become a Compound — and anything exposing `.wrapped` is
+    rewrapped by shape type. The rewrap is a handle operation, not a geometric
+    rebuild, so nothing is converted or lost.
     """
     from OCP.TopoDS import TopoDS_Shape  # pyright: ignore[reportAttributeAccessIssue]
 
-    # CadQuery Workplane -> its single value. `.val()` collapses a stack, and a
-    # multi-solid stack is already a Compound by then.
-    if hasattr(obj, "val") and callable(obj.val):
+    # CadQuery Workplane -> its value(s).
+    #
+    # `.val()` returns the *first* item on the stack, and the comment that used
+    # to sit here claimed "a multi-solid stack is already a Compound by then".
+    # It is not. That holds only for the default `combine=True`; build four
+    # bodies with `combine=False` and the stack is four separate Solids, of
+    # which `.val()` silently kept one:
+    #
+    #     w = cq.Workplane('XY').rect(20, 20, forConstruction=True) \
+    #           .vertices().box(5, 5, 5, combine=False)
+    #     len(w.vals())  # 4
+    #     .val().volume  # 125.0, not 500.0
+    #
+    # So `solid_count(4)` measured 1 and `volume` measured a quarter of the
+    # part, both exact, on three quarters of the model quietly discarded.
+    if hasattr(obj, "vals") and callable(obj.vals):
+        try:
+            # `vals()` is untyped on the CadQuery stubs, so it comes back as
+            # `object`; the cast is about the stub, not about the runtime.
+            stack = cast("list[Any]", obj.vals())
+        except Exception as exc:  # noqa: BLE001 - engine-specific failure surfaces as a build error
+            return BuildError(f"could not reduce CadQuery result: {exc}")
+        if len(stack) > 1:
+            import cadquery as cq
+
+            obj = cq.Compound.makeCompound(stack)
+        elif stack:
+            obj = stack[0]
+        else:
+            return BuildError("CadQuery result has nothing on its stack")
+    elif hasattr(obj, "val") and callable(obj.val):
         try:
             obj = obj.val()
         except Exception as exc:  # noqa: BLE001 - engine-specific failure surfaces as a build error
@@ -136,7 +165,7 @@ def _load(path: Path) -> Any:
 def build(source: PyCADSource) -> Any | BuildError:
     """Import the model module, call it, and adopt the result."""
     if not source.path.is_file():
-        return BuildError(f"source not found: {source.path}")
+        return BuildError(f"source not found: {source.path}", origin="environment")
 
     try:
         module = _load(source.path)
