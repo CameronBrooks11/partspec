@@ -973,3 +973,87 @@ def test_a_failed_build_carries_its_full_stderr(tmp_path: Path):
     # caught the weaker assertion passing while the hint was still a block
     # header from the summary.
     assert result.hint is not None and "not a 3D object" in result.hint
+
+
+# --------------------------------------------------------------------------
+# method= scratch placement (#39)
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_method_render_never_touches_the_source_dir_even_read_only(tmp_path: Path):
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "lib.scad").write_text("module block(s = 5) { cube(s); }\n")
+    src_dir.chmod(0o500)
+    try:
+        result = openscad.render(
+            OpenSCADSource(src_dir / "lib.scad", params={"s": 8}, method="block"),
+            tmp_path / "out",
+        )
+        leftovers = [p.name for p in src_dir.iterdir() if p.name != "lib.scad"]
+    finally:
+        src_dir.chmod(0o755)
+    assert not isinstance(result, BuildError), result
+    assert leftovers == [], "the inspector wrote into the tree it was inspecting"
+
+
+@needs_openscad
+def test_method_render_resolves_the_sources_relative_includes(tmp_path: Path):
+    # The scratch lives in the out dir but `include <>`s the source by absolute
+    # path, and OpenSCAD resolves nested includes relative to the file that
+    # contains the statement — so the source's own relative include holds.
+    src_dir = tmp_path / "src"
+    (src_dir / "sub").mkdir(parents=True)
+    (src_dir / "sub" / "size.scad").write_text("s_default = 6;\n")
+    (src_dir / "lib.scad").write_text(
+        "include <sub/size.scad>\nmodule block(s = s_default) { cube(s); }\n"
+    )
+    result = openscad.render(OpenSCADSource(src_dir / "lib.scad", method="block"), tmp_path / "out")
+    assert not isinstance(result, BuildError), result
+
+
+@needs_openscad
+def test_an_unwritable_out_dir_refuses_naming_the_directory(tmp_path: Path):
+    out = tmp_path / "out"
+    out.mkdir()
+    out.chmod(0o500)
+    try:
+        result = openscad.render(
+            OpenSCADSource(FIXTURES / "block_with_hole.scad", method="nope"), out
+        )
+    finally:
+        out.chmod(0o755)
+    assert isinstance(result, BuildError)
+    assert result.origin == "environment"
+    assert str(out) in result.message
+
+
+@needs_openscad
+def test_method_render_still_resolves_relative_data_files(tmp_path: Path):
+    # The regression the adversarial review caught live: surface()/import()
+    # data resolves against the MAIN entry's directory, so these sources keep
+    # their scratch entry beside the source instead of in the out dir.
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "data.dat").write_text("1 1\n1 1\n")
+    (src_dir / "lib.scad").write_text('module part() { surface(file = "data.dat"); }\n')
+    result = openscad.render(OpenSCADSource(src_dir / "lib.scad", method="part"), tmp_path / "out")
+    assert not isinstance(result, BuildError), result
+    leftovers = [p.name for p in src_dir.iterdir() if p.name.startswith(".partspec-")]
+    assert leftovers == [], "the scratch beside the source must still be cleaned up"
+
+
+@needs_openscad
+def test_a_stale_artifact_in_an_unwritable_out_dir_refuses_by_name(tmp_path: Path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "block_with_hole.stl").write_text("stale")
+    out.chmod(0o500)
+    try:
+        result = openscad.render(OpenSCADSource(FIXTURES / "block_with_hole.scad"), out)
+    finally:
+        out.chmod(0o755)
+    assert isinstance(result, BuildError)
+    assert result.origin == "environment"
+    assert str(out) in result.message
