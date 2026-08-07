@@ -156,10 +156,11 @@ def render(
     if executable is None:
         return BuildError(
             "openscad not found on PATH",
+            origin="environment",
             hint="install the stable package, or the nightly AppImage via workstation-configs",
         )
     if not source.path.is_file():
-        return BuildError(f"source not found: {source.path}")
+        return BuildError(f"source not found: {source.path}", origin="environment")
 
     out_dir.mkdir(parents=True, exist_ok=True)
     stl = out_dir / f"{source.path.stem}.stl"
@@ -213,7 +214,7 @@ def render(
                 cmd, capture_output=True, text=True, timeout=timeout_s, check=False
             )
         except subprocess.TimeoutExpired:
-            return BuildError(f"openscad timed out after {timeout_s}s")
+            return BuildError(f"openscad timed out after {timeout_s}s", origin="environment")
         except OSError as exc:
             # A mistyped PARTSPEC_OPENSCAD reaches here. The pin is returned
             # as given rather than validated away, because silently falling
@@ -221,6 +222,7 @@ def render(
             # — and the version is the part (F13). So it fails, by name.
             return BuildError(
                 f"could not run the openscad binary at {executable!r}: {exc.strerror}",
+                origin="environment",
                 hint=f"{ENV_EXECUTABLE} is set to this path"
                 if os.environ.get(ENV_EXECUTABLE)
                 else None,

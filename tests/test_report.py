@@ -51,6 +51,7 @@ def test_field_order_is_fixed():
         "checks",
         "error",
         "hint",
+        "build_origin",
         "environment",
         "invocation",
     ]

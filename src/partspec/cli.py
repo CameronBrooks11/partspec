@@ -261,10 +261,35 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
 
     args = parser.parse_args(args_list)
-    if args.command == "check":
-        return _cmd_check(args, args_list)
-    if args.command == "measure":
-        return _cmd_measure(args)
+
+    # The catch-all sits here, around the dispatch, and not inside `run`. Several
+    # of the ways this fires never reach `run` at all: `--out` pointing at an
+    # unwritable directory or an existing file dies in `write_placeholder`
+    # (report.py) before the engine is touched. Left unguarded, every one of them
+    # exited **1** -- this tool's code for "the part failed its contract" --
+    # while the placeholder already on disk said `verdict: "error"`. The exit
+    # code and the artifact contradicted each other, and exit 1 is the one an
+    # agent is most likely to answer by editing the model.
+    #
+    # Reproduced with a `str` parameter (TypeError in adjudication), a
+    # `PosixPath` parameter (TypeError rendering the -D literal), and both
+    # `--out` cases. Deliberately not an isinstance ladder: the point is that
+    # *unanticipated* failures land on ERROR rather than on a verdict about the
+    # part. Placed after `parse_args`, so argparse keeps its own SystemExit.
+    try:
+        if args.command == "check":
+            return _cmd_check(args, args_list)
+        if args.command == "measure":
+            return _cmd_measure(args)
+    except KeyboardInterrupt:
+        print("\npartspec: interrupted", file=sys.stderr)
+        return 130
+    except Exception as exc:  # noqa: BLE001 - the last resort before the shell
+        traceback.print_exc()
+        print(f"\npartspec: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print("  this is a partspec failure, not a verdict on the part", file=sys.stderr)
+        return exit_code(Verdict.ERROR)
+
     parser.print_help()
     return EXIT_USAGE
 

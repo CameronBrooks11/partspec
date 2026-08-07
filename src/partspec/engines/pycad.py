@@ -165,7 +165,7 @@ def _load(path: Path) -> Any:
 def build(source: PyCADSource) -> Any | BuildError:
     """Import the model module, call it, and adopt the result."""
     if not source.path.is_file():
-        return BuildError(f"source not found: {source.path}")
+        return BuildError(f"source not found: {source.path}", origin="environment")
 
     try:
         module = _load(source.path)

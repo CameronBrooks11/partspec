@@ -17,7 +17,7 @@ Spec: SPEC-backend.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from .status import Measurement
 
@@ -92,10 +92,20 @@ class Unsupported:
 
 @dataclass(frozen=True, slots=True)
 class BuildError:
-    """The engine failed to produce an artifact."""
+    """The engine failed to produce an artifact.
+
+    `origin` separates two failures that used to be reported identically and
+    mean opposite things. `"model"` is a statement about the part -- the design
+    does not compile -- and adjudicates as a failing `builds` check, exit 1.
+    `"environment"` is not a statement about the part at all: no engine on PATH,
+    a mistyped pin, a missing package, an absent source file, a render that ran
+    out of time. Every one of those used to land on `builds: fail`, so a CI run
+    on a machine without OpenSCAD reported the *design* as disproven.
+    """
 
     message: str
     hint: str | None = None
+    origin: Literal["environment", "model"] = "model"
 
 
 @runtime_checkable
