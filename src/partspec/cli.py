@@ -68,6 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("target", help="<module-path>[:<factory>]")
     render.add_argument("--out", type=Path, default=None)
 
+    diff = sub.add_parser(
+        "diff",
+        help="compare two reports of one part semantically (exit 0 identical, "
+        "1 different, 2 indeterminate)",
+    )
+    diff.add_argument("old", type=Path, help="the earlier report.json")
+    diff.add_argument("new", type=Path, help="the later report.json")
+
     return parser
 
 
@@ -349,6 +357,34 @@ def _summarise(report, path: Path) -> None:
     print(f"  {path}", file=sys.stderr)
 
 
+def _cmd_diff(args: argparse.Namespace) -> int:
+    """Compare two reports. The artifact goes to stdout — it is the product
+    and it pipes; the courtesy summary goes to stderr (SPEC-diff.md 1)."""
+    from .diff import DiffUsageError, diff_reports, exit_code_of, summary_of
+
+    reports = []
+    for path in (args.old, args.new):
+        try:
+            reports.append(json.loads(path.read_text(encoding="utf-8")))
+        except OSError as exc:
+            print(f"partspec: cannot read {path}: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        except json.JSONDecodeError as exc:
+            print(f"partspec: {path} is not a report: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+
+    try:
+        doc = diff_reports(reports[0], reports[1], tool_version=_version())
+    except DiffUsageError as exc:
+        print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    json.dump(doc, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    print(summary_of(doc), file=sys.stderr)
+    return exit_code_of(doc["outcome"])
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args_list = argv if argv is not None else sys.argv[1:]
@@ -379,6 +415,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_measure(args)
         if args.command == "render":
             return _cmd_render(args)
+        if args.command == "diff":
+            return _cmd_diff(args)
     except KeyboardInterrupt:
         print("\npartspec: interrupted", file=sys.stderr)
         return 130
