@@ -19,6 +19,8 @@ from partspec.status import (
     Status,
     Verdict,
     adjudicate,
+    adjudicate_components,
+    component_limit,
     epsilon,
     exit_code,
     verdict_of,
@@ -278,3 +280,40 @@ def test_a_non_finite_parameter_is_refused_where_it_enters():
 
     with pytest.raises(ContractError, match="not a number"):
         openscad("x.scad", bore_d=float("nan"))
+
+
+# --------------------------------------------------------------------------
+# per-component adjudication (#84)
+# --------------------------------------------------------------------------
+
+
+def test_components_are_positional_and_unconstrained_axes_have_no_status():
+    m = Measurement((1.0, 2.0, 3.0), "mm", axes=("x", "y", "z"))
+    per = adjudicate_components(m, Limit(max=(None, 1.0, None)))
+    assert per == (None, Status.FAIL, None)
+
+
+def test_scalar_limits_broadcast_across_every_component():
+    m = Measurement((1.0, 3.0), "mm", axes=("a", "b"))
+    assert adjudicate_components(m, Limit(max=2.0)) == (Status.PASS, Status.FAIL)
+
+
+def test_component_adjudication_refuses_a_scalar():
+    with pytest.raises(ContractError, match="vector"):
+        adjudicate_components(Measurement(1.0, "mm"), Limit(max=2.0))
+
+
+def test_adjudicate_folds_exactly_what_the_components_say():
+    """One adjudication, two views: the folded status must be the worst of the
+    constrained components, never an independent computation."""
+    m = Measurement((5.0, 50.0, 5.0), "mm", axes=("x", "y", "z"))
+    limit = Limit(max=(10.0, 10.0, None))
+    per = adjudicate_components(m, limit)
+    assert per == (Status.PASS, Status.FAIL, None)
+    assert adjudicate(m, limit) is Status.FAIL
+
+
+def test_component_limit_selects_and_broadcasts():
+    assert component_limit(Limit(max=(1.0, 2.0)), 1, 2) == Limit(max=2.0)
+    assert component_limit(Limit(min=5.0), 0, 3) == Limit(min=5.0)
+    assert component_limit(Limit(equals=(6, None, None)), 1, 3) is None

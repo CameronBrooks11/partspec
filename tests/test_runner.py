@@ -769,3 +769,129 @@ def test_keep_in_tolerance_scales_with_region_volume():
     assert result.status is Status.PASS
     assert result.measurement is not None
     assert result.measurement.value[0] == pytest.approx(200 * 200 * 250)
+
+
+# --------------------------------------------------------------------------
+# per-component attribution (#84)
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_a_failing_envelope_names_the_failing_axis(tmp_path: Path):
+    """The block is 30x20x10. Only z breaks its bound, and the report must say
+    so as data — an agent acting on 'envelope failed' has to bisect; one acting
+    on 'z=10 outside max=5' edits once."""
+    p = Part("block", openscad(BLOCK)).envelope(max=(30, 20, 5))
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "envelope")
+    assert check.status is Status.FAIL
+    assert check.components == {"x": Status.PASS, "y": Status.PASS, "z": Status.FAIL}
+    assert check.detail == "z=10 outside max=5"
+
+
+@needs_openscad
+def test_components_are_recorded_on_pass_too(tmp_path: Path):
+    """The 7.2 principle applied to attribution: drift analysis needs the
+    passing shape as much as the failing one."""
+    p = Part("block", openscad(BLOCK)).envelope(max=(30, 20, 10))
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "envelope")
+    assert check.status is Status.PASS
+    assert check.components == {"x": Status.PASS, "y": Status.PASS, "z": Status.PASS}
+    assert check.detail is None
+
+
+@needs_openscad
+def test_a_scalar_check_carries_no_components(tmp_path: Path):
+    p = Part("block", openscad(BLOCK)).volume(min=1.0)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "volume")
+    assert check.components is None
+    assert "components" not in check.to_json()
+
+
+@pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
+    reason="occt extra not installed",
+)
+def test_an_unconstrained_topology_axis_is_absent_from_components(tmp_path: Path):
+    """faces= alone claims nothing about edges or vertices, so those axes must
+    not appear — a status on an unmade claim would be an answer to a question
+    nobody asked."""
+    from partspec import build123d
+
+    model = tmp_path / "m.py"
+    model.write_text("from build123d import Box\n\n\ndef make_part():\n    return Box(1, 1, 1)\n")
+    p = Part("cube", build123d(model)).topology(faces=6)
+    report = run(p, out_dir=tmp_path)
+    check = next(c for c in report.checks if c.id == "topology")
+    assert check.status is Status.PASS
+    assert check.components == {"faces": Status.PASS}
+
+
+def test_region_clauses_appear_as_components():
+    from partspec.region import box
+
+    part = _box_part((1, 1, 1), (2, 2, 2))
+    both = _region_result(part, "keep_out", box(min=(0, 0, 0), max=(5, 5, 5)), shell=1.0)
+    assert both.components == {"region": Status.FAIL, "shell": Status.FAIL}
+
+    ok = _region_result(
+        _box_part((0, 0, 0), (10, 10, 10)),
+        "keep_out",
+        box(min=(12, 0, 0), max=(14, 10, 10)),
+        shell=3.0,
+    )
+    assert ok.components == {"region": Status.PASS, "shell": Status.PASS}
+
+    # The asymmetric cases are what pin WHICH clause each entry reports: with
+    # the two swapped, a report would blame the shell for the region's
+    # intrusion — and the symmetric cases above cannot see it.
+    intruded = _region_result(
+        _box_part((4, 4, 4), (6, 6, 6)), "keep_out", box(min=(0, 0, 0), max=(5, 5, 5)), shell=2.0
+    )
+    assert intruded.components == {"region": Status.FAIL, "shell": Status.PASS}
+
+    nothing_around = _region_result(
+        _box_part((100, 100, 100), (110, 110, 110)),
+        "keep_out",
+        box(min=(0, 0, 0), max=(5, 5, 5)),
+        shell=2.0,
+    )
+    assert nothing_around.components == {"region": Status.PASS, "shell": Status.FAIL}
+
+
+def test_components_respect_the_same_epsilon_the_status_does():
+    """The headline invariant, tested at the boundary where it can break: the
+    binary-STL float32 round-trip that `epsilon()` exists for. A recompute of
+    components with a naive comparison would fail x here while the folded
+    status passes — a report contradicting its own attribution."""
+    from partspec import Limit, adjudicate
+    from partspec.runner import _components_of
+
+    m = Measurement((120.30000305, 80.69999695, 40.09999847), "mm", axes=("x", "y", "z"))
+    limit = Limit(max=(120.3, 80.7, 40.1))
+    assert adjudicate(m, limit) is Status.PASS
+    assert _components_of(m, limit) == {"x": Status.PASS, "y": Status.PASS, "z": Status.PASS}
+
+
+def test_an_approximate_axis_is_never_claimed_outside_its_bound():
+    """'outside' is a conclusive claim. An axis whose error band straddles the
+    limit is APPROXIMATE — the tool does not know — and the detail must stay
+    silent about it rather than rounding indeterminate into violated. No
+    backend emits vector bounds today; this pins the path before one does."""
+    from partspec import Limit
+    from partspec.runner import _components_of, _failing_axes
+
+    m = Measurement(
+        (5.0, 2.01),
+        "mm",
+        exact=False,
+        bounds=((4.9, 5.1), (1.96, 2.06)),
+        axes=("a", "b"),
+    )
+    limit = Limit(min=(6.0, 2.0))
+    components = _components_of(m, limit)
+    assert components == {"a": Status.FAIL, "b": Status.APPROXIMATE}
+    assert components is not None
+    assert _failing_axes(m, limit, components) == "a=5 outside min=6.0"

@@ -88,6 +88,11 @@ class CheckResult:
     status: Status
     measurement: Measurement | None = None
     limit: Limit | None = None
+    components: dict[str, Status] | None = None
+    """Axis -> status for a vector check, so a failure names which component to
+    act on instead of leaving a consumer to re-derive it from the vectors.
+    Recorded on pass too (the §7.2 principle); an unconstrained axis is absent
+    because an omitted claim has no status. Additive per §7.1."""
     expr: str | None = None
     operands: dict[str, Any] | None = None
     region: dict[str, Any] | None = None
@@ -108,6 +113,8 @@ class CheckResult:
             "measurement": _measurement_json(self.measurement),
             "limit": _limit_json(self.limit),
         }
+        if self.components is not None:
+            out["components"] = {axis: str(s) for axis, s in self.components.items()}
         if self.expr is not None:
             out["expr"] = self.expr
             out["operands"] = self.operands or {}
