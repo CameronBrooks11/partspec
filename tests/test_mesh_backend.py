@@ -794,3 +794,48 @@ def test_a_failed_render_leaves_no_stale_artifact(tmp_path: Path):
     assert not first.exists(), (
         f"a {stale_size}-byte mesh from the previous run survived a failed render"
     )
+
+
+def test_top_level_variables_ignores_locals_and_noise(tmp_path: Path):
+    """Only depth-zero assignments are reachable by `-D`; a name inside a module
+    body is a local. Comments and string interiors must not be read as
+    declarations either — a false positive there re-opens the hole rather than
+    merely widening it."""
+    _scad(tmp_path, "lib.scad", "helper_gap = 0.2;\n")
+    entry = _scad(
+        tmp_path,
+        "part.scad",
+        "include <lib.scad>\n"
+        "bore_d = 8;\n"
+        "// commented = 1;\n"
+        'label = "wall = 2";\n'
+        "module thing(arg) { local_only = arg * 2; cube(local_only); }\n",
+    )
+    assert openscad.top_level_variables(entry) == {"bore_d", "label", "helper_gap"}
+
+
+def test_a_parameter_binding_nothing_is_refused(tmp_path: Path):
+    """`openscad("part.scad", bore_diamter=8)` -- one transposition. OpenSCAD
+    accepts a `-D` that names no top-level variable and silently drops it, so the
+    file's own default rendered while the report listed bore_diamter=8 under
+    `params`: the artifact positively asserted a value the geometry never saw."""
+    entry = _scad(tmp_path, "part.scad", "bore_d = 8;\ncube([bore_d, 10, 10]);\n")
+    assert openscad.unbound_parameters(entry, {"bore_diamter": 8.0}) == ["bore_diamter"]
+    assert openscad.unbound_parameters(entry, {"bore_d": 8.0}) == []
+
+
+def test_special_variables_need_no_declaration(tmp_path: Path):
+    """`$fn` is built in, so a file need not assign one for `-D` to take effect."""
+    entry = _scad(tmp_path, "part.scad", "cube([1, 1, 1]);\n")
+    assert openscad.unbound_parameters(entry, {"$fn": 180}) == []
+
+
+@needs_openscad
+def test_a_misspelled_parameter_fails_the_build(tmp_path: Path):
+    entry = _scad(tmp_path, "part.scad", "bore_d = 8;\ncube([bore_d, 10, 10]);\n")
+    result = openscad.render(
+        OpenSCADSource(path=entry, params={"bore_diamter": 4.0}), tmp_path / "out"
+    )
+    assert isinstance(result, BuildError)
+    assert "bore_diamter" in result.message
+    assert "bore_d" in (result.hint or ""), "name what could have been meant"
