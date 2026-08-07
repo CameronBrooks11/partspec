@@ -185,7 +185,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     part, _ = resolved
 
     from .backend import BuildError, Unsupported
-    from .runner import _backend_for, _engine_source
+    from .runner import _backend_for, _engine_source, engine_block
     from .status import ContractError
 
     try:
@@ -239,11 +239,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
 
     measured: dict[str, object] = {
         "part": part.id,
-        "engine": {
-            "kind": part.source.engine,
-            "backend": backend.kind,
-            "version": backend.engine_version,
-        },
+        "engine": engine_block(part, backend),
         "geometry": backend.provenance(artifact),
         "measurements": measurements,
     }
@@ -295,11 +291,21 @@ def _cmd_render(args: argparse.Namespace) -> int:
             print(f"  hint: {result.hint}", file=sys.stderr)
         return 4
 
+    # The section-7 subset that applies to a render: no measurement tier is
+    # involved, so no `backend` key — but method/param_mode still decide what
+    # was built, and their absence made a method= render ambiguous (#73).
+    engine: dict[str, object] = {
+        "kind": "openscad",
+        "version": openscad.version(),
+        "render_backend": part.source.backend,
+        "method": part.source.method,
+        "param_mode": "call" if part.source.method else "define",
+    }
     print(
         json.dumps(
             {
                 "part": part.id,
-                "engine": {"kind": "openscad", "version": openscad.version()},
+                "engine": engine,
                 "renders": {view: str(path) for view, path in result.items()},
             },
             indent=2,

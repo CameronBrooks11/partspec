@@ -83,31 +83,7 @@ def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | N
         return
 
     backend = _backend_for(part.source.engine)
-    report.engine = {
-        "kind": part.source.engine,
-        "version": backend.engine_version,
-        "backend": backend.kind,
-        # Always present, pinned string or null — the unpinned run is exactly
-        # the one whose backend a reader cannot infer, because the engine
-        # default varies by version (CGAL on 2021.01, Manifold on current
-        # builds) and F10 is a mesh-validity difference between them (#41).
-        # Null means "the engine's default, whichever this version chose".
-        "render_backend": part.source.backend,
-        "adopted_via": "wrapped" if part.source.engine == "cadquery" else None,
-        # method= builds a different thing from the same contract file, and
-        # until it was recorded two such runs were indistinguishable in the
-        # artifact (#40). Always present, mirroring adopted_via: null states
-        # "the default entry", not "unrecorded".
-        "method": part.source.method,
-    }
-    if part.source.engine == "openscad":
-        # Which way parameters reached the geometry. On the call path the
-        # digested file is not the file the engine was handed — the entry is
-        # a derived scratch including it — and the report must say so rather
-        # than let source_digest imply otherwise.
-        report.engine["param_mode"] = "call" if part.source.method else "define"
-        if part.source.method:
-            report.engine["source_rendered"] = "derived"
+    report.engine = engine_block(part, backend)
 
     artifact = backend.build(_engine_source(part), out_dir)
     if isinstance(artifact, BuildError):
@@ -159,6 +135,39 @@ def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | N
     report.geometry = backend.provenance(artifact)
     results.extend(_run_geometry_check(spec, backend, artifact, part.id) for spec in geometry_specs)
     report.checks = results
+
+
+def engine_block(part: Part, backend: Any) -> dict[str, Any]:
+    """The engine provenance block, in the exact section-7 order.
+
+    One constructor, used by `check` here and by the `measure` verb — the two
+    had already drifted apart (#73: measure emitted kind/backend/version in
+    the wrong order and omitted everything below it). Field notes:
+
+    - `render_backend` is always present, pinned string or null — the
+      unpinned run is exactly the one whose backend a reader cannot infer,
+      because the engine default varies by version (CGAL on 2021.01, Manifold
+      on current builds) and F10 is a mesh-validity difference between them
+      (#41). Null means "the default, whichever this version chose".
+    - `method` is always present, mirroring adopted_via: null states "the
+      default entry", not "unrecorded" (#40). On OpenSCAD, `param_mode` says
+      how parameters reached the geometry, and on the call path
+      `source_rendered: "derived"` records that the engine's entry was a
+      derived scratch, not the digested file.
+    """
+    block: dict[str, Any] = {
+        "kind": part.source.engine,
+        "version": backend.engine_version,
+        "backend": backend.kind,
+        "render_backend": part.source.backend,
+        "adopted_via": "wrapped" if part.source.engine == "cadquery" else None,
+        "method": part.source.method,
+    }
+    if part.source.engine == "openscad":
+        block["param_mode"] = "call" if part.source.method else "define"
+        if part.source.method:
+            block["source_rendered"] = "derived"
+    return block
 
 
 def _run_parameter_check(spec: CheckSpec, params: dict[str, Any]) -> CheckResult:

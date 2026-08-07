@@ -280,3 +280,41 @@ def test_check_render_on_a_python_engine_target_is_usage(tmp_path: Path):
         "    return Part('subject', build123d('m.py'))\n"
     )
     assert main(["check", f"{module}:make", "--render", "--quiet"]) == 64
+
+
+@needs_openscad
+def test_measure_engine_block_matches_the_report_shape(tmp_path: Path, capsys):
+    # measure and check had drifted (#73): wrong key order, no method. One
+    # constructor now serves both, so a measure artifact answers the same
+    # provenance questions a report does.
+    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    payload = _measure(target, capsys)
+    assert list(payload["engine"]) == [
+        "kind",
+        "version",
+        "backend",
+        "render_backend",
+        "adopted_via",
+        "method",
+        "param_mode",
+    ]
+    assert payload["engine"]["method"] is None
+    assert payload["engine"]["param_mode"] == "define"
+
+
+@needs_openscad
+def test_render_engine_block_states_the_method(tmp_path: Path, capsys):
+    (tmp_path / "lib.scad").write_text("module block(s = 5) { cube(s); }\n")
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('subject', openscad('lib.scad', method='block', s=8.0))\n"
+    )
+    code = main(["render", f"{module}:make", "--out", str(tmp_path / "out")])
+    captured = capsys.readouterr()
+    if code == 0:
+        payload = json.loads(captured.out)
+        assert payload["engine"]["method"] == "block"
+        assert payload["engine"]["param_mode"] == "call"
+    else:
+        assert code == 4  # no display; the refusal path is asserted elsewhere
