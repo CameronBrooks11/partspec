@@ -196,7 +196,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         "part": part.id,
         "engine": {
             "kind": part.source.engine,
-            "tier": backend.kind,
+            "backend": backend.kind,
             "version": backend.engine_version,
         },
         "geometry": backend.provenance(artifact),

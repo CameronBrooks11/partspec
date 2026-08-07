@@ -399,7 +399,7 @@ an unknown major version rather than best-effort parse it.
   "engine": {
     "kind": "openscad",              // openscad | build123d | cadquery
     "version": "2021.01",
-    "backend": "mesh",               // mesh | occt
+    "backend": "mesh",               // the measurement tier: mesh | occt
     "render_backend": "CGAL",        // engine-specific, when pinned; OpenSCAD: Manifold | CGAL
     "adopted_via": null              // "wrapped" when a cadquery shape entered the occt backend
   },
@@ -558,6 +558,13 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 - **Unknown fields.** Consumers MUST ignore fields they do not recognize. This is the
   precondition for every deferral in this document: adding a field is a non-breaking change
   and MUST NOT bump `schema_version`; removing or re-typing one MUST.
+
+`engine.backend` is the **measurement tier** (`mesh` | `occt`); `engine.render_backend` is
+the OpenSCAD **kernel** (`Manifold` | `CGAL`). Two different things, and the shared word is
+unfortunate — but `engine.tier` was tried and dropped in an early draft, and
+`tests/test_report.py::test_spec_example_uses_no_deleted_fields` exists to stop it coming
+back. `measure` MUST emit `backend` too; it emitted `tier` until 2026-08-07, which is the
+only reason the name looked unsettled.
 
 ### 7.2 Measurements are recorded on pass, not only on failure
 

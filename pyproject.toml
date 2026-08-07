@@ -25,7 +25,14 @@ mesh = ["trimesh>=5.0", "manifold3d>=3.5"]
 # build123d parts. Pins the OCP provider explicitly — see AGENTS.md.
 occt = ["build123d>=0.11,<0.12"]
 # CadQuery parts, adopted into the OCCT backend via `.wrapped`.
-cadquery = ["cadquery>=2.8,<3"]
+#
+# Pulls build123d too: `backends/occt.py` measures through build123d's Shape
+# API, so the CadQuery tier does not work without it -- the extra used to
+# install a tier that could not run. `cadquery-ocp` is named explicitly because
+# it is the VTK-enabled superset both engines can share; see [tool.uv] below for
+# why that matters and `partspec.engines.pycad` for what happens when the
+# environment gets it wrong anyway.
+cadquery = ["cadquery>=2.8,<3", "build123d>=0.11,<0.12", "cadquery-ocp>=7.8"]
 
 [project.scripts]
 partspec = "partspec.cli:main"

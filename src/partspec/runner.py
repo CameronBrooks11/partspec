@@ -40,10 +40,10 @@ def run(
     started = time.perf_counter()
     report = Report(
         part_id=part.id,
-        contract=str(contract_path) if contract_path else "<in-memory>",
+        contract=_relative(contract_path, contract_path) if contract_path else "<in-memory>",
         tool_version=_tool_version(),
         contract_digest=_digest(contract_path),
-        source=str(part.source.path),
+        source=_relative(part.source.path, contract_path),
         source_digest=_digest(part.source.path),
         source_closure=_closure(part.source),
         params=dict(part.source.params),
@@ -162,7 +162,7 @@ def _run_parameter_check(spec: CheckSpec, params: dict[str, Any]) -> CheckResult
     if spec.kind == "param_range":
         assert spec.expr is not None and spec.limit is not None
         value = params[spec.expr]
-        measurement = Measurement(value, _unit_for(value), exact=True)
+        measurement = Measurement(value, spec.unit or _unit_for(value), exact=True)
         status = adjudicate(measurement, spec.limit)
         return CheckResult(
             id=spec.id,
@@ -275,10 +275,50 @@ def _skipped(spec: CheckSpec, reason: str) -> CheckResult:
     )
 
 
+def _relative(path: Path | None, contract_path: Path | None) -> str:
+    """A path expressed against the contract's directory, POSIX-separated.
+
+    `part.source` was absolute after `_anchor` resolved it, so the committed
+    example report leaked a developer home directory -- and two checkouts of the
+    same tree at different locations produced different reports. That undoes at
+    the path layer exactly the machine-independence `source_closure` was built
+    to have: "a comparator's whole purpose is comparing runs from CI and a
+    laptop".
+
+    The contract's directory is the frame `_anchor` already resolves against, so
+    this round-trips with no new concept. A source outside that subtree stays
+    absolute and says so, rather than emitting a `../../..` chain that is no more
+    portable and much harder to read.
+    """
+    if path is None:
+        return ""
+    if contract_path is None:
+        return path.as_posix()
+    base = contract_path.resolve().parent
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(base).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
 def _unit_for(value: Any) -> str:
-    if isinstance(value, bool):
-        return "count"
-    return "mm" if isinstance(value, float) else "count"
+    """Deliberately not inferred from the Python literal type.
+
+    It used to be: `bool` and `int` gave "count", `float` gave "mm". So
+    `plate_x=40` and `plate_y=30.0` came out as `count` and `mm` in the same
+    report, on the same plate, and editing a declared parameter from `40` to
+    `40.0` changed the recorded unit without changing the design -- the exact
+    spurious drift SPEC-report.md 7.2 exists to keep out.
+
+    No verdict was ever wrong (`adjudicate` never reads `unit`). What makes it
+    worth fixing before the tag rather than after is that `schema_version: 1`
+    freezes `measurement.unit` as a compatibility surface.
+
+    v0 has one length unit, so `mm` is the default and a genuine count is
+    declared with `p.param(..., unit="count")`.
+    """
+    return "mm"
 
 
 def _render(limit: Limit) -> str:

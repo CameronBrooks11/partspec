@@ -1252,7 +1252,9 @@ source = { editable = "." }
 
 [package.optional-dependencies]
 cadquery = [
+    { name = "build123d" },
     { name = "cadquery" },
+    { name = "cadquery-ocp" },
 ]
 mesh = [
     { name = "manifold3d" },
@@ -1271,8 +1273,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "build123d", marker = "extra == 'cadquery'", specifier = ">=0.11,<0.12" },
     { name = "build123d", marker = "extra == 'occt'", specifier = ">=0.11,<0.12" },
     { name = "cadquery", marker = "extra == 'cadquery'", specifier = ">=2.8,<3" },
+    { name = "cadquery-ocp", marker = "extra == 'cadquery'", specifier = ">=7.8" },
     { name = "manifold3d", marker = "extra == 'mesh'", specifier = ">=3.5" },
     { name = "trimesh", marker = "extra == 'mesh'", specifier = ">=5.0" },
 ]

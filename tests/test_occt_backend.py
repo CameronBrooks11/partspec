@@ -14,7 +14,7 @@ from support import measured, refused
 
 from partspec.backend import BuildError, Tier, Unsupported
 from partspec.backends.occt import OcctBackend
-from partspec.engines.pycad import PyCADSource, adopt
+from partspec.engines.pycad import PyCADSource, adopt, build
 
 bd = pytest.importorskip("build123d", reason="occt extra not installed")
 
@@ -369,3 +369,22 @@ def test_a_model_raising_is_a_build_error(backend: OcctBackend, tmp_path: Path):
     result = backend.build(PyCADSource(path=model, engine="build123d"), tmp_path)
     assert isinstance(result, BuildError)
     assert "bad geometry" in result.message
+
+
+def test_a_missing_engine_is_an_environment_fault_not_a_failing_part(tmp_path: Path):
+    """An engine that will not import says nothing about the design.
+
+    The case this guards is silent until it is fatal: `cadquery-ocp` and
+    `cadquery-ocp-novtk` both install the same top-level `OCP/` package, neither
+    pip nor uv detects the conflict, and when the novtk build wins CadQuery
+    cannot import at all. This repo drops novtk with a `[tool.uv]` override, but
+    that is a workspace setting and is not carried in wheel metadata -- a plain
+    `pip install partspec[occt,cadquery]` reproduces it with no override in
+    scope, so the guard has to be in the code.
+    """
+    model = tmp_path / "m.py"
+    model.write_text("def part():\n    return None\n")
+    result = build(PyCADSource(path=model, engine="definitely_not_installed", method="part"))
+    assert isinstance(result, BuildError)
+    assert result.origin == "environment", "not a verdict on the part"
+    assert "not importable" in result.message
