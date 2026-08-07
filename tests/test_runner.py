@@ -592,7 +592,7 @@ def test_keep_out_fails_when_nothing_surrounds_the_region():
     part = _box_part((100, 100, 100), (110, 110, 110))
     result = _region_result(part, "keep_out", box(min=(0, 0, 0), max=(5, 5, 5)), shell=2.0)
     assert result.status is Status.FAIL
-    assert result.detail is not None and "absent part satisfies any keep-out" in result.detail
+    assert result.detail is not None and "absent part satisfies the bare emptiness" in result.detail
 
 
 def test_keep_in_passes_when_solid_and_bounded():
@@ -604,6 +604,10 @@ def test_keep_in_passes_when_solid_and_bounded():
     assert result.measurement is not None
     in_region, in_shell = result.measurement.value
     assert in_region == pytest.approx(2 * 8 * 8)
+    # 500 mm3 of the part lies inside the outer box; the shell figure must be
+    # the difference, not the raw outer intersection (a mutation that reported
+    # in_outer here survived every other engine-free test).
+    assert in_shell == pytest.approx(500.0 - 128.0)
 
 
 def test_keep_in_fails_on_missing_material_and_names_the_deficit():
@@ -623,7 +627,9 @@ def test_keep_in_fails_inside_an_unbounded_block():
     part = _box_part((0, 0, 0), (20, 20, 20))
     result = _region_result(part, "keep_in", box(min=(8, 8, 8), max=(12, 12, 12)), shell=2.0)
     assert result.status is Status.FAIL
-    assert result.detail is not None and "unbounded block satisfies any keep-in" in result.detail
+    assert (
+        result.detail is not None and "unbounded block satisfies the bare solidity" in result.detail
+    )
 
 
 def test_a_backend_refusal_propagates_to_the_region_check():
@@ -719,3 +725,47 @@ def test_an_oversize_hole_fails_its_keep_out_on_the_mesh_tier(tmp_path: Path):
     assert report.verdict is Verdict.FAIL
     check = next(c for c in report.checks if c.id == "bolt_clearance")
     assert check.detail is not None and "shell" in check.detail
+
+
+def test_both_region_clauses_can_fail_and_neither_message_contradicts_the_other():
+    """A lone crumb inside the region of an otherwise-deleted part fails the
+    core claim AND the shell claim. Each message must describe only what its
+    own clause measured — the first cut of this code said 'the region is
+    empty' in a detail string that also reported the intrusion volume."""
+    from partspec.region import box
+
+    part = _box_part((1, 1, 1), (2, 2, 2))
+    result = _region_result(part, "keep_out", box(min=(0, 0, 0), max=(5, 5, 5)), shell=1.0)
+    assert result.status is Status.FAIL
+    assert result.detail is not None
+    assert "1 mm3 of material intrudes" in result.detail
+    assert "no material lies within the 1 mm shell" in result.detail
+    assert "region is empty" not in result.detail
+
+
+def test_a_sub_epsilon_intrusion_is_tolerated_but_still_recorded():
+    """epsilon(0.0) = 1e-6 mm3 — a ~10 um cube. Below it the verdict tolerates
+    boolean dust; the measurement still shows the true figure, so the report
+    never hides what the verdict forgave."""
+    from partspec.region import box
+
+    part = _box_part((0, 0, 0), (10, 10, 10))
+    result = _region_result(part, "keep_out", box(min=(10 - 1e-8, 0, 0), max=(12, 1, 1)), shell=2.0)
+    assert result.status is Status.PASS
+    assert result.measurement is not None
+    assert result.measurement.value[0] == pytest.approx(1e-8, rel=0.01)
+
+
+def test_keep_in_tolerance_scales_with_region_volume():
+    """The relative epsilon term is load-bearing on large regions: a 10 L
+    region missing 0.5 mm3 to float accumulation must pass, and would fail
+    under a flat epsilon(0.0)."""
+    from partspec.region import box
+
+    part = _box_part((0, 0, 0), (200, 200, 250))
+    result = _region_result(
+        part, "keep_in", box(min=(0, 0, 0), max=(200, 200, 250 + 1.25e-5)), shell=2.0
+    )
+    assert result.status is Status.PASS
+    assert result.measurement is not None
+    assert result.measurement.value[0] == pytest.approx(200 * 200 * 250)

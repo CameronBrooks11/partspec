@@ -209,22 +209,28 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
     if primitive_name is None:
         raise ContractError(f"unknown geometry check kind: {spec.kind!r}")
 
-    common = {
+    common: dict[str, Any] = {
         "id": spec.id,
         "kind": spec.kind,
         "phase": spec.phase,
         "limit": spec.limit,
         "part_refs": (part_id,),
     }
+    if spec.region is not None:
+        # Attached before any early return: a refusal must still state what was
+        # claimed, or the reader cannot judge what went unanswered.
+        common["region"] = {**spec.region.to_json(), "shell": spec.shell}
 
     # Capability is static and consulted first, so an unanswerable check costs
-    # nothing to report.
+    # nothing to report. `requires` names the tier that would answer; for the
+    # region kinds both tiers declare the primitive, so a backend without it
+    # implies no tier and the field stays absent.
     if primitive_name not in backend.capabilities():
         return CheckResult(
             **common,
             status=Status.UNSUPPORTED,
             detail=f"the {backend.kind} backend cannot evaluate {spec.kind}",
-            requires="occt",
+            requires="occt" if spec.region is None else None,
         )
 
     if spec.kind in ("keep_out", "keep_in"):
@@ -268,7 +274,6 @@ def _run_region_check(
     assert spec.region is not None and spec.shell is not None
     region = spec.region
     outer = region.expand(spec.shell)
-    common = {**common, "region": {**region.to_json(), "shell": spec.shell}}
 
     region_solid = backend.region_solid(region)
     outer_solid = backend.region_solid(outer)
@@ -291,14 +296,19 @@ def _run_region_check(
     in_region, in_outer, region_volume, outer_volume = volumes
     in_shell = max(0.0, in_outer - in_region)
 
+    # Each clause's message describes only what that clause measured. The two
+    # are independent and can fail together (a lone crumb of material inside
+    # the region of an otherwise-deleted part fails both), so a message that
+    # asserted the other clause's state would be false exactly on the worst
+    # parts.
     if spec.kind == "keep_out":
         failures = [
             f"{in_region:.6g} mm3 of material intrudes into the keep-out region"
             if in_region > epsilon(0.0)
             else None,
-            f"the region is empty, but so is its entire {spec.shell:g} mm shell: "
-            f"nothing surrounds this region, and an absent part satisfies any "
-            f"keep-out — this is not evidence the feature exists"
+            f"no material lies within the {spec.shell:g} mm shell around the "
+            f"region — an absent part satisfies the bare emptiness claim, so an "
+            f"empty region alone is not evidence the feature exists"
             if not in_shell > epsilon(0.0)
             else None,
         ]
@@ -310,9 +320,9 @@ def _run_region_check(
             f"of material it must contain"
             if deficit > epsilon(region_volume)
             else None,
-            f"the region is solid, but so is its entire {spec.shell:g} mm shell: "
-            f"an unbounded block satisfies any keep-in — nothing bounds the "
-            f"feature this region describes"
+            f"the entire {spec.shell:g} mm shell around the region is solid — an "
+            f"unbounded block satisfies the bare solidity claim; nothing bounds "
+            f"the feature this region describes"
             if not shell_volume - in_shell > epsilon(shell_volume)
             else None,
         ]
