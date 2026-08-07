@@ -447,3 +447,50 @@ def test_a_genuine_count_says_so(tmp_path: Path):
     result = _run_parameter_check(p.checks[0], p.source.params)
     assert result.measurement is not None
     assert result.measurement.unit == "count"
+
+
+def test_the_report_records_the_invoked_method_and_param_mode(tmp_path: Path):
+    # A method= build and a plain build were indistinguishable in the
+    # artifact (#40); a reader of a SINGLE report must see which happened.
+    (tmp_path / "lib.scad").write_text("module block(s = 5) { cube(s); }\n")
+    p = Part("m", openscad(tmp_path / "lib.scad", method="block", s=8.0))
+    p.watertight()
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.engine["method"] == "block"
+    assert report.engine["param_mode"] == "call"
+    assert report.engine["source_rendered"] == "derived"
+
+
+def test_a_define_build_states_the_default_entry(tmp_path: Path):
+    p = Part("d", openscad(PLATE, plate_x=40.0, plate_y=30.0, plate_z=4.0))
+    p.watertight()
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.engine["method"] is None
+    assert report.engine["param_mode"] == "define"
+    assert "source_rendered" not in report.engine
+
+
+@pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
+    reason="occt extra not installed",
+)
+def test_a_python_build_records_its_named_factory(tmp_path: Path):
+    model = tmp_path / "m.py"
+    model.write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(1, 1, 1)\n\n\n"
+        "def wide():\n    return Box(20, 5, 2)\n"
+    )
+    from partspec import build123d
+
+    p = Part("w", build123d(model, method="wide"))
+    p.watertight()
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.engine["method"] == "wide"
+    # param_mode is the OpenSCAD -D/call distinction; a Python factory call
+    # has no such split and must not pretend to.
+    assert "param_mode" not in report.engine
+
+    q = Part("d", build123d(model))
+    q.watertight()
+    default = run(q, out_dir=tmp_path / "out2")
+    assert default.engine["method"] is None

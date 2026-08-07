@@ -401,7 +401,10 @@ an unknown major version rather than best-effort parse it.
     "version": "2021.01",
     "backend": "mesh",               // the measurement tier: mesh | occt
     "render_backend": "CGAL",        // engine-specific, when pinned; OpenSCAD: Manifold | CGAL
-    "adopted_via": null              // "wrapped" when a cadquery shape entered the occt backend
+    "adopted_via": null,             // "wrapped" when a cadquery shape entered the occt backend
+    "method": null,                  // the invoked callable/module when method= was set; null = the default entry
+    "param_mode": "define"           // OpenSCAD only: "define" (-D) | "call" (a derived entry invoking method)
+    // "source_rendered": "derived"  // call path only: the engine's entry was a derived scratch, not the digested file
   },
 
   "params": { "interface_radius": 8, "allowance": 0.2 },
@@ -536,6 +539,14 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   `networkx`, a large dependency for one provenance field. The two agree on convex solids
   and differ only where disjoint coplanar regions share a normal, so the field is named for
   what it measures rather than borrowing CGAL's vocabulary for a different quantity.
+- **`engine.method` / `engine.param_mode` / `engine.source_rendered`** — `method` is
+  always present (mirroring `adopted_via`): the callable or module `method=` invoked, or
+  `null` for the default entry. Two runs of one contract can build different things, and
+  a single report must say which happened. On OpenSCAD, `param_mode` states how the
+  parameters reached the geometry — `"define"` (`-D`) or `"call"` — and on the call path
+  `source_rendered: "derived"` records that the engine's entry was a derived scratch
+  including the digested file, so `source_digest` cannot be read as naming the rendered
+  input. Additive, same terms as `engine.render_backend` below.
 - **`engine.render_backend`** — present when the contract pins one. Recorded because it
   **changes the artifact, not merely the speed of producing it**: measured on a community
   gridfinity bin, OpenSCAD's default Manifold backend emitted 4 non-manifold edges where
