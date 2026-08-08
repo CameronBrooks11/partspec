@@ -44,6 +44,7 @@ src/partspec/
   refs/           # cited reference tables + fragments (iso15, nema17) — SPEC-contract 10/11
   expectation.py  # the claims pin: --pin/--expect, weakening caught with no baseline (#31)
   expr.py         # restricted-AST evaluation for `requires`, with operand capture
+  lint.py         # tier-1 advisory source lint, engine-free (docs/LINT.md, #26)
   target.py       # <module>[:<factory>] resolution
   runner.py       # phase orchestration: parameters -> build -> geometry -> report
   cli.py          # argparse entry point
