@@ -140,3 +140,35 @@ def test_cylinder_region_verdicts_agree_across_engines(tmp_path: Path):
         in_region, in_shell = check.measurement.value
         assert in_region == 0.0, "an empty region is an earned exact zero on every tier"
         assert in_shell > 0.0
+
+
+@needs_both_engines
+def test_the_bearing_block_exemplar_holds_parity_between_its_legs(tmp_path: Path):
+    """#25's two-engine exemplar joins the parity discipline this file owns:
+    the shared claims (examples/bearing-block/claims.py) must yield identical
+    verdicts on both engines, and the exactly-answerable measurements must
+    agree to float tolerance. The cylinder-precision claim (iso15.seat) is
+    OCCT-only by design and excluded here."""
+    from partspec.target import resolve
+
+    examples = Path(__file__).resolve().parents[1] / "examples" / "bearing-block"
+    scad_part, _ = resolve(f"{examples / 'spec_scad.py'}:seat_608")
+    py_part, _ = resolve(f"{examples / 'spec_py.py'}:seat_608")
+
+    mesh = run(scad_part, out_dir=tmp_path / "mesh")
+    occt = run(py_part, out_dir=tmp_path / "occt")
+
+    mesh_checks = {c.id: c for c in mesh.checks}
+    occt_checks = {c.id: c for c in occt.checks}
+    shared = sorted(set(mesh_checks) & set(occt_checks))
+    assert len(shared) >= 6, shared  # requires x2, builds, envelope, watertight, solid_count, genus
+
+    for check_id in shared:
+        m, o = mesh_checks[check_id], occt_checks[check_id]
+        assert m.status is o.status is Status.PASS, (check_id, m.status, o.status)
+        if m.measurement is not None and o.measurement is not None:
+            mv, ov = m.measurement.value, o.measurement.value
+            if isinstance(mv, bool):
+                assert mv == ov
+            else:
+                assert mv == pytest.approx(ov, abs=1e-6)
