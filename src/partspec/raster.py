@@ -270,8 +270,8 @@ def render_section(
     pts = np.asarray(points, dtype=np.float64)
     tri = np.asarray(faces, dtype=np.int64)
     eps = 1e-5 * max(1.0, abs(offset))
-    on_plane = np.abs(pts[:, axis] - offset) <= eps
-    cut = on_plane[tri].all(axis=1)
+    on_plane = np.asarray(np.abs(pts[:, axis] - offset) <= eps)
+    cut = np.asarray(on_plane[tri].all(axis=1))
     colors = np.where(cut[:, None], np.asarray(_CUT, np.float64), np.asarray(_FACE, np.float64))
 
     png = out_dir / "renders" / f"section_{plane}.png"
