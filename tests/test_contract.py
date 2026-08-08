@@ -218,7 +218,7 @@ def test_the_tier_specific_kinds_are_exactly_the_declared_ones():
     from partspec.backends.mesh import CAPABILITIES as MESH
     from partspec.backends.occt import CAPABILITIES as OCCT
 
-    occt_only = {"topology", "hole_diameter", "bolt_circle"}
+    occt_only = {"topology", "hole_diameter", "bolt_circle", "fillet_radius"}
     for kind in occt_only:
         assert GEOMETRY_KINDS[kind] in OCCT
         assert GEOMETRY_KINDS[kind] not in MESH
@@ -451,3 +451,10 @@ def test_a_positional_band_wider_than_the_hole_is_refused():
     centre passed 8-on-the-circle as 'exactly 4' at tol=21."""
     with pytest.raises(ContractError, match="must not exceed d"):
         _part().bolt_circle(5.0, count=4, bcd=40.0, tol=21.0)
+
+
+def test_fillet_radius_must_bound_something():
+    with pytest.raises(ContractError, match="claims nothing"):
+        _part().fillet_radius()
+    with pytest.raises(ContractError, match="min must be > 0"):
+        _part().fillet_radius(min=0)

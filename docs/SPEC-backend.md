@@ -85,6 +85,7 @@ class GeometryBackend(Protocol):
     #     topology_counts — a mesh has no cylindrical face to enumerate ---
     def bores(self, a) -> Measured | Unsupported: ...
     def bore_table(self, a) -> list[BoreInfo] | Unsupported: ...   # raw data, like triangles
+    def blend_radii(self, a) -> Measured | Unsupported: ...        # partial-wrap clusters (SPEC-contract 4.7)
 
     # --- honesty ---
     def capabilities(self) -> frozenset[str]: ...

@@ -229,6 +229,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         "genus",
         "topology_counts",
         "bores",
+        "blend_radii",
     ):
         if name not in backend.capabilities():
             unavailable.append(name)

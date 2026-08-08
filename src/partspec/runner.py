@@ -250,6 +250,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         return _run_hole_check(spec, backend, artifact, common)
     if spec.kind == "bolt_circle":
         return _run_bolt_circle_check(spec, backend, artifact, common)
+    if spec.kind == "fillet_radius":
+        return _run_fillet_check(spec, backend, artifact, common)
 
     outcome = getattr(backend, primitive_name)(artifact)
     if isinstance(outcome, Unsupported):
@@ -355,6 +357,39 @@ def _run_hole_check(
         status=Status.PASS if len(matched) == expected else Status.FAIL,
         measurement=measurement,
         detail=detail,
+    )
+
+
+def _run_fillet_check(
+    spec: CheckSpec, backend: Any, artifact: Any, common: dict[str, Any]
+) -> CheckResult:
+    """Adjudicate every blend radius against the bounds — the one bespoke rule
+    is the empty set. "Every blend is within bounds" over zero blends is
+    vacuously true, and vacuous truth is the green this tool exists to refuse:
+    a part with no blends FAILS the check rather than passing it
+    (SPEC-contract.md 4.7)."""
+    assert spec.limit is not None
+    outcome = backend.blend_radii(artifact)
+    if isinstance(outcome, Unsupported):
+        return CheckResult(
+            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
+        )
+    if not outcome.value:
+        return CheckResult(
+            **common,
+            status=Status.FAIL,
+            detail="no cylindrical blend surfaces detected on this part (toroidal and "
+            "spherical blends are not yet detected — SPEC-contract.md 4.7); a claim "
+            "about every blend needs at least one, and passing over an empty set "
+            "would be vacuous green",
+        )
+    status = adjudicate(outcome, spec.limit)
+    components = _components_of(outcome, spec.limit)
+    detail = None
+    if status is Status.FAIL and components is not None:
+        detail = _failing_axes(outcome, spec.limit, components)
+    return CheckResult(
+        **common, status=status, measurement=outcome, components=components, detail=detail
     )
 
 
