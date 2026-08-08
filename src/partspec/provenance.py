@@ -48,6 +48,12 @@ class Referenced(float):
     def __repr__(self) -> str:  # float repr, so reports and errors stay plain
         return float.__repr__(self)
 
+    def __getnewargs__(self) -> tuple[float, dict[str, Any]]:  # type: ignore[override]
+        """Pickle and the copy protocols re-call __new__ with the original
+        arguments; without this every deepcopy of a contract holding a
+        referenced bound crashed with a message that named nothing."""
+        return (float(self), self.source)
+
 
 def source_map(**named_values: Any) -> dict[str, dict[str, Any]] | None:
     """Collect the sources of the referenced values among a check's inputs.

@@ -559,9 +559,13 @@ p.hole_diameter(seat.od, tol=0.05)     # the check records source: ISO 15 / 608 
 p.volume(min=1000.0)                    # a bare literal records nothing
 ```
 
-A check method receiving a `Referenced` among its bounds records
-`source: {field: citation}` on the check (`SPEC-report.md` §7.1) — the report states not
-just what was claimed but on whose authority. Three rules:
+The seven bound-carrying methods (`param`, `envelope`, `volume`, `area`,
+`hole_diameter`, `bolt_circle`, `fillet_radius`) record `source: {field: citation}` on the
+check when a `Referenced` reaches their bounds (`SPEC-report.md` §7.1) — the report states
+not just what was claimed but on whose authority. Region and shell dimensions do not yet
+carry attribution: their values pass through geometric validation that normalises to plain
+floats, and a citation silently dropped is worse documented as coverage than implied.
+Three rules:
 
 1. **Attribution is additive, never required.** Bare literals behave exactly as before.
 2. **Arithmetic sheds it.** `seat.od + 0.1` is a plain float: the derived number is the
@@ -575,7 +579,9 @@ just what was claimed but on whose authority. Three rules:
 ### 10.1 Scope policy for `partspec.refs`
 
 In scope: **dimensional interface facts** that are widely published and independently
-verifiable — boundary dimensions, bolt patterns, envelope sizes — as pure stdlib data.
+verifiable — boundary dimensions, bolt patterns, envelope sizes — as pure stdlib data,
+**shipped in the wheel**: tables this small carry no dependency and no meaningful size,
+and an extra would put an import error between an agent and the numbers.
 Out of scope: reproducing any standard's text, figures, or tolerancing tables, and any
 value not verifiable from public manufacturer documentation. An unknown designation is a
 `ContractError` naming what the table does carry — a table must not guess.

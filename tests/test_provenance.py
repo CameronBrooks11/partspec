@@ -216,3 +216,48 @@ def test_a_skipped_check_still_carries_its_source(tmp_path: Path):
     check = next(c for c in report.checks if c.kind == "envelope")
     assert check.status.value == "skipped"
     assert check.source is not None, "a refusal still states whose number went unanswered"
+
+
+def test_referenced_survives_pickle_and_deepcopy():
+    """Every copy protocol re-calls __new__; without __getnewargs__ a cached
+    contract or a multiprocessing hand-off crashed with a message naming
+    nothing (PR #95 review)."""
+    import copy
+    import pickle
+
+    v = Referenced(22.0, _SRC)
+    for clone in (pickle.loads(pickle.dumps(v)), copy.copy(v), copy.deepcopy(v)):
+        assert clone == 22.0
+        assert clone.source == _SRC
+    b = copy.deepcopy(iso15.bearing(608))
+    assert b.od.source["standard"] == "ISO 15"
+
+
+def test_stripping_a_citation_is_diff_visible():
+    """The quiet half of the weakening move: same number, authority gone.
+    'No semantic differences' over it would be exactly the silence the diff
+    verb exists to refuse (#92's design constraint, missed on first cut)."""
+    from partspec.diff import diff_reports
+    from partspec.report import CheckResult, Report
+    from partspec.status import Limit, Status
+
+    def doc(source):
+        r = Report(part_id="p", contract="c", tool_version="t", contract_digest="sha256:x")
+        r.checks = [
+            CheckResult(
+                id="envelope",
+                kind="envelope",
+                phase="geometry",
+                status=Status.PASS,
+                limit=Limit(max=(50.0, 50.0, 7.0)),
+                source=source,
+            )
+        ]
+        return r.to_json()
+
+    diff = diff_reports(doc({"max.2": _SRC}), doc(None), tool_version="t")
+    assert diff["outcome"] == "different"
+    entry = diff["checks"][0]
+    assert entry["change"] == "limit_changed"
+    assert entry["claim"]["old"]["source"] == {"max.2": _SRC}
+    assert entry["claim"]["new"]["source"] is None
