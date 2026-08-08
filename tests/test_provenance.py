@@ -261,3 +261,149 @@ def test_stripping_a_citation_is_diff_visible():
     assert entry["change"] == "limit_changed"
     assert entry["claim"]["old"]["source"] == {"max.2": _SRC}
     assert entry["claim"]["new"]["source"] is None
+
+
+# --------------------------------------------------------------------------
+# fragments (#93)
+# --------------------------------------------------------------------------
+
+
+def test_mount_declares_the_pattern_with_the_standards_authority():
+    """The split that matters: the pattern is the standard's and carries the
+    citation; the clearance diameters are the designer's and stay theirs — a
+    fragment must never launder the caller's numbers into a standard's."""
+    from partspec.refs import nema17
+
+    p = _part()
+    nema17.mount(p)
+    pilot, circle = p.checks
+    assert pilot.id == "nema17:pilot"
+    assert pilot.source is None, "the pilot clearance is the designer's number"
+    assert circle.id == "nema17:bolt_circle"
+    assert circle.source is not None
+    assert circle.source["bcd"]["standard"] == "NEMA ICS 16"
+    assert "1.725 in" in circle.source["bcd"]["note"]
+
+
+def test_the_table_states_what_the_standard_states():
+    """NEMA ICS 16 speaks in inches and gives the pitch circle DIRECTLY
+    (AJ = 1.725 in); the 31 mm square is the catalogue's rounding. The first
+    cut had the derivation backwards — 25.6 um off the standard's own number
+    with a note claiming the opposite (PR #96 review, against the document's
+    text). Values must be exact conversions of the stated figures."""
+    import math
+
+    from partspec.refs import nema17
+
+    assert float(nema17.BOLT_CIRCLE_DIAMETER) == pytest.approx(1.725 * 25.4, abs=1e-12)
+    assert float(nema17.HOLE_SQUARE) == pytest.approx(1.725 * 25.4 / math.sqrt(2), abs=1e-12)
+    assert float(nema17.PILOT_BOSS) == pytest.approx(0.8661 * 25.4, abs=1e-12)
+    assert float(nema17.FACEPLATE) == pytest.approx(1.7 * 25.4, abs=1e-12)
+    assert "reference" in nema17.FACEPLATE.source["note"]
+    assert "1.725 in" in nema17.BOLT_CIRCLE_DIAMETER.source["note"]
+    assert "derived" in nema17.HOLE_SQUARE.source["note"]
+
+
+def test_two_fragment_calls_collide_loudly():
+    from partspec.refs import nema17
+
+    p = _part()
+    nema17.mount(p)
+    with pytest.raises(ContractError, match="duplicate check id"):
+        nema17.mount(p)
+
+
+def test_the_seat_fragment_generalises_the_shape():
+    p = _part()
+    iso15.seat(p, 608)
+    check = p.checks[0]
+    assert check.id == "iso15:608:seat"
+    assert check.source is not None and check.source["d"]["standard"] == "ISO 15"
+    assert check.hole == {"d": 22.0, "count": 1}
+
+
+_BRACKET_MODEL = (
+    "import math\n"
+    "from build123d import Box, Cylinder, Location, Align\n\n"
+    "A = (Align.CENTER, Align.CENTER, Align.MIN)\n\n\n"
+    "def make_part(offset=0.0):\n"
+    "    plate = Box(60, 60, 6, align=(Align.MIN, Align.MIN, Align.MIN))\n"
+    "    part = plate - (Location((30, 30, -1)) * Cylinder(11.15, 8, align=A))\n"
+    "    for sx in (-1, 1):\n"
+    "        for sy in (-1, 1):\n"
+    "            x = 30 + sx * 15.5 + (offset if (sx, sy) == (1, 1) else 0)\n"
+    "            part = part - (Location((x, 30 + sy * 15.5, -1)) * Cylinder(1.7, 8, align=A))\n"
+    "    return part\n"
+)
+
+needs_build123d_frag = pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
+    reason="occt extra not installed",
+)
+
+
+@needs_build123d_frag
+def test_a_conforming_bracket_passes_the_mount_fragment(tmp_path: Path):
+    from partspec import build123d
+    from partspec.refs import nema17
+    from partspec.runner import run
+
+    model = tmp_path / "bracket.py"
+    model.write_text(_BRACKET_MODEL)
+    p = Part("bracket", build123d(model))
+    nema17.mount(p)
+    report = run(p, out_dir=tmp_path)
+    assert report.verdict.value == "pass", [c.to_json() for c in report.checks]
+    circle = next(c for c in report.checks if c.id == "nema17:bolt_circle")
+    assert circle.measurement is not None
+    # The bracket is modelled on the catalogue's 31 mm square; the claim is the
+    # standard's 43.815 pitch circle; the 25.6 um difference sits inside the
+    # default positional tol, as it must for both conventions to coexist.
+    assert circle.measurement.value == pytest.approx(43.8406, abs=1e-3)
+
+
+@needs_build123d_frag
+def test_a_hole_off_pattern_fails_with_the_standard_named(tmp_path: Path):
+    """#93 acceptance: one hole 1 mm off — the failing check's id and source
+    name the standard, so the agent knows whose number it missed."""
+    from partspec import build123d
+    from partspec.refs import nema17
+    from partspec.runner import run
+
+    model = tmp_path / "bracket.py"
+    model.write_text(_BRACKET_MODEL)
+    p = Part("bracket", build123d(model, offset=1.0))
+    nema17.mount(p)
+    report = run(p, out_dir=tmp_path)
+    circle = next(c for c in report.checks if c.id == "nema17:bolt_circle")
+    assert circle.status.value == "fail"
+    assert circle.source is not None and circle.source["bcd"]["standard"] == "NEMA ICS 16"
+
+
+def test_two_mounts_coexist_with_instances_and_a_total_pilot_count():
+    from partspec.refs import nema17
+
+    p = _part()
+    nema17.mount(p, instance="left", pilot_count=2)
+    nema17.mount(p, instance="right", pilot_count=2)
+    ids = [c.id for c in p.checks]
+    assert ids == [
+        "nema17:left:pilot",
+        "nema17:left:bolt_circle",
+        "nema17:right:pilot",
+        "nema17:right:bolt_circle",
+    ]
+
+
+def test_a_failed_mount_leaves_the_part_untouched():
+    """Atomic declaration: a bad argument must not half-land checks, or the
+    corrected retry dies on a collision with the failed attempt's leavings
+    (PR #96 review, S2)."""
+    from partspec.refs import nema17
+
+    p = _part()
+    with pytest.raises(ContractError, match="bcd > d"):
+        nema17.mount(p, bolt_holes=50.0)
+    assert p.checks == [], "nothing may land from a failed declaration"
+    nema17.mount(p)  # the corrected retry must not collide
+    assert len(p.checks) == 2
