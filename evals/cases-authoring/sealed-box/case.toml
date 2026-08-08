@@ -1,0 +1,6 @@
+id = "sealed-box"
+target = "spec.py:box"
+mode = "authoring"
+model = "model.scad"
+frozen = ["spec.py", "TASK.md"]
+max_turns = 4

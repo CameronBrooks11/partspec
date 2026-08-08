@@ -481,3 +481,58 @@ def test_the_bd_skill_cites_its_evidence_and_neighbours():
         "ShapePredicate",
     ):
         assert needle in BD_SKILL, f"the skill must reference {needle}"
+
+
+# --------------------------------------------------------------------------
+# evals/AUTHORING.md — the record's numbers are the results' numbers
+# --------------------------------------------------------------------------
+
+
+def test_the_authoring_record_matches_its_results():
+    """#53's claims pinned to the evidence, the same discipline as the
+    convergence record: a number in the prose that drifts from results.json
+    is a claim that outlived its record."""
+    import json as _json
+
+    record_dir = ROOT / "evals" / "authoring-20260808"
+    control = _json.loads((record_dir / "control-results.json").read_text())
+    skills = _json.loads((record_dir / "skills-results.json").read_text())
+
+    for payload, arm in ((control, "control"), (skills, "skills")):
+        assert len(payload["trials"]) == 6
+        assert all(t["outcome"] == "converged" for t in payload["trials"])
+        assert all(t["arm"] == arm for t in payload["trials"])
+
+    control_lint = sum(t["lint_findings"] for t in control["trials"])
+    skills_lint = sum(t["lint_findings"] for t in skills["trials"])
+    assert control_lint == 17 and skills_lint == 0
+
+    doc = (ROOT / "evals" / "AUTHORING.md").read_text()
+    assert "| 17 | 0 |" in doc, "the all-tasks lint totals"
+    assert "**6** | **0**" in doc, "the transfer-task separation is the headline"
+    assert "6/6" in doc
+    control_loc = sum(t["loc"] for t in control["trials"]) / 6
+    skills_loc = sum(t["loc"] for t in skills["trials"]) / 6
+    assert f"{control_loc:.1f}" in doc and f"{skills_loc:.1f}" in doc
+
+    # Transfer-task separation, stated separately from the contaminated task
+    # (PR #121 review, F1): plate-bore's treatment output is a verbatim copy
+    # of a skill block, and the record must keep saying so.
+    transfer = [t for t in control["trials"] if t["case"] != "plate-bore"]
+    assert sum(t["lint_findings"] for t in transfer) == 6
+    assert "contaminated" in doc and "line-for-line copy" in doc
+
+    # Exhibits pinned by content, not existence — results/ is gitignored, so
+    # an edited exhibit would otherwise pass CI (F7).
+    import hashlib as _hashlib
+
+    exhibits = {
+        "exhibit-control-plate-bore.scad",
+        "exhibit-skills-plate-bore.scad",
+        "exhibit-control-motor-plate.scad",
+        "exhibit-skills-motor-plate.scad",
+    }
+    manifest = _json.loads((record_dir / "exhibits.json").read_text())
+    for name in exhibits:
+        digest = _hashlib.sha256((record_dir / name).read_bytes()).hexdigest()
+        assert manifest[name] == digest, f"{name} no longer matches the recorded run"
