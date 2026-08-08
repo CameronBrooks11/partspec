@@ -513,6 +513,9 @@ def _cmd_measure(args: argparse.Namespace) -> int:
 
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
+        from .engines.pycad import invalidate_model_modules
+
+        invalidate_model_modules(Target.parse(args.target).path)
         return resolved
     part, target = resolved
 
@@ -697,9 +700,21 @@ def _cmd_render(args: argparse.Namespace) -> int:
 
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
-        return resolved
-    part, _ = resolved
+        from .engines.pycad import invalidate_model_modules
 
+        invalidate_model_modules(Target.parse(args.target).path)
+        return resolved
+    part, target = resolved
+
+    try:
+        return _render_resolved(args, part, timeout_s)
+    finally:
+        # The render verb resolves contracts too; it leaked its sibling
+        # records on every exit path until PR #124's review demonstrated it.
+        _invalidate_after(part, target)
+
+
+def _render_resolved(args: argparse.Namespace, part: Part, timeout_s: float) -> int:
     if part.source.engine != "openscad":
         # Usage, not error: nothing failed — this verb does not exist for the
         # OCCT tier yet, and saying so beats a traceback from pretending it does.

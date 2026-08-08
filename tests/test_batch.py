@@ -343,6 +343,10 @@ def test_a_render_refusal_does_not_leave_the_sibling_cached(tmp_path: Path):
             "    return Box(SIZE, 1, 1)\n"
         )
         (d / "spec.py").write_text(
+            # The CONTRACT imports the sibling: the refusal path caches it
+            # during resolve, which is what must be evicted (PR #124
+            # re-review — without this import the test bound nothing).
+            "from claims import SIZE\n\n"
             "from partspec import Part, build123d\n\n\ndef make():\n"
             "    p = Part('subject', build123d('model.py'))\n"
             "    p.volume(min=0.0)\n"
