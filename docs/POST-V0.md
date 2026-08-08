@@ -70,7 +70,9 @@ in v0; the consumer does not.
 **It closes the one known undetected gap in v0:** silent contract weakening. An agent that
 deletes a check produces an internally consistent green report; `counts.total` and
 `contract_digest` make that *detectable on comparison*, not visible on inspection. `diff` is
-the comparison.
+the comparison. *(Since #31 the gap is also closed with no baseline in hand: the claims pin
+— `check --pin` / `--expect` — fails a single run whose declared claim set drifted from its
+committed lock, naming what moved.)*
 
 Needs a numeric tolerance (`1e-6`), not exact float equality — rebuilding identical geometry
 through a different transform-composition order perturbs coordinates at ~1e-13, and exact

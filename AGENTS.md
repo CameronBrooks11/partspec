@@ -38,6 +38,7 @@ src/partspec/
   region.py       # keep_out/keep_in region data + the canonical polyhedron both tiers materialize
   provenance.py   # Referenced values: numbers that carry their citation (SPEC-contract 10)
   refs/           # cited reference tables + fragments (iso15, nema17) — SPEC-contract 10/11
+  expectation.py  # the claims pin: --pin/--expect, weakening caught with no baseline (#31)
   expr.py         # restricted-AST evaluation for `requires`, with operand capture
   target.py       # <module>[:<factory>] resolution
   runner.py       # phase orchestration: parameters -> build -> geometry -> report

@@ -49,12 +49,21 @@ def run(
     argv: list[str] | None = None,
     contract_path: Path | None = None,
     timeout_s: float | None = None,
+    expected_claims: dict[str, str] | None = None,
 ) -> Report:
     """Evaluate every declared check and return the report.
 
     `timeout_s` bounds the build (`effective_timeout` semantics: None defaults,
     0 waives, positive is the budget) and is recorded in `invocation` — a
     stopped run must say what budget stopped it.
+
+    `expected_claims` is the part's entry from a claims pin (#31): when given,
+    the declared claim set must match it exactly BEFORE anything is evaluated.
+    A mismatch is `error`, never a verdict about the part — the question
+    changed identity, so no answer about the part may be given — and the
+    differences are named in the artifact, because "the contract is not the
+    one reviewed" must survive `--quiet` and MCP the same way `attribution`
+    does. An empty dict means the pin does not vouch for this part at all.
     """
     started = time.perf_counter()
     ident = identity(part, contract_path)
@@ -70,6 +79,26 @@ def run(
         argv=argv or [],
         timeout_s=timeout_s,
     )
+
+    if expected_claims is not None:
+        from . import expectation
+
+        declared = expectation.claims_of(part)
+        differences = expectation.compare(expected_claims, declared)
+        report.expectation = {"claims": len(expected_claims), "matched": not differences}
+        if differences:
+            report.expectation["differences"] = differences
+            report.error = "the contract does not match its claims pin: " + "; ".join(differences)
+            report.hint = (
+                "a deliberate contract change is re-pinned with --pin; anything else "
+                "is the contract quietly not being the one that was reviewed"
+            )
+            report.checks = [
+                _skipped(spec, "not evaluated: the contract does not match its pin")
+                for spec in _all_specs(part)
+            ]
+            report.duration_ms = int((time.perf_counter() - started) * 1000)
+            return report
 
     try:
         _evaluate(part, report, out_dir, contract_path, timeout_s=timeout_s)

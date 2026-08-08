@@ -118,6 +118,21 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"build budget in seconds (default {DEFAULT_TIMEOUT_S:g}, or "
         f"{ENV_TIMEOUT}; 0 waives the bound)",
     )
+    pin_group = check.add_mutually_exclusive_group()
+    pin_group.add_argument(
+        "--expect",
+        type=Path,
+        default=None,
+        metavar="LOCK",
+        help="fail (error, exit 4) unless the declared claims match this pin exactly",
+    )
+    pin_group.add_argument(
+        "--pin",
+        type=Path,
+        default=None,
+        metavar="LOCK",
+        help="write the declared claims to this pin file, then check normally",
+    )
 
     measure = sub.add_parser(
         "measure",
@@ -281,26 +296,83 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
+    expect_lock: dict[str, dict[str, str]] | None = None
+    if args.expect is not None:
+        from .expectation import LockError, read_lock
+
+        try:
+            expect_lock = read_lock(args.expect)
+        except LockError as exc:
+            print(f"partspec: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+
+    pinned_parts: dict[str, dict[str, str]] = {}
+    covered_ids: set[str] = set()
     codes: list[int] = []
     for spec in targets:
-        code = _check_one(spec, args, argv, timeout_s, batch=batch)
+        code = _check_one(
+            spec,
+            args,
+            argv,
+            timeout_s,
+            batch=batch,
+            expect_lock=expect_lock,
+            pins=pinned_parts,
+            covered_ids=covered_ids,
+        )
         if code == 130:
             # The user's own abort is the one failure that DOES stop a batch.
             return 130
         codes.append(code)
 
+    if args.pin is not None and pinned_parts:
+        from .expectation import write_lock
+
+        write_lock(args.pin, pinned_parts)
+        if not args.quiet:
+            print(f"pinned {len(pinned_parts)} part(s) -> {args.pin}")
+
     if batch and not args.quiet:
+        # Tallied before the coverage check joins `codes`: the synthetic
+        # uncovered-pin error is not a part, and "3 parts" on a 2-target
+        # invocation is a false count (PR #105 re-review, N1).
         tally: dict[str, int] = {}
         for code in codes:
             word = _EXIT_WORD.get(code, str(code))
             tally[word] = tally.get(word, 0) + 1
         summary = ", ".join(f"{n} {word}" for word, n in tally.items())
         print(f"BATCH: {len(codes)} parts — {summary}")
+
+    if expect_lock is not None:
+        # The pin must be covered, not merely consulted: dropping a pinned
+        # part's target from the invocation is "delete the check" at part
+        # granularity, and it read green until PR #105's review demonstrated
+        # it. No report exists for a part no target produced, so this is the
+        # one expectation failure that lives on stderr and in the exit alone.
+        uncovered = sorted(expect_lock.keys() - covered_ids)
+        if uncovered:
+            print(
+                f"partspec: the pin covers {', '.join(repr(p) for p in uncovered)} but no "
+                f"target in this invocation produced "
+                f"{'it' if len(uncovered) == 1 else 'them'}; a deleted part is a deleted "
+                f"claim set (re-pin with --pin if the removal is deliberate)",
+                file=sys.stderr,
+            )
+            codes.append(exit_code(Verdict.ERROR))
+
     return _batch_exit(codes)
 
 
 def _check_one(
-    spec: str, args: argparse.Namespace, argv: list[str], timeout_s: float, *, batch: bool
+    spec: str,
+    args: argparse.Namespace,
+    argv: list[str],
+    timeout_s: float,
+    *,
+    batch: bool,
+    expect_lock: dict[str, dict[str, str]] | None = None,
+    pins: dict[str, dict[str, str]] | None = None,
+    covered_ids: set[str] | None = None,
 ) -> int:
     # The placeholder is already on disk — written by `_cmd_check` for every
     # target before any ran — so a resolution failure here (a contract that
@@ -313,6 +385,18 @@ def _check_one(
         return resolved
     part, target = resolved
 
+    expected_claims: dict[str, str] | None = None
+    if expect_lock is not None:
+        # An absent part entry passes an empty pin down: the pin does not
+        # vouch for any of these claims, and every one reports as unpinned.
+        expected_claims = expect_lock.get(part.id, {})
+    if covered_ids is not None:
+        covered_ids.add(part.id)
+    if pins is not None and args.pin is not None:
+        from .expectation import claims_of
+
+        pins[part.id] = claims_of(part)
+
     if args.render and part.source.engine != "openscad":
         # Before the run, so the refusal costs nothing and no artifact claims
         # a render pass that was never going to happen.
@@ -323,7 +407,14 @@ def _check_one(
         )
         return EXIT_USAGE
 
-    report = run(part, out_dir=out, argv=argv, contract_path=target.path, timeout_s=timeout_s)
+    report = run(
+        part,
+        out_dir=out,
+        argv=argv,
+        contract_path=target.path,
+        timeout_s=timeout_s,
+        expected_claims=expected_claims,
+    )
 
     render_error = None
     if args.render and report.error is None:
