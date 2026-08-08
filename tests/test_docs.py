@@ -132,3 +132,35 @@ def test_readme_agent_claim_matches_the_convergence_record():
     # pinned to the counter, not inferred from convergence.
     assert data["summary"]["gamed"] == 0
     assert "five defect classes in" in README.read_text()
+
+
+# --------------------------------------------------------------------------
+# docs/FAILURE-MODES.md — the catalogue's [repo] claims are executable
+# --------------------------------------------------------------------------
+
+CATALOGUE = (ROOT / "docs" / "FAILURE-MODES.md").read_text()
+
+
+def test_the_catalogue_names_real_in_repo_guards():
+    """Entries marked [repo] point at guards this repository actually ships;
+    a catalogue citing a guard that was refactored away teaches an agent to
+    rely on protection that no longer exists."""
+    src = ROOT / "src" / "partspec"
+    assert "unbound-parameter guard" in CATALOGUE
+    assert "would be silently dropped" in (src / "engines" / "openscad.py").read_text()
+    assert "partspec.refs.iso15" in CATALOGUE
+    assert "22.5" in (ROOT / "tests" / "test_provenance.py").read_text(), (
+        "the in-repo F16 reproduction (the Ø22.5 seat) is claimed by the catalogue"
+    )
+    assert "ocp-guard" in CATALOGUE
+    assert "ocp-guard" in (ROOT / "justfile").read_text()
+    assert "non-manifold" in (src / "backends" / "mesh.py").read_text()
+
+
+def test_the_catalogue_marks_every_entry_reproducible_or_corpus():
+    """Acceptance (#24): findings are reproducible from the repo or clearly
+    marked as needing the external corpus. Every numbered entry carries one."""
+    entries = re.findall(r"^## \d+\. .+$", CATALOGUE, re.M)
+    assert len(entries) == 8
+    for entry in entries:
+        assert "[repo]" in entry or "[corpus]" in entry, entry
