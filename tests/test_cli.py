@@ -365,7 +365,14 @@ def test_a_failed_build_never_reaches_the_rasterizer(tmp_path: Path, capsys, mon
                 raise ImportError("partspec.raster must not load before the build succeeds")
             return None
 
+    import partspec
+
+    # Both evictions, or the pin is vacuous (the reviewer demonstrated it):
+    # another test file's import binds `raster` as an attribute on the
+    # package object, and `from . import raster` is satisfied by hasattr
+    # without the import machinery — the hook would never fire in-suite.
     monkeypatch.delitem(sys.modules, "partspec.raster", raising=False)
+    monkeypatch.delattr(partspec, "raster", raising=False)
     monkeypatch.setattr(sys, "meta_path", [_Block(), *sys.meta_path])
     module = tmp_path / "spec.py"
     module.write_text(

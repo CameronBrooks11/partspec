@@ -740,12 +740,16 @@ def _render_files(
             return views
         return views, None
 
-    from . import raster
-
     backend = _backend_for(part.source.engine)
     artifact = backend.build(_engine_source(part), out, timeout_s=timeout_s)
     if isinstance(artifact, BuildError):
         return artifact
+    # Imported only after the build delivered a shape: raster pulls in numpy,
+    # and with the occt extra missing that import would crash HERE — a raw
+    # traceback shadowing the honest environment BuildError the build's
+    # import classification exists to produce (PR #127 review, F1).
+    from . import raster
+
     return raster.render_views(artifact, out)
 
 
