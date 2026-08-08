@@ -81,10 +81,14 @@ def test_a_swallowed_alarm_is_recorded_on_the_window():
 
 def test_a_swallowing_loop_is_escalated_past_except_exception():
     """A loop that eats every Exception must not turn the bound into a hang
-    (PR #100 review, blocker 2): the re-fired alarm is a BaseException."""
+    (PR #100 review, blocker 2): the re-fired alarm is a BaseException.
+
+    The loop is bounded rather than `while True` so a broken escalation makes
+    this test FAIL with "DID NOT RAISE" in seconds instead of hanging the
+    suite until a CI job timeout — a hang is itself a silent signal."""
     started = time.monotonic()
     with pytest.raises(_BuildTimeoutHard), _time_limit(0.05):
-        while True:
+        for _ in range(50):
             try:
                 time.sleep(0.2)
             except Exception:
