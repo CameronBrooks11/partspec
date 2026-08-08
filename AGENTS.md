@@ -10,14 +10,14 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha; **v0.2.0 released on PyPI** (2026-08-07, tag → trusted publishing via
+Status: pre-alpha; **v0.3.0 released on PyPI** (2026-08-08, tag → trusted publishing via
 `release.yml`). `check`, `measure` and `diff` work against all three engines, `render` on
 the mesh tier, and `partspec-mcp` serves check/measure/render as stateless MCP tools.
 P0–P6 of `docs/PLAN.md` are complete; epic #6 grew the vocabulary to real mechanical
 intent (`keep_out`/`keep_in`, `hole_diameter`, `bolt_circle`, `fillet_radius`) and added
-the `partspec diff` comparator (`SPEC-diff.md`); epic #5 (unreleased) added reference
-data with provenance — `partspec.refs` tables and fragments (`iso15`, `nema17`), cited
-limits in the report, and the unattributed-limit disclosure (SPEC-contract §6/§10/§11).
+the `partspec diff` comparator (`SPEC-diff.md`); epic #5 added reference data with
+provenance — `partspec.refs` tables and fragments (`iso15`, `nema17`), cited limits in
+the report, and the unattributed-limit disclosure (SPEC-contract §6/§10/§11).
 What remains withheld, and why, is `docs/POST-V0.md`.
 
 ## Stack
@@ -37,7 +37,7 @@ src/partspec/
   contract.py     # Part, Source, the closed check vocabulary
   region.py       # keep_out/keep_in region data + the canonical polyhedron both tiers materialize
   provenance.py   # Referenced values: numbers that carry their citation (SPEC-contract 10)
-  refs/           # reference tables (iso15 bearing envelopes) — pure data, cited
+  refs/           # cited reference tables + fragments (iso15, nema17) — SPEC-contract 10/11
   expr.py         # restricted-AST evaluation for `requires`, with operand capture
   target.py       # <module>[:<factory>] resolution
   runner.py       # phase orchestration: parameters -> build -> geometry -> report

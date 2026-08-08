@@ -86,15 +86,15 @@ a check.
 
 ## 3. MCP server
 
-~100 lines over `check` / `measure`, once the report is machine-readable (D5). Deliberately
-after real CLI use, so the tool surface is shaped by what an agent actually needed rather
-than by what seemed useful in advance.
+**Shipped 2026-08-07 (#63, #66): `partspec-mcp`,** stateless `check` / `measure` / `render`
+tools, each a fresh subprocess returning the artifact the CLI writes (D18). The paragraph
+below was the design basis; D5's "~100 lines" estimate held.
 
-Worth designing against cad-khana's `SKILL.md` agent contract, which is the strongest
-artifact in that repo: a bounded **3–5 attempt** repair loop, machine-greppable escalation
-(`HUMAN_REVIEW: <why> — last failure: <assertion>`), feeding failure forward rather than
-restarting, and the **vacuous green** warning ("check `assertions` is non-empty before
-believing a green run on an unfamiliar file").
+Still open from this section — now issue #28: cad-khana's `SKILL.md` agent contract, the
+strongest artifact in that repo: a bounded **3–5 attempt** repair loop, machine-greppable
+escalation (`HUMAN_REVIEW: <why> — last failure: <assertion>`), feeding failure forward
+rather than restarting, and the **vacuous green** warning ("check `assertions` is non-empty
+before believing a green run on an unfamiliar file").
 
 ---
 
@@ -172,8 +172,9 @@ That is still right, but it has a consequence nothing currently handles: `sys.mo
 a model's helper modules, so a second contract in the same process that imports an edited
 helper gets the *previous* version of it.
 
-No live bug in v0: the CLI is one process per target and `run-batch.sh` invokes it per target.
-It becomes real the moment either the MCP server (§3) or a multi-target `check` lands, and it
-fails in the worst available way — a stale build reported as a fresh one, with a closure
-digest computed from the edited file on disk that never reached the interpreter. Whichever
-lands first owns invalidating the model's directory subtree from `sys.modules` between runs.
+No live bug yet: the CLI is one process per target, `run-batch.sh` invokes it per target, and
+the MCP server (§3, shipped) sidestepped it by running a fresh subprocess per call. It becomes
+real the moment a multi-target `check` (#29) lands, and it fails in the worst available way —
+a stale build reported as a fresh one, with a closure digest computed from the edited file on
+disk that never reached the interpreter. That slice owns invalidating the model's directory
+subtree from `sys.modules` between runs.

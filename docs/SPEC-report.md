@@ -1,6 +1,7 @@
 # SPEC — the `partspec` report
 
-**Status:** draft 6 · 2026-08-03 · adds `engine.render_backend`
+**Status:** draft 7 · 2026-08-08 · adds `checks[].components` / `region` / `hole` /
+`source`, run-level `attribution`, render references, and the §8.3 closure reversal
 **Scope:** the JSON artifact `partspec check` emits, and the process exit code that
 accompanies it.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
@@ -502,7 +503,8 @@ an unknown major version rather than best-effort parse it.
 This example is **conformant and confined to the v0 check set** (D11): parameter predicates
 plus `envelope` and `watertight`. `counts.total` equals `len(checks)`, and the five status
 counts sum to it — both MUST hold. `bore_diameter` is shown only to illustrate
-`unsupported` + `requires`; it is not a v0 kind.
+`unsupported` + `requires`; it is not a kind, then or now — the shipped hole check is
+`hole_diameter` (`SPEC-contract.md` §4.5, since 0.2.0), and the example predates it.
 
 Note there is **no `approximate` check here, and there cannot be one in v0** — see §10.
 
