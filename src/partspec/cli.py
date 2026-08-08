@@ -356,10 +356,8 @@ def _summarise(report, path: Path) -> None:
             file=sys.stderr,
         )
 
-    from .contract import DIMENSIONAL_KINDS
-
-    dimensional = [c for c in report.checks if c.kind in DIMENSIONAL_KINDS]
-    if dimensional and all(c.source is None for c in dimensional):
+    attribution = report.attribution()
+    if attribution["dimensional"] and not attribution["attributed"]:
         # The circular-contract warning (#50, SPEC-contract.md 6): a bound
         # recomputed from the model's own constants cannot fail however the
         # design moves, and nothing in a single green run distinguishes that

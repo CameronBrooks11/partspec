@@ -594,6 +594,12 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   `status`, `measurement` and `limit`, all of which are closed.
 - **`checks[].phase`** — `parameter` or `geometry` (§4). Lets a consumer explain a report
   full of `skipped` geometry checks without re-deriving the short-circuit rule.
+- **`attribution`** — run-level `{"dimensional": N, "attributed": M}` over the
+  `DIMENSIONAL_KINDS` (`SPEC-contract.md` §6): how many checks carry chosen numbers, and
+  how many of those numbers came from somewhere (§10). `dimensional > 0 && attributed == 0`
+  is the circular-contract signal, carried in the artifact because the artifact is the
+  product surface — the CLI warning derives from this field, and an agent consuming the
+  report over MCP would otherwise never see the disclosure. Additive (no schema bump).
 - **`counts.total`** — MUST equal `len(checks)`, and the five status counts MUST sum to it.
   Redundant by construction and included anyway, because it is the cheapest signal that a
   contract lost checks between two runs.

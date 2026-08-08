@@ -48,6 +48,7 @@ def test_field_order_is_fixed():
         "geometry",
         "verdict",
         "counts",
+        "attribution",
         "checks",
         "error",
         "hint",

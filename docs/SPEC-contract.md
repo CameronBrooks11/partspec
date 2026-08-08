@@ -496,9 +496,16 @@ however the design moves, and a single green run cannot distinguish that from a 
 Attribution (§10) is the distinguisher: **the absence of `source` IS the unattributed
 state** — the report does not stamp "unattributed" per check, because an absent claim of
 authority must not be dressed as a present one. Topological kinds are absolute claims,
-non-circular by construction, and never trigger the warning. The warning is one line, not
-a status: the five-member status set is closed, and an unattributed pass is still a pass —
-of a weaker question.
+non-circular by construction, and never trigger the warning. Two exclusions are
+deliberate and recorded: `requires` predicates are intrinsically relational — attribution
+cannot reach an expression string, and counting them would warn forever on legitimate
+internal-consistency claims with no remedy — and `keep_out`/`keep_in` regions do not yet
+carry attribution (§10), so they stand outside the dichotomy until they do; a
+region-only contract receives no warning today, and that is a recorded gap, not a claim
+of coverage. The warning is one line, not a status: the five-member status set is closed,
+and an unattributed pass is still a pass — of a weaker question. The run-level counts
+behind it are in the report as `attribution` (`SPEC-report.md` §7.1), because the report
+is the product surface and an agent consuming it over MCP never sees stderr.
 
 **`partspec` MUST NOT auto-generate checks** from an existing part — not even as a
 convenience. A check the tool wrote is a check nobody decided, and a report full of them is

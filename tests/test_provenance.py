@@ -417,8 +417,9 @@ CIRCULAR_MODEL = Path(__file__).parent / "fixtures" / "circular" / "model.py"
 
 
 def _circular_part(plate_y: float) -> Part:
-    """The circular contract, verbatim from the #50 repro: every bound is
-    computed from the same constants the model is built from."""
+    """The circular contract, after the #50 repro: every bound is computed
+    from the same constants the model is built from (the repro's genus and
+    envelope-min claims are dropped as immaterial to the table)."""
     import math
 
     from partspec import build123d
@@ -442,13 +443,19 @@ def _circular_part(plate_y: float) -> Part:
 @pytest.mark.parametrize(("plate_y", "expected_exit"), [(30.0, 0), (25.0, 0), (5.0, 1)])
 def test_the_circular_contract_regression_table(tmp_path: Path, plate_y, expected_exit):
     """The #50 repro's table, pinned: a contract whose every bound is derived
-    from the model's own constants passes green however the plate shrinks —
-    until the geometry breaks topologically, because topological claims are
-    absolute and cannot be circular."""
+    from the model's own constants passes green however the plate shrinks.
+    At plate_y=5 it finally fails on two fronts at once: topology
+    (solid_count — absolute, cannot be circular) and volume — whose circular
+    formula stops modelling the geometry once the bore breaches the plate.
+    Circularity protects a bound only while the derivation stays valid."""
     from partspec.runner import run
+    from partspec.status import Status
 
     report = run(_circular_part(plate_y), out_dir=tmp_path)
     assert report.exit_code == expected_exit, [c.to_json() for c in report.checks]
+    if expected_exit == 1:
+        failing = {c.id for c in report.checks if c.status is Status.FAIL}
+        assert failing == {"volume", "solid_count"}
 
 
 @needs_build123d
@@ -476,6 +483,9 @@ def test_a_fully_unattributed_run_draws_the_warning(tmp_path: Path, capsys):
     code = main(["check", f"{contract}:circular", "--out", str(tmp_path / "out")])
     err = capsys.readouterr().err
     assert code == 0, err
+    # Counting the phrase, not the word: pytest's tmp dir is named after this
+    # very test, so the report path itself contains "unattributed".
+    assert err.count("is unattributed:") == 1, "one line, never a chorus"
     assert "every dimensional limit on 'circular' is unattributed" in err
     assert "partspec.refs" in err
 
@@ -530,3 +540,63 @@ def test_a_topology_only_contract_never_warns(tmp_path: Path, capsys):
     err = capsys.readouterr().err
     assert code == 0, err
     assert "unattributed" not in err
+
+
+def test_param_bounds_count_toward_attribution(tmp_path: Path, capsys):
+    """#50's acceptance names param explicitly, and a mutant dropping
+    param_range from DIMENSIONAL_KINDS survived the suite (PR #97 review):
+    a bare param bound must warn, a referenced one must not."""
+    pytest.importorskip("trimesh", reason="mesh extra not installed")
+    from support import OPENSCAD
+
+    if OPENSCAD is None:
+        pytest.skip("openscad binary not installed")
+    from partspec.cli import main
+
+    scad = tmp_path / "p.scad"
+    scad.write_text("w = 5;\ncube([10, 10, w]);\n")
+    contract = tmp_path / "spec.py"
+    contract.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def bare() -> Part:\n"
+        f"    p = Part('bare', openscad({str(scad)!r}, w=7.0))\n"
+        "    p.param('w', min=1.0)\n"
+        "    return p\n\n\n"
+        "def cited() -> Part:\n"
+        "    from partspec.refs import iso15\n"
+        f"    p = Part('cited', openscad({str(scad)!r}, w=7.0))\n"
+        "    p.param('w', max=iso15.bearing(608).width)\n"
+        "    return p\n"
+    )
+    assert main(["check", f"{contract}:bare", "--out", str(tmp_path / "a")]) == 0
+    assert "unattributed" in capsys.readouterr().err
+    assert main(["check", f"{contract}:cited", "--out", str(tmp_path / "b")]) == 0
+    assert "unattributed" not in capsys.readouterr().err
+
+
+def test_the_attribution_block_is_in_the_artifact(tmp_path: Path):
+    """The report is the product surface: an MCP consumer never sees stderr,
+    and #50's motivating agent must find the signal in the JSON (PR #97
+    review blocker)."""
+    from partspec.report import CheckResult, Report
+    from partspec.status import Limit, Status
+
+    r = Report(part_id="p", contract="c", tool_version="t")
+    r.checks = [
+        CheckResult(
+            id="volume", kind="volume", phase="geometry", status=Status.PASS, limit=Limit(min=1.0)
+        ),
+        CheckResult(
+            id="hole_d22",
+            kind="hole_diameter",
+            phase="geometry",
+            status=Status.PASS,
+            limit=Limit(min=21.95, max=22.05),
+            source={"d": _SRC},
+        ),
+        CheckResult(id="watertight", kind="watertight", phase="geometry", status=Status.PASS),
+    ]
+    doc = r.to_json()
+    assert doc["attribution"] == {"dimensional": 2, "attributed": 1}
+    keys = list(doc)
+    assert keys.index("attribution") == keys.index("counts") + 1
