@@ -76,12 +76,42 @@ map governs `check`).
 - **Real example:** community models are commonly one monolithic script promoted to a
   function ([corpus], F8).
 
-## Tier 2 — deferred, with its survey obligation
+## Tier 2 — the geometry rules, over the `.csg` tree (#118)
 
-The geometry-dependent rules (`coincident-face epsilon`, `difference()` ordering over
-the engine's constant-folded `.csg` tree) are NOT half-present: nothing in the
-registry claims them, so their absence cannot read as a clean bill. They land as a
-separate slice (#118) that MUST first answer the audit's prior-art question — *does an
-existing OpenSCAD static analyser or `.csg` reader beat hand-rolling one?* — per the
-repo's own absorb-vs-depend standard (D7, D12), and whose rules MUST report
-`unsupported` rather than silence when the engine is missing.
+Shipped after the audit-mandated prior-art survey (recorded on #118): nothing exists
+to depend on — sca2d is GPLv3 and geometry-blind, FreeCAD's importer is LGPL and
+welded to its document model — so the reader is hand-rolled, stdlib-only
+(`src/partspec/csg.py`), with FreeCAD's node inventory absorbed as the refusal
+checklist. These rules read `openscad`'s constant-folded `.csg` export, so they
+**require the engine** — and when it is missing, or the tree contains a node outside
+the modelled set (`hull`, `minkowski`, extrudes, imports…), the file block carries an
+`unsupported` entry naming the rule and the reason. **A rule that could not run is an
+entry, never an absence.**
+
+Tier-2 findings carry **line 0**: the tree is constant-folded, so no source line
+exists to name — the message describes the geometry instead.
+
+### `csg-coincident-face`
+
+- **Predicate:** a `difference()` cutter sharing a face plane with its minuend,
+  exactly — planes are cube faces and cylinder caps, transformed through the
+  accumulated `multmatrix` by the inverse-transpose, canonicalized (unit normal,
+  orientation-normalized, rounded at 1e-9 for float representation of the folded
+  literals), and compared for set intersection. Zero epsilon on the literals is the
+  point: the folded tree has the author's exact numbers.
+- **Rationale:** FAILURE-MODES entry 2; skills/openscad-authoring rule 3. OpenSCAD
+  itself documents coincident faces as undefined behavior and has no static
+  diagnostic — the manual's own remedy is "make the cuts a little bit larger".
+- **Real example:** a bore cut with `h = plate_t` from `z = 0` fires twice (both cap
+  planes coincide); the taught `-1`/`+2` overshoot lints clean.
+
+### `csg-difference-order`
+
+- **Predicate:** a `difference()` whose first child's analytic volume is smaller than
+  a later child's. Volumes are exact for cubes, polyhedra, and ideal
+  cylinders/spheres, scaled by `|det M|`; union/group volumes are the **sum** of
+  children — an upper bound when children overlap — so the verdict is
+  upper-bound-vs-upper-bound and the finding says so.
+- **Rationale:** skills/openscad-authoring rule 2 — the first child is the material;
+  the wrong order is a different part, sometimes an empty one.
+- **Real example:** the skill's rule-2-before block fires; its after-form is clean.

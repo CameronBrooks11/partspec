@@ -13,6 +13,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+from support import needs_openscad
+
 from partspec.cli import main
 from partspec.lint import (
     FUNCTION_LINE_LIMIT,
@@ -273,3 +276,116 @@ def test_a_slash_slash_inside_a_string_is_not_a_comment(tmp_path: Path):
     assert not any(f.rule == "scad-unused-top-level" for f in findings), "note IS used"
     values = {f.message.split()[0] for f in findings if f.rule == "scad-magic-number"}
     assert values == {"45", "3"}, "the literals after the string must still be seen"
+
+
+# --------------------------------------------------------------------------
+# tier 2 (#118): the geometry rules over the .csg tree
+# --------------------------------------------------------------------------
+
+
+def test_the_csg_parser_reads_the_folded_grammar():
+    """Engine-free: the parser over a hand-written literal-only tree."""
+    from partspec.csg import parse_csg, planes_of, volume_of
+
+    tree = parse_csg(
+        "group() {\n"
+        " difference() {\n"
+        "  cube(size = [40, 30, 4], center = false);\n"
+        "  multmatrix([[1, 0, 0, 20], [0, 1, 0, 15], [0, 0, 1, 0], [0, 0, 0, 1]]) {\n"
+        "   cylinder($fn = 48, h = 4, r1 = 3, r2 = 3, center = false);\n"
+        "  }\n"
+        " }\n"
+        "}\n"
+    )
+    diff = tree[0].children[0]
+    assert diff.kind == "difference"
+    assert volume_of(diff.children[0]) == 40 * 30 * 4
+    import math
+
+    assert volume_of(diff.children[1]) == pytest.approx(math.pi * 9 * 4)
+    shared = planes_of(diff.children[0]) & planes_of(diff.children[1])
+    assert len(shared) == 2, "both cap planes coincide with the plate's faces"
+
+
+@needs_openscad
+def test_a_flush_cut_fires_and_the_overshoot_is_clean(tmp_path: Path, capsys):
+    flush = tmp_path / "flush.scad"
+    flush.write_text(
+        "plate_t = 4;\nbore_d = 6;\n"
+        "difference() {\n"
+        "    cube([40, 30, plate_t]);\n"
+        "    translate([20, 15, 0]) cylinder(d = bore_d, h = plate_t, $fn = 48);\n"
+        "}\n"
+    )
+    assert main(["lint", str(flush)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    rules = [f["rule"] for f in entry["findings"] if f["rule"].startswith("csg-")]
+    assert rules == ["csg-coincident-face", "csg-coincident-face"], (
+        "a cutter with h = plate_t from z = 0 coincides on BOTH cap planes"
+    )
+    assert all(f["line"] == 0 for f in entry["findings"] if f["rule"].startswith("csg-")), (
+        "the folded tree has no source lines; 0 is documented"
+    )
+
+    clean = tmp_path / "clean.scad"
+    clean.write_text(
+        "plate_t = 4;\nbore_d = 6;\n"
+        "difference() {\n"
+        "    cube([40, 30, plate_t]);\n"
+        "    translate([20, 15, -1]) cylinder(d = bore_d, h = plate_t + 2, $fn = 48);\n"
+        "}\n"
+    )
+    assert main(["lint", str(clean)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert not any(f["rule"].startswith("csg-") for f in entry["findings"])
+    assert "unsupported" not in entry
+
+
+@needs_openscad
+def test_the_wrong_order_fires_on_volume(tmp_path: Path, capsys):
+    scad = tmp_path / "wrong.scad"
+    scad.write_text(
+        "size = 4;\n"
+        "difference() {\n"
+        "    translate([20, 15, 1]) cylinder(d = size, h = 2, $fn = 48);\n"
+        "    cube([40, 30, 8]);\n"
+        "}\n"
+    )
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert "csg-difference-order" in [f["rule"] for f in entry["findings"]]
+
+
+@needs_openscad
+def test_an_unmodelled_node_is_an_entry_never_an_absence(tmp_path: Path, capsys):
+    scad = tmp_path / "hulled.scad"
+    scad.write_text(
+        "size = 8;\n"
+        "difference() {\n"
+        "    hull() { cube([size, size, size]); translate([20, 0, 0]) cube([size, size, size]); }\n"
+        "    translate([4, 4, -1]) cylinder(d = 3, h = 12, $fn = 32);\n"
+        "}\n"
+    )
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    unsupported = {u["rule"]: u["reason"] for u in entry["unsupported"]}
+    assert set(unsupported) == {"csg-difference-order", "csg-coincident-face"}
+    assert "hull" in unsupported["csg-difference-order"]
+
+
+def test_a_missing_engine_is_an_entry_never_an_absence(tmp_path: Path, capsys, monkeypatch):
+    """Audit bullet 1's MUST, executed: tier 2 without openscad refuses per
+    rule, and tier 1 still runs."""
+    from partspec.engines import openscad as openscad_mod
+
+    monkeypatch.setattr(openscad_mod, "find_executable", lambda: None)
+    scad = tmp_path / "m.scad"
+    scad.write_text("cube([60, 40, 4]);\n")
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert len(entry["findings"]) == 3, "tier 1 is engine-free and still ran"
+    assert {u["rule"] for u in entry["unsupported"]} == {
+        "csg-difference-order",
+        "csg-coincident-face",
+    }
+    assert all("openscad is not installed" in u["reason"] for u in entry["unsupported"])
