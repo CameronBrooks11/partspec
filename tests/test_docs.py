@@ -399,7 +399,12 @@ def test_the_bd_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
     from partspec.engines import pycad
 
     blocks = _bd_blocks()
-    assert set(blocks) >= {"bd-rule-1-after", "bd-rule-2-after", "bd-rule-3-before"}
+    assert set(blocks) >= {
+        "bd-rule-1-after",
+        "bd-rule-2-after",
+        "bd-rule-3-before",
+        "bd-rule-5-after",
+    }
     backend = OcctBackend("build123d")
 
     def factory_of(name: str):
@@ -407,10 +412,15 @@ def test_the_bd_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
         exec(blocks[name], ns)  # noqa: S102 - executing the doc is the point
         return ns["make_part"]
 
-    # Rule 1: the factory shape builds a genuine through-bored plate.
-    part = pycad.adopt(factory_of("bd-rule-1-after")())
+    # Rule 1: the factory shape builds a genuine through-bored plate, and
+    # the parameters MEAN something — a hardcoded body passed this test
+    # until the review's mutation showed it (PR #117, F3).
+    factory = factory_of("bd-rule-1-after")
+    part = pycad.adopt(factory())
     assert measured(backend.genus(part)).value == 1
     assert measured(backend.watertight(part)).value is True
+    widened = pycad.adopt(factory(plate_w=50.0))
+    assert measured(backend.bbox(widened)).value == (50.0, 30.0, 4.0)
 
     # Rule 2: the three-line adapter drives an untouched community class.
     (tmp_path / "cq_gridfinity_like.py").write_text(
@@ -426,6 +436,9 @@ def test_the_bd_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
         adapted = pycad.adopt(factory_of("bd-rule-2-after")(2, 1))
         assert measured(backend.solid_count(adapted)).value == 1
         assert measured(backend.bbox(adapted)).value == (84.0, 42.0, 21.0)
+        assert "cq_gridfinity_like" in sys.modules, (
+            "the adapter must DRIVE the community class, not replace it"
+        )
     finally:
         sys.path.remove(str(tmp_path))
         sys.modules.pop("cq_gridfinity_like", None)
@@ -443,17 +456,26 @@ def test_the_bd_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
         "the chamfer must have silently moved to the smaller boss rim"
     )
 
+    # Rule 5: the CadQuery factory drives the SAME kernel to the same part.
+    cadquery = pytest.importorskip("cadquery", reason="cadquery extra not installed")
+    assert cadquery
+    cq_part = pycad.adopt(factory_of("bd-rule-5-after")())
+    assert measured(backend.genus(cq_part)).value == 1
+    assert measured(backend.watertight(cq_part)).value is True
+    assert measured(backend.bbox(cq_part)).value == (40.0, 30.0, 4.0)
+
 
 def test_the_bd_skill_cites_its_evidence_and_neighbours():
     for needle in (
         "docs/FAILURE-MODES.md",
         "entry 7",
         "entry 8",
-        "SPEC-backend.md",
+        "engines/pycad.py",
         "skills/contract-authoring/SKILL.md",
         "skills/openscad-authoring/SKILL.md",
         "examples/bearing-block/",
         "tests/test_differential.py",
+        "test_the_same_hole_contract_holds_on_cadquery",
         "ocp-guard",
         "combine=False",
         "ShapePredicate",

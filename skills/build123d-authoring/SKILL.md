@@ -12,7 +12,7 @@ fenced examples are executed by `tests/test_docs.py`.
 ## Rule 1 — Ship a factory, not a script
 
 partspec calls a model as `method(**params)` — deliberately dumb, no signature
-inspection (`SPEC-backend.md` §4). The community norm is the opposite: module-level
+inspection (`src/partspec/engines/pycad.py`, the module docstring is the rule's home). The community norm is the opposite: module-level
 constants ending in `show(...)` (F8 — `docs/FAILURE-MODES.md` entry 8). A script
 runs once at import with one set of numbers; a factory is a *family*.
 
@@ -30,8 +30,10 @@ def make_part(plate_w: float = 40.0, plate_d: float = 30.0, plate_t: float = 4.0
     return plate - bore
 ```
 
-The `-1` / `+2` cutter overshoot carries over from the OpenSCAD skill's rule 3
-unchanged — OCCT booleans on exactly-coincident faces are a tolerance lottery too.
+The `-1` / `+2` cutter overshoot carries over from the OpenSCAD skill's rule 3 — not
+because OCCT needs it (executed: an exactly-flush bore booleaned bit-identically to an
+overshot one), but for cross-tier consistency and as free insurance on tangency-rich
+geometry. A model written with overshoot renders the same part on every tier.
 
 ## Rule 2 — The adapter pattern: three lines beat a rewrite
 
@@ -51,9 +53,12 @@ def make_part(units_wide: int = 2, units_deep: int = 1):
 ## Rule 3 — Selectors are position-dependent; prefer named geometry
 
 The classic silent breaker: a selector that matches the *wrong* face still builds.
-`faces(">Z")` means "whatever is topmost *now*" — add a taller feature and every
-downstream operation silently moves to it. Prefer keeping references to the geometry
-you made (algebra mode hands you the objects); where a selector is unavoidable,
+`faces(">Z")` (CadQuery's string selector; build123d spells it
+`sort_by(Axis.Z)[-1]`) means "whatever is topmost *now*" — add a taller feature and
+every downstream operation silently moves to it. Prefer keeping references to the geometry
+you made (algebra mode hands you the objects) — and finish a feature BEFORE fusing it:
+after `body = plate + boss`, chamfering `boss`'s own edges succeeds on the standalone
+pre-fusion copy and leaves `body` untouched, the works-but-wrong-part trap again; where a selector is unavoidable,
 select by property (`filter_by`, radius, axis) rather than by extremum, and pin the
 result with a claim the contract can check (`hole_diameter`, `keep_out`, envelope) so
 a drifted selection fails loudly instead of shipping.
@@ -94,10 +99,30 @@ knowing before they bite:
 
 - `combine=False` leaves separate solids on the stack; partspec compounds **all** of
   them — but `.val()` in your own code keeps only the first (`engines/pycad.py`
-  records the measured case: 4 boxes, `.val().volume` = a quarter of the part).
-- A contract written against the build123d leg runs unchanged against the CadQuery
-  leg (`examples/bearing-block/` is the worked two-engine form, and
-  `tests/test_differential.py` holds the parity).
+  records the measured case: 4 boxes, `.val().Volume()` = a quarter of the part).
+- A contract written against the build123d leg runs unchanged against a CadQuery
+  model — `tests/test_runner.py::test_the_same_hole_contract_holds_on_cadquery` is
+  that parity, executed. (Cross-ENGINE parity generally: `examples/bearing-block/`
+  and `tests/test_differential.py`, whose two engines are OpenSCAD and build123d.)
+
+The factory shape is the same on the CadQuery side, string selectors and all — which
+is exactly why rule 3's discipline matters doubly here:
+
+```python
+# bd-rule-5-after — the same factory shape, CadQuery handles
+import cadquery as cq
+
+
+def make_part(plate_w: float = 40.0, plate_d: float = 30.0, plate_t: float = 4.0,
+              bore_d: float = 6.0):
+    return (
+        cq.Workplane("XY")
+        .box(plate_w, plate_d, plate_t)
+        .faces(">Z")
+        .workplane()
+        .hole(bore_d)
+    )
+```
 
 ## Rule 6 — The ecosystem moves under you; pin and adapt
 
