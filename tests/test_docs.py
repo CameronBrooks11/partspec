@@ -303,8 +303,15 @@ def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path)
         "rule-1-after",
         "rule-2-before",
         "rule-2-after",
+        "rule-4-before",
+        "rule-4-after",
         "rule-5-after",
     }
+    # Rule 3's overshoot idiom is taught THROUGH the after-blocks it points
+    # at; an exact-face cutter slipped every measurement (review mutation M4),
+    # so the idiom itself is pinned textually.
+    for name in ("rule-2-after", "rule-5-after"):
+        assert "-1" in blocks[name] and "+ 2" in blocks[name], f"{name} lost the overshoot"
 
     def build(name: str):
         scad = tmp_path / f"{name}.scad"
@@ -321,8 +328,21 @@ def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path)
     scad = tmp_path / "rule-1-after.scad"
     assert {"plate_w", "plate_d", "plate_t"} <= top_level_variables(scad)
 
-    # Rule 2: the wrong order is EMPTY geometry exiting 0 — partspec makes it
-    # a build failure; the right order is a genuine through-hole, genus 1.
+    # Rule 4: pinned facets are a measurable property of the artifact — a
+    # 48-gon cylinder exports exactly 50 distinct face normals; the unpinned
+    # form follows $fa/$fs and must NOT equal it.
+    backend4, pinned = build("rule-4-after")
+    assert not isinstance(pinned, BuildError)
+    assert backend4.provenance(pinned)["distinct_normals"] == 50
+    backend4b, unpinned = build("rule-4-before")
+    assert not isinstance(unpinned, BuildError)
+    assert backend4b.provenance(unpinned)["distinct_normals"] != 50
+    assert "facets" in top_level_variables(tmp_path / "rule-4-after.scad")
+
+    # Rule 2: the fully-empty wrong order is refused by the engine itself and
+    # relayed by partspec as a build failure; the right order is a genuine
+    # through-hole, genus 1. (The exit-0 hazard is the PARTIAL wrong order,
+    # which no fixed fixture can pin — the skill's prose carries it.)
     _, before = build("rule-2-before")
     assert isinstance(before, BuildError), "hole-minus-plate must fail as empty geometry"
     backend, after = build("rule-2-after")
