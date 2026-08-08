@@ -135,10 +135,15 @@ def test_colliding_slugs_under_one_out_dir_are_refused(tmp_path: Path, capsys):
     assert "collide" in capsys.readouterr().err
 
 
-def test_render_refuses_a_batch(tmp_path: Path, capsys):
+def test_render_refuses_a_batch(tmp_path: Path, monkeypatch, capsys):
+    # chdir: shape refusals now precede the placeholder fan-out, but a test
+    # running from the repo root must not depend on that to keep the tree
+    # clean (PR #104 re-review, finding 7 — the old order littered ./outputs).
+    monkeypatch.chdir(tmp_path)
     code = main(["check", "a.py:x", "b.py:x", "--render", "--quiet"])
     assert code == 64
     assert "single-target" in capsys.readouterr().err
+    assert not (tmp_path / "outputs").exists(), "a refused shape touches no disk"
 
 
 # --------------------------------------------------------------------------

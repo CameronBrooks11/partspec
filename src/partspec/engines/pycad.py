@@ -84,10 +84,10 @@ def invalidate_model_modules(model_path: Path) -> None:
     stale bytecode to ANY interpreter, fresh process included; the closure
     digest still changes (it reads the file), which is how such a run is
     caught on comparison. And a module a caller imported BEFORE any build —
-    a same-named helper from an unrelated directory, say — predates every
-    snapshot, is never recorded, and shadows the model's own helper for as
-    long as the process lives; its file sits outside the model's directory,
-    so no subtree rule would reach it either.
+    a same-named helper from an unrelated directory, or the model's own
+    helper imported directly by a test — predates every snapshot, so the
+    registry never sees it, wherever its file sits, and it shadows the fresh
+    import for as long as the process lives.
     """
     root = str(model_path.resolve().parent)
     for name in _LOADED_MODEL_MODULES.pop(root, set()):

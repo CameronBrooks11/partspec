@@ -369,14 +369,15 @@ several parts are checked at once, the process exit code is that of the
 An unresolvable target exits `64`, outranking every verdict — but the remaining targets
 MUST still be evaluated and written first (§5 rule 4). An earlier draft reserved `64`
 from this aggregation on the theory that usage failures produce no reports; the
-placeholder rule (§4 rule 2) means they do — an error artifact naming the dead run — and
+placeholder rule (§5 rule 2) means they do — an error artifact naming the dead run — and
 a batch that reported a mistyped (or deleted: that is how a contract vanishes in a
 weakening attack) target as a mere part-verdict would bury the fact that a question went
 unasked. A user interrupt (exit `130`) is the one failure that does stop a batch: it is
 the operator's own abort, not a part's.
 
 The model-module cache MUST be invalidated after every Python-engine build in a process
-(the model's directory subtree evicted from `sys.modules`), because a second contract
+(every module a resolve or build introduced from the model's directory evicted from
+`sys.modules`), because a second contract
 importing an edited helper otherwise gets the previous version — a stale build reported
 as fresh, with a closure digest computed from a file that never reached the interpreter
 (POST-V0 §8, shipped with #29).

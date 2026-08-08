@@ -242,22 +242,11 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
     targets: list[str] = args.targets
     batch = len(targets) > 1
 
-    # EVERY target's placeholder goes down before ANY target runs — not per
-    # target inside the loop. An invocation that dies mid-batch (usage error,
-    # interrupt during part two) meant to re-check the later targets too, and
-    # their previous `verdict: "pass"` sitting untouched at the deterministic
-    # path is a stale artifact reading as current — the worst failure in the
-    # system (SPEC-report 5, rules 1-2; PR #104 review). `_out_dir_for` only
-    # parses the target string, so it needs no resolved Part.
-    for spec in targets:
-        write_placeholder(_out_dir_for(spec, args.out, batch=batch), contract=spec, argv=argv)
-
-    try:
-        timeout_s = _timeout_s(args.timeout)
-    except _TimeoutUsage as exc:
-        print(f"partspec: {exc}", file=sys.stderr)
-        return EXIT_USAGE
-
+    # Invocation-SHAPE refusals come before anything touches disk: a shape
+    # the tool won't run never meant to re-check anything. The collision
+    # guard in particular must precede the placeholder fan-out, or the
+    # fan-out itself performs the shared-path overwrite the guard exists to
+    # refuse (PR #104 re-review, finding 7).
     if batch and args.render:
         print("partspec: --render is single-target for now", file=sys.stderr)
         return EXIT_USAGE
@@ -274,6 +263,23 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return EXIT_USAGE
+
+    # EVERY target's placeholder goes down before ANY target runs — not per
+    # target inside the loop. An invocation that dies mid-flight (garbage
+    # PARTSPEC_TIMEOUT below, interrupt during part two) meant to re-check
+    # the later targets too, and their previous `verdict: "pass"` sitting
+    # untouched at the deterministic path is a stale artifact reading as
+    # current — the worst failure in the system (SPEC-report 5, rules 1-2;
+    # PR #104 review). `_out_dir_for` only parses the target string, so it
+    # needs no resolved Part.
+    for spec in targets:
+        write_placeholder(_out_dir_for(spec, args.out, batch=batch), contract=spec, argv=argv)
+
+    try:
+        timeout_s = _timeout_s(args.timeout)
+    except _TimeoutUsage as exc:
+        print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
 
     codes: list[int] = []
     for spec in targets:
