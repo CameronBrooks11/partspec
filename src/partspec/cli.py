@@ -325,6 +325,24 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             return 130
         codes.append(code)
 
+    if args.pin is not None and pinned_parts:
+        from .expectation import write_lock
+
+        write_lock(args.pin, pinned_parts)
+        if not args.quiet:
+            print(f"pinned {len(pinned_parts)} part(s) -> {args.pin}")
+
+    if batch and not args.quiet:
+        # Tallied before the coverage check joins `codes`: the synthetic
+        # uncovered-pin error is not a part, and "3 parts" on a 2-target
+        # invocation is a false count (PR #105 re-review, N1).
+        tally: dict[str, int] = {}
+        for code in codes:
+            word = _EXIT_WORD.get(code, str(code))
+            tally[word] = tally.get(word, 0) + 1
+        summary = ", ".join(f"{n} {word}" for word, n in tally.items())
+        print(f"BATCH: {len(codes)} parts — {summary}")
+
     if expect_lock is not None:
         # The pin must be covered, not merely consulted: dropping a pinned
         # part's target from the invocation is "delete the check" at part
@@ -342,20 +360,6 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             )
             codes.append(exit_code(Verdict.ERROR))
 
-    if args.pin is not None and pinned_parts:
-        from .expectation import write_lock
-
-        write_lock(args.pin, pinned_parts)
-        if not args.quiet:
-            print(f"pinned {len(pinned_parts)} part(s) -> {args.pin}")
-
-    if batch and not args.quiet:
-        tally: dict[str, int] = {}
-        for code in codes:
-            word = _EXIT_WORD.get(code, str(code))
-            tally[word] = tally.get(word, 0) + 1
-        summary = ", ".join(f"{n} {word}" for word, n in tally.items())
-        print(f"BATCH: {len(codes)} parts — {summary}")
     return _batch_exit(codes)
 
 

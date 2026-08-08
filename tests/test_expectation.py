@@ -198,7 +198,8 @@ def test_a_pinned_part_dropped_from_the_invocation_is_not_green(tmp_path: Path, 
     'delete the check' at part granularity. Pin two parts, invoke --expect
     with only one target: the uncovered pin entry must fail the run."""
     a_dir, b_dir = tmp_path / "a", tmp_path / "b"
-    a_dir.mkdir(), b_dir.mkdir()
+    a_dir.mkdir()
+    b_dir.mkdir()
     targets = []
     for d, name in ((a_dir, "part_a"), (b_dir, "part_b")):
         (d / "m.scad").write_text("cube([30, 20, 10]);\n")
