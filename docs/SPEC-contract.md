@@ -386,7 +386,11 @@ are `hole_diameter`'s business. Slot ends and grooves DO count, deliberately: no
 the surface level distinguishes them from fillets, and for the machinability claim they
 constrain the tool identically — a definition that guessed at design intent would be
 dishonest about what it measured. Toroidal and spherical blends are not yet detected;
-that is a recorded gap, not a claim that they conform.
+that is a recorded gap, not a claim that they conform — and the zero-blend failure detail
+names the gap rather than denying such blends exist. One further edge follows from the
+partial-wrap definition: a bore *interrupted* along its wall (a keyway'd bore) wraps below
+2π, so it leaves `hole_diameter`'s sight and appears here as a blend at the bore's radius.
+Both effects err toward spurious FAIL, never silent PASS.
 
 **Zero blends fails.** "Every blend is within bounds" over an empty set is vacuously
 true, and vacuous truth is the green this tool refuses; an author who wants no constraint
@@ -394,7 +398,7 @@ on an unfilleted part does not declare the check.
 
 The measurement is the full vector of blend radii, ascending, adjudicated by the generic
 per-component machinery — so `components` (SPEC-report.md §7.1) names exactly which blend
-broke which bound, and the failure detail reads `blend_1=1.5 outside min=2`.
+broke which bound, and the failure detail reads `blend_1=1.5 outside min=2.0`.
 
 ---
 

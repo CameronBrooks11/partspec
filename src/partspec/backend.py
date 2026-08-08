@@ -118,7 +118,7 @@ class BuildError:
 class GeometryBackend(Protocol):
     """What every backend implements.
 
-    Fourteen primitives, plus lifecycle and an explicit capability declaration.
+    Sixteen primitives, plus lifecycle and an explicit capability declaration.
     Each returns a `Measurement` carrying its own `exact` flag, so a caller
     cannot accidentally lose provenance by receiving a bare float.
     """
@@ -151,7 +151,7 @@ class GeometryBackend(Protocol):
         """
         ...
 
-    # --- the fourteen primitives ---
+    # --- the sixteen primitives ---
 
     # `bbox`, `area` and `watertight` are total: they are statements about the
     # triangles or the shape as given, and stay answerable however broken it is.
@@ -196,4 +196,17 @@ class GeometryBackend(Protocol):
         manufactures the confident wrong number this protocol exists to refuse.
         The mesh backend MUST NOT declare this capability.
         """
+        ...
+
+    def bore_table(self, a: Any) -> Any:
+        """The raw per-bore view beneath `bores` — `{d, direction, center}`
+        per bore — consumed by `bolt_circle` (SPEC-contract.md 4.6). OCCT-only,
+        with `bores`."""
+        ...
+
+    def blend_radii(self, a: Any) -> Measurement | Unsupported:
+        """Every partial-wrap cylindrical cluster's radius, ascending — the
+        candidates a `fillet_radius` claim ranges over (SPEC-contract.md 4.7).
+        OCCT-only, with `bores`; MUST share its clustering, so a seam-split
+        bore cannot masquerade as two blends."""
         ...

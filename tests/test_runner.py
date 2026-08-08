@@ -1296,6 +1296,7 @@ def test_a_bore_is_not_a_blend_and_zero_blends_never_pass_vacuously(tmp_path: Pa
     check = next(c for c in report.checks if c.kind == "fillet_radius")
     assert check.status is Status.FAIL
     assert check.detail is not None and "vacuous green" in check.detail
+    assert "not yet detected" in check.detail, "the message must not deny torus blends exist"
     assert report.verdict is Verdict.FAIL
 
 

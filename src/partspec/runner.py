@@ -378,8 +378,10 @@ def _run_fillet_check(
         return CheckResult(
             **common,
             status=Status.FAIL,
-            detail="no blend surfaces exist on this part; a claim about every blend "
-            "needs at least one, and passing over an empty set would be vacuous green",
+            detail="no cylindrical blend surfaces detected on this part (toroidal and "
+            "spherical blends are not yet detected — SPEC-contract.md 4.7); a claim "
+            "about every blend needs at least one, and passing over an empty set "
+            "would be vacuous green",
         )
     status = adjudicate(outcome, spec.limit)
     components = _components_of(outcome, spec.limit)
