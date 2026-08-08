@@ -133,7 +133,7 @@ def test_check_returns_the_same_artifact_the_cli_writes(tmp_path: Path):
 
 
 @needs_openscad
-def test_render_tool_returns_view_paths_or_the_display_refusal(tmp_path: Path):
+def test_render_tool_returns_the_payload_or_the_display_refusal(tmp_path: Path):
     # Engine-level only — no trimesh in the loop — so this runs even in the
     # mcp-only environment, where the display refusal is the honest branch.
     shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
@@ -143,14 +143,17 @@ def test_render_tool_returns_view_paths_or_the_display_refusal(tmp_path: Path):
         "    return Part('subject', openscad('block_with_hole.scad'))\n"
     )
     payload = _call("render", {"target": f"{module}:make", "out": str(tmp_path / "out")})
+    # Either way the payload names its part (#103): the tool returns the
+    # whole artifact, not just the view map an extraction would strip to.
+    assert payload["rendered"]["part"]["id"] == "subject"
     if payload["exit_code"] == 0:
-        assert set(payload["renders"]) == {"iso", "front", "top", "right"}
-        for path in payload["renders"].values():
+        assert set(payload["rendered"]["renders"]) == {"iso", "front", "top", "right"}
+        for path in payload["rendered"]["renders"].values():
             assert Path(path).stat().st_size > 0
     else:
         assert payload["exit_code"] == 4
-        assert payload["renders"] is None
-        assert "display" in payload["stderr"]
+        assert payload["rendered"]["renders"] == {}
+        assert "display" in payload["rendered"]["error"]
 
 
 @needs_mesh_tier

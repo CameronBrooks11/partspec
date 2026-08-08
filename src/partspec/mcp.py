@@ -94,14 +94,18 @@ def _check(target: str, out: str | None, render: bool = False) -> dict[str, Any]
 
 
 def _render(target: str, out: str | None) -> dict[str, Any]:
+    # The whole payload, like measure's: since #103 the render output carries
+    # the part's identity and a JSON failure artifact, and extracting just the
+    # view map here would strip both — the error would arrive as a bare exit
+    # code, machine-invisible exactly where a machine is the audience.
     args = ["render", target]
     if out is not None:
         args += ["--out", out]
     proc = _run_cli(args)
-    result: dict[str, Any] = {"exit_code": proc.returncode, "renders": None}
+    result: dict[str, Any] = {"exit_code": proc.returncode, "rendered": None}
     try:
-        result["renders"] = json.loads(proc.stdout)["renders"]
-    except (json.JSONDecodeError, KeyError):
+        result["rendered"] = json.loads(proc.stdout)
+    except json.JSONDecodeError:
         result["stderr"] = proc.stderr[-_STDERR_TAIL:]
     return result
 
@@ -153,8 +157,10 @@ def build_server() -> MCPServer:
         """Write the canonical views (iso, front, top, right) as PNGs.
 
         Deterministically framed from the bounding box, so two runs of the
-        same geometry are comparable. Returns view name -> file path. The
-        images are evidence, not judgement — no verdict rides with them, and
+        same geometry are comparable. Returns the render payload: the part's
+        identity, the engine block, and `renders` mapping view name -> file
+        path (empty, beside an `error`, when rendering failed). The images
+        are evidence, not judgement — no verdict rides with them, and
         rendering never substitutes for measurement.
         """
         return _render(target, out)

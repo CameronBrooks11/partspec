@@ -719,14 +719,14 @@ def _cmd_render(args: argparse.Namespace) -> int:
     part, target = resolved
 
     try:
-        return _render_resolved(args, part, timeout_s)
+        return _render_resolved(args, part, target, timeout_s)
     finally:
         # The render verb resolves contracts too; it leaked its sibling
         # records on every exit path until PR #124's review demonstrated it.
         _invalidate_after(part, target)
 
 
-def _render_resolved(args: argparse.Namespace, part: Part, timeout_s: float) -> int:
+def _render_resolved(args: argparse.Namespace, part: Part, target: Target, timeout_s: float) -> int:
     if part.source.engine != "openscad":
         # Usage, not error: nothing failed — this verb does not exist for the
         # OCCT tier yet, and saying so beats a traceback from pretending it does.
@@ -739,17 +739,8 @@ def _render_resolved(args: argparse.Namespace, part: Part, timeout_s: float) -> 
 
     from .backend import BuildError
     from .engines import openscad
-    from .runner import _engine_source
-
-    out = _out_dir(args.target, args.out)
-    result = openscad.render_views(
-        _engine_source(part), out, timeout_s=effective_timeout(timeout_s)
-    )
-    if isinstance(result, BuildError):
-        print(f"partspec: {result.message}", file=sys.stderr)
-        if result.hint:
-            print(f"  hint: {result.hint}", file=sys.stderr)
-        return 4
+    from .report import SCHEMA_VERSION
+    from .runner import _engine_source, _tool_version, identity
 
     # The section-7 subset that applies to a render: no measurement tier is
     # involved, so no `backend` key — but method/param_mode still decide what
@@ -761,16 +752,38 @@ def _render_resolved(args: argparse.Namespace, part: Part, timeout_s: float) -> 
         "method": part.source.method,
         "param_mode": "call" if part.source.method else "define",
     }
-    print(
-        json.dumps(
-            {
-                "part": part.id,
-                "engine": engine,
-                "renders": {view: str(path) for view, path in result.items()},
-            },
-            indent=2,
-        )
+    # The identity prefix mirrors the report's field order (#103, the #47
+    # pattern): render was the last verb whose payload named its part with a
+    # bare id string — no digests, no closure — so its images could not be
+    # tied to the revision that produced them.
+    payload: dict[str, object] = {
+        "schema_version": SCHEMA_VERSION,
+        "tool": {"name": "partspec", "version": _tool_version()},
+        "part": identity(part, target.path),
+        "engine": engine,
+        "params": dict(part.source.params),
+    }
+
+    out = _out_dir(args.target, args.out)
+    result = openscad.render_views(
+        _engine_source(part), out, timeout_s=effective_timeout(timeout_s)
     )
+    if isinstance(result, BuildError):
+        # The failure is an artifact too (#47): this path used to print to
+        # stderr and return a bare 4 — machine-invisible exactly where a
+        # machine is the audience. Empty rather than absent, mirroring
+        # measure's failure shape: the identity prefix stays exact.
+        payload["renders"] = {}
+        payload["error"] = result.message
+        payload["hint"] = result.hint
+        print(json.dumps(payload, indent=2, allow_nan=False))
+        print(f"partspec: {result.message}", file=sys.stderr)
+        if result.hint:
+            print(f"  hint: {result.hint}", file=sys.stderr)
+        return exit_code(Verdict.ERROR)
+
+    payload["renders"] = {view: str(path) for view, path in result.items()}
+    print(json.dumps(payload, indent=2, allow_nan=False))
     return 0
 
 
