@@ -83,6 +83,17 @@ def test_weakening_is_forbidden_and_the_guard_is_named():
 
 
 def test_incomplete_and_fail_prescribe_different_actions():
-    """Acceptance (#28): exit 1 says edit the model; exit 2 says don't."""
-    assert "edit the **model**" in DOC
-    assert "Do not edit geometry" in DOC
+    """Acceptance (#28): exit 1 says edit the model; exit 2 says don't —
+    anchored to their own table rows, so swapping the two actions between
+    rows fails rather than passing on mere presence (PR #106 review, F9a)."""
+    rows = {m.group(1): m.group(0) for m in re.finditer(r"^\| `(\d+)` \|.*$", DOC, re.M)}
+    assert "edit the **model**" in rows["1"]
+    assert "Do not edit geometry" in rows["2"]
+
+
+def test_the_requires_tier_token_matches_the_runner():
+    """The doc teaches `requires: \"occt\"` as the routing token; hold it to
+    the string the runner actually emits (PR #106 review, F9b)."""
+    assert "`requires` names the tier" in DOC
+    assert '"occt"' in DOC
+    assert 'requires="occt"' in (SRC / "runner.py").read_text()
