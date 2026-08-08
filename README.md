@@ -79,6 +79,9 @@ model matches itself — real external footing looks like
 `p.hole_diameter(iso15.bearing(608).od)`, where the number arrives from `partspec.refs`
 with its citation recorded in the report.
 
+How to write a contract that proves something — check selection, limit provenance, the
+retrofit path — is
+[`skills/contract-authoring/`](https://github.com/CameronBrooks11/partspec/tree/main/skills/contract-authoring).
 Worked exemplars beyond the spacer live in
 [`examples/`](https://github.com/CameronBrooks11/partspec/tree/main/examples) — a cited
 NEMA 17 bracket, a two-engine bearing-seat family, a sealed enclosure — each with a README

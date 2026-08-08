@@ -216,3 +216,57 @@ def test_the_catalogue_cites_what_this_repo_actually_pins():
         "the raw record the catalogue cites must be frozen in-repo"
     )
     assert "test_docs.py" in CATALOGUE, "entry 3 names this file as its repro home"
+
+
+# --------------------------------------------------------------------------
+# skills/contract-authoring — the skill's executable claims
+# --------------------------------------------------------------------------
+
+SKILL = (ROOT / "skills" / "contract-authoring" / "SKILL.md").read_text()
+
+
+def test_the_skill_names_only_real_contract_methods():
+    """Every `p.method` the skill teaches must exist on Part — a skill naming
+    a method that was renamed teaches a call that raises."""
+    from partspec import Part
+
+    methods = set(re.findall(r"`p\.(\w+)", SKILL)) | set(re.findall(r"^p\.(\w+)\(", SKILL, re.M))
+    assert methods, "the skill must actually name methods"
+    for name in methods:
+        assert hasattr(Part, name), f"skill teaches p.{name}, which Part does not have"
+
+
+def test_the_skills_worked_example_executes():
+    """The before/after block is code an agent will paste; both halves must
+    declare real checks on a real Part."""
+    from partspec import Part, openscad
+
+    blocks = re.findall(r"```python\n(.*?)```", SKILL, re.S)
+    assert blocks, "the worked before/after must be a fenced python block"
+    before_half, _, after_half = blocks[0].partition("# After")
+    assert after_half, "the block must carry both halves, delimited by '# After'"
+    for half in (before_half, after_half):
+        code = "\n".join(line for line in half.splitlines() if line.startswith("p."))
+        p = Part("skill-subject", openscad("m.scad", wall=2.4, bore_d=8.0, plate_y=30.0))
+        exec(code, {"p": p})  # noqa: S102 - executing the doc is the point
+        assert len(p.checks) == 3, "each half declares exactly three checks"
+    # The AFTER half must actually be the structured form it advertises.
+    assert sorted(c.kind for c in p.checks) == ["param_range", "param_range", "requires"]
+
+
+def test_the_skills_pointers_resolve():
+    for path in (
+        "docs/PLAN.md",
+        "docs/FAILURE-MODES.md",
+        "docs/AGENT-CONTRACT.md",
+        "examples/stepper-bracket/spec.py",
+        "examples/bearing-block/claims.py",
+        "examples/enclosure",
+    ):
+        assert path in SKILL, f"the skill must cite {path} by its full path"
+        assert (ROOT / path).exists(), f"{path} is cited by the skill and must exist"
+    assert "only against a reference the model does not contain" in SKILL
+    assert (
+        "only against a reference the model does not contain"
+        in (ROOT / "docs" / "PLAN.md").read_text()
+    ), "the promoted lesson must still match its source"

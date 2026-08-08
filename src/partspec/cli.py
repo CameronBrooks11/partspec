@@ -537,6 +537,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         "is_valid",
         "watertight",
         "solid_count",
+        "cavities",
         "genus",
         "topology_counts",
         "bores",
