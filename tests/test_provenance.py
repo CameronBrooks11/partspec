@@ -407,3 +407,126 @@ def test_a_failed_mount_leaves_the_part_untouched():
     assert p.checks == [], "nothing may land from a failed declaration"
     nema17.mount(p)  # the corrected retry must not collide
     assert len(p.checks) == 2
+
+
+# --------------------------------------------------------------------------
+# the unattributed-limit warning (#50)
+# --------------------------------------------------------------------------
+
+CIRCULAR_MODEL = Path(__file__).parent / "fixtures" / "circular" / "model.py"
+
+
+def _circular_part(plate_y: float) -> Part:
+    """The circular contract, verbatim from the #50 repro: every bound is
+    computed from the same constants the model is built from."""
+    import math
+
+    from partspec import build123d
+
+    px, pz, bore = 40.0, 6.0, 8.0
+    p = Part(
+        "circular",
+        build123d(
+            CIRCULAR_MODEL, method="plate", plate_x=px, plate_y=plate_y, plate_z=pz, bore_d=bore
+        ),
+    )
+    v = px * plate_y * pz - math.pi * (bore / 2) ** 2 * pz
+    p.volume(min=v * 0.99, max=v * 1.01)
+    p.envelope(max=(px + 0.1, plate_y + 0.1, pz + 0.1))
+    p.watertight()
+    p.solid_count(1)
+    return p
+
+
+@needs_build123d
+@pytest.mark.parametrize(("plate_y", "expected_exit"), [(30.0, 0), (25.0, 0), (5.0, 1)])
+def test_the_circular_contract_regression_table(tmp_path: Path, plate_y, expected_exit):
+    """The #50 repro's table, pinned: a contract whose every bound is derived
+    from the model's own constants passes green however the plate shrinks —
+    until the geometry breaks topologically, because topological claims are
+    absolute and cannot be circular."""
+    from partspec.runner import run
+
+    report = run(_circular_part(plate_y), out_dir=tmp_path)
+    assert report.exit_code == expected_exit, [c.to_json() for c in report.checks]
+
+
+@needs_build123d
+def test_a_fully_unattributed_run_draws_the_warning(tmp_path: Path, capsys):
+    """The warning is the run-level signal the per-check absence adds up to:
+    every dimensional bound self-derived means the green proved the model
+    matches itself. Same channel as the empty-contract warning."""
+    from partspec.cli import main
+
+    contract = tmp_path / "spec.py"
+    contract.write_text(
+        "import math\n"
+        "from partspec import Part, build123d\n\n"
+        f"MODEL = {str(CIRCULAR_MODEL)!r}\n"
+        "PX, PY, PZ, BORE = 40.0, 30.0, 6.0, 8.0\n\n\n"
+        "def circular() -> Part:\n"
+        "    p = Part('circular', build123d(MODEL, method='plate',\n"
+        "             plate_x=PX, plate_y=PY, plate_z=PZ, bore_d=BORE))\n"
+        "    v = PX * PY * PZ - math.pi * (BORE / 2) ** 2 * PZ\n"
+        "    p.volume(min=v * 0.99, max=v * 1.01)\n"
+        "    p.envelope(max=(PX + 0.1, PY + 0.1, PZ + 0.1))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    code = main(["check", f"{contract}:circular", "--out", str(tmp_path / "out")])
+    err = capsys.readouterr().err
+    assert code == 0, err
+    assert "every dimensional limit on 'circular' is unattributed" in err
+    assert "partspec.refs" in err
+
+
+@needs_build123d
+def test_one_attributed_bound_quiets_the_warning(tmp_path: Path, capsys):
+    from partspec.cli import main
+
+    contract = tmp_path / "spec.py"
+    contract.write_text(
+        "from partspec import Part, build123d\n"
+        "from partspec.refs import iso15\n\n"
+        f"MODEL = {str(CIRCULAR_MODEL)!r}\n\n\n"
+        "def housing() -> Part:\n"
+        "    p = Part('housing', build123d(MODEL, method='plate', bore_d=22.0))\n"
+        "    p.hole_diameter(iso15.bearing(608).od, tol=0.05)\n"
+        "    p.envelope(max=(40.1, 30.1, 6.1))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    code = main(["check", f"{contract}:housing", "--out", str(tmp_path / "out")])
+    err = capsys.readouterr().err
+    assert code == 0, err
+    assert "unattributed" not in err
+
+
+def test_a_topology_only_contract_never_warns(tmp_path: Path, capsys):
+    """Topological claims are absolute and cannot be circular; a contract made
+    of them has no attribution question to answer."""
+    pytest.importorskip("trimesh", reason="mesh extra not installed")
+    from support import OPENSCAD
+
+    if OPENSCAD is None:
+        pytest.skip("openscad binary not installed")
+    from partspec.cli import main
+
+    scad = tmp_path / "p.scad"
+    scad.write_text(
+        "difference() { cube([30, 20, 10]); translate([12, 7, -1]) cube([6, 6, 12]); }\n"
+    )
+    contract = tmp_path / "spec.py"
+    contract.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def block() -> Part:\n"
+        f"    p = Part('block', openscad({str(scad)!r}))\n"
+        "    p.watertight()\n"
+        "    p.solid_count(1)\n"
+        "    p.genus(1)\n"
+        "    return p\n"
+    )
+    code = main(["check", f"{contract}:block", "--out", str(tmp_path / "out")])
+    err = capsys.readouterr().err
+    assert code == 0, err
+    assert "unattributed" not in err

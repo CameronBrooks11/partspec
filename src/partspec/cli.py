@@ -355,6 +355,23 @@ def _summarise(report, path: Path) -> None:
             f"not a passing design.",
             file=sys.stderr,
         )
+
+    from .contract import DIMENSIONAL_KINDS
+
+    dimensional = [c for c in report.checks if c.kind in DIMENSIONAL_KINDS]
+    if dimensional and all(c.source is None for c in dimensional):
+        # The circular-contract warning (#50, SPEC-contract.md 6): a bound
+        # recomputed from the model's own constants cannot fail however the
+        # design moves, and nothing in a single green run distinguishes that
+        # from a real proof. Attribution is the distinguisher, and its total
+        # absence is worth one line — same channel as the empty-contract
+        # warning, because both are a green that proved less than it looks.
+        print(
+            f"  every dimensional limit on {report.part_id!r} is unattributed: "
+            f"bounds derived from the model's own numbers prove the model matches "
+            f"itself (partspec.refs carries cited values; SPEC-contract.md 10)",
+            file=sys.stderr,
+        )
     print(f"  {path}", file=sys.stderr)
 
 
