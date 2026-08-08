@@ -1,9 +1,10 @@
 # Observed CAD-as-code failure modes
 
 **Status:** v1 · 2026-08-08 · closes #24
-**Source:** the 2026-08-03/05 dogfood runs (partspec 0.1.0, 15 targets, 18-library
+**Source:** the 2026-08-03–06 dogfood runs (partspec 0.1.0, 15 targets, 18-library
 OpenSCAD corpus plus community CadQuery/build123d models), distilled from the scratch
-workspace's `results.md`. Finding numbers (F5, F10, …) refer to that record.
+workspace's `results.md`, preserved verbatim as `notes/dogfood-results.md`. Finding
+numbers (F5, F10, …) refer to that record.
 **Scope:** failure modes of *CAD-as-code itself* — the ways a part goes wrong while
 every tool in the chain reports success. partspec's own development bugs are deliberately
 excluded (the tracker and `notes/` carry those); this file is what an authoring agent
@@ -12,7 +13,8 @@ needs to have seen *before* writing a part.
 **Workspace ruling (#24's last acceptance box):** `docs/PLAN.md` records the dogfood
 workspace's untracked status as a deliberate call, and that call **stands** — it remains
 a scratch corpus of third-party code. What changes is that everything load-bearing now
-lives here: this catalogue is the shipped artifact, `results.md` the frozen raw source.
+lives here: this catalogue is the shipped artifact, and the raw record is frozen at
+`notes/dogfood-results.md`.
 Entries below are marked **[repo]** when reproducible from this repository alone and
 **[corpus]** when they need the external library corpus.
 
@@ -36,8 +38,9 @@ quietly-wrong part shows you.
   PASS on 2021.01 (honours `assign`), FAIL on 2026.08.01 (ignores it). One variable. (F13)
 - **When it's green.** Both versions **exit 0 and write clean, watertight, single-solid
   STLs**. The only signal is a `WARNING: Ignoring unknown module 'assign'` buried in
-  stderr. No `assert()` in the library could catch it — the corpus of 18 libraries
-  contains zero asserts, and the one that had 12 (the bayonet) only guarded its inputs.
+  stderr. No `assert()` in the library could catch it — the 18-library corpus
+  contains zero asserts; the one library with any (the bayonet, 12 of them, from a
+  separate collection) was the outlier, and even those only guard inputs.
 - **Guards.** `PARTSPEC_OPENSCAD` pins the binary; the version is recorded in every
   report because it changes the artifact; bounds derived from theory, not measured off
   the part (see `docs/SPEC-contract.md` §10 on reference-derived limits).
@@ -53,9 +56,9 @@ quietly-wrong part shows you.
 - **Detected by.** A differential run varying only the backend; the face-per-edge count
   is arithmetic, not a heuristic, and `manifold3d` independently agrees. (F10)
 - **When it's green.** OpenSCAD prints `Status: NoError`, `"simple": true`, **manifold**
-  — and exits 0. Every one of those statements is false. This is why partspec never
-  parses `--summary` (D13): the engine's self-report asserted a false validity key on a
-  real part.
+  — and exits 0. Every one of those statements is false. This confirmed D13 —
+  partspec never parses `--summary` — harder than the case D13 was built on: not an
+  omitted validity key but a false one, asserted on a real part.
 - **Guards.** `openscad(..., backend="CGAL")` selects the backend and
   `engine.render_backend` records it; `watertight` names boundary vs non-manifold edges;
   D17 preconditions make `volume`/`genus` refuse on the broken mesh instead of
@@ -68,7 +71,8 @@ quietly-wrong part shows you.
   hold a motor**: the slots breach the plate edge and become open notches.
 - **Root cause.** A hole is a topological property. When it opens onto the boundary the
   genus falls (5 → 1); nothing about "a slot got longer" warns that a threshold was
-  crossed. Pushed further, one parameter yields five distinct states, all exiting 0:
+  crossed. Pushed further, one parameter swept across six values yields four regimes, the first
+  three all exiting 0:
   correct (genus 5), unmountable (genus 1), pinched to non-manifold (refused, named),
   and shattered into six solids (`solid_count` answers 6 while `genus` declines,
   per-body).
@@ -77,7 +81,9 @@ quietly-wrong part shows you.
   four of five checks identical to the good part. **Visual review is worst here**:
   open-ended slots look like a deliberate design choice.
 - **Guards.** Assert topology (`genus`, `solid_count`), not just size; the mesh tier
-  answers both with no feature recognition.
+  answers both with no feature recognition. The essence is reproduced in-repo:
+  `tests/test_docs.py` sweeps a slot across a plate edge and watches `genus` drop while
+  envelope, watertightness and solid count hold still.
 
 ## 4. A clearance allowance baked into a constant named for a nominal dimension **[repo]**
 
@@ -142,7 +148,9 @@ quietly-wrong part shows you.
 - **Root cause.** `cadquery-ocp` and `cadquery-ocp-novtk` both install the same
   top-level `OCP/` package (326 vs 322 files); neither pip nor uv detects the conflict;
   whichever lands last wins. A fresh-venv spike that worked was resolution-order luck.
-  (F5; the successor hazard is #109 — `cadquery-ocp-proxy` under `uv pip` installs no
+- **Detected by.** The first `import cadquery` after `uv sync --all-extras` — days can
+  pass between the install exiting 0 and the import that reveals it, and the traceback
+  blames the library, not the resolver. (F5; the successor hazard is #109 — `cadquery-ocp-proxy` under `uv pip` installs no
   OCP at all.)
 - **When it's green.** The install exits 0. The breakage surfaces only at first import,
   possibly days later, and looks like the *library's* bug.
@@ -164,7 +172,8 @@ quietly-wrong part shows you.
   community code ships a three-line adapter, and an agent that doesn't know this
   pattern will rewrite the model instead.
 - **Guards.** partspec deliberately does not guess calling conventions; the adapter
-  pattern is the documented friction (`SPEC-backend.md` §4).
+  friction is recorded in `docs/PLAN.md`'s P4 revision note (citing F8): a real
+  contract on community code usually ships a small explicit adapter.
 
 ---
 
@@ -177,7 +186,7 @@ with the next is "produce *a* mesh", not "produce *the* mesh". The checks that c
 them — envelope from theory, topology, external standards, unbound-parameter refusal —
 are all statements about **intent the model does not contain**, which is the reason this
 tool exists and the reason a contract derived from the model's own numbers proves
-nothing (§4).
+nothing (entry 4).
 
 *Cross-references from the authoring skills (#22, #23) land with those skills; each
 entry above carries a stable heading for them to anchor to.*

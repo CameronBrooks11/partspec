@@ -17,6 +17,7 @@ Per-item disposition (#51's acceptance — decided, not defaulted):
 | `RESEARCH.md` | **tracked** — external research: agent CAD benchmarks, prior art |
 | `audit-synthesis.md` | **tracked** — the 2026-08-06 tracker audit (120 agents, 45 upheld findings); cited by many issue bodies |
 | `file_issues.py`, `file_audit_issues.py`, `revise_audit_issues.py` | **tracked** — the scripts that filed and revised the tracker; the issues' provenance |
+| `dogfood-results.md` | **tracked** — the dogfood record (F1–F18), copied verbatim from the scratch workspace when #24 shipped its distillation (`docs/FAILURE-MODES.md`); the F-number citations there resolve to this file |
 | `repros/circular-contract/` | **tracked** — the #50 repro; its promoted twin lives in `tests/fixtures/circular/` (kept here because this copy carries the original README narrative; `outputs/` stays ignored) |
 | `audit-journal.jsonl`, `audit-run1-raw.json` | **ignored** (committed `.gitignore` rule) — raw audit transcript and output; the synthesis above is the load-bearing artifact |
 | `issues-snapshot-*`, `issues-final-*` | **ignored** — tracker snapshots, regenerable with `gh issue list` |

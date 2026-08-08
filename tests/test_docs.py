@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 
 import pytest
+from support import measured, needs_openscad
 
 from partspec.status import EXIT_USAGE, Verdict, exit_code
 
@@ -164,3 +165,54 @@ def test_the_catalogue_marks_every_entry_reproducible_or_corpus():
     assert len(entries) == 8
     for entry in entries:
         assert "[repo]" in entry or "[corpus]" in entry, entry
+
+
+@needs_openscad
+def test_the_hole_becomes_notch_essence_is_reproducible_here(tmp_path: Path):
+    """Catalogue entry 3's [repo] claim, executed: a slot swept across the
+    plate edge drops the genus while every other check holds still — the
+    failure mode visual review is worst at, in eight lines of scad."""
+    from partspec.backends.mesh import MeshBackend
+    from partspec.engines.openscad import OpenSCADSource
+
+    scad = tmp_path / "plate.scad"
+    scad.write_text(
+        "slot_l = 20;\n"
+        "difference() {\n"
+        "    cube([40, 30, 4]);\n"
+        "    translate([10, 12, -1]) cube([slot_l, 6, 6]);\n"
+        "}\n"
+    )
+
+    def measure(slot_l: float):
+        backend = MeshBackend()
+        artifact = backend.build(
+            OpenSCADSource(path=scad, params={"slot_l": slot_l}), tmp_path / f"o{slot_l:g}"
+        )
+        return backend, artifact
+
+    backend, hole = measure(20.0)  # slot ends at x=30: an interior through-hole
+    backend2, notch = measure(35.0)  # slot reaches x=45 > 40: breaches the edge
+
+    assert measured(backend.genus(hole)).value == 1
+    assert measured(backend2.genus(notch)).value == 0, (
+        "the hole that reached the boundary is a notch"
+    )
+    for b, a in ((backend, hole), (backend2, notch)):
+        assert b.watertight(a).value is True
+        assert measured(b.solid_count(a)).value == 1
+        assert b.bbox(a).value == (40.0, 30.0, 4.0)
+
+
+def test_the_catalogue_cites_what_this_repo_actually_pins():
+    """PR #111 re-review: load-bearing citations the earlier tests missed."""
+    assert "22.5" in CATALOGUE, "entry 4's number is the finding"
+    assert "test_provenance.py" in CATALOGUE
+    assert "render_backend" in CATALOGUE
+    assert "render_backend" in (ROOT / "src" / "partspec" / "runner.py").read_text()
+    assert "#109" in CATALOGUE
+    assert "dogfood-results.md" in CATALOGUE
+    assert (ROOT / "notes" / "dogfood-results.md").is_file(), (
+        "the raw record the catalogue cites must be frozen in-repo"
+    )
+    assert "test_docs.py" in CATALOGUE, "entry 3 names this file as its repro home"
