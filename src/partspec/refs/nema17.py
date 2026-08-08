@@ -1,8 +1,7 @@
-"""NEMA 17 stepper-motor mounting interface (NEMA ICS 16).
+"""NEMA 17 stepper-motor mounting interface (NEMA ICS 16, Table 4, flange 17).
 
-The dogfood kept these four numbers as hand-maintained constants in a bracket
-model; they are the mounting facts every NEMA 17 bracket on earth shares. The
-`mount` fragment declares the interface onto a part in one call:
+The dogfood kept these numbers as hand-maintained constants in a bracket
+model. The `mount` fragment declares the interface onto a part in one call:
 
     from partspec.refs import nema17
 
@@ -11,11 +10,20 @@ model; they are the mounting facts every NEMA 17 bracket on earth shares. The
         nema17.mount(p)
         ...
 
-The split of authority is deliberate: the *pattern* — where the holes are — is
-the standard's, and its checks carry the citation. The *clearance diameters* —
-how big the designer drilled them — are design choices, taken as arguments and
-left unattributed: a fragment must never launder the designer's numbers into a
-standard's.
+**The standard speaks in inches and states the bolt circle directly.** NEMA
+ICS 16's flange-17 row gives AJ — the mounting-hole pitch circle — as
+1.725 in, the pilot (AK) as 0.8661 in, and BD (flange width) as 1.7 in marked
+reference-only. The metric figures every catalogue prints (31 mm hole square,
+42.3 mm body) are roundings and conventions derived FROM those, not the
+standard's own numbers — this table's first version had that exactly
+backwards, cited the catalogue square to the standard, and failed a bracket
+built on the standard's own circle (PR #96 review). Values here are exact
+conversions of what the document states, with the inch figure in every note.
+
+The split of authority is deliberate: the *pattern* is the standard's and its
+checks carry the citation; the *clearance diameters* are design choices, taken
+as arguments and left unattributed — a fragment must never launder the
+designer's numbers into a standard's.
 """
 
 from __future__ import annotations
@@ -31,53 +39,97 @@ if TYPE_CHECKING:
 __all__ = ["BOLT_CIRCLE_DIAMETER", "FACEPLATE", "HOLE_SQUARE", "PILOT_BOSS", "SHAFT", "mount"]
 
 _STANDARD = "NEMA ICS 16"
+_SUBJECT = "flange 17 (Table 4)"
 
 
-def _ref(value: float, field: str, note: str | None = None) -> Referenced:
-    source = {"standard": _STANDARD, "subject": "NEMA 17", "field": field}
-    if note:
-        source["note"] = note
-    return Referenced(value, source)
+def _ref(value: float, field: str, note: str) -> Referenced:
+    return Referenced(
+        value, {"standard": _STANDARD, "subject": _SUBJECT, "field": field, "note": note}
+    )
 
-
-HOLE_SQUARE = _ref(31.0, "mounting_hole_square_side")
-"""The four mounting holes sit on the corners of a 31.0 mm square."""
 
 BOLT_CIRCLE_DIAMETER = _ref(
-    31.0 * math.sqrt(2),
-    "bolt_circle_diameter",
-    note="circumscribed diameter of the 31.0 mm square hole pattern (31.0 x sqrt 2); "
-    "the derivation is this table's, the square is the standard's",
+    1.725 * 25.4,  # 43.815 mm
+    "AJ (mounting hole pitch circle)",
+    "1.725 in, converted to mm; the standard states the pitch circle directly",
 )
-"""The square's corners as a bolt circle — what `bolt_circle` adjudicates.
+"""The mounting-hole pitch circle — the standard's own dimension, undived."""
 
-The derivation is stated in the citation rather than silently performed at the
-call site, where arithmetic would (correctly) shed the attribution: a table may
-derive and say so; a call site deriving silently owns the result.
-"""
+HOLE_SQUARE = _ref(
+    1.725 * 25.4 / math.sqrt(2),  # 30.982 mm
+    "mounting_hole_square_side",
+    "derived: AJ / sqrt 2 = 30.982 mm; the derivation is this table's — the "
+    "standard states the circle, and the 31.0 mm square in catalogues is a "
+    "rounding of this figure, not the standard's number",
+)
+"""The square the holes sit on, as a stated derivation from AJ."""
 
-PILOT_BOSS = _ref(22.0, "pilot_boss_diameter")
+PILOT_BOSS = _ref(
+    0.8661 * 25.4,  # 21.999 mm
+    "AK (pilot diameter)",
+    "0.8661 in +0/-0.0020, converted to mm",
+)
 """The locating boss a bracket's pilot bore must clear."""
 
-FACEPLATE = _ref(42.3, "faceplate_width")
+FACEPLATE = _ref(
+    1.7 * 25.4,  # 43.18 mm
+    "BD (square flange width, reference only)",
+    "1.7 in; the standard marks BD as an approximate reference value and "
+    "leaves the actual width to the manufacturer — catalogue bodies are "
+    "commonly 42.3 mm",
+)
+"""Flange width — reference-only in the standard, and cited as such."""
 
-SHAFT = _ref(5.0, "shaft_diameter")
+SHAFT = _ref(0.1969 * 25.4, "U (shaft diameter)", "0.1969 in, converted to mm")
 
 
-def mount(part: Part, *, bolt_holes: float = 3.4, pilot: float = 22.3, tol: float = 0.1) -> Part:
+def mount(
+    part: Part,
+    *,
+    bolt_holes: float = 3.4,
+    pilot: float = 22.3,
+    tol: float = 0.1,
+    instance: str | None = None,
+    pilot_count: int = 1,
+) -> Part:
     """Declare the NEMA 17 mounting interface on a bracket.
 
     A fragment declares checks and nothing else (SPEC-contract.md 11): no
     geometry, no measuring, no checks invented from the part. Ids are
-    namespaced `nema17:*`, so two fragments never collide and `diff` joins
-    stably across runs.
+    namespaced `nema17:*` — `nema17:left:*` with `instance="left"` — so
+    fragments never collide silently and `diff` joins stably across runs.
 
     `bolt_holes` and `pilot` are the *bracket's* clearance diameters — the
     designer's numbers, deliberately unattributed. The pattern they must sit
-    on is the standard's, and carries it.
+    on is the standard's, and carries it. One `tol` serves both the pilot
+    diameter band and the bolt-circle position band; a design needing them
+    split should declare the checks directly.
+
+    Multi-mount brackets: pass a distinct `instance` per mount, and set
+    `pilot_count` to the TOTAL number of pilot-diameter bores on the part —
+    `hole_diameter` counts the whole part (there are no selectors), so a
+    two-motor bracket passes `pilot_count=2` on both calls. The bolt-circle
+    claims need no such help: each asserts that its own circle of four
+    exists, which stays true with eight holes on two circles.
+
+    The declaration is atomic: an invalid argument raises before any check
+    lands, so a corrected retry never trips a collision with the failed
+    attempt's leavings.
     """
-    part.hole_diameter(pilot, count=1, tol=tol, id="nema17:pilot")
-    part.bolt_circle(
-        bolt_holes, count=4, bcd=BOLT_CIRCLE_DIAMETER, tol=tol, id="nema17:bolt_circle"
+    from ..contract import Part as _Part
+
+    prefix = f"nema17:{instance}:" if instance else "nema17:"
+    staged = _Part(part.id, part.source)
+    staged.hole_diameter(pilot, count=pilot_count, tol=tol, id=f"{prefix}pilot")
+    staged.bolt_circle(
+        bolt_holes, count=4, bcd=BOLT_CIRCLE_DIAMETER, tol=tol, id=f"{prefix}bolt_circle"
     )
+    existing = {c.id for c in part.checks}
+    for spec in staged.checks:
+        if spec.id in existing:
+            # Pre-checked so the transfer below cannot half-land: _add would
+            # catch this too, but only after the first spec was already in.
+            part._add(spec)  # raises the canonical duplicate-id error
+    for spec in staged.checks:
+        part._add(spec)
     return part

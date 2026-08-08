@@ -95,13 +95,19 @@ def bearing(designation: int) -> Bearing:
     )
 
 
-def seat(part: Part, designation: int, *, tol: float = 0.05) -> Part:
-    """Declare a bearing seat: one bore at the designation's outside diameter.
+def seat(
+    part: Part, designation: int, *, tol: float = 0.05, instance: str | None = None, count: int = 1
+) -> Part:
+    """Declare a bearing seat: a bore at the designation's outside diameter.
 
     A fragment (SPEC-contract.md 11): declares checks only, ids namespaced
-    `iso15:*`. The nominal is the standard's and carries its citation; `tol`
-    is the designer's fit allowance and stays theirs.
+    `iso15:*` (`iso15:608:left:seat` with `instance="left"`). The nominal is
+    the standard's and carries its citation; `tol` is the designer's fit
+    allowance and stays theirs. `count` is the TOTAL number of seat-diameter
+    bores on the part — `hole_diameter` counts the whole part, so two 608
+    seats pass `count=2` on both calls.
     """
     b = bearing(designation)
-    part.hole_diameter(b.od, count=1, tol=tol, id=f"iso15:{designation}:seat")
+    suffix = f"{instance}:seat" if instance else "seat"
+    part.hole_diameter(b.od, count=count, tol=tol, id=f"iso15:{designation}:{suffix}")
     return part

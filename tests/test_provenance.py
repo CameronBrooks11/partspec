@@ -282,17 +282,26 @@ def test_mount_declares_the_pattern_with_the_standards_authority():
     assert circle.id == "nema17:bolt_circle"
     assert circle.source is not None
     assert circle.source["bcd"]["standard"] == "NEMA ICS 16"
-    assert "derivation" in circle.source["bcd"]["note"]
+    assert "1.725 in" in circle.source["bcd"]["note"]
 
 
-def test_the_derived_bolt_circle_states_its_derivation():
+def test_the_table_states_what_the_standard_states():
+    """NEMA ICS 16 speaks in inches and gives the pitch circle DIRECTLY
+    (AJ = 1.725 in); the 31 mm square is the catalogue's rounding. The first
+    cut had the derivation backwards — 25.6 um off the standard's own number
+    with a note claiming the opposite (PR #96 review, against the document's
+    text). Values must be exact conversions of the stated figures."""
     import math
 
     from partspec.refs import nema17
 
-    assert float(nema17.BOLT_CIRCLE_DIAMETER) == pytest.approx(31.0 * math.sqrt(2))
-    assert float(nema17.HOLE_SQUARE) == 31.0
-    assert float(nema17.PILOT_BOSS) == 22.0
+    assert float(nema17.BOLT_CIRCLE_DIAMETER) == pytest.approx(1.725 * 25.4, abs=1e-12)
+    assert float(nema17.HOLE_SQUARE) == pytest.approx(1.725 * 25.4 / math.sqrt(2), abs=1e-12)
+    assert float(nema17.PILOT_BOSS) == pytest.approx(0.8661 * 25.4, abs=1e-12)
+    assert float(nema17.FACEPLATE) == pytest.approx(1.7 * 25.4, abs=1e-12)
+    assert "reference" in nema17.FACEPLATE.source["note"]
+    assert "1.725 in" in nema17.BOLT_CIRCLE_DIAMETER.source["note"]
+    assert "derived" in nema17.HOLE_SQUARE.source["note"]
 
 
 def test_two_fragment_calls_collide_loudly():
@@ -347,6 +356,9 @@ def test_a_conforming_bracket_passes_the_mount_fragment(tmp_path: Path):
     assert report.verdict.value == "pass", [c.to_json() for c in report.checks]
     circle = next(c for c in report.checks if c.id == "nema17:bolt_circle")
     assert circle.measurement is not None
+    # The bracket is modelled on the catalogue's 31 mm square; the claim is the
+    # standard's 43.815 pitch circle; the 25.6 um difference sits inside the
+    # default positional tol, as it must for both conventions to coexist.
     assert circle.measurement.value == pytest.approx(43.8406, abs=1e-3)
 
 
@@ -366,3 +378,32 @@ def test_a_hole_off_pattern_fails_with_the_standard_named(tmp_path: Path):
     circle = next(c for c in report.checks if c.id == "nema17:bolt_circle")
     assert circle.status.value == "fail"
     assert circle.source is not None and circle.source["bcd"]["standard"] == "NEMA ICS 16"
+
+
+def test_two_mounts_coexist_with_instances_and_a_total_pilot_count():
+    from partspec.refs import nema17
+
+    p = _part()
+    nema17.mount(p, instance="left", pilot_count=2)
+    nema17.mount(p, instance="right", pilot_count=2)
+    ids = [c.id for c in p.checks]
+    assert ids == [
+        "nema17:left:pilot",
+        "nema17:left:bolt_circle",
+        "nema17:right:pilot",
+        "nema17:right:bolt_circle",
+    ]
+
+
+def test_a_failed_mount_leaves_the_part_untouched():
+    """Atomic declaration: a bad argument must not half-land checks, or the
+    corrected retry dies on a collision with the failed attempt's leavings
+    (PR #96 review, S2)."""
+    from partspec.refs import nema17
+
+    p = _part()
+    with pytest.raises(ContractError, match="bcd > d"):
+        nema17.mount(p, bolt_holes=50.0)
+    assert p.checks == [], "nothing may land from a failed declaration"
+    nema17.mount(p)  # the corrected retry must not collide
+    assert len(p.checks) == 2
