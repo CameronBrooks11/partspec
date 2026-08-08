@@ -270,3 +270,106 @@ def test_the_skills_pointers_resolve():
         "only against a reference the model does not contain"
         in (ROOT / "docs" / "PLAN.md").read_text()
     ), "the promoted lesson must still match its source"
+
+
+# --------------------------------------------------------------------------
+# skills/openscad-authoring — the skill's examples build and mean what they say
+# --------------------------------------------------------------------------
+
+SCAD_SKILL = (ROOT / "skills" / "openscad-authoring" / "SKILL.md").read_text()
+
+
+def _scad_blocks() -> dict[str, str]:
+    blocks = {}
+    for body in re.findall(r"```scad\n(.*?)```", SCAD_SKILL, re.S):
+        first = body.splitlines()[0]
+        m = re.match(r"// (rule-\d+-(?:before|after))", first)
+        assert m, f"every scad block carries a rule marker, got: {first!r}"
+        blocks[m.group(1)] = body
+    return blocks
+
+
+@needs_openscad
+def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
+    """Acceptance (#22): the examples in the skill actually build and satisfy
+    what they claim — executed, per rule, not asserted in prose."""
+    from partspec.backend import BuildError
+    from partspec.backends.mesh import MeshBackend
+    from partspec.engines.openscad import OpenSCADSource
+
+    blocks = _scad_blocks()
+    assert set(blocks) >= {
+        "rule-1-before",
+        "rule-1-after",
+        "rule-2-before",
+        "rule-2-after",
+        "rule-4-before",
+        "rule-4-after",
+        "rule-5-after",
+    }
+    # Rule 3's overshoot idiom is taught THROUGH the after-blocks it points
+    # at; an exact-face cutter slipped every measurement (review mutation M4),
+    # so the idiom itself is pinned textually.
+    for name in ("rule-2-after", "rule-5-after"):
+        assert "-1" in blocks[name] and "+ 2" in blocks[name], f"{name} lost the overshoot"
+
+    def build(name: str):
+        scad = tmp_path / f"{name}.scad"
+        scad.write_text(blocks[name])
+        backend = MeshBackend()
+        return backend, backend.build(OpenSCADSource(path=scad), tmp_path / name)
+
+    # Rule 1: both build; the after-form has drivable top-level parameters.
+    for name in ("rule-1-before", "rule-1-after"):
+        _, artifact = build(name)
+        assert not isinstance(artifact, BuildError), name
+    from partspec.engines.openscad import top_level_variables
+
+    scad = tmp_path / "rule-1-after.scad"
+    assert {"plate_w", "plate_d", "plate_t"} <= top_level_variables(scad)
+
+    # Rule 4: pinned facets are a measurable property of the artifact — a
+    # 48-gon cylinder exports exactly 50 distinct face normals; the unpinned
+    # form follows $fa/$fs and must NOT equal it.
+    backend4, pinned = build("rule-4-after")
+    assert not isinstance(pinned, BuildError)
+    assert backend4.provenance(pinned)["distinct_normals"] == 50
+    backend4b, unpinned = build("rule-4-before")
+    assert not isinstance(unpinned, BuildError)
+    assert backend4b.provenance(unpinned)["distinct_normals"] != 50
+    assert "facets" in top_level_variables(tmp_path / "rule-4-after.scad")
+
+    # Rule 2: the fully-empty wrong order is refused by the engine itself and
+    # relayed by partspec as a build failure; the right order is a genuine
+    # through-hole, genus 1. (The exit-0 hazard is the PARTIAL wrong order,
+    # which no fixed fixture can pin — the skill's prose carries it.)
+    _, before = build("rule-2-before")
+    assert isinstance(before, BuildError), "hole-minus-plate must fail as empty geometry"
+    backend, after = build("rule-2-after")
+    assert not isinstance(after, BuildError)
+    assert measured(backend.genus(after)).value == 1
+    assert backend.watertight(after).value is True
+
+    # Rule 5: the decomposed form produces the same part as rule 2's after.
+    backend5, decomposed = build("rule-5-after")
+    assert not isinstance(decomposed, BuildError)
+    assert measured(backend5.genus(decomposed)).value == 1
+    assert measured(backend5.volume(decomposed)).value == pytest.approx(
+        measured(backend.volume(after)).value, rel=1e-9
+    )
+
+
+def test_the_scad_skill_cites_the_catalogue_and_its_neighbours():
+    """Acceptance (#22): cross-references the failure catalogue — this is also
+    the skills' half of #24's deferred cross-reference box, OpenSCAD side."""
+    for needle in (
+        "docs/FAILURE-MODES.md",
+        "entry 1",
+        "entry 2",
+        "entry 4",
+        "entry 5",
+        "skills/contract-authoring/SKILL.md",
+        "PARTSPEC_OPENSCAD",
+        "source_closure",
+    ):
+        assert needle in SCAD_SKILL, f"the skill must reference {needle}"

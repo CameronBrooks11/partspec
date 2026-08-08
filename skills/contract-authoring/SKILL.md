@@ -112,6 +112,7 @@ quantity the backend can honestly produce, with no verdict, so you can see the n
   with review (`docs/AGENT-CONTRACT.md` §4).
 - Shared claims across implementations assert **only what the requirement fixes**
   (FAILURE-MODES entry 6; `examples/bearing-block/claims.py` is the worked form).
+- The source-side rules live in `skills/openscad-authoring/SKILL.md`.
 - The worked exemplars under `examples/` are the imitation set: the exemplar
   READMEs (`stepper-bracket`, `bearing-block`, `enclosure`) each say what to copy and
   why.
