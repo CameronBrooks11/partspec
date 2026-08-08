@@ -230,6 +230,11 @@ packaging, and its `-D` parameter-passing approach is adopted directly.
 side — a stateful interactive session an agent designs *in*; `partspec` is the stateless
 gate the result must pass, and deliberately does not own that loop
 ([D18](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md)).
+[sca2d](https://gitlab.com/bath_open_instrumentation_group/sca2d) (GPLv3) is the
+`.scad`-side static analyser — scoping and style, no geometry — and FreeCAD's
+[importCSG](https://github.com/FreeCAD/FreeCAD/blob/main/src/Mod/OpenSCAD/importCSG.py)
+(LGPL) proved the `.csg` grammar small before `partspec lint`'s tier-2 reader was
+hand-rolled (#118's survey records why neither could be depended on).
 
 ## License
 

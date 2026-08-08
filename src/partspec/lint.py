@@ -23,7 +23,15 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-__all__ = ["Finding", "LINT_SCHEMA_VERSION", "LintError", "RULES", "lint_path"]
+__all__ = [
+    "Finding",
+    "LINT_SCHEMA_VERSION",
+    "LintError",
+    "RULES",
+    "TIER2_RULES",
+    "lint_path",
+    "lint_scad_tier2",
+]
 
 LINT_SCHEMA_VERSION = 2
 
@@ -41,7 +49,16 @@ RULES = {
     "scad-module-size": f"a module body over {MODULE_LINE_LIMIT} lines",
     "py-magic-number": "a numeric literal in a call inside a function body",
     "py-function-size": f"a function body over {FUNCTION_LINE_LIMIT} lines",
+    "csg-difference-order": "a difference() whose first child is not the largest",
+    "csg-coincident-face": "a subtrahend sharing a face plane with its minuend",
 }
+
+TIER2_RULES = ("csg-difference-order", "csg-coincident-face")
+"""Geometry-dependent rules over the engine's constant-folded `.csg` export
+(#118). They MAY require the engine and MUST report `unsupported` — never
+silent absence — when it is missing (the audit's honesty shape). Findings
+carry line 0: the tree is constant-folded, so no source line exists to name;
+the message describes the geometry instead."""
 
 
 class LintError(Exception):
@@ -288,3 +305,144 @@ def _numeric_constants(exprs: list[ast.expr]):
             yield node.value, node
             continue
         stack.extend(ast.iter_child_nodes(node))
+
+
+# --------------------------------------------------------------------------
+# tier 2 — over the engine's constant-folded .csg export (#118)
+# --------------------------------------------------------------------------
+
+
+def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], list[dict]]:
+    """The two geometry rules, or honest refusals.
+
+    Returns (findings, unsupported) where each unsupported entry is
+    {"rule", "reason"} — a rule that could not run says so per file, because
+    a rule silently absent reads as a clean bill (#118, audit bullet 1).
+    """
+    import subprocess
+    import tempfile
+
+    from . import csg
+
+    if executable is None:
+        reason = "openscad is not installed; the rule reads the engine's .csg export"
+        return [], [{"rule": r, "reason": reason} for r in TIER2_RULES]
+
+    with tempfile.TemporaryDirectory(prefix="partspec-lint-") as tmp:
+        out = Path(tmp) / "tree.csg"
+        try:
+            proc = subprocess.run(
+                [executable, "-o", str(out), str(path)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            # A bad PARTSPEC_OPENSCAD or a hung export must be an entry, not
+            # an exit-4 crash that eats every file's tier-1 findings too
+            # (PR #125 review, F1).
+            reason = f"the .csg export could not run: {exc}"
+            return [], [{"rule": r, "reason": reason} for r in TIER2_RULES]
+        if proc.returncode != 0 or not out.is_file():
+            stderr_lines = (proc.stderr or "").strip().splitlines()
+            detail = stderr_lines[-1] if stderr_lines else f"openscad exited {proc.returncode}"
+            reason = f"the .csg export failed: {detail}"
+            return [], [{"rule": r, "reason": reason} for r in TIER2_RULES]
+        raw = out.read_text(encoding="utf-8", errors="replace")
+        if '"' in raw:
+            # BEFORE the parse, on the raw bytes: the format does not escape
+            # string interiors (text(), import()), so a quote can silently
+            # reshape the parse — and a detector running over the parsed tree
+            # was bypassable by hiding the string in a %-dropped statement
+            # (PR #125 re-review). A quote can only ever become a string
+            # token or a parse error, so refusing on the character itself is
+            # airtight and loses nothing on quote-free files.
+            reason = (
+                "the export carries string content, which the .csg format does "
+                "not escape — no parse of it can be trusted, so the file is "
+                "refused whole"
+            )
+            return [], [{"rule": r, "reason": reason} for r in TIER2_RULES]
+        try:
+            nodes = csg.parse_csg(raw)
+        except csg.CsgError as exc:
+            return [], [{"rule": r, "reason": f"unreadable .csg: {exc}"} for r in TIER2_RULES]
+
+    findings: list[Finding] = []
+    unsupported: list[dict] = []
+    refused: set[str] = set()
+
+    def walk(items: list, matrix) -> None:
+        for node in items:
+            inner = matrix
+            if node.kind == "multmatrix":
+                inner = csg._compose(matrix, csg._matrix_of(node))
+            if node.kind == "difference" and len(node.children) >= 2:
+                _judge_difference(node, matrix)
+            walk(node.children, inner)
+
+    def _judge_difference(node, matrix) -> None:
+        minuend, *cutters = node.children
+        try:
+            first = csg.volume_of(minuend, matrix)
+            rest = [csg.volume_of(c, matrix) for c in cutters]
+            # The volumes are analytic upper bounds (union = sum of children,
+            # cylinders as ideal solids of revolution); the order verdict
+            # only fires when a cutter's bound exceeds the minuend's, which
+            # under upper-bound-vs-upper-bound is a heuristic and says so.
+            biggest = max(rest)
+            if biggest > first:
+                findings.append(
+                    Finding(
+                        "csg-difference-order",
+                        str(path),
+                        0,
+                        f"a difference() subtracts from a {first:.6g} mm3 first child "
+                        f"while a later child measures {biggest:.6g} mm3 — the first "
+                        f"child is the material (skills/openscad-authoring rule 2); "
+                        f"volumes are analytic upper bounds over the folded tree",
+                    )
+                )
+        except (csg.Unknown, csg.CsgError, TypeError, ValueError, IndexError, KeyError) as exc:
+            if "csg-difference-order" not in refused:
+                refused.add("csg-difference-order")
+                reason = (
+                    f"the tree contains {exc.args[0]}(), which the volume model does not cover"
+                    if isinstance(exc, csg.Unknown)
+                    else f"the tree could not be evaluated: {exc}"
+                )
+                unsupported.append({"rule": "csg-difference-order", "reason": reason})
+        try:
+            base = csg.planes_of(minuend, matrix)
+            for cutter in cutters:
+                shared = base & csg.planes_of(cutter, matrix)
+                for plane in sorted(shared):
+                    findings.append(
+                        Finding(
+                            "csg-coincident-face",
+                            str(path),
+                            0,
+                            f"a cutter ends exactly on the material's face plane "
+                            f"(normal ({plane[0]:g}, {plane[1]:g}, {plane[2]:g}), "
+                            f"offset {plane[3]:g}) — overshoot it "
+                            f"(skills/openscad-authoring rule 3; FAILURE-MODES entry 2)",
+                        )
+                    )
+        except (csg.Unknown, csg.CsgError, TypeError, ValueError, IndexError, KeyError) as exc:
+            if "csg-coincident-face" not in refused:
+                refused.add("csg-coincident-face")
+                reason = (
+                    f"the tree contains {exc.args[0]}(), which the plane model does not cover"
+                    if isinstance(exc, csg.Unknown)
+                    else f"the tree could not be evaluated: {exc}"
+                )
+                unsupported.append({"rule": "csg-coincident-face", "reason": reason})
+
+    try:
+        walk(nodes, csg._IDENTITY)
+    except (csg.CsgError, TypeError, ValueError, IndexError, KeyError) as exc:
+        for rule in TIER2_RULES:
+            if rule not in refused:
+                unsupported.append({"rule": rule, "reason": f"the tree could not be walked: {exc}"})
+    return findings, unsupported

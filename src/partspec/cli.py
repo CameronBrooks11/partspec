@@ -656,25 +656,38 @@ def _cmd_lint(args: argparse.Namespace) -> int:
             seen.add(resolved)
             unique.append(source)
 
+    from .engines.openscad import find_executable
+    from .lint import lint_scad_tier2
+
+    scad_engine = find_executable()
     files = []
+    courtesy: list[str] = []
     try:
         for source in unique:
             findings = lint_path(source)
-            files.append(
-                {
-                    # Identity per file (#120, the #47 pattern): which bytes
-                    # produced these findings — a clean file is a visible
-                    # entry with a digest, not an absence.
-                    "file": str(source),
-                    "digest": "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest(),
-                    "findings": [f.to_json() for f in findings],
-                }
-            )
+            entry: dict[str, object] = {
+                # Identity per file (#120, the #47 pattern): which bytes
+                # produced these findings — a clean file is a visible
+                # entry with a digest, not an absence.
+                "file": str(source),
+                "digest": "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest(),
+                "findings": [f.to_json() for f in findings],
+            }
+            if source.suffix == ".scad":
+                tier2, unsupported = lint_scad_tier2(source, scad_engine)
+                findings = [*findings, *tier2]
+                entry["findings"] = [f.to_json() for f in findings]
+                if unsupported:
+                    # Refusals are entries, never absences (#118): a rule
+                    # that could not run must not read as a clean bill.
+                    entry["unsupported"] = unsupported
+            courtesy.extend(f"  {f.rule}  {f.file}:{f.line}  {f.message}" for f in findings)
+            files.append(entry)
     except LintError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
-    total = sum(len(f["findings"]) for f in files)
+    total = sum(len(f["findings"]) for f in files)  # type: ignore[arg-type]
     payload = {
         "schema_version": LINT_SCHEMA_VERSION,
         "tool": {"name": "partspec-lint", "version": _tool_version()},
@@ -682,9 +695,8 @@ def _cmd_lint(args: argparse.Namespace) -> int:
         "counts": {"files": len(files), "findings": total},
     }
     print(json.dumps(payload, indent=2, allow_nan=False))
-    for entry in files:
-        for f in entry["findings"]:
-            print(f"  {f['rule']}  {f['file']}:{f['line']}  {f['message']}", file=sys.stderr)
+    for line in courtesy:
+        print(line, file=sys.stderr)
     return 0
 
 

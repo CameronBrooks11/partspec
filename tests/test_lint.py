@@ -13,6 +13,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+from support import needs_openscad
+
 from partspec.cli import main
 from partspec.lint import (
     FUNCTION_LINE_LIMIT,
@@ -273,3 +276,259 @@ def test_a_slash_slash_inside_a_string_is_not_a_comment(tmp_path: Path):
     assert not any(f.rule == "scad-unused-top-level" for f in findings), "note IS used"
     values = {f.message.split()[0] for f in findings if f.rule == "scad-magic-number"}
     assert values == {"45", "3"}, "the literals after the string must still be seen"
+
+
+# --------------------------------------------------------------------------
+# tier 2 (#118): the geometry rules over the .csg tree
+# --------------------------------------------------------------------------
+
+
+def test_the_csg_parser_reads_the_folded_grammar():
+    """Engine-free: the parser over a hand-written literal-only tree."""
+    from partspec.csg import parse_csg, planes_of, volume_of
+
+    tree = parse_csg(
+        "group() {\n"
+        " difference() {\n"
+        "  cube(size = [40, 30, 4], center = false);\n"
+        "  multmatrix([[1, 0, 0, 20], [0, 1, 0, 15], [0, 0, 1, 0], [0, 0, 0, 1]]) {\n"
+        "   cylinder($fn = 48, h = 4, r1 = 3, r2 = 3, center = false);\n"
+        "  }\n"
+        " }\n"
+        "}\n"
+    )
+    diff = tree[0].children[0]
+    assert diff.kind == "difference"
+    assert volume_of(diff.children[0]) == 40 * 30 * 4
+    import math
+
+    assert volume_of(diff.children[1]) == pytest.approx(math.pi * 9 * 4)
+    shared = planes_of(diff.children[0]) & planes_of(diff.children[1])
+    assert len(shared) == 2, "both cap planes coincide with the plate's faces"
+
+
+@needs_openscad
+def test_a_flush_cut_fires_and_the_overshoot_is_clean(tmp_path: Path, capsys):
+    flush = tmp_path / "flush.scad"
+    flush.write_text(
+        "plate_t = 4;\nbore_d = 6;\n"
+        "difference() {\n"
+        "    cube([40, 30, plate_t]);\n"
+        "    translate([20, 15, 0]) cylinder(d = bore_d, h = plate_t, $fn = 48);\n"
+        "}\n"
+    )
+    assert main(["lint", str(flush)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    rules = [f["rule"] for f in entry["findings"] if f["rule"].startswith("csg-")]
+    assert rules == ["csg-coincident-face", "csg-coincident-face"], (
+        "a cutter with h = plate_t from z = 0 coincides on BOTH cap planes"
+    )
+    assert all(f["line"] == 0 for f in entry["findings"] if f["rule"].startswith("csg-")), (
+        "the folded tree has no source lines; 0 is documented"
+    )
+
+    clean = tmp_path / "clean.scad"
+    clean.write_text(
+        "plate_t = 4;\nbore_d = 6;\n"
+        "difference() {\n"
+        "    cube([40, 30, plate_t]);\n"
+        "    translate([20, 15, -1]) cylinder(d = bore_d, h = plate_t + 2, $fn = 48);\n"
+        "}\n"
+    )
+    assert main(["lint", str(clean)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert not any(f["rule"].startswith("csg-") for f in entry["findings"])
+    assert "unsupported" not in entry
+
+
+@needs_openscad
+def test_the_wrong_order_fires_on_volume(tmp_path: Path, capsys):
+    scad = tmp_path / "wrong.scad"
+    scad.write_text(
+        "size = 4;\n"
+        "difference() {\n"
+        "    translate([20, 15, 1]) cylinder(d = size, h = 2, $fn = 48);\n"
+        "    cube([40, 30, 8]);\n"
+        "}\n"
+    )
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert "csg-difference-order" in [f["rule"] for f in entry["findings"]]
+
+
+@needs_openscad
+def test_an_unmodelled_node_is_an_entry_never_an_absence(tmp_path: Path, capsys):
+    scad = tmp_path / "hulled.scad"
+    scad.write_text(
+        "size = 8;\n"
+        "difference() {\n"
+        "    hull() { cube([size, size, size]); translate([20, 0, 0]) cube([size, size, size]); }\n"
+        "    translate([4, 4, -1]) cylinder(d = 3, h = 12, $fn = 32);\n"
+        "}\n"
+    )
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    unsupported = {u["rule"]: u["reason"] for u in entry["unsupported"]}
+    assert set(unsupported) == {"csg-difference-order", "csg-coincident-face"}
+    assert "hull" in unsupported["csg-difference-order"]
+
+
+def test_a_missing_engine_is_an_entry_never_an_absence(tmp_path: Path, capsys, monkeypatch):
+    """Audit bullet 1's MUST, executed: tier 2 without openscad refuses per
+    rule, and tier 1 still runs."""
+    from partspec.engines import openscad as openscad_mod
+
+    monkeypatch.setattr(openscad_mod, "find_executable", lambda: None)
+    scad = tmp_path / "m.scad"
+    scad.write_text("cube([60, 40, 4]);\n")
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert len(entry["findings"]) == 3, "tier 1 is engine-free and still ran"
+    assert {u["rule"] for u in entry["unsupported"]} == {
+        "csg-difference-order",
+        "csg-coincident-face",
+    }
+    assert all("openscad is not installed" in u["reason"] for u in entry["unsupported"])
+
+
+def test_the_geometry_math_binds():
+    """PR #125 review F4: five of six math mutations survived the suite.
+    Engine-free pins over hand-written trees for each mutation channel."""
+    import math
+
+    from partspec.csg import parse_csg, planes_of, volume_of
+
+    # |det| under mirroring: dropping abs() must fail here.
+    mirrored = parse_csg(
+        "multmatrix([[-1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {"
+        " cube(size = [5, 7, 3], center = false); }"
+    )[0]
+    assert volume_of(mirrored) == pytest.approx(105.0)
+
+    # Canonical orientation: a cutter rotated 180° has flipped cap normals;
+    # dropping the orientation flip must fail here.
+    plate = parse_csg("cube(size = [10, 10, 4], center = false);")[0]
+    flipped = parse_csg(
+        "multmatrix([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 4], [0, 0, 0, 1]]) {"
+        " cylinder($fn = 32, h = 4, r1 = 2, r2 = 2, center = false); }"
+    )[0]
+    shared = planes_of(plate) & planes_of(flipped)
+    assert len(shared) == 2, "flipped caps at z=0 and z=4 must still match the plate"
+
+    # Rounding discipline: planes 1e-6 apart are DIFFERENT (a 1e-3 round
+    # would merge them and fire a false coincidence).
+    near = parse_csg(
+        "multmatrix([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0.000001], [0, 0, 0, 1]]) {"
+        " cylinder($fn = 32, h = 4, r1 = 2, r2 = 2, center = false); }"
+    )[0]
+    assert not (
+        planes_of(plate)
+        & planes_of(near) - {p for p in planes_of(near) if p[3] == 0.0}
+        & planes_of(plate)
+    )
+    assert (0.0, 0.0, 1.0, 4.000001) in planes_of(near)
+    assert (0.0, 0.0, 1.0, 4.0) not in planes_of(near)
+
+    assert volume_of(parse_csg("sphere($fn = 32, r = 3);")[0]) == pytest.approx(
+        4 / 3 * math.pi * 27
+    )
+
+
+@needs_openscad
+def test_order_boundary_and_nested_cutters(tmp_path: Path, capsys):
+    """Equal volumes must NOT fire (kills >= for >); a difference nested in
+    a CUTTER subtree must be visited (kills a walk that skips them)."""
+    equal = tmp_path / "equal.scad"
+    equal.write_text(
+        "s = 4;\ndifference() {\n    cube([s, s, s]);\n"
+        "    translate([10, 0, 0]) cube([s, s, s]);\n}\n"
+    )
+    assert main(["lint", str(equal)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert "csg-difference-order" not in [f["rule"] for f in entry["findings"]]
+
+    nested = tmp_path / "nested.scad"
+    nested.write_text(
+        "s = 20;\n"
+        "difference() {\n"
+        "    cube([s, s, s]);\n"
+        "    difference() {\n"
+        "        translate([5, 5, 5]) cube([2, 2, 2]);\n"
+        "        translate([1, 1, 1]) cube([12, 12, 12]);\n"
+        "    }\n"
+        "}\n"
+    )
+    assert main(["lint", str(nested)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert "csg-difference-order" in [f["rule"] for f in entry["findings"]], (
+        "the wrong-order difference lives inside a CUTTER subtree"
+    )
+
+
+@needs_openscad
+def test_background_modifier_geometry_is_not_the_part(tmp_path: Path, capsys):
+    """PR #125 review F2: a %-ed cutter is excluded from the render — linting
+    it produced confident wrong findings about geometry that is not there."""
+    scad = tmp_path / "bg.scad"
+    scad.write_text("s = 10;\ndifference() {\n    cube([s, s, 4]);\n    %cube([20, 20, 20]);\n}\n")
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert not any(f["rule"].startswith("csg-") for f in entry["findings"]), (
+        "background geometry is debug scaffolding, not the part"
+    )
+
+
+def test_a_singular_transform_is_an_entry_not_a_crash(tmp_path: Path, capsys):
+    """PR #125 review F1: a legal file with a zero-scale transform used to
+    take down the whole payload at exit 4, tier-1 findings included."""
+    from partspec.engines.openscad import find_executable
+
+    if find_executable() is None:
+        pytest.skip("openscad binary not installed")
+    scad = tmp_path / "flat.scad"
+    scad.write_text(
+        "size = 10;\ndifference() {\n"
+        "    scale([1, 1, 0.0]) cube([size, size, size]);\n"
+        "    cube([4, 4, 4]);\n"
+        "}\n"
+    )
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert any("could not be evaluated" in u["reason"] for u in entry.get("unsupported", []))
+
+
+def test_string_bearing_trees_are_refused_whole():
+    """PR #125 review F3: the format does not escape string interiors, so a
+    hostile label silently reshaped the parse into phantom findings. Any
+    string in the tree refuses tier 2 at file level — engine-free pin on the
+    detector, plus the parse-side admission path it guards."""
+    from partspec.csg import contains_strings, parse_csg
+
+    innocent = parse_csg("difference() { cube(size = [4, 4, 4], center = false); }")
+    assert not contains_strings(innocent)
+    labeled = parse_csg('group() { text(text = "hi", size = 10); }')
+    assert contains_strings(labeled)
+    nested = parse_csg('group() { color([1, 0, 0, 1]) { import(file = "x.stl"); } }')
+    assert contains_strings(nested)
+
+
+@needs_openscad
+def test_a_string_hidden_in_dropped_geometry_still_refuses(tmp_path: Path, capsys):
+    """PR #125 re-review: hiding the string vehicle inside a %-dropped
+    statement bypassed the tree-level detector — the check now runs on the
+    RAW text before any statement is dropped, so a quote anywhere refuses."""
+    scad = tmp_path / "hidden.scad"
+    scad.write_text(
+        "s = 10;\n"
+        '%linear_extrude(1) text("decoy");\n'
+        "difference() {\n"
+        "    cube([s, s, 4]);\n"
+        "    translate([2, 2, -1]) cube([4, 4, 6]);\n"
+        "}\n"
+    )
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert not any(f["rule"].startswith("csg-") for f in entry["findings"])
+    unsupported = entry.get("unsupported", [])
+    assert {u["rule"] for u in unsupported} == {"csg-difference-order", "csg-coincident-face"}
+    assert all("refused whole" in u["reason"] or "unreadable" in u["reason"] for u in unsupported)
