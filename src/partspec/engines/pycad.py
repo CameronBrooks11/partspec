@@ -329,7 +329,14 @@ def _load(path: Path) -> Any:
     if added:
         sys.path.insert(0, parent)
     try:
-        spec.loader.exec_module(module)
+        # Compiled from source, never from the bytecode cache — the same rule
+        # as the contract loader (target.py), for the same reason: a
+        # same-length edit within one mtime second re-executes stale bytecode
+        # under a fresh source digest. The model's HELPERS still import
+        # through the normal machinery and keep that ceiling; the entry file
+        # at least is always what is on disk.
+        code = compile(path.read_bytes(), str(path), "exec")
+        exec(code, module.__dict__)  # noqa: S102 - executing the model IS the build
     finally:
         if added:
             sys.path.remove(parent)

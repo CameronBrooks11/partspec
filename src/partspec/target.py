@@ -65,7 +65,14 @@ def _load(path: Path) -> ModuleType:
     if added:
         sys.path.insert(0, parent)
     try:
-        spec.loader.exec_module(module)
+        # Compiled from source, never from the bytecode cache. CPython
+        # validates a .pyc by (mtime seconds, size), so a same-length edit
+        # within one second re-executes the OLD contract under the NEW
+        # contract_digest — an agent's rapid edit loop hits exactly that, and
+        # the claims pin (#31) would adjudicate bytecode the file no longer
+        # contains. Contracts are small; the pyc saves nothing worth that.
+        code = compile(path.read_bytes(), str(path), "exec")
+        exec(code, module.__dict__)  # noqa: S102 - executing the contract IS the product
     except KeyboardInterrupt:
         raise
     except BaseException as exc:

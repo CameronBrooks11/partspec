@@ -553,6 +553,17 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   Module-scoping is deliberate, not an oversight: digesting only the resolved symbol would
   miss an edit to a module-level constant such as `MIN_WALL`, which is precisely the
   attack. Over-firing is the right direction of error here.
+- **`expectation`** — present only when the run was invoked with `--expect`: the claims-pin
+  adjudication `{claims, matched[, differences]}` (#31). "Make the check pass" and "delete
+  the check" are the same action from where a model sits; `diff` catches the second on
+  comparison, and the pin catches it with no previous artifact in hand — a fresh CI
+  checkout, or an agent loop whose first run is already post-tamper. A mismatch MUST be
+  `verdict: "error"` with every declared check `skipped` and the differences named — the
+  question changed identity, so nothing may be said about the part — and MUST live in the
+  artifact, not only on stderr, for the same reason `attribution` does. The pin covers the
+  claim *set* (kind, limits, region, hole, expression, citation per id), not the count:
+  swapping a strict check for a lax one under the same id, or stripping a `source`
+  citation, is a named difference.
 - **`invocation.timeout_s`** — the build budget that governed the run, in seconds. The CLI
   always records the fully resolved value (`--timeout`, then `PARTSPEC_TIMEOUT`, then the
   300 s default); `0` records an explicit waiver of the bound, and `null` means a library

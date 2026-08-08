@@ -183,6 +183,11 @@ class Report:
     of `hint`, so a filtered hint can never lose the diagnosis (#37)."""
     duration_ms: int | None = None
     argv: list[str] = field(default_factory=list)
+    expectation: dict[str, Any] | None = None
+    """The claims-pin adjudication (#31), present only when a run was invoked
+    with `--expect`: `{claims, matched[, differences]}`. In the artifact and
+    not just on stderr for the same reason `attribution` is — the audience of
+    "this contract is not the one reviewed" reads reports, not consoles."""
     timeout_s: float | None = None
     """The build budget this run was invoked with, in seconds — the requested
     value, before `effective_timeout` resolves it (so `0` records an explicit
@@ -269,6 +274,10 @@ class Report:
             "verdict": str(self.verdict),
             "counts": self.counts(),
             "attribution": self.attribution(),
+        }
+        if self.expectation is not None:
+            doc["expectation"] = self.expectation
+        doc |= {
             "checks": [c.to_json() for c in self.checks],
             "error": self.error,
             "hint": self.hint,
