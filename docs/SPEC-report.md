@@ -11,7 +11,9 @@ accompanies it. `partspec measure` and `partspec render` emit sibling payloads t
 share the identity prefix — `schema_version`, `tool`, `part`, `engine`, `params`, built
 by the same code (#47, #103) — followed by `geometry` for `measure` and by `renders` for
 `render`, which runs no measurement tier and so carries no `geometry` block (its `engine`
-block likewise omits `backend`, per §7). On any failure after the target resolves, both
+block is the §7 subset `kind`, `version`, `render_backend`, `method`, `param_mode`:
+`backend` names the measurement tier that did not run, and `adopted_via` could only ever
+be null on the one engine the verb accepts). On any failure after the target resolves, both
 MUST emit a JSON object carrying that identity plus `error`/`hint` — `renders` empty
 rather than absent — so a consumer always learns which file and revision it was talking
 about. A target that never resolves has no identity to emit: those failures are stderr +

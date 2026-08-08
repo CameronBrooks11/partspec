@@ -113,6 +113,17 @@ def test_measure_on_a_missing_contract_reports_usage_and_no_numbers(tmp_path: Pa
     assert "missing.py" in payload["stderr"]
 
 
+def test_render_on_a_missing_contract_reports_usage_and_the_stderr(tmp_path: Path):
+    # A target that never resolves emits no JSON artifact (SPEC-report Scope),
+    # so the stderr tail is the ONLY evidence — dropping it would answer a
+    # typo'd target with exit_code and nulls, evidence-free (PR #126 review,
+    # mutation survivor: the stderr line passed the whole suite as `pass`).
+    payload = _call("render", {"target": f"{tmp_path}/missing.py:make"})
+    assert payload["exit_code"] == 64
+    assert payload["rendered"] is None
+    assert "missing.py" in payload["stderr"]
+
+
 @needs_mesh_tier
 def test_check_returns_the_same_artifact_the_cli_writes(tmp_path: Path):
     shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
