@@ -361,6 +361,42 @@ def build(source: PyCADSource, *, timeout_s: float | None = None) -> Any | Build
     return result
 
 
+def _missing_module_error(
+    exc: ModuleNotFoundError, model_dir: Path, doing: str
+) -> BuildError | None:
+    """Classify a ModuleNotFoundError: missing wheel, or fault in local code.
+
+    A missing third-party package is a statement about the machine, not the
+    part — found live (#78): a `uv sync` dropped an ad-hoc `cqkit` install and
+    the dogfood batch reported the design as *disproven*. But import failure
+    is genuinely ambiguous: a model reaching into its own helper package for a
+    submodule that does not exist IS a model fault.
+
+    The split is the top-level name of the missing module. If something by
+    that name sits beside the model — a `helpers/` package whose `helpers.gears`
+    is missing — the failure lives in local code and stays `origin="model"`
+    (return None; the caller's model-fault path applies). If nothing by that
+    name is beside the model, the import could only ever have been satisfied
+    by an installed package, so it is `origin="environment"` with the package
+    named. The residual ambiguity — a typo'd import of a helper that never
+    existed anywhere — is disclosed in the hint rather than adjudicated, since
+    no machine evidence distinguishes it from a missing wheel.
+    """
+    top = (exc.name or "").partition(".")[0]
+    if not top:
+        return None
+    if (model_dir / f"{top}.py").is_file() or (model_dir / top).is_dir():
+        return None
+    return BuildError(
+        f"{doing}: No module named {exc.name!r}, and nothing named {top!r} exists "
+        f"beside the model — a missing package is a statement about the machine, "
+        f"not the part",
+        origin="environment",
+        hint=f"install the missing package into this environment; if {exc.name!r} was "
+        f"meant to be a helper module beside the model, none is there",
+    )
+
+
 def _build(source: PyCADSource) -> Any | BuildError:
     try:
         __import__(source.engine)
@@ -370,10 +406,16 @@ def _build(source: PyCADSource) -> Any | BuildError:
     if not source.path.is_file():
         return BuildError(f"source not found: {source.path}", origin="environment")
 
+    model_dir = source.path.resolve().parent
     try:
         module = _load(source.path)
     except _BuildTimeout:
         raise
+    except ModuleNotFoundError as exc:
+        missing = _missing_module_error(exc, model_dir, "model raised on import")
+        if missing is not None:
+            return missing
+        return BuildError(f"model raised on import: {type(exc).__name__}: {exc}")
     except Exception as exc:  # noqa: BLE001 - any import failure is a build failure
         return BuildError(f"model raised on import: {type(exc).__name__}: {exc}")
 
@@ -398,6 +440,24 @@ def _build(source: PyCADSource) -> Any | BuildError:
         )
     except (KeyboardInterrupt, _BuildTimeout, _BuildTimeoutHard):
         raise
+    except ModuleNotFoundError as exc:
+        # A lazy `import` inside the factory hitting a missing wheel is the
+        # same machine statement as one at module import time.
+        missing = _missing_module_error(exc, model_dir, f"{name}() raised on a missing import")
+        if missing is not None:
+            return missing
+        # Reaching here means something by that name IS beside the model —
+        # and on this path that is exactly why the import failed: the model's
+        # directory is on sys.path during `_load` only, so a helper that
+        # imports fine at module top level is unreachable from inside the
+        # factory. Without this hint the failure reads as a disproven design
+        # with no clue the harness removed the path (PR #101 review).
+        return BuildError(
+            f"{name}() raised: {type(exc).__name__}: {exc}",
+            hint="modules beside the model are importable at import time only — the "
+            "model's directory leaves sys.path before the factory runs; import the "
+            "helper at module top level instead",
+        )
     except BaseException as exc:  # noqa: BLE001 - modelling failure is a build failure
         # BaseException for the same reason as the contract path: a model that
         # calls sys.exit() must not get to pick partspec's exit code.
