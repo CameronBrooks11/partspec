@@ -358,3 +358,58 @@ def test_a_render_refusal_does_not_leave_the_sibling_cached(tmp_path: Path):
     assert main(["check", f"{b / 'spec.py'}:make", "--quiet", "--out", str(tmp_path / "o")]) == 0
     vol = _measured_volume(tmp_path / "o")
     assert vol == pytest.approx(3.0), "B built with A's cached SIZE"
+
+
+def _sibling_pair(tmp_path: Path, raise_in_a: bool = False):
+    """Two directories with same-named claims.py siblings; A's contract
+    imports its sibling (and optionally raises), B's check must see its own."""
+    dirs = {}
+    for name, size in (("a", "1.0"), ("b", "3.0")):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "claims.py").write_text(f"SIZE = {size}\n")
+        (d / "model.py").write_text(
+            "from claims import SIZE\nfrom build123d import Box\n\n\ndef make_part():\n"
+            "    return Box(SIZE, 1, 1)\n"
+        )
+        body = (
+            "raise TypeError('after the import')\n"
+            if raise_in_a and name == "a"
+            else (
+                "from partspec import Part, build123d\n\n\ndef make():\n"
+                "    p = Part('subject', build123d('model.py'))\n"
+                "    p.volume(min=0.0)\n"
+                "    return p\n"
+            )
+        )
+        (d / "spec.py").write_text(f"from claims import SIZE\n\n{body}")
+        dirs[name] = d
+    return dirs
+
+
+def _b_is_clean(tmp_path: Path, dirs) -> None:
+    out = tmp_path / "o"
+    assert main(["check", f"{dirs['b'] / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 0
+    assert _measured_volume(out) == pytest.approx(3.0), "B built with A's cached SIZE"
+
+
+def test_the_render_verbs_exits_evict_the_sibling(tmp_path: Path):
+    """PR #124 re-review residual: the render verb's eviction call sites had
+    no binding test — reverting them passed the suite. Both exits bound: the
+    post-resolve OCCT refusal (the try/finally) and the failed resolve."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    dirs = _sibling_pair(tmp_path)
+    assert main(["render", f"{dirs['a'] / 'spec.py'}:make"]) == 64  # OCCT refusal
+    _b_is_clean(tmp_path, dirs)
+
+    (tmp_path / "second").mkdir()
+    dirs2 = _sibling_pair(tmp_path / "second", raise_in_a=True)
+    assert main(["render", f"{dirs2['a'] / 'spec.py'}:make"]) == 64  # failed resolve
+    _b_is_clean(tmp_path / "second", dirs2)
+
+
+def test_the_measure_verbs_failed_resolve_evicts_the_sibling(tmp_path: Path):
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    dirs = _sibling_pair(tmp_path, raise_in_a=True)
+    assert main(["measure", f"{dirs['a'] / 'spec.py'}:make"]) == 64
+    _b_is_clean(tmp_path, dirs)
