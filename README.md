@@ -2,8 +2,8 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.2.0 is on PyPI.** It runs end to end — `check`, `measure` and
-> `diff` across all three engines, `render` on the mesh tier — and is dogfooded on real
+> **Status: pre-alpha; v0.2.0 is on PyPI.** It runs end to end — `check` and `measure`
+> across all three engines, `diff` on the reports they produce, `render` on the mesh tier — and is dogfooded on real
 > parts. The vocabulary covers real mechanical intent: keep-out/keep-in regions,
 > `hole_diameter`, `bolt_circle` and `fillet_radius` on the OCCT tier.
 > [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is still withheld and why.

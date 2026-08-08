@@ -39,7 +39,7 @@ src/partspec/
   runner.py       # phase orchestration: parameters -> build -> geometry -> report
   cli.py          # argparse entry point
   diff.py         # semantic comparison of two reports (SPEC-diff.md)
-  mcp.py          # MCP adapter: stateless tools over check/measure, subprocess per call (D18)
+  mcp.py          # MCP adapter: stateless tools over check/measure/render, subprocess per call (D18)
   backends/
     mesh.py       # OpenSCAD tier — trimesh, measured as exported (D15, D17)
     occt.py       # build123d AND CadQuery, one implementation (D3)
@@ -76,7 +76,7 @@ Run the suite under both before touching `engines/openscad.py`.
 - **The specs in `docs/` are normative.** `SPEC-report.md`, `SPEC-contract.md` and
   `SPEC-backend.md` define behaviour; the code implements them. If code and spec disagree,
   that is a bug in one of them — say which, do not silently pick.
-- **Decisions live in `docs/DECISIONS.md`** (D1–D17), each with the reasoning that produced
+- **Decisions live in `docs/DECISIONS.md`** (D1–D19), each with the reasoning that produced
   it. Do not relitigate a numbered decision; if it is wrong, add a superseding entry.
 - **Status claims are part of the gate.** The "Status:" line here and in `README.md` say
   what does and does not work. Both were left asserting the backends were unimplemented for
