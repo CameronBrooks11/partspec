@@ -25,7 +25,7 @@ from pathlib import Path
 
 __all__ = ["Finding", "LINT_SCHEMA_VERSION", "LintError", "RULES", "lint_path"]
 
-LINT_SCHEMA_VERSION = 1
+LINT_SCHEMA_VERSION = 2
 
 MAGIC_EXEMPT = 2.0
 """Numeric literals with |value| <= 2 are never magic: 0/1 are structure, and

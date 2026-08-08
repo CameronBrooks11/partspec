@@ -206,16 +206,18 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
     stale-helper build through exactly that path. Recording resolve-time
     additions against the model's directory closes it.
     """
+    from .engines.pycad import record_model_modules
+
     modules_before = set(sys.modules)
     try:
         part, target = resolve(spec)
-        from .engines.pycad import record_model_modules
-
         # The CONTRACT's sibling imports too, for every engine: a shared
         # claims.py cached from directory A silently supplied directory B's
         # checks in one process (PR #112 review) — the same stale-module
-        # class as the model-helper case, one loader over.
-        record_model_modules(target.path, modules_before)
+        # class as the model-helper case, one loader over. Recording for the
+        # model dir happens here; the contract dir is recorded in the finally,
+        # so a contract that raises AFTER its sibling import succeeded still
+        # has that sibling on the books (#114).
         if part.source.engine != "openscad":
             record_model_modules(part.source.path, modules_before)
         return part, target
@@ -237,6 +239,9 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
         print(f"\npartspec: the contract raised {type(exc).__name__}: {exc}", file=sys.stderr)
         print("  the contract is wrong, not the part", file=sys.stderr)
         return exit_code(Verdict.ERROR)
+    finally:
+        # Parseable without resolution, so the record exists on every outcome.
+        record_model_modules(Target.parse(spec).path, modules_before)
 
 
 _EXIT_PRECEDENCE = (130, EXIT_USAGE, 4, 3, 1, 2, 0)
@@ -393,6 +398,11 @@ def _check_one(
 
     resolved = _resolve_or_report(spec)
     if isinstance(resolved, int):
+        # The failed resolve may have cached sibling imports before raising;
+        # they must not answer for a later run in this directory (#114).
+        from .engines.pycad import invalidate_model_modules
+
+        invalidate_model_modules(Target.parse(spec).path)
         return resolved
     part, target = resolved
 
@@ -408,6 +418,24 @@ def _check_one(
 
         pins[part.id] = claims_of(part)
 
+    try:
+        return _check_resolved(spec, args, argv, timeout_s, part, target, out, expected_claims)
+    finally:
+        # Every exit path evicts — the --render usage refusal used to return
+        # with the sibling record cached but not evicted (#114).
+        _invalidate_after(part, target)
+
+
+def _check_resolved(
+    spec: str,
+    args: argparse.Namespace,
+    argv: list[str],
+    timeout_s: float,
+    part: Part,
+    target: Target,
+    out: Path,
+    expected_claims: dict[str, str] | None,
+) -> int:
     if args.render and part.source.engine != "openscad":
         # Before the run, so the refusal costs nothing and no artifact claims
         # a render pass that was never going to happen.
@@ -444,7 +472,6 @@ def _check_one(
             report.renders = {v: p.relative_to(out).as_posix() for v, p in views.items()}
 
     path = report.write(out)
-    _invalidate_after(part, target)
 
     if not args.quiet:
         _summarise(report, path)
@@ -489,6 +516,15 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         return resolved
     part, target = resolved
 
+    try:
+        return _measure_resolved(args, part, target, timeout_s)
+    finally:
+        _invalidate_after(part, target)
+
+
+def _measure_resolved(
+    args: argparse.Namespace, part: Part, target: Target, timeout_s: float
+) -> int:
     from .backend import BuildError, Unsupported
     from .report import SCHEMA_VERSION
     from .runner import _backend_for, _engine_source, _tool_version, engine_block, identity
@@ -524,7 +560,6 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         print(f"partspec: {artifact.message}", file=sys.stderr)
         if artifact.hint:
             print(f"  hint: {artifact.hint}", file=sys.stderr)
-        _invalidate_after(part, target)
         return exit_code(Verdict.ERROR)
 
     measurements: dict[str, object] = {}
@@ -592,7 +627,6 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         measured["unavailable"] = unavailable
 
     print(json.dumps(measured, indent=2, allow_nan=False))
-    _invalidate_after(part, target)
     return 0
 
 
@@ -604,26 +638,50 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     earned (the issue's bullet 3, verbatim: "advisory and never a verdict on
     the part"). 64 is reserved for inputs that cannot be linted at all.
     """
+    import hashlib
+
     from .lint import LINT_SCHEMA_VERSION, LintError, lint_path
     from .runner import _tool_version
 
-    findings = []
+    # Deduped on the resolved path, order kept: the same file twice is one
+    # file, not doubled counts (#120).
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for source in args.sources:
+        resolved = source.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(source)
+
+    files = []
     try:
-        for source in args.sources:
-            findings.extend(lint_path(source))
+        for source in unique:
+            findings = lint_path(source)
+            files.append(
+                {
+                    # Identity per file (#120, the #47 pattern): which bytes
+                    # produced these findings — a clean file is a visible
+                    # entry with a digest, not an absence.
+                    "file": str(source),
+                    "digest": "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest(),
+                    "findings": [f.to_json() for f in findings],
+                }
+            )
     except LintError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
+    total = sum(len(f["findings"]) for f in files)
     payload = {
         "schema_version": LINT_SCHEMA_VERSION,
         "tool": {"name": "partspec-lint", "version": _tool_version()},
-        "findings": [f.to_json() for f in findings],
-        "counts": {"files": len(args.sources), "findings": len(findings)},
+        "files": files,
+        "counts": {"files": len(files), "findings": total},
     }
     print(json.dumps(payload, indent=2, allow_nan=False))
-    for f in findings:
-        print(f"  {f.rule}  {f.file}:{f.line}  {f.message}", file=sys.stderr)
+    for entry in files:
+        for f in entry["findings"]:
+            print(f"  {f['rule']}  {f['file']}:{f['line']}  {f['message']}", file=sys.stderr)
     return 0
 
 

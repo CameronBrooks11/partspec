@@ -300,3 +300,57 @@ def test_a_contracts_shared_claims_module_does_not_cross_directories(tmp_path: P
     assert kinds(tmp_path / "b") == {"solid_count"}, (
         "part B must be checked by ITS claims module, not directory A's cached one"
     )
+
+
+@needs_openscad
+def test_a_contract_that_raises_after_its_sibling_import_does_not_poison_the_next_run(
+    tmp_path: Path,
+):
+    """#114 path 1: the sibling import succeeded, THEN the contract raised —
+    the record now lands in _resolve_or_report's finally and the failed
+    resolve evicts, so directory B still gets its own module."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    for d, body in ((a, "p.watertight()"), (b, "p.solid_count(1)")):
+        d.mkdir()
+        (d / "m.scad").write_text("cube([2, 2, 2]);\n")
+        (d / "claims.py").write_text(f"def shared_claims(p):\n    {body}\n    return p\n")
+    (a / "spec.py").write_text(
+        "from claims import shared_claims\n\nraise TypeError('broken after the import')\n"
+    )
+    (b / "spec.py").write_text(
+        "from claims import shared_claims\n\n"
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return shared_claims(Part('b', openscad('m.scad')))\n"
+    )
+    # An import-time raise is an unresolvable target: usage, exit 64.
+    assert main(["check", f"{a / 'spec.py'}:make", "--quiet"]) == 64
+    assert main(["check", f"{b / 'spec.py'}:make", "--quiet"]) == 0
+    report = json.loads((b / "outputs" / "spec-make" / "report.json").read_text())
+    kinds = {c["kind"] for c in report["checks"]} - {"builds"}
+    assert kinds == {"solid_count"}, "B must not inherit A's cached claims module"
+
+
+def test_a_render_refusal_does_not_leave_the_sibling_cached(tmp_path: Path):
+    """#114 path 2: the --render-on-OCCT usage refusal returned before the
+    eviction; the try/finally now covers it."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    a, b = tmp_path / "a", tmp_path / "b"
+    for d, size in ((a, "1.0"), (b, "3.0")):
+        d.mkdir()
+        (d / "claims.py").write_text(f"SIZE = {size}\n")
+        (d / "model.py").write_text(
+            "from claims import SIZE\nfrom build123d import Box\n\n\ndef make_part():\n"
+            "    return Box(SIZE, 1, 1)\n"
+        )
+        (d / "spec.py").write_text(
+            "from partspec import Part, build123d\n\n\ndef make():\n"
+            "    p = Part('subject', build123d('model.py'))\n"
+            "    p.volume(min=0.0)\n"
+            "    return p\n"
+        )
+    # The refusal path on A caches A's claims module during resolve...
+    assert main(["check", f"{a / 'spec.py'}:make", "--render", "--quiet"]) == 64
+    # ...which must not answer for B's model in the same process.
+    assert main(["check", f"{b / 'spec.py'}:make", "--quiet", "--out", str(tmp_path / "o")]) == 0
+    vol = _measured_volume(tmp_path / "o")
+    assert vol == pytest.approx(3.0), "B built with A's cached SIZE"

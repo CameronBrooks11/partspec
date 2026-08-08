@@ -190,6 +190,12 @@ pip install 'partspec[occt,cadquery]'
 pip install --force-reinstall --no-deps cadquery-ocp   # re-assert the VTK build
 ```
 
+**Installing the engines with `uv pip` does not work**: build123d's `cadquery-ocp-proxy`
+selects the real OCP wheel with an install-time hook that uv's installer never runs, so
+`uv pip install 'partspec[occt]'` leaves no `OCP` module at all (#109). Use plain `pip`
+for the engines, or a locked project (`uv sync`) the way this repo does; partspec names
+the state in its error if you hit it.
+
 build123d wants `cadquery-ocp-novtk` and CadQuery wants `cadquery-ocp`. Both wheels install
 the same top-level `OCP/` package, neither pip nor uv detects the conflict, and whichever
 lands last wins — when novtk wins, CadQuery cannot import at all. This repo drops novtk with
