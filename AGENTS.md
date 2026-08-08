@@ -21,7 +21,10 @@ the report, and the unattributed-limit disclosure (SPEC-contract §6/§10/§11);
 made the loop trustworthy unattended — bounded builds (`--timeout`),
 missing-wheel/environment origin, identifiable `measure` output, multi-target `check`
 with module-cache invalidation, the claims pin (`--pin`/`--expect`, SPEC-report §7.1
-`expectation`), and the agent contract (`docs/AGENT-CONTRACT.md`).
+`expectation`), and the agent contract (`docs/AGENT-CONTRACT.md`); epic #3 (unreleased)
+shipped the craft — three tested skills, three worked exemplars, the failure catalogue
+(`docs/FAILURE-MODES.md`), `partspec lint` tier 1 (`docs/LINT.md`), and the recorded
+guidance before/after (`evals/AUTHORING.md`).
 What remains withheld, and why, is `docs/POST-V0.md`.
 
 ## Stack
