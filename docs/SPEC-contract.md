@@ -487,6 +487,26 @@ and exit `3` (`SPEC-report.md` §6). The CLI MUST additionally emit a one-line w
 naming the part, because `empty` is the single most likely output when an agent does not
 know what to assert, and a silent exit `3` in a batch is easy to miss.
 
+**A run whose every dimensional check is unattributed MUST draw one warning line** on the
+same channel, naming the part (#50). The dimensional kinds (`DIMENSIONAL_KINDS`:
+`param_range`, `envelope`, `volume`, `area`, `hole_diameter`, `bolt_circle`,
+`fillet_radius`) are the ones whose limits are numbers an author chose, and so the ones a
+contract can make circular — a bound recomputed from the model's own constants cannot fail
+however the design moves, and a single green run cannot distinguish that from a proof.
+Attribution (§10) is the distinguisher: **the absence of `source` IS the unattributed
+state** — the report does not stamp "unattributed" per check, because an absent claim of
+authority must not be dressed as a present one. Topological kinds are absolute claims,
+non-circular by construction, and never trigger the warning. Two exclusions are
+deliberate and recorded: `requires` predicates are intrinsically relational — attribution
+cannot reach an expression string, and counting them would warn forever on legitimate
+internal-consistency claims with no remedy — and `keep_out`/`keep_in` regions do not yet
+carry attribution (§10), so they stand outside the dichotomy until they do; a
+region-only contract receives no warning today, and that is a recorded gap, not a claim
+of coverage. The warning is one line, not a status: the five-member status set is closed,
+and an unattributed pass is still a pass — of a weaker question. The run-level counts
+behind it are in the report as `attribution` (`SPEC-report.md` §7.1), because the report
+is the product surface and an agent consuming it over MCP never sees stderr.
+
 **`partspec` MUST NOT auto-generate checks** from an existing part — not even as a
 convenience. A check the tool wrote is a check nobody decided, and a report full of them is
 vacuous green wearing a costume. `measure` (§7) exists precisely so that authoring a

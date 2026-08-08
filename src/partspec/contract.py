@@ -20,6 +20,7 @@ from .region import BoxRegion, CylinderRegion, Region
 from .status import ContractError, Limit, epsilon
 
 __all__ = [
+    "DIMENSIONAL_KINDS",
     "GEOMETRY_KINDS",
     "CheckSpec",
     "Part",
@@ -60,6 +61,16 @@ existed to pave the way for.
 `keep_out` / `keep_in` map to the primitive that gates them; their evaluation is
 composed in the runner from `region_solid` and `intersect_volume` rather than
 being one primitive call (SPEC-contract.md 4.4)."""
+
+DIMENSIONAL_KINDS = frozenset(
+    {"param_range", "envelope", "volume", "area", "hole_diameter", "bolt_circle", "fillet_radius"}
+)
+"""The kinds whose limits are numbers an author chose — and so the kinds that
+are trivially circularizable: a bound recomputed from the model's own constants
+cannot fail however the design moves (#50). Topological kinds (genus,
+solid_count, watertight, topology, cavities) are absolute claims, non-circular
+by construction, and excluded. The attribution warning (SPEC-contract.md 6)
+reads this set."""
 
 
 @dataclass(frozen=True, slots=True)

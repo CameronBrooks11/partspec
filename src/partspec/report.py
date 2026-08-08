@@ -209,6 +209,24 @@ class Report:
     def exit_code(self) -> int:
         return exit_code(self.verdict)
 
+    def attribution(self) -> dict[str, int]:
+        """How many dimensional checks there are, and how many carry a source.
+
+        Run-level and in the artifact, because the artifact is the product
+        surface: the CLI warning derives from this, and an MCP consumer —
+        exactly the agent #50's motivating scenario describes — reads the
+        report, never stderr. `dimensional > 0 and attributed == 0` is the
+        circular-contract signal; deriving it any other way would require the
+        consumer to know DIMENSIONAL_KINDS, which the report does not carry.
+        """
+        from .contract import DIMENSIONAL_KINDS
+
+        dimensional = [c for c in self.checks if c.kind in DIMENSIONAL_KINDS]
+        return {
+            "dimensional": len(dimensional),
+            "attributed": sum(1 for c in dimensional if c.source is not None),
+        }
+
     def counts(self) -> dict[str, int]:
         """Status tally. `total` equals len(checks) and the five statuses sum to it.
 
@@ -245,6 +263,7 @@ class Report:
         doc |= {
             "verdict": str(self.verdict),
             "counts": self.counts(),
+            "attribution": self.attribution(),
             "checks": [c.to_json() for c in self.checks],
             "error": self.error,
             "hint": self.hint,

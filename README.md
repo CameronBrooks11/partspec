@@ -61,11 +61,18 @@ $ partspec check examples/spacer/spec.py:spacer
   ok   genus
 
 PASS: 8 pass
+  every dimensional limit on 'example-spacer' is unattributed: bounds derived from the model's own numbers prove the model matches itself (partspec.refs carries cited values; SPEC-contract.md 10)
   /home/user/partspec/examples/spacer/outputs/spec-spacer/report.json
 ```
 
 The JSON report is the actual product surface; the console summary is a courtesy. Exit
 codes: `0` pass, `1` fail, `2` incomplete, `3` empty, `4` error, `64` bad usage.
+
+That last warning line is the tool being honest about its own example: every bound above
+is derived from the same constants the model is built from, so this contract proves the
+model matches itself — real external footing looks like
+`p.hole_diameter(iso15.bearing(608).od)`, where the number arrives from `partspec.refs`
+with its citation recorded in the report.
 
 Writing a contract for a part you did not model? `partspec measure` dumps every quantity
 the backend can honestly produce, with no verdict — so you can see the numbers before
