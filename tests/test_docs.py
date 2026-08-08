@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 
 import pytest
+from support import measured, needs_openscad
 
 from partspec.status import EXIT_USAGE, Verdict, exit_code
 
@@ -132,3 +133,86 @@ def test_readme_agent_claim_matches_the_convergence_record():
     # pinned to the counter, not inferred from convergence.
     assert data["summary"]["gamed"] == 0
     assert "five defect classes in" in README.read_text()
+
+
+# --------------------------------------------------------------------------
+# docs/FAILURE-MODES.md — the catalogue's [repo] claims are executable
+# --------------------------------------------------------------------------
+
+CATALOGUE = (ROOT / "docs" / "FAILURE-MODES.md").read_text()
+
+
+def test_the_catalogue_names_real_in_repo_guards():
+    """Entries marked [repo] point at guards this repository actually ships;
+    a catalogue citing a guard that was refactored away teaches an agent to
+    rely on protection that no longer exists."""
+    src = ROOT / "src" / "partspec"
+    assert "unbound-parameter guard" in CATALOGUE
+    assert "would be silently dropped" in (src / "engines" / "openscad.py").read_text()
+    assert "partspec.refs.iso15" in CATALOGUE
+    assert "22.5" in (ROOT / "tests" / "test_provenance.py").read_text(), (
+        "the in-repo F16 reproduction (the Ø22.5 seat) is claimed by the catalogue"
+    )
+    assert "ocp-guard" in CATALOGUE
+    assert "ocp-guard" in (ROOT / "justfile").read_text()
+    assert "non-manifold" in (src / "backends" / "mesh.py").read_text()
+
+
+def test_the_catalogue_marks_every_entry_reproducible_or_corpus():
+    """Acceptance (#24): findings are reproducible from the repo or clearly
+    marked as needing the external corpus. Every numbered entry carries one."""
+    entries = re.findall(r"^## \d+\. .+$", CATALOGUE, re.M)
+    assert len(entries) == 8
+    for entry in entries:
+        assert "[repo]" in entry or "[corpus]" in entry, entry
+
+
+@needs_openscad
+def test_the_hole_becomes_notch_essence_is_reproducible_here(tmp_path: Path):
+    """Catalogue entry 3's [repo] claim, executed: a slot swept across the
+    plate edge drops the genus while every other check holds still — the
+    failure mode visual review is worst at, in eight lines of scad."""
+    from partspec.backends.mesh import MeshBackend
+    from partspec.engines.openscad import OpenSCADSource
+
+    scad = tmp_path / "plate.scad"
+    scad.write_text(
+        "slot_l = 20;\n"
+        "difference() {\n"
+        "    cube([40, 30, 4]);\n"
+        "    translate([10, 12, -1]) cube([slot_l, 6, 6]);\n"
+        "}\n"
+    )
+
+    def measure(slot_l: float):
+        backend = MeshBackend()
+        artifact = backend.build(
+            OpenSCADSource(path=scad, params={"slot_l": slot_l}), tmp_path / f"o{slot_l:g}"
+        )
+        return backend, artifact
+
+    backend, hole = measure(20.0)  # slot ends at x=30: an interior through-hole
+    backend2, notch = measure(35.0)  # slot reaches x=45 > 40: breaches the edge
+
+    assert measured(backend.genus(hole)).value == 1
+    assert measured(backend2.genus(notch)).value == 0, (
+        "the hole that reached the boundary is a notch"
+    )
+    for b, a in ((backend, hole), (backend2, notch)):
+        assert b.watertight(a).value is True
+        assert measured(b.solid_count(a)).value == 1
+        assert b.bbox(a).value == (40.0, 30.0, 4.0)
+
+
+def test_the_catalogue_cites_what_this_repo_actually_pins():
+    """PR #111 re-review: load-bearing citations the earlier tests missed."""
+    assert "22.5" in CATALOGUE, "entry 4's number is the finding"
+    assert "test_provenance.py" in CATALOGUE
+    assert "render_backend" in CATALOGUE
+    assert "render_backend" in (ROOT / "src" / "partspec" / "runner.py").read_text()
+    assert "#109" in CATALOGUE
+    assert "dogfood-results.md" in CATALOGUE
+    assert (ROOT / "notes" / "dogfood-results.md").is_file(), (
+        "the raw record the catalogue cites must be frozen in-repo"
+    )
+    assert "test_docs.py" in CATALOGUE, "entry 3 names this file as its repro home"
