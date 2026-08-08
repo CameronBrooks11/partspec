@@ -5,7 +5,7 @@
 **advisory and never a verdict on the part — it is about the source** (#26, verbatim):
 exit 0 says the lint ran, the findings are data in the JSON payload, and 64 is reserved
 for inputs that cannot be linted at all. The payload (schema 2) is per-file
-blocks — `{file, digest, findings}` — so a clean file is a visible entry with the
+blocks — `{file, digest, findings[, unsupported]}` — so a clean file is a visible entry with the
 sha256 of the bytes that were linted, not an absence; duplicate arguments are deduped
 (#120). Tier 1 runs **without an engine installed**.
 
@@ -104,6 +104,11 @@ exists to name — the message describes the geometry instead.
   diagnostic — the manual's own remedy is "make the cuts a little bit larger".
 - **Real example:** a bore cut with `h = plate_t` from `z = 0` fires twice (both cap
   planes coincide); the taught `-1`/`+2` overshoot lints clean.
+- **Known noise, owned:** the comparison is **plane-level, not face-level** — a cutter
+  cap on the right plane but outside the material's footprint, or on an interior
+  joint plane of a union, fires too. Advisory means accepting those knowingly costs
+  nothing; checking face overlap is a heavier geometry problem deliberately not
+  taken on here.
 
 ### `csg-difference-order`
 
@@ -115,3 +120,8 @@ exists to name — the message describes the geometry instead.
 - **Rationale:** skills/openscad-authoring rule 2 — the first child is the material;
   the wrong order is a different part, sometimes an empty one.
 - **Real example:** the skill's rule-2-before block fires; its after-form is clean.
+- **Known noise, owned:** an idiomatic oversized cutter ("remove everything above
+  z = h" as a giant box) can out-measure the material and fire on correct code; and
+  a polygonized minuend (a coarse `$fn` sphere) measures below its ideal bound, so a
+  true wrong order can fail to fire. Both directions follow from the stated
+  upper-bound convention.

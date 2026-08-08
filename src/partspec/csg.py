@@ -8,6 +8,12 @@ tree: variables resolved, loops unrolled, modules flattened — identifiers,
 literals, vectors, named arguments, braces, and the statement modifiers
 `#%!*`. One tokenizer, one recursive-descent parser, stdlib only.
 
+One stated limitation: the engines print string CONTENTS raw (a quote inside
+a text() label is not escaped), so such a file is ambiguous at the format
+level — the tokenizer matches to the next quote and the parse then fails as
+a clean CsgError (an honest refusal) rather than silently misreading. There
+is no parse that could be trusted for those files.
+
 The evaluation layer is the part no candidate provided at any price: analytic
 volumes for the primitives (scaled by |det M| under `multmatrix`) and face
 planes for cubes and cylinder caps (transformed by the inverse-transpose).
@@ -29,16 +35,13 @@ _TOKEN = re.compile(
     r"""
     (?P<num>-?\d+\.?\d*(?:[eE][+-]?\d+)?)
   | (?P<name>\$?\w+)
-  | (?P<str>"(?:[^"\\]|\\.)*")
+  | (?P<str>"[^"\n]*")
   | (?P<punct>[\[\]{}();,=])
   | (?P<mod>[#%!*])
   | (?P<ws>\s+)
     """,
     re.X,
 )
-
-VOLUME_PRIMITIVES = {"cube", "cylinder", "sphere", "polyhedron", "square", "circle"}
-STRUCTURAL = {"group", "union", "difference", "intersection", "multmatrix", "color", "render"}
 
 
 class CsgError(Exception):
@@ -103,12 +106,15 @@ def parse_csg(text: str) -> list[Node]:
             return items
         raise CsgError(f"unexpected token in value position: {tok!r}")
 
-    def statement() -> Node:
+    def statement() -> Node | None:
         kind, tok = take()
         if kind == "mod":
-            # Modifier characters decorate the next statement; the tree keeps
-            # the geometry and drops the annotation (# is debug highlight).
-            return statement()
+            # `#` (highlight) and `!` (root) keep their geometry; `%`
+            # (background) and `*` (disable) EXCLUDE it from the render, so a
+            # %-ed cutter is not part of the part and linting it produced
+            # confident wrong findings (PR #125 review, F2).
+            inner = statement()
+            return None if tok in "%*" else inner
         if kind != "name":
             raise CsgError(f"expected a node name, got {tok!r}")
         node = Node(kind=tok)
@@ -128,7 +134,9 @@ def parse_csg(text: str) -> list[Node]:
         if nxt and nxt[1] == "{":
             take("{")
             while peek() and peek()[1] != "}":  # type: ignore[index]
-                node.children.append(statement())
+                child = statement()
+                if child is not None:
+                    node.children.append(child)
             take("}")
         elif nxt and nxt[1] == ";":
             take(";")
@@ -136,7 +144,9 @@ def parse_csg(text: str) -> list[Node]:
 
     nodes = []
     while peek() is not None:
-        nodes.append(statement())
+        top = statement()
+        if top is not None:
+            nodes.append(top)
     return nodes
 
 
@@ -145,19 +155,6 @@ def parse_csg(text: str) -> list[Node]:
 # --------------------------------------------------------------------------
 
 _IDENTITY = ((1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0))
-
-
-def _matmul(a, b):
-    return tuple(
-        tuple(
-            sum(
-                a[r][k] * (b[k][c] if k < 3 else (b[k][c] if len(b) > 3 else 0.0)) for k in range(3)
-            )
-            + (a[r][3] if c == 3 else 0.0)
-            for c in range(4)
-        )
-        for r in range(3)
-    )
 
 
 def _compose(outer, inner):
@@ -270,15 +267,17 @@ def _plane(normal, point) -> tuple[float, float, float, float]:
         raise CsgError("degenerate plane normal")
     n = tuple(v / length for v in normal)
     offset = sum(n[k] * point[k] for k in range(3))
-    # Canonical orientation so (n, d) and (-n, -d) compare equal.
-    for component in (*n, offset):
-        if component > 1e-12:
+    # Round FIRST, then orient: deciding the flip on unrounded floats let two
+    # planes identical after rounding canonicalize to opposite orientations
+    # (PR #125 review, F5).
+    rounded = (round(n[0], 9), round(n[1], 9), round(n[2], 9), round(offset, 9))
+    for component in rounded:
+        if component > 0:
             break
-        if component < -1e-12:
-            n = tuple(-v for v in n)
-            offset = -offset
+        if component < 0:
+            rounded = tuple(-v if v != 0 else 0.0 for v in rounded)  # type: ignore[assignment]
             break
-    return (round(n[0], 9), round(n[1], 9), round(n[2], 9), round(offset, 9))
+    return rounded  # type: ignore[return-value]
 
 
 def planes_of(node: Node, matrix=_IDENTITY) -> set[tuple[float, float, float, float]]:

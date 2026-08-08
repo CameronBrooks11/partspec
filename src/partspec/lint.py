@@ -330,13 +330,20 @@ def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], 
 
     with tempfile.TemporaryDirectory(prefix="partspec-lint-") as tmp:
         out = Path(tmp) / "tree.csg"
-        proc = subprocess.run(
-            [executable, "-o", str(out), str(path)],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
+        try:
+            proc = subprocess.run(
+                [executable, "-o", str(out), str(path)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            # A bad PARTSPEC_OPENSCAD or a hung export must be an entry, not
+            # an exit-4 crash that eats every file's tier-1 findings too
+            # (PR #125 review, F1).
+            reason = f"the .csg export could not run: {exc}"
+            return [], [{"rule": r, "reason": reason} for r in TIER2_RULES]
         if proc.returncode != 0 or not out.is_file():
             stderr_lines = (proc.stderr or "").strip().splitlines()
             detail = stderr_lines[-1] if stderr_lines else f"openscad exited {proc.returncode}"
@@ -382,16 +389,15 @@ def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], 
                         f"volumes are analytic upper bounds over the folded tree",
                     )
                 )
-        except csg.Unknown as exc:
+        except (csg.Unknown, csg.CsgError, TypeError, ValueError, IndexError, KeyError) as exc:
             if "csg-difference-order" not in refused:
                 refused.add("csg-difference-order")
-                unsupported.append(
-                    {
-                        "rule": "csg-difference-order",
-                        "reason": f"the tree contains {exc.args[0]}(), which the "
-                        f"volume model does not cover",
-                    }
+                reason = (
+                    f"the tree contains {exc.args[0]}(), which the volume model does not cover"
+                    if isinstance(exc, csg.Unknown)
+                    else f"the tree could not be evaluated: {exc}"
                 )
+                unsupported.append({"rule": "csg-difference-order", "reason": reason})
         try:
             base = csg.planes_of(minuend, matrix)
             for cutter in cutters:
@@ -408,16 +414,20 @@ def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], 
                             f"(skills/openscad-authoring rule 3; FAILURE-MODES entry 2)",
                         )
                     )
-        except csg.Unknown as exc:
+        except (csg.Unknown, csg.CsgError, TypeError, ValueError, IndexError, KeyError) as exc:
             if "csg-coincident-face" not in refused:
                 refused.add("csg-coincident-face")
-                unsupported.append(
-                    {
-                        "rule": "csg-coincident-face",
-                        "reason": f"the tree contains {exc.args[0]}(), which the "
-                        f"plane model does not cover",
-                    }
+                reason = (
+                    f"the tree contains {exc.args[0]}(), which the plane model does not cover"
+                    if isinstance(exc, csg.Unknown)
+                    else f"the tree could not be evaluated: {exc}"
                 )
+                unsupported.append({"rule": "csg-coincident-face", "reason": reason})
 
-    walk(nodes, csg._IDENTITY)
+    try:
+        walk(nodes, csg._IDENTITY)
+    except (csg.CsgError, TypeError, ValueError, IndexError, KeyError) as exc:
+        for rule in TIER2_RULES:
+            if rule not in refused:
+                unsupported.append({"rule": rule, "reason": f"the tree could not be walked: {exc}"})
     return findings, unsupported
