@@ -15,8 +15,10 @@ Status: pre-alpha; **v0.2.0 released on PyPI** (2026-08-07, tag → trusted publ
 the mesh tier, and `partspec-mcp` serves check/measure/render as stateless MCP tools.
 P0–P6 of `docs/PLAN.md` are complete; epic #6 grew the vocabulary to real mechanical
 intent (`keep_out`/`keep_in`, `hole_diameter`, `bolt_circle`, `fillet_radius`) and added
-the `partspec diff` comparator (`SPEC-diff.md`). What remains withheld, and why, is
-`docs/POST-V0.md`.
+the `partspec diff` comparator (`SPEC-diff.md`); epic #5 (unreleased) added reference
+data with provenance — `partspec.refs` tables and fragments (`iso15`, `nema17`), cited
+limits in the report, and the unattributed-limit disclosure (SPEC-contract §6/§10/§11).
+What remains withheld, and why, is `docs/POST-V0.md`.
 
 ## Stack
 
