@@ -8,9 +8,10 @@ than a convention someone has to remember (SPEC-contract.md 1.1).
 
 from __future__ import annotations
 
-from . import region
+from . import refs, region
 from .backend import BBox, BuildError, GeometryBackend, Tier, Unsupported, Vec3
 from .contract import CheckSpec, Part, Source, build123d, cadquery, openscad
+from .provenance import Referenced
 from .report import CheckResult, Report, write_placeholder
 from .runner import run
 from .status import (
@@ -35,6 +36,7 @@ __all__ = [
     "Limit",
     "Measurement",
     "Part",
+    "Referenced",
     "Report",
     "Source",
     "Status",
@@ -48,6 +50,7 @@ __all__ = [
     "epsilon",
     "exit_code",
     "openscad",
+    "refs",
     "region",
     "run",
     "verdict_of",

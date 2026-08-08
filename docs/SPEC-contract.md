@@ -540,3 +540,42 @@ constraints, adopted now at no cost:
 3. **The `skipped` status already exists** with the semantics assemblies need — *"absence is
    a legitimate run state, not an input error"* — so a standalone sub-assembly run can
    evaluate the same check list without the absent parts.
+
+---
+
+## 10. Referenced values — where a limit's number came from
+
+Every payoff in the dogfood came from a human supplying an external reference (ISO 15's
+22 mm, the NEMA bolt pattern). A limit is only as good as where its number came from, and
+`Referenced` is how a contract records where that was: a float subclass that IS its value
+— it compares, renders and serialises as a plain number — and additionally carries a
+citation, conventionally `{"standard", "subject", "field"}`.
+
+```python
+from partspec.refs import iso15
+
+seat = iso15.bearing(608)
+p.hole_diameter(seat.od, tol=0.05)     # the check records source: ISO 15 / 608 / od
+p.volume(min=1000.0)                    # a bare literal records nothing
+```
+
+A check method receiving a `Referenced` among its bounds records
+`source: {field: citation}` on the check (`SPEC-report.md` §7.1) — the report states not
+just what was claimed but on whose authority. Three rules:
+
+1. **Attribution is additive, never required.** Bare literals behave exactly as before.
+2. **Arithmetic sheds it.** `seat.od + 0.1` is a plain float: the derived number is the
+   author's, not the standard's, and carrying a citation across an operation the cited
+   document never performed would launder authority. (#50 builds the warning channel on
+   this axis: a run whose every dimensional limit is unattributed will say so.)
+3. **A citation locates, it does not reproduce.** `{"standard": "ISO 15", "subject":
+   "608", "field": "outside_diameter"}` is enough to find the number; the tables never
+   carry a standard's text.
+
+### 10.1 Scope policy for `partspec.refs`
+
+In scope: **dimensional interface facts** that are widely published and independently
+verifiable — boundary dimensions, bolt patterns, envelope sizes — as pure stdlib data.
+Out of scope: reproducing any standard's text, figures, or tolerancing tables, and any
+value not verifiable from public manufacturer documentation. An unknown designation is a
+`ContractError` naming what the table does carry — a table must not guess.
