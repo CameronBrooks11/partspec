@@ -9,6 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
+## [0.4.0] - 2026-08-08
+
+The loop can be trusted unattended (epic #4's remnant): a run that cannot hang, a
+contract that cannot shrink silently, and the rules an agent follows written down.
+
+### Added
+
+- **Bounded builds.** `--timeout SECONDS` on `check`, `measure` and `render`
+  (default 300 s, then `PARTSPEC_TIMEOUT`; `0` explicitly waives), recorded in
+  `invocation.timeout_s`. A blown budget is `error` exit 4 with
+  `build_origin: "environment"` naming the elapsed time and the budget — never a
+  failing `builds` check: a stopwatch disproves nothing about the part. The Python
+  tier gets a real SIGALRM bound that records it fired — a model whose mundane
+  `except Exception` swallows the alarm still has its over-budget result discarded —
+  and re-fires past `except Exception`; the residual ceilings (C-kernel hangs,
+  signal-owning models, leaked threads) are stated in `SPEC-backend.md`, not hidden
+  (#100).
+- **Multi-target `check`.** One process, one report per part at its deterministic
+  path, exit by highest-precedence verdict (`error > empty > fail > incomplete >
+  pass`, SPEC-report §6.2); an unresolvable target exits 64 with the remaining
+  targets still evaluated; placeholders for every target go down before any runs;
+  colliding slugs under one `--out` are refused rather than silently overwritten.
+  The `sys.modules` model cache is invalidated after every Python-engine build —
+  a second contract importing an edited helper used to get the previous version, a
+  stale build reported as fresh (POST-V0 §8) (#104).
+- **The claims pin.** `check --pin LOCK` writes the declared claim set;
+  `check --expect LOCK` fails before the engine starts unless the set matches
+  exactly — removed, added, and changed claims named with both slugs, stripped
+  `source` citations included, verdict `error` exit 4 with every check skipped and
+  the adjudication in the artifact as `expectation`. A pinned part no target
+  produced fails too. This closes silent contract weakening with **no baseline in
+  hand**; `diff` remains the comparison half (#105).
+- **`measure` is as identifiable as a report.** Its payload opens with the report's
+  exact identity prefix (`schema_version`, `tool`, `part` with digests and closure,
+  `engine`, `params`, `geometry`), built by the same code, and any failure after
+  the target resolves emits that identity plus `error`/`hint` as JSON on stdout
+  (#102).
+- **`docs/AGENT-CONTRACT.md`** — the agent contract: a bounded 5-attempt repair
+  loop with failure fed forward, an action map keyed on (exit, verdict, report
+  fields), the greppable `HUMAN_REVIEW:` escalation format with its parse rule,
+  and the out-of-bounds section naming the guards that watch every weakening move.
+  A drift-guard test file holds the document's executable claims to the code (#106).
+
+### Fixed
+
+- **A missing third-party package at model import read as a disproven design.**
+  Found live: a `uv sync` dropped a wheel and the batch reported the part as
+  failing. Now `origin: "environment"`, exit 4, package named in the hint; a
+  broken local import chain stays the part's fault (#101).
+- **Stale bytecode could answer for an edited file.** CPython validates a `.pyc`
+  by (mtime seconds, size), so a same-length edit within one second re-executed
+  the OLD contract under the NEW `contract_digest` — precisely an agent's rapid
+  edit-loop shape, and precisely what would blind the claims pin. Contract and
+  model entry files now compile from source, never from the bytecode cache (#105).
+
 ## [0.3.0] - 2026-08-08
 
 Reference data with provenance — limits that know where their numbers came from (epic #5).
@@ -326,7 +381,8 @@ callouts, and reports become comparable.
   `measure` and `render` carry the same engine provenance as `check`; the OpenSCAD method
   scratch moved out of the source tree.
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/CameronBrooks11/partspec/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/CameronBrooks11/partspec/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/CameronBrooks11/partspec/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/CameronBrooks11/partspec/releases/tag/v0.1.0

@@ -1,6 +1,9 @@
 # SPEC — the `partspec` report
 
-**Status:** draft 7 · 2026-08-08 · adds `checks[].components` / `region` / `hole` /
+**Status:** draft 8 · 2026-08-08 · adds `expectation` (the claims pin),
+`invocation.timeout_s`, the exit-130 row, batch coverage of `64` (reversing the earlier
+no-aggregation theory), the model-cache-invalidation MUST, and the `measure`
+identity-prefix scope; draft 7 added `checks[].components` / `region` / `hole` /
 `source`, run-level `attribution`, render references, and the §8.3 closure reversal
 **Scope:** the JSON artifact `partspec check` emits, and the process exit code that
 accompanies it. `partspec measure` emits a sibling payload that MUST share the identity
