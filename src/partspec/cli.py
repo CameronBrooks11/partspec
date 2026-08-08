@@ -306,6 +306,9 @@ def _cmd_measure(args: argparse.Namespace) -> int:
             "part": identity(part, target.path),
             "engine": engine_block(part, backend),
             "params": dict(part.source.params),
+            # Empty rather than absent, mirroring the report's failure shape:
+            # the spec's identity-prefix claim stays exact on both verbs.
+            "geometry": {},
             "error": artifact.message,
             "hint": artifact.hint,
         }

@@ -123,6 +123,10 @@ def test_measure_carries_the_same_identity_as_the_report(tmp_path: Path, capsys)
     assert doc["schema_version"] == report["schema_version"]
     assert doc["part"] == report["part"]
     assert doc["params"] == report["params"]
+    # Presence, not just sameness: the equality pin alone cannot see a field
+    # both sides lost together (PR #102 review, mutant survivor).
+    assert doc["part"]["contract_digest"].startswith("sha256:")
+    assert doc["part"]["source_digest"].startswith("sha256:")
     assert list(doc)[:7] == [
         "schema_version",
         "tool",
@@ -154,7 +158,7 @@ def test_measure_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     module = tmp_path / "spec.py"
     module.write_text(
         "from partspec import Part, openscad\n\n\ndef make():\n"
-        "    return Part('subject', openscad('missing.scad'))\n"
+        "    return Part('subject', openscad('missing.scad', bore_diamter=8))\n"
     )
     assert main(["measure", f"{module}:make"]) == exit_code(Verdict.ERROR)
     captured = capsys.readouterr()
@@ -162,6 +166,11 @@ def test_measure_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     assert doc["schema_version"] == 1
     assert doc["part"]["id"] == "subject"
     assert doc["part"]["contract"].endswith("spec.py")
+    assert doc["engine"]["kind"] == "openscad"
+    # The payload records what was ASKED; `error` says what happened. A
+    # typo'd parameter stays visible rather than vanishing with the build.
+    assert doc["params"] == {"bore_diamter": 8}
+    assert doc["geometry"] == {}
     assert "not found" in doc["error"]
     assert "hint" in doc
     assert "not found" in captured.err, "the console courtesy line survives"
