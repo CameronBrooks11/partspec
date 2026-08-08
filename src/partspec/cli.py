@@ -95,8 +95,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"partspec {_version()}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
-    check = sub.add_parser("check", help="build a part and check it against its contract")
-    check.add_argument("target", help="<module-path>[:<factory>]")
+    check = sub.add_parser("check", help="build parts and check them against their contracts")
+    check.add_argument(
+        "targets",
+        nargs="+",
+        metavar="target",
+        help="<module-path>[:<factory>] — several targets share one process, "
+        "one report each, exit by the worst verdict",
+    )
     check.add_argument("--out", type=Path, default=None, help="report directory")
     check.add_argument("--quiet", action="store_true", help="suppress the human summary")
     check.add_argument(
@@ -172,9 +178,21 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
     report as a wrong answer, and in CI the two are indistinguishable. It is
     `EXIT_ERROR` for the same reason a `ContractError` raised during a run is:
     nothing was evaluated, so nothing may be said about the part.
+
+    Resolution is also snapshot for the model-module registry: a CONTRACT that
+    imports a helper beside the model puts it into `sys.modules` before the
+    build's own snapshot, and PR #104's review reproduced POST-V0 §8's
+    stale-helper build through exactly that path. Recording resolve-time
+    additions against the model's directory closes it.
     """
+    modules_before = set(sys.modules)
     try:
-        return resolve(spec)
+        part, target = resolve(spec)
+        if part.source.engine != "openscad":
+            from .engines.pycad import record_model_modules
+
+            record_model_modules(part.source.path, modules_before)
+        return part, target
     except TargetError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -195,19 +213,67 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
         return exit_code(Verdict.ERROR)
 
 
+_EXIT_PRECEDENCE = (130, EXIT_USAGE, 4, 3, 1, 2, 0)
+"""Batch exit order: interrupt, usage, then SPEC-report §6.1's verdict
+precedence (error, empty, fail, incomplete, pass). `empty` outranking `fail`
+is the spec's call, not an accident: a contract that asserts nothing is the
+vacuous-green case, and a batch hiding one behind a mere failure would bury
+the more dangerous signal."""
+
+_EXIT_WORD = {0: "pass", 1: "fail", 2: "incomplete", 3: "empty", 4: "error", EXIT_USAGE: "usage"}
+
+
+def _batch_exit(codes: list[int]) -> int:
+    for code in _EXIT_PRECEDENCE:
+        if code in codes:
+            return code
+    return max(codes, default=0)
+
+
+def _out_dir_for(spec: str, explicit: Path | None, *, batch: bool) -> Path:
+    if explicit is not None and batch:
+        # One directory cannot hold N reports at one deterministic name each;
+        # every part gets its slug as a subdirectory.
+        return explicit / Target.parse(spec).slug
+    return _out_dir(spec, explicit)
+
+
 def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
-    # The placeholder goes down BEFORE the contract is resolved, not after.
-    # Resolving is itself something that can fail -- a contract that raises on
-    # import, a typo in a keyword argument -- and until this moved, that path
-    # returned an exit code without touching the output directory, leaving the
-    # *previous* run's `verdict: "pass"` at the deterministic path. The exit
-    # code said error; the artifact on disk said the part was fine, and the
-    # artifact is what a later reader trusts. Making the failure quieter was a
-    # regression this ordering fixes.
-    #
-    # `_out_dir` only parses the target string, so it needs no resolved Part.
-    out = _out_dir(args.target, args.out)
-    write_placeholder(out, contract=args.target, argv=argv)
+    targets: list[str] = args.targets
+    batch = len(targets) > 1
+
+    # Invocation-SHAPE refusals come before anything touches disk: a shape
+    # the tool won't run never meant to re-check anything. The collision
+    # guard in particular must precede the placeholder fan-out, or the
+    # fan-out itself performs the shared-path overwrite the guard exists to
+    # refuse (PR #104 re-review, finding 7).
+    if batch and args.render:
+        print("partspec: --render is single-target for now", file=sys.stderr)
+        return EXIT_USAGE
+    if batch and args.out is not None:
+        slugs = [Target.parse(spec).slug for spec in targets]
+        collisions = sorted({s for s in slugs if slugs.count(s) > 1})
+        if collisions:
+            # Refuse rather than let the last part silently overwrite the
+            # first's report under one deterministic path.
+            print(
+                f"partspec: --out with several targets needs distinct slugs, and "
+                f"{', '.join(collisions)} collide{'s' if len(collisions) == 1 else ''}; "
+                f"rename a factory or drop --out for per-contract output directories",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
+
+    # EVERY target's placeholder goes down before ANY target runs — not per
+    # target inside the loop. An invocation that dies mid-flight (garbage
+    # PARTSPEC_TIMEOUT below, interrupt during part two) meant to re-check
+    # the later targets too, and their previous `verdict: "pass"` sitting
+    # untouched at the deterministic path is a stale artifact reading as
+    # current — the worst failure in the system (SPEC-report 5, rules 1-2;
+    # PR #104 review). `_out_dir_for` only parses the target string, so it
+    # needs no resolved Part.
+    for spec in targets:
+        write_placeholder(_out_dir_for(spec, args.out, batch=batch), contract=spec, argv=argv)
 
     try:
         timeout_s = _timeout_s(args.timeout)
@@ -215,7 +281,34 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
-    resolved = _resolve_or_report(args.target)
+    codes: list[int] = []
+    for spec in targets:
+        code = _check_one(spec, args, argv, timeout_s, batch=batch)
+        if code == 130:
+            # The user's own abort is the one failure that DOES stop a batch.
+            return 130
+        codes.append(code)
+
+    if batch and not args.quiet:
+        tally: dict[str, int] = {}
+        for code in codes:
+            word = _EXIT_WORD.get(code, str(code))
+            tally[word] = tally.get(word, 0) + 1
+        summary = ", ".join(f"{n} {word}" for word, n in tally.items())
+        print(f"BATCH: {len(codes)} parts — {summary}")
+    return _batch_exit(codes)
+
+
+def _check_one(
+    spec: str, args: argparse.Namespace, argv: list[str], timeout_s: float, *, batch: bool
+) -> int:
+    # The placeholder is already on disk — written by `_cmd_check` for every
+    # target before any ran — so a resolution failure here (a contract that
+    # raises on import, a typo in a keyword argument) leaves an artifact
+    # saying the run died, never the previous run's `verdict: "pass"`.
+    out = _out_dir_for(spec, args.out, batch=batch)
+
+    resolved = _resolve_or_report(spec)
     if isinstance(resolved, int):
         return resolved
     part, target = resolved
@@ -261,6 +354,16 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             print(f"  hint: {render_error.hint}", file=sys.stderr)
         return exit_code(Verdict.ERROR)
     return report.exit_code
+
+
+def _invalidate_python_model(part: Part) -> None:
+    """`measure` builds outside `run()`, so it evicts the model's cached
+    modules itself — after the closure was read, same rule as the runner
+    (#29). A stale helper served to the NEXT build is the failure class."""
+    if part.source.engine != "openscad":
+        from .engines.pycad import invalidate_model_modules
+
+        invalidate_model_modules(part.source.path)
 
 
 def _cmd_measure(args: argparse.Namespace) -> int:
@@ -316,6 +419,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         print(f"partspec: {artifact.message}", file=sys.stderr)
         if artifact.hint:
             print(f"  hint: {artifact.hint}", file=sys.stderr)
+        _invalidate_python_model(part)
         return exit_code(Verdict.ERROR)
 
     measurements: dict[str, object] = {}
@@ -382,6 +486,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         measured["unavailable"] = unavailable
 
     print(json.dumps(measured, indent=2, allow_nan=False))
+    _invalidate_python_model(part)
     return 0
 
 

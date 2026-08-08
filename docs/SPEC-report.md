@@ -355,6 +355,7 @@ it does not know what to assert.
 | `3` | `empty` | no checks declared |
 | `4` | `error` | the contract raised, or the environment prevented a build |
 | `64` | — | usage error: unresolvable target, bad arguments (`EX_USAGE`) |
+| `130` | — | user interrupt (SIGINT convention); the operator's own abort, never a verdict |
 
 **`2` is the load-bearing one.** It is what stops D10 from being a comment. A tool that
 exits 0 on a part whose checks were mostly unavailable has told the operator that the part
@@ -363,8 +364,23 @@ is fine, which it has not established.
 **Batch invocations.** One report is written **per part** (§5.4), not per invocation. When
 several parts are checked at once, the process exit code is that of the
 **highest-precedence verdict across all parts**, using the same order as §6.1
-(`error > empty > fail > incomplete > pass`). `64` is reserved for failures that produce no
-reports at all, and therefore never participates in that aggregation.
+(`error > empty > fail > incomplete > pass`).
+
+An unresolvable target exits `64`, outranking every verdict — but the remaining targets
+MUST still be evaluated and written first (§5 rule 4). An earlier draft reserved `64`
+from this aggregation on the theory that usage failures produce no reports; the
+placeholder rule (§5 rule 2) means they do — an error artifact naming the dead run — and
+a batch that reported a mistyped (or deleted: that is how a contract vanishes in a
+weakening attack) target as a mere part-verdict would bury the fact that a question went
+unasked. A user interrupt (exit `130`) is the one failure that does stop a batch: it is
+the operator's own abort, not a part's.
+
+The model-module cache MUST be invalidated after every Python-engine build in a process
+(every module a resolve or build introduced from the model's directory evicted from
+`sys.modules`), because a second contract
+importing an edited helper otherwise gets the previous version — a stale build reported
+as fresh, with a closure digest computed from a file that never reached the interpreter
+(POST-V0 §8, shipped with #29).
 
 **`--allow-incomplete` is deliberately NOT in v0.** It would map `incomplete` → exit `0`,
 and it is the obvious first request once exit `2` becomes inconvenient. Shipping the escape

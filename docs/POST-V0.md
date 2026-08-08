@@ -166,15 +166,15 @@ That gap is a genuine opportunity if this project ever wants one.
 
 ## 8. In-process batching invalidates a stale Python model cache
 
+**Shipped 2026-08-08 (#29):** multi-target `check` landed with the invalidation this
+section demanded — the model's directory subtree is evicted from `sys.modules` after
+every Python-engine build, in `run()` itself rather than only between batch targets,
+because PR #101's review demonstrated the staleness live in a plain two-build process.
+The paragraph below is the design basis.
+
 Found while adding the Python source closure (2026-08-05). D5 answers OCP's multi-second
 import cost with **batching** — one process evaluating many contracts — rather than a daemon.
-That is still right, but it has a consequence nothing currently handles: `sys.modules` caches
+That is still right, but it has a consequence nothing previously handled: `sys.modules` caches
 a model's helper modules, so a second contract in the same process that imports an edited
-helper gets the *previous* version of it.
-
-No live bug yet: the CLI is one process per target, `run-batch.sh` invokes it per target, and
-the MCP server (§3, shipped) sidestepped it by running a fresh subprocess per call. It becomes
-real the moment a multi-target `check` (#29) lands, and it fails in the worst available way —
-a stale build reported as a fresh one, with a closure digest computed from the edited file on
-disk that never reached the interpreter. That slice owns invalidating the model's directory
-subtree from `sys.modules` between runs.
+helper gets the *previous* version of it — a stale build reported as fresh, with a closure
+digest computed from the edited file on disk that never reached the interpreter.
