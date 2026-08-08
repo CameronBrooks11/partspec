@@ -203,9 +203,14 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
     modules_before = set(sys.modules)
     try:
         part, target = resolve(spec)
-        if part.source.engine != "openscad":
-            from .engines.pycad import record_model_modules
+        from .engines.pycad import record_model_modules
 
+        # The CONTRACT's sibling imports too, for every engine: a shared
+        # claims.py cached from directory A silently supplied directory B's
+        # checks in one process (PR #112 review) — the same stale-module
+        # class as the model-helper case, one loader over.
+        record_model_modules(target.path, modules_before)
+        if part.source.engine != "openscad":
             record_model_modules(part.source.path, modules_before)
         return part, target
     except TargetError as exc:
@@ -433,6 +438,7 @@ def _check_one(
             report.renders = {v: p.relative_to(out).as_posix() for v, p in views.items()}
 
     path = report.write(out)
+    _invalidate_after(part, target)
 
     if not args.quiet:
         _summarise(report, path)
@@ -447,13 +453,15 @@ def _check_one(
     return report.exit_code
 
 
-def _invalidate_python_model(part: Part) -> None:
-    """`measure` builds outside `run()`, so it evicts the model's cached
-    modules itself — after the closure was read, same rule as the runner
-    (#29). A stale helper served to the NEXT build is the failure class."""
-    if part.source.engine != "openscad":
-        from .engines.pycad import invalidate_model_modules
+def _invalidate_after(part: Part, target: Target) -> None:
+    """Evict what this run's resolve and build cached — the contract's
+    sibling imports for every engine, the model's for the Python tiers —
+    after the artifact is final (#29; PR #112 review for the contract half).
+    A stale module served to the NEXT run is the failure class."""
+    from .engines.pycad import invalidate_model_modules
 
+    invalidate_model_modules(target.path)
+    if part.source.engine != "openscad":
         invalidate_model_modules(part.source.path)
 
 
@@ -510,7 +518,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         print(f"partspec: {artifact.message}", file=sys.stderr)
         if artifact.hint:
             print(f"  hint: {artifact.hint}", file=sys.stderr)
-        _invalidate_python_model(part)
+        _invalidate_after(part, target)
         return exit_code(Verdict.ERROR)
 
     measurements: dict[str, object] = {}
@@ -577,7 +585,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         measured["unavailable"] = unavailable
 
     print(json.dumps(measured, indent=2, allow_nan=False))
-    _invalidate_python_model(part)
+    _invalidate_after(part, target)
     return 0
 
 
