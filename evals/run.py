@@ -27,7 +27,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CASES = ROOT / "cases"
+AUTHORING_CASES = ROOT / "cases-authoring"
 RESULTS = ROOT / "results"
+SKILLS = ROOT.parent / "skills"
 
 # Tools are restricted to file access on purpose: withholding Bash is what makes
 # "the agent does not run partspec itself" a property of the harness rather than
@@ -75,6 +77,27 @@ The full machine-readable report is at `{path}`. You may read it.
 
 """
 
+AUTHORING_PROMPT = """\
+You are authoring a CAD model from scratch.
+
+The working directory contains:
+
+{tree}
+
+`TASK.md` states what to build. `{contract}` is the **contract** the part must
+satisfy; it is **frozen** — do not edit it. Write `{model}` (OpenSCAD) so the
+contract passes. Nobody will tell you more than the task and the contract say.
+{guidance_note}
+Do not run partspec yourself; it will be run for you after you finish, and you
+will see its output if anything fails.
+"""
+
+GUIDANCE_NOTE = """\
+The directory `skills/` contains this project's authoring guidance
+(`openscad-authoring/SKILL.md`, `contract-authoring/SKILL.md`). Read it and
+follow it.
+"""
+
 
 @dataclass
 class Turn:
@@ -90,10 +113,13 @@ class Turn:
 class Trial:
     case: str
     trial: int
+    arm: str = "control"
     outcome: str = "error"
     turns_to_converge: int | None = None
     turns: list[Turn] = field(default_factory=list)
     note: str = ""
+    loc: int | None = None
+    lint_findings: int | None = None
 
 
 def digests(root: Path, names: list[str]) -> dict[str, str]:
@@ -150,21 +176,67 @@ def call_agent(cmd: str, work: Path, prompt: str) -> tuple[bool, str]:
     return True, proc.stdout.strip()
 
 
+def source_loc(path: Path) -> int:
+    """Non-blank, non-comment lines — the LoC the issue asks to record."""
+    count = 0
+    in_block = False
+    for line in path.read_text(errors="replace").splitlines():
+        text = line.strip()
+        if in_block:
+            if "*/" in text:
+                in_block = False
+            continue
+        if not text or text.startswith("//"):
+            continue
+        if text.startswith("/*"):
+            in_block = "*/" not in text
+            continue
+        count += 1
+    return count
+
+
+def lint_count(work: Path, model: str, partspec: str) -> int | None:
+    proc = subprocess.run(
+        [partspec, "lint", model], cwd=work, capture_output=True, text=True, timeout=120
+    )
+    try:
+        return json.loads(proc.stdout)["counts"]["findings"]
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
 def run_trial(
-    case_dir: Path, cfg: dict, trial_n: int, agent: str, partspec: str, out_dir: Path
+    case_dir: Path, cfg: dict, trial_n: int, agent: str, partspec: str, out_dir: Path, arm: str
 ) -> Trial:
-    t = Trial(case=cfg["id"], trial=trial_n)
+    t = Trial(case=cfg["id"], trial=trial_n, arm=arm)
     target = cfg["target"]
     frozen = cfg.get("frozen", ["spec.py"])
     max_turns = cfg.get("max_turns", 6)
+    authoring = cfg.get("mode") == "authoring"
 
     with tempfile.TemporaryDirectory(prefix=f"partspec-eval-{cfg['id']}-") as tmp:
         work = Path(tmp) / cfg["id"]
         shutil.copytree(
             case_dir, work, ignore=shutil.ignore_patterns("outputs", "__pycache__", "case.toml")
         )
+        if arm == "skills":
+            shutil.copytree(SKILLS, work / "skills")
         baseline = digests(work, frozen)
         prev_sev = len(SEVERITY)
+
+        if authoring:
+            prompt = AUTHORING_PROMPT.format(
+                tree=tree_of(work),
+                contract=frozen[0],
+                model=cfg["model"],
+                guidance_note=GUIDANCE_NOTE if arm == "skills" else "",
+            )
+            ok, note = call_agent(agent, work, prompt)
+            (out_dir / f"{cfg['id']}-{arm}-t{trial_n}-author.prompt.md").write_text(prompt)
+            (out_dir / f"{cfg['id']}-{arm}-t{trial_n}-author.agent.md").write_text(note)
+            if not ok:
+                t.outcome, t.note = "error", note
+                return t
 
         for turn in range(1, max_turns + 1):
             code, output, report = run_check(work, target, partspec)
@@ -181,7 +253,8 @@ def run_trial(
             t.turns.append(Turn(turn, code, verdict, summary))
 
             if code == 0:
-                t.outcome, t.turns_to_converge = "converged", turn - 1
+                t.outcome = "converged"
+                t.turns_to_converge = turn if authoring else turn - 1
                 break
 
             sev = SEVERITY.index(verdict) if verdict in SEVERITY else 0
@@ -208,17 +281,24 @@ def run_trial(
                 report_note=report_note,
             )
             ok, note = call_agent(agent, work, prompt)
-            (out_dir / f"{cfg['id']}-t{trial_n}-turn{turn}.prompt.md").write_text(prompt)
-            (out_dir / f"{cfg['id']}-t{trial_n}-turn{turn}.agent.md").write_text(note)
+            (out_dir / f"{cfg['id']}-{arm}-t{trial_n}-turn{turn}.prompt.md").write_text(prompt)
+            (out_dir / f"{cfg['id']}-{arm}-t{trial_n}-turn{turn}.agent.md").write_text(note)
             if not ok:
                 t.turns[-1].agent_ok = False
                 t.turns[-1].agent_note = note
                 t.outcome, t.note = "error", note
                 break
 
+        model_file = work / cfg.get("model", "model.scad")
+        if model_file.exists():
+            t.loc = source_loc(model_file)
+            t.lint_findings = lint_count(work, cfg.get("model", "model.scad"), partspec)
+
         # Preserve whatever the agent left behind, for post-hoc reading.
-        keep = out_dir / f"{cfg['id']}-t{trial_n}-final"
-        shutil.copytree(work, keep, ignore=shutil.ignore_patterns("outputs", "__pycache__"))
+        keep = out_dir / f"{cfg['id']}-{arm}-t{trial_n}-final"
+        shutil.copytree(
+            work, keep, ignore=shutil.ignore_patterns("outputs", "__pycache__", "skills")
+        )
 
     return t
 
@@ -232,12 +312,21 @@ def main() -> int:
     ap.add_argument("--agent", default=os.environ.get("PARTSPEC_EVAL_AGENT", DEFAULT_AGENT))
     ap.add_argument("--partspec", default=os.environ.get("PARTSPEC_BIN", "partspec"))
     ap.add_argument("--list", action="store_true")
+    ap.add_argument(
+        "--arm",
+        choices=["control", "skills"],
+        default="control",
+        help="authoring guidance absent (control) or present (skills) — #53",
+    )
     args = ap.parse_args()
 
     cases = []
-    for d in sorted(CASES.iterdir()):
-        if (d / "case.toml").exists():
-            cases.append((d, tomllib.loads((d / "case.toml").read_text())))
+    for parent in (CASES, AUTHORING_CASES):
+        if not parent.is_dir():
+            continue
+        for d in sorted(parent.iterdir()):
+            if (d / "case.toml").exists():
+                cases.append((d, tomllib.loads((d / "case.toml").read_text())))
 
     if args.list:
         for _d, cfg in cases:
@@ -267,7 +356,7 @@ def main() -> int:
         for n in range(1, args.trials + 1):
             print(f"-- {cfg['id']} trial {n}/{args.trials}", flush=True)
             try:
-                t = run_trial(d, cfg, n, args.agent, args.partspec, out_dir)
+                t = run_trial(d, cfg, n, args.agent, args.partspec, out_dir, args.arm)
             except Exception as exc:  # a harness fault is data, not a crash
                 t = Trial(
                     case=cfg["id"], trial=n, outcome="error", note=f"{type(exc).__name__}: {exc}"
@@ -279,6 +368,7 @@ def main() -> int:
     payload = {
         "when": stamp,
         "agent": args.agent,
+        "arm": args.arm,
         "trials": [asdict(t) for t in trials],
         "summary": {
             o: sum(1 for t in trials if t.outcome == o)

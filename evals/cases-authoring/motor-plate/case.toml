@@ -1,0 +1,6 @@
+id = "motor-plate"
+target = "spec.py:plate"
+mode = "authoring"
+model = "model.scad"
+frozen = ["spec.py", "TASK.md"]
+max_turns = 4

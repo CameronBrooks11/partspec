@@ -1,0 +1,134 @@
+{
+  "when": "20260808-134127",
+  "agent": "claude -p --permission-mode bypassPermissions --allowedTools Read,Edit,Write,Glob,Grep",
+  "arm": "skills",
+  "trials": [
+    {
+      "case": "motor-plate",
+      "trial": 1,
+      "arm": "skills",
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "  every dimensional limit on 'motor-plate' is unattributed: bounds derived from the model's own numbers prove the model matches itself (partspec.refs carries cited values; SPEC-contract.md 10)",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": "",
+      "loc": 21,
+      "lint_findings": 0
+    },
+    {
+      "case": "motor-plate",
+      "trial": 2,
+      "arm": "skills",
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "  every dimensional limit on 'motor-plate' is unattributed: bounds derived from the model's own numbers prove the model matches itself (partspec.refs carries cited values; SPEC-contract.md 10)",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": "",
+      "loc": 20,
+      "lint_findings": 0
+    },
+    {
+      "case": "plate-bore",
+      "trial": 1,
+      "arm": "skills",
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "  every dimensional limit on 'plate-bore' is unattributed: bounds derived from the model's own numbers prove the model matches itself (partspec.refs carries cited values; SPEC-contract.md 10)",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": "",
+      "loc": 15,
+      "lint_findings": 0
+    },
+    {
+      "case": "plate-bore",
+      "trial": 2,
+      "arm": "skills",
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "  every dimensional limit on 'plate-bore' is unattributed: bounds derived from the model's own numbers prove the model matches itself (partspec.refs carries cited values; SPEC-contract.md 10)",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": "",
+      "loc": 15,
+      "lint_findings": 0
+    },
+    {
+      "case": "sealed-box",
+      "trial": 1,
+      "arm": "skills",
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "  every dimensional limit on 'sealed-box' is unattributed: bounds derived from the model's own numbers prove the model matches itself (partspec.refs carries cited values; SPEC-contract.md 10)",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": "",
+      "loc": 15,
+      "lint_findings": 0
+    },
+    {
+      "case": "sealed-box",
+      "trial": 2,
+      "arm": "skills",
+      "outcome": "converged",
+      "turns_to_converge": 1,
+      "turns": [
+        {
+          "n": 1,
+          "exit_code": 0,
+          "verdict": "pass",
+          "summary": "  every dimensional limit on 'sealed-box' is unattributed: bounds derived from the model's own numbers prove the model matches itself (partspec.refs carries cited values; SPEC-contract.md 10)",
+          "agent_ok": true,
+          "agent_note": ""
+        }
+      ],
+      "note": "",
+      "loc": 15,
+      "lint_findings": 0
+    }
+  ],
+  "summary": {
+    "converged": 6,
+    "failed": 0,
+    "gamed": 0,
+    "regressed": 0,
+    "error": 0
+  }
+}

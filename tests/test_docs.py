@@ -481,3 +481,37 @@ def test_the_bd_skill_cites_its_evidence_and_neighbours():
         "ShapePredicate",
     ):
         assert needle in BD_SKILL, f"the skill must reference {needle}"
+
+
+# --------------------------------------------------------------------------
+# evals/AUTHORING.md — the record's numbers are the results' numbers
+# --------------------------------------------------------------------------
+
+
+def test_the_authoring_record_matches_its_results():
+    """#53's claims pinned to the evidence, the same discipline as the
+    convergence record: a number in the prose that drifts from results.json
+    is a claim that outlived its record."""
+    import json as _json
+
+    record_dir = ROOT / "evals" / "authoring-20260808"
+    control = _json.loads((record_dir / "control-results.json").read_text())
+    skills = _json.loads((record_dir / "skills-results.json").read_text())
+
+    for payload, arm in ((control, "control"), (skills, "skills")):
+        assert len(payload["trials"]) == 6
+        assert all(t["outcome"] == "converged" for t in payload["trials"])
+        assert all(t["arm"] == arm for t in payload["trials"])
+
+    control_lint = sum(t["lint_findings"] for t in control["trials"])
+    skills_lint = sum(t["lint_findings"] for t in skills["trials"])
+    assert control_lint == 17 and skills_lint == 0
+
+    doc = (ROOT / "evals" / "AUTHORING.md").read_text()
+    assert "**17**" in doc and "**0**" in doc
+    assert "6/6" in doc
+    control_loc = sum(t["loc"] for t in control["trials"]) / 6
+    skills_loc = sum(t["loc"] for t in skills["trials"]) / 6
+    assert f"{control_loc:.1f}" in doc and f"{skills_loc:.1f}" in doc
+    for exhibit in ("exhibit-control-plate-bore.scad", "exhibit-skills-plate-bore.scad"):
+        assert (record_dir / exhibit).is_file()

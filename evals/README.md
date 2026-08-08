@@ -1,4 +1,7 @@
-# evals — does an agent actually converge?
+# evals — does an agent actually converge, and do the assets change what it writes?
+
+Two questions, one harness. Convergence (#30): `CONVERGENCE.md`. Authoring quality
+under guidance-present/absent arms (#53): `AUTHORING.md`.
 
 The project's thesis is that a machine-checkable contract plus an honest verdict is
 enough for an AI agent to drive a broken CAD model to correct. Nothing in the test
