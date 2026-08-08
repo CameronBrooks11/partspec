@@ -101,6 +101,10 @@ class CheckResult:
     hole: dict[str, Any] | None = None
     """The declared bore of a `hole_diameter` check — `{"d": ..., "count": ...}`
     — on the same principle as `region`. Additive per §7.1."""
+    source: dict[str, Any] | None = None
+    """Provenance of referenced bounds: field -> {"standard", "subject",
+    "field"} — the report states not just what was claimed but on whose
+    authority (SPEC-contract.md 10). Absent for bare literals. Additive."""
     detail: str | None = None
     requires: str | None = None
     part_refs: tuple[str, ...] = ()
@@ -125,6 +129,8 @@ class CheckResult:
             out["region"] = self.region
         if self.hole is not None:
             out["hole"] = self.hole
+        if self.source is not None:
+            out["source"] = self.source
         out["detail"] = self.detail
         if self.requires is not None:
             out["requires"] = self.requires

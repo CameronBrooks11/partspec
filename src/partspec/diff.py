@@ -53,7 +53,11 @@ def _values_equal(old: Any, new: Any) -> bool:
 def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
     """The difference one joined check pair contributes, or None."""
     base = {"id": new["id"], "kind": new["kind"]}
-    claim_fields = [f for f in ("limit", "region", "hole") if old.get(f) != new.get(f)]
+    # `source` is part of the claim: a bound whose citation was stripped —
+    # same number, authority gone — is the quiet half of the weakening move,
+    # and "no semantic differences" over it would be exactly the silence this
+    # verb exists to refuse (#92).
+    claim_fields = [f for f in ("limit", "region", "hole", "source") if old.get(f) != new.get(f)]
     claim = (
         {
             "old": {f: old.get(f) for f in claim_fields},

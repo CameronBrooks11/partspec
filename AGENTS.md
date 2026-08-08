@@ -34,6 +34,8 @@ src/partspec/
   backend.py      # GeometryBackend protocol + value types
   contract.py     # Part, Source, the closed check vocabulary
   region.py       # keep_out/keep_in region data + the canonical polyhedron both tiers materialize
+  provenance.py   # Referenced values: numbers that carry their citation (SPEC-contract 10)
+  refs/           # reference tables (iso15 bearing envelopes) — pure data, cited
   expr.py         # restricted-AST evaluation for `requires`, with operand capture
   target.py       # <module>[:<factory>] resolution
   runner.py       # phase orchestration: parameters -> build -> geometry -> report

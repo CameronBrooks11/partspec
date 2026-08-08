@@ -205,6 +205,7 @@ def _run_parameter_check(spec: CheckSpec, params: dict[str, Any]) -> CheckResult
             status=status,
             measurement=measurement,
             limit=spec.limit,
+            source=dict(spec.source) if spec.source is not None else None,
             detail=None
             if status is Status.PASS
             else f"{spec.expr}={value!r} outside {_render(spec.limit)}",
@@ -231,6 +232,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         common["region"] = {**spec.region.to_json(), "shell": spec.shell}
     if spec.hole is not None:
         common["hole"] = dict(spec.hole)
+    if spec.source is not None:
+        common["source"] = dict(spec.source)
 
     # Capability is static and consulted first, so an unanswerable check costs
     # nothing to report. `requires` names the tier that would answer; for the
@@ -738,6 +741,7 @@ def _skipped(spec: CheckSpec, reason: str) -> CheckResult:
         operands={} if spec.kind == "requires" else None,
         region={**spec.region.to_json(), "shell": spec.shell} if spec.region is not None else None,
         hole=dict(spec.hole) if spec.hole is not None else None,
+        source=dict(spec.source) if spec.source is not None else None,
         detail=reason,
     )
 

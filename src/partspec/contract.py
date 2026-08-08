@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .provenance import source_map
 from .region import BoxRegion, CylinderRegion, Region
 from .status import ContractError, Limit, epsilon
 
@@ -142,6 +143,10 @@ class CheckSpec:
     """The declared bore for `hole_diameter` only: `{"d": ..., "count": ...}`.
     The diameter band lives in `limit`; this carries what the band was derived
     from and how many bores must fall inside it."""
+    source: dict[str, Any] | None = None
+    """Provenance of any Referenced values among this check's bounds:
+    `{field: {"standard", "subject", "field"}}` (SPEC-contract.md 10). Absent
+    when every input was a bare literal."""
 
 
 class Part:
@@ -199,6 +204,7 @@ class Part:
                 limit=Limit(min=min, max=max),
                 expr=name,
                 unit=unit,
+                source=source_map(min=min, max=max),
             )
         )
 
@@ -219,7 +225,11 @@ class Part:
         """
         return self._add(
             CheckSpec(
-                id=id or "envelope", kind="envelope", phase=GEOMETRY, limit=Limit(min=min, max=max)
+                id=id or "envelope",
+                kind="envelope",
+                phase=GEOMETRY,
+                limit=Limit(min=min, max=max),
+                source=source_map(min=min, max=max),
             )
         )
 
@@ -269,7 +279,11 @@ class Part:
         """
         return self._add(
             CheckSpec(
-                id=id or "volume", kind="volume", phase=GEOMETRY, limit=Limit(min=min, max=max)
+                id=id or "volume",
+                kind="volume",
+                phase=GEOMETRY,
+                limit=Limit(min=min, max=max),
+                source=source_map(min=min, max=max),
             )
         )
 
@@ -277,7 +291,13 @@ class Part:
         self, *, min: float | None = None, max: float | None = None, id: str | None = None
     ) -> Part:
         return self._add(
-            CheckSpec(id=id or "area", kind="area", phase=GEOMETRY, limit=Limit(min=min, max=max))
+            CheckSpec(
+                id=id or "area",
+                kind="area",
+                phase=GEOMETRY,
+                limit=Limit(min=min, max=max),
+                source=source_map(min=min, max=max),
+            )
         )
 
     def topology(
@@ -357,6 +377,7 @@ class Part:
                 phase=GEOMETRY,
                 limit=Limit(min=float(d) - band, max=float(d) + band),
                 hole={"d": float(d), "count": count},
+                source=source_map(d=d, tol=tol),
             )
         )
 
@@ -411,6 +432,7 @@ class Part:
                 phase=GEOMETRY,
                 limit=Limit(min=float(bcd) - band, max=float(bcd) + band),
                 hole={"d": float(d), "count": count, "bcd": float(bcd)},
+                source=source_map(d=d, bcd=bcd, tol=tol),
             )
         )
 
@@ -446,6 +468,7 @@ class Part:
                 kind="fillet_radius",
                 phase=GEOMETRY,
                 limit=Limit(min=min, max=max),
+                source=source_map(min=min, max=max),
             )
         )
 

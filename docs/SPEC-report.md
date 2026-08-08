@@ -584,6 +584,10 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   callout, `{"d": ..., "count": ...}` (plus `"bcd"` for a bolt circle). The diameter band lives in the check's `limit`; the
   measurement is the vector of matched diameters (null when none matched, with the part's
   full bore inventory in `detail` on failure). Additive (no schema bump).
+- **`checks[].source`** — present when any of the check's bounds was a `Referenced` value
+  (`SPEC-contract.md` §10): `{field: {"standard", "subject", "field"}}`. The report states
+  not just what was claimed but on whose authority; a bare-literal bound records nothing,
+  which is itself the signal #50's warning channel reads. Additive (no schema bump).
 - **`checks[].kind`** — an **open vocabulary**, defined in `SPEC-contract.md`. This document
   deliberately does not enumerate it: the report format must not need revising every time a
   check is added. Consumers MUST treat an unrecognized `kind` as opaque and rely on
