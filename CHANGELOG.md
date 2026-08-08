@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `render` and `check --render` accept build123d and CadQuery parts (#18): the
+  part builds through the same backend `check` uses and the canonical views are
+  rasterized from its tessellation — deterministic (identical geometry renders
+  byte-identical), headless, no new dependency. Framing is the OpenSCAD path's,
+  measured and verified cross-tier to the pixel. OCCT payloads and reports carry
+  `render_tessellation` (`{tolerance_mm, triangles}`) beside `renders` (D15).
+- `render` payloads carry the report's identity prefix, and a render failure is
+  a JSON artifact with `error`/`hint` at exit 4 instead of a bare stderr line
+  (#103); the MCP `render` tool returns the whole payload as `rendered`.
 
 ## [0.5.0] - 2026-08-08
 
