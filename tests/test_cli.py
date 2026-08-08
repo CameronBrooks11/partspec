@@ -548,6 +548,119 @@ def test_a_malformed_section_is_usage_before_any_work(tmp_path: Path, capsys):
         assert "--section takes" in capsys.readouterr().err
 
 
+def _cut_pixels(path: Path) -> int:
+    """Pixels wearing the exact shaded cut colour — the deterministic value
+    the rasterizer produces for a cap facing its camera head-on."""
+    import math
+    import struct
+    import zlib
+
+    np = pytest.importorskip("numpy")
+    data = path.read_bytes()
+    width, height = struct.unpack(">II", data[16:24])
+    idat = b""
+    pos = 8
+    while pos < len(data):
+        length, kind = struct.unpack(">I4s", data[pos : pos + 8])
+        if kind == b"IDAT":
+            idat += data[pos + 8 : pos + 8 + length]
+        pos += 12 + length
+    raw = zlib.decompress(idat)
+    img = np.frombuffer(raw, np.uint8).reshape(height, width * 3 + 1)[:, 1:]
+    img = img.reshape(height, width, 3)
+    lz = 0.89 / math.sqrt(0.35**2 + 0.30**2 + 0.89**2)
+    shade = 0.35 + 0.65 * lz
+    cut = tuple(int(c * shade) for c in (204, 92, 63))
+    return int((img == cut).all(axis=2).sum())
+
+
+@pytest.mark.parametrize(
+    ("plane", "kept", "discarded"),
+    [
+        ("xy", "Location((0, 0, -3)) * Box(20, 10, 6)", "Location((0, 0, 3)) * Box(6, 6, 6)"),
+        ("xz", "Location((0, 3, 0)) * Box(20, 6, 10)", "Location((0, -3, 0)) * Box(6, 6, 6)"),
+        ("yz", "Location((-3, 0, 0)) * Box(6, 20, 10)", "Location((3, 0, 0)) * Box(6, 6, 6)"),
+    ],
+)
+def test_the_section_keeps_the_half_the_camera_faces(
+    tmp_path: Path, capsys, plane: str, kept: str, discarded: str
+):
+    """PR #130 review, F2: every earlier section test cut a part symmetric
+    about the plane, so flipping the discard side changed the images and
+    failed nothing. Here the KEPT side carries a wide slab whose cap fills
+    the frame with the cut colour; the discard side a narrow post whose own
+    faces would occlude every cut pixel. A flipped half renders ZERO
+    cut-coloured pixels — per plane, since each plane's sign is separate."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box, Location\n\n\ndef make_part():\n"
+        f"    return {kept} + {discarded}\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    code = main(
+        ["render", f"{module}:make", "--out", str(tmp_path / "out"), "--section", f"{plane}:0"]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    section = Path(payload["renders"][f"section_{plane}"])
+    assert _cut_pixels(section) > 10_000, (
+        f"the {plane} section shows no cut face where the kept slab's cap "
+        "should fill the frame — the discard side is flipped"
+    )
+
+
+@needs_openscad
+def test_the_scad_tier_keeps_the_same_half(tmp_path: Path, capsys):
+    """The discard side is decided independently in openscad.py — a flip
+    there would break cross-tier agreement silently. Same construction as
+    the OCCT xz case (the plane whose sign differs from the other two)."""
+    pytest.importorskip("numpy", reason="no extra installed")
+    (tmp_path / "part.scad").write_text(
+        "union() { translate([0, 3, 0]) cube([20, 6, 10], center = true);"
+        " translate([0, -3, 0]) cube([6, 6, 6], center = true); }\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('subject', openscad('part.scad'))\n"
+    )
+    code = main(["render", f"{module}:make", "--out", str(tmp_path / "out"), "--section", "xz:0"])
+    payload = json.loads(capsys.readouterr().out)
+    if code == 0:
+        assert _cut_pixels(Path(payload["renders"]["section_xz"])) > 10_000
+    else:
+        assert code == 4
+        assert "display" in payload["error"]
+
+
+def test_a_failing_section_leaves_no_stale_image(tmp_path: Path, capsys):
+    """PR #130 review, F1: a refused section returned before the rasterizer's
+    unlink, leaving the previous run's section_xy.png to be read as this
+    run's — the exact stale-artifact class render() documents."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    out = tmp_path / "out"
+    assert main(["render", f"{module}:make", "--out", str(out), "--section", "xy"]) == 0
+    capsys.readouterr()
+    section = out / "renders" / "section_xy.png"
+    assert section.is_file()
+    assert main(["render", f"{module}:make", "--out", str(out), "--section", "xy:99"]) == 4
+    capsys.readouterr()
+    assert not section.exists(), "the refused run must not leave the old image"
+    assert (out / "renders" / "iso.png").is_file(), "the canonical views still render"
+
+
 @needs_openscad
 def test_a_section_works_on_the_openscad_tier_too(tmp_path: Path, capsys):
     """#19's both-tiers acceptance: the engine cuts its own exported STL

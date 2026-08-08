@@ -782,6 +782,12 @@ def _render_files(
             return views
         if section is None:
             return views, None, None
+        plane, offset = section
+        # The stale-artifact rule, hoisted (PR #130 review, F1): every
+        # refusal below returns before the rasterizer's own unlink, and a
+        # failing section must not leave the previous run's image to be
+        # read as this run's.
+        (out / "renders" / f"section_{plane}.png").unlink(missing_ok=True)
         try:
             import numpy  # noqa: F401
         except ModuleNotFoundError:
@@ -792,7 +798,6 @@ def _render_files(
             )
         from . import raster
 
-        plane, offset = section
         # render_views just exported this — the deterministic path render() owns.
         stl = out / f"{_engine_source(part).path.stem}.stl"
         bbox = openscad._stl_bbox(stl)
@@ -831,6 +836,8 @@ def _render_files(
     import numpy as np
 
     plane, offset = section
+    # Same hoisted stale-artifact rule as the OpenSCAD branch (F1).
+    (out / "renders" / f"section_{plane}.png").unlink(missing_ok=True)
     frame_points = np.array(
         [(v.X, v.Y, v.Z) for v in artifact.tessellate(raster.TESSELLATION_TOLERANCE_MM)[0]]
     )
