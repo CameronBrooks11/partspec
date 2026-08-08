@@ -9,6 +9,7 @@ on `verdict: "error"` with `build_origin: "environment"`, never on a failing
 
 from __future__ import annotations
 
+import contextlib
 import json
 import signal
 import threading
@@ -19,7 +20,7 @@ import pytest
 
 from partspec.backend import DEFAULT_TIMEOUT_S, effective_timeout
 from partspec.cli import main
-from partspec.engines.pycad import _BuildTimeout, _CannotBound, _time_limit
+from partspec.engines.pycad import _BuildTimeout, _BuildTimeoutHard, _CannotBound, _time_limit
 
 
 def _sleeping_target(tmp_path: Path) -> str:
@@ -66,6 +67,49 @@ def test_the_window_is_disarmed_and_the_handler_restored_afterwards():
 def test_no_budget_means_no_alarm():
     with _time_limit(None):
         pass
+
+
+def test_a_swallowed_alarm_is_recorded_on_the_window():
+    """The window's fire-record is what voids a result computed past the
+    budget — without it, a model's mundane `except Exception` produced a green
+    report with zero trace of the blown budget (PR #100 review, blocker 1)."""
+    # The suppress is exactly what an ordinary model cleanup handler does.
+    with _time_limit(0.05) as window, contextlib.suppress(_BuildTimeout):
+        time.sleep(5)
+    assert window["fired"]
+
+
+def test_a_swallowing_loop_is_escalated_past_except_exception():
+    """A loop that eats every Exception must not turn the bound into a hang
+    (PR #100 review, blocker 2): the re-fired alarm is a BaseException."""
+    started = time.monotonic()
+    with pytest.raises(_BuildTimeoutHard), _time_limit(0.05):
+        while True:
+            try:
+                time.sleep(0.2)
+            except Exception:
+                continue
+    assert time.monotonic() - started < 10
+
+
+def test_an_unarmable_budget_restores_the_handler():
+    """setitimer overflow must not leak the window's handler into the process
+    (PR #100 review, finding 4): a later stray alarm would raise mid-run."""
+    before = signal.getsignal(signal.SIGALRM)
+    with pytest.raises(_CannotBound), _time_limit(1e300):
+        pass
+    assert signal.getsignal(signal.SIGALRM) is before
+
+
+def test_a_nested_window_restores_the_outer_bound():
+    """An inner window that completes must hand the alarm back to its
+    enclosing window, not silently unbound it (PR #100 review, finding 5)."""
+    started = time.monotonic()
+    with pytest.raises(_BuildTimeout), _time_limit(0.5):
+        with _time_limit(0.05):
+            pass  # completes without firing
+        time.sleep(5)  # the OUTER bound must still stop this
+    assert time.monotonic() - started < 3
 
 
 def test_a_bound_off_the_main_thread_is_refused_not_silently_dropped():
@@ -152,6 +196,46 @@ def test_a_negative_flag_is_a_usage_error(tmp_path: Path):
     with pytest.raises(SystemExit) as excinfo:
         main(["check", "spec.py:make", "--timeout", "-3"])
     assert excinfo.value.code == 64
+
+
+def test_an_astronomical_flag_is_a_usage_error_not_a_traceback(tmp_path: Path):
+    """1e300 overflows the platform timer; refused at the door (PR #100
+    review, finding 4), not surfaced as an OverflowError traceback."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["check", "spec.py:make", "--timeout", "1e300"])
+    assert excinfo.value.code == 64
+
+
+def test_a_model_that_swallows_the_alarm_cannot_report_green(tmp_path: Path):
+    """The review's blocker 1, as a regression test: an over-budget model
+    whose mundane `except Exception` ate the alarm returned a valid shape and
+    the run reported PASS with `timeout_s` recorded as if it had governed."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "model.py").write_text(
+        "import time\nfrom build123d import Box\n\n\ndef make_part():\n"
+        "    try:\n"
+        "        time.sleep(10)\n"
+        "    except Exception:\n"
+        "        pass\n"
+        "    return Box(1, 1, 1)\n"
+    )
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    p = Part('swallower', build123d('model.py'))\n"
+        "    p.volume(min=0.5)\n"
+        "    return p\n"
+    )
+    out = tmp_path / "out"
+    started = time.monotonic()
+    code = main(["check", f"{spec}:make", "--timeout", "1", "--quiet", "--out", str(out)])
+    assert code == 4, "a result computed past the budget is not a result"
+    assert time.monotonic() - started < 25
+
+    report = json.loads((out / "report.json").read_text())
+    assert report["verdict"] == "error"
+    assert report["build_origin"] == "environment"
+    assert "budget" in report["error"]
 
 
 # --------------------------------------------------------------------------

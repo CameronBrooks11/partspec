@@ -63,9 +63,13 @@ class GeometryBackend(Protocol):
     def build(self, source: SourceRef, out_dir, *, timeout_s: float | None = None) -> Artifact | BuildError: ...
     #   timeout_s: None -> the 300 s default; 0 -> explicitly unbounded; positive -> the
     #   budget. A blown budget MUST return BuildError(origin="environment") naming it —
-    #   a stopwatch disproves nothing about the part (#46). On the Python tier the bound
-    #   covers the model's Python execution; a hang inside a C kernel call is not
-    #   preemptible in-process, and that ceiling is stated, not hidden.
+    #   a stopwatch disproves nothing about the part (#46). On the Python tier the alarm
+    #   records that it fired and re-fires escalating past `except Exception`, so a model
+    #   that swallows it cannot report a result computed over budget. The stated ceiling:
+    #   a hang inside a C kernel call is not preemptible in-process; a model that installs
+    #   its own SIGALRM handler, ignores the signal, or catches BaseException in a loop
+    #   defeats the alarm; and a leaked non-daemon thread keeps the *process* alive at
+    #   exit even though the report is finished and honest.
     def provenance(self, a) -> dict: ...    # -> report.geometry block
 
     # --- the primitives (the original twelve: investigation 03 §2) ---

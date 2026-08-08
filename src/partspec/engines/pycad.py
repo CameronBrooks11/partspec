@@ -31,38 +31,66 @@ __all__ = ["PyCADSource", "adopt", "build"]
 
 
 class _BuildTimeout(Exception):
-    """Raised by the SIGALRM handler when the build budget expires.
+    """Raised by the SIGALRM handler the first time the budget expires.
 
-    Ordinary `Exception`, so every broad catch inside the build path needs an
-    explicit re-raise clause ahead of it — and has one. Making it a
-    `BaseException` would instead dodge the model's own `except Exception`
-    handlers, which is behaviour a *model* should never observe differently
-    because a budget exists."""
+    Ordinary `Exception`, so a model's own `except Exception` handlers behave
+    no differently because a budget exists — but that also means a model's
+    perfectly mundane `try/except Exception` can swallow it. Two guards make
+    that survivable rather than silent: the window records that it fired (so a
+    swallowed alarm still voids the build's result), and the timer re-fires,
+    escalating to `_BuildTimeoutHard` (adversarial review of PR #100: the
+    swallowed alarm produced a green report with zero trace, and a
+    swallow-loop hung the process past its budget forever)."""
+
+
+class _BuildTimeoutHard(BaseException):
+    """The second and every later firing of an already-swallowed alarm.
+
+    `BaseException`, so `except Exception` cannot swallow it — this is what
+    turns "the model caught the alarm and kept going" from an unbounded hang
+    into a stopped run. A model catching `BaseException` bare in a loop still
+    escapes; that sits in the stated ceiling, beside C-kernel hangs."""
 
 
 class _CannotBound(Exception):
     """A bound was requested where no timer can be armed."""
 
 
+_ESCALATE_AFTER_S = 1.0
+"""Re-fire interval once the budget has expired. The first alarm is a polite
+`Exception`; anything still running this long after it has demonstrably eaten
+it, and gets the `BaseException` variant."""
+
+
 @contextmanager
 def _time_limit(seconds: float | None):
     """Bound the enclosed block with a real-time alarm; None means no bound.
 
-    SIGALRM, not a watchdog thread: a thread cannot interrupt the main thread's
-    Python frames, while an alarm raises inside them. The known ceiling is
-    shared by both approaches and stated rather than hidden: the interpreter
-    delivers the exception between bytecodes, so a hang inside a C kernel call
-    (an OCCT boolean that never returns) is not preemptible in-process. The
-    bound covers everything the model does in Python — imports, loops, sleeps,
-    recursion — which is where a broken model actually spends forever.
+    Yields a window record whose `"fired"` flag outlives the block — the
+    caller MUST consult it, because a model can catch the in-flight exception
+    and return something anyway, and a result computed past the budget is not
+    a result (a green report from a swallowed alarm is the silence-as-success
+    failure verbatim).
+
+    SIGALRM, not a watchdog thread: a thread cannot interrupt the main
+    thread's Python frames, while an alarm raises inside them. The stated
+    ceiling, in full: a hang inside a C kernel call (an OCCT boolean that
+    never returns) is not preemptible in-process; a model that installs its
+    own SIGALRM handler, ignores the signal, or catches `BaseException` in a
+    loop defeats the alarm; and a non-daemon thread the model leaks keeps the
+    *process* alive at exit even though the report is finished and honest.
+    Everything short of that — loops, sleeps, recursion, `except Exception`
+    cleanup — is covered by the fire-record plus escalation.
 
     Requesting a bound somewhere it cannot be armed (a non-main thread, a
-    platform without SIGALRM) raises `_CannotBound` instead of proceeding
-    unbounded: a budget that silently does not exist is the silence-as-success
-    failure in run-control clothing. `--timeout 0` is the explicit waiver.
+    platform without SIGALRM, a value the platform timer cannot hold) raises
+    `_CannotBound` instead of proceeding unbounded: a budget that silently
+    does not exist is the silence-as-success failure in run-control clothing.
+    `--timeout 0` is the explicit waiver.
     """
+    window = {"fired": False}
     if seconds is None:
-        yield
+        yield window
         return
     if not hasattr(signal, "SIGALRM"):
         raise _CannotBound(
@@ -76,14 +104,31 @@ def _time_limit(seconds: float | None):
         )
 
     def _expired(signum: int, frame: Any) -> None:
+        if window["fired"]:
+            raise _BuildTimeoutHard
+        window["fired"] = True
         raise _BuildTimeout
 
+    started = time.monotonic()
+    outer_delay, outer_interval = signal.getitimer(signal.ITIMER_REAL)
     previous = signal.signal(signal.SIGALRM, _expired)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
     try:
-        yield
+        try:
+            signal.setitimer(signal.ITIMER_REAL, seconds, _ESCALATE_AFTER_S)
+        except (ValueError, OverflowError) as exc:
+            raise _CannotBound(
+                f"a {seconds:g}s build budget cannot be armed on this platform "
+                f"({exc}); pass --timeout 0 to explicitly waive the bound"
+            ) from None
+        yield window
     finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
+        # Restore rather than merely disarm: a nested window that zeroed the
+        # timer would silently unbound its enclosing one.
+        if outer_delay > 0:
+            remaining = max(outer_delay - (time.monotonic() - started), 1e-6)
+            signal.setitimer(signal.ITIMER_REAL, remaining, outer_interval)
+        else:
+            signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
 
 
@@ -281,9 +326,9 @@ def build(source: PyCADSource, *, timeout_s: float | None = None) -> Any | Build
     """
     started = time.perf_counter()
     try:
-        with _time_limit(timeout_s):
-            return _build(source)
-    except _BuildTimeout:
+        with _time_limit(timeout_s) as window:
+            result = _build(source)
+    except (_BuildTimeout, _BuildTimeoutHard):
         elapsed = time.perf_counter() - started
         assert timeout_s is not None  # the alarm only exists when a bound does
         return BuildError(
@@ -294,6 +339,26 @@ def build(source: PyCADSource, *, timeout_s: float | None = None) -> Any | Build
         )
     except _CannotBound as exc:
         return BuildError(str(exc), origin="environment")
+
+    if window["fired"]:
+        # The alarm went off and something caught it — a model's mundane
+        # `except Exception`, or a C extension initialising mid-import — and
+        # the build went on to return anyway. A result computed past the
+        # budget is not a result, and letting it through produced a green
+        # report with zero trace of the blown budget (PR #100 review,
+        # blocker 1). Whatever came back, including a BuildError blaming
+        # something downstream of the alarm, is superseded by the budget.
+        elapsed = time.perf_counter() - started
+        assert timeout_s is not None
+        return BuildError(
+            f"the build budget of {timeout_s:g}s expired, was caught inside the build, "
+            f"and the run continued to {elapsed:.1f}s; the result is discarded because "
+            f"it was computed past the budget",
+            origin="environment",
+            hint="a legitimately slow model can raise the budget with --timeout or "
+            "PARTSPEC_TIMEOUT; --timeout 0 waives it",
+        )
+    return result
 
 
 def _build(source: PyCADSource) -> Any | BuildError:
@@ -331,7 +396,7 @@ def _build(source: PyCADSource) -> Any | BuildError:
             hint="partspec calls the model as method(**params); wrap a differently-shaped "
             "signature in a small adapter function in the contract",
         )
-    except (KeyboardInterrupt, _BuildTimeout):
+    except (KeyboardInterrupt, _BuildTimeout, _BuildTimeoutHard):
         raise
     except BaseException as exc:  # noqa: BLE001 - modelling failure is a build failure
         # BaseException for the same reason as the contract path: a model that

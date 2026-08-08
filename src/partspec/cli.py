@@ -20,7 +20,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from .backend import DEFAULT_TIMEOUT_S
+from .backend import DEFAULT_TIMEOUT_S, effective_timeout
 from .contract import Part
 from .report import write_placeholder
 from .runner import run
@@ -30,6 +30,7 @@ from .target import Target, TargetError, resolve
 __all__ = ["main"]
 
 ENV_TIMEOUT = "PARTSPEC_TIMEOUT"
+MAX_TIMEOUT_S = 1e8  # ~3 years; anything past this is "unbounded", said honestly
 
 
 def _timeout_arg(text: str) -> float:
@@ -41,6 +42,12 @@ def _timeout_arg(text: str) -> float:
     if not math.isfinite(value) or value < 0:
         raise argparse.ArgumentTypeError(
             f"the budget must be a finite number of seconds >= 0 (0 waives it), got {text}"
+        )
+    if value > MAX_TIMEOUT_S:
+        # setitimer overflows platform time_t far above this; refused here so
+        # the failure is a usage message, not a traceback from the timer.
+        raise argparse.ArgumentTypeError(
+            f"a budget over {MAX_TIMEOUT_S:g}s is not a budget; use --timeout 0 to waive it"
         )
     return value
 
@@ -127,6 +134,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     render.add_argument("target", help="<module-path>[:<factory>]")
     render.add_argument("--out", type=Path, default=None)
+    render.add_argument(
+        "--timeout",
+        type=_timeout_arg,
+        default=None,
+        metavar="SECONDS",
+        help=f"build budget in seconds (default {DEFAULT_TIMEOUT_S:g}, or "
+        f"{ENV_TIMEOUT}; 0 waives the bound)",
+    )
 
     diff = sub.add_parser(
         "diff",
@@ -223,7 +238,9 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         from .engines import openscad
         from .runner import _engine_source
 
-        views = openscad.render_views(_engine_source(part), out)
+        views = openscad.render_views(
+            _engine_source(part), out, timeout_s=effective_timeout(timeout_s)
+        )
         if isinstance(views, BuildError):
             render_error = views
         else:
@@ -346,6 +363,12 @@ def _cmd_render(args: argparse.Namespace) -> int:
     """Evidence, not judgement: images the report can reference (#20), framed
     deterministically from the bounding box so iterations are comparable. No
     verdict rides with them — rendering never substitutes for measurement."""
+    try:
+        timeout_s = _timeout_s(args.timeout)
+    except _TimeoutUsage as exc:
+        print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
         return resolved
@@ -366,7 +389,9 @@ def _cmd_render(args: argparse.Namespace) -> int:
     from .runner import _engine_source
 
     out = _out_dir(args.target, args.out)
-    result = openscad.render_views(_engine_source(part), out)
+    result = openscad.render_views(
+        _engine_source(part), out, timeout_s=effective_timeout(timeout_s)
+    )
     if isinstance(result, BuildError):
         print(f"partspec: {result.message}", file=sys.stderr)
         if result.hint:
