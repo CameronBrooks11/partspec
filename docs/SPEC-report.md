@@ -496,7 +496,7 @@ an unknown major version rather than best-effort parse it.
     "duration_ms": 812
   },
 
-  "invocation": { "argv": ["check", "parts/bayonet"] }
+  "invocation": { "argv": ["check", "parts/bayonet"], "timeout_s": 300.0 }
 }
 ```
 
@@ -531,6 +531,13 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   Module-scoping is deliberate, not an oversight: digesting only the resolved symbol would
   miss an edit to a module-level constant such as `MIN_WALL`, which is precisely the
   attack. Over-firing is the right direction of error here.
+- **`invocation.timeout_s`** — the build budget that governed the run, in seconds. The CLI
+  always records the fully resolved value (`--timeout`, then `PARTSPEC_TIMEOUT`, then the
+  300 s default); `0` records an explicit waiver of the bound, and `null` means a library
+  caller invoked `run` without choosing (the backend default still applied). A run stopped
+  by its budget MUST be attributable to that budget from the artifact alone — `verdict:
+  "error"` with `build_origin: "environment"`, never a failing `builds` check: a stopwatch
+  disproves nothing about the part (#46).
 - **`geometry.triangles`** and **`geometry.distinct_normals`** — both recorded, because
   `$fn` lives *inside* the `.scad` and is invisible to the tool while these are not.
   `distinct_normals` is the count of distinct face normals: it tracks `$fn` one-to-one (a

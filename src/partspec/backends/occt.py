@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..backend import BuildError, Tier, Unsupported, Vec3
+from ..backend import BuildError, Tier, Unsupported, Vec3, effective_timeout
 from ..engines import pycad
 from ..status import Measurement
 
@@ -134,7 +134,9 @@ class OcctBackend:
             self._version = pycad.version(self.engine)
         return self._version
 
-    def build(self, source: pycad.PyCADSource, out_dir: Path) -> Any | BuildError:
+    def build(
+        self, source: pycad.PyCADSource, out_dir: Path, *, timeout_s: float | None = None
+    ) -> Any | BuildError:
         """Build the part. `out_dir` is unused — nothing is exported to measure.
 
         The mesh tier has to round-trip through a file because OpenSCAD is a
@@ -142,7 +144,7 @@ class OcctBackend:
         only to read it back would introduce the float32 quantisation this tier
         does not otherwise suffer.
         """
-        return pycad.build(source)
+        return pycad.build(source, timeout_s=effective_timeout(timeout_s))
 
     def capabilities(self) -> frozenset[str]:
         return CAPABILITIES

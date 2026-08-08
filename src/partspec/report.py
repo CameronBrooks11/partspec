@@ -183,6 +183,11 @@ class Report:
     of `hint`, so a filtered hint can never lose the diagnosis (#37)."""
     duration_ms: int | None = None
     argv: list[str] = field(default_factory=list)
+    timeout_s: float | None = None
+    """The build budget this run was invoked with, in seconds — the requested
+    value, before `effective_timeout` resolves it (so `0` records an explicit
+    waiver and `null` records that no caller chose). A run stopped by its
+    budget must be attributable to that budget from the artifact alone."""
 
     IMPLICIT_KINDS = ("builds",)
     """Checks partspec adds itself. They are real results, but they are not
@@ -270,7 +275,7 @@ class Report:
             "build_origin": self.build_origin,
             "build_stderr": self.build_stderr,
             "environment": self._environment(),
-            "invocation": {"argv": self.argv},
+            "invocation": {"argv": self.argv, "timeout_s": self.timeout_s},
         }
         return doc
 

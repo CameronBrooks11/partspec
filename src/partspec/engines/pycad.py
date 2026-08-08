@@ -16,7 +16,11 @@ Spec: SPEC-backend.md section 4, SPEC-contract.md section 3.
 from __future__ import annotations
 
 import importlib.util
+import signal
 import sys
+import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -24,6 +28,108 @@ from typing import Any, cast
 from ..backend import BuildError
 
 __all__ = ["PyCADSource", "adopt", "build"]
+
+
+class _BuildTimeout(Exception):
+    """Raised by the SIGALRM handler the first time the budget expires.
+
+    Ordinary `Exception`, so a model's own `except Exception` handlers behave
+    no differently because a budget exists — but that also means a model's
+    perfectly mundane `try/except Exception` can swallow it. Two guards make
+    that survivable rather than silent: the window records that it fired (so a
+    swallowed alarm still voids the build's result), and the timer re-fires,
+    escalating to `_BuildTimeoutHard` (adversarial review of PR #100: the
+    swallowed alarm produced a green report with zero trace, and a
+    swallow-loop hung the process past its budget forever)."""
+
+
+class _BuildTimeoutHard(BaseException):
+    """The second and every later firing of an already-swallowed alarm.
+
+    `BaseException`, so `except Exception` cannot swallow it — this is what
+    turns "the model caught the alarm and kept going" from an unbounded hang
+    into a stopped run. A model catching `BaseException` bare in a loop still
+    escapes; that sits in the stated ceiling, beside C-kernel hangs."""
+
+
+class _CannotBound(Exception):
+    """A bound was requested where no timer can be armed."""
+
+
+_ESCALATE_AFTER_S = 1.0
+"""Re-fire interval once the budget has expired. The first alarm is a polite
+`Exception`; anything still running this long after it has demonstrably eaten
+it, and gets the `BaseException` variant."""
+
+
+@contextmanager
+def _time_limit(seconds: float | None):
+    """Bound the enclosed block with a real-time alarm; None means no bound.
+
+    Yields a window record whose `"fired"` flag outlives the block — the
+    caller MUST consult it, because a model can catch the in-flight exception
+    and return something anyway, and a result computed past the budget is not
+    a result (a green report from a swallowed alarm is the silence-as-success
+    failure verbatim).
+
+    SIGALRM, not a watchdog thread: a thread cannot interrupt the main
+    thread's Python frames, while an alarm raises inside them. The stated
+    ceiling, in full: a hang inside a C kernel call (an OCCT boolean that
+    never returns) is not preemptible in-process; a model that installs its
+    own SIGALRM handler, ignores the signal, or catches `BaseException` in a
+    loop defeats the alarm; and a non-daemon thread the model leaks keeps the
+    *process* alive at exit even though the report is finished and honest.
+    Everything short of that — loops, sleeps, recursion, `except Exception`
+    cleanup — is covered by the fire-record plus escalation.
+
+    Requesting a bound somewhere it cannot be armed (a non-main thread, a
+    platform without SIGALRM, a value the platform timer cannot hold) raises
+    `_CannotBound` instead of proceeding unbounded: a budget that silently
+    does not exist is the silence-as-success failure in run-control clothing.
+    `--timeout 0` is the explicit waiver.
+    """
+    window = {"fired": False}
+    if seconds is None:
+        yield window
+        return
+    if not hasattr(signal, "SIGALRM"):
+        raise _CannotBound(
+            f"a {seconds:g}s build budget was requested but this platform has no "
+            f"SIGALRM to enforce it; pass --timeout 0 to explicitly waive the bound"
+        )
+    if threading.current_thread() is not threading.main_thread():
+        raise _CannotBound(
+            f"a {seconds:g}s build budget was requested off the main thread, where "
+            f"no alarm can be armed; pass --timeout 0 to explicitly waive the bound"
+        )
+
+    def _expired(signum: int, frame: Any) -> None:
+        if window["fired"]:
+            raise _BuildTimeoutHard
+        window["fired"] = True
+        raise _BuildTimeout
+
+    started = time.monotonic()
+    outer_delay, outer_interval = signal.getitimer(signal.ITIMER_REAL)
+    previous = signal.signal(signal.SIGALRM, _expired)
+    try:
+        try:
+            signal.setitimer(signal.ITIMER_REAL, seconds, _ESCALATE_AFTER_S)
+        except (ValueError, OverflowError) as exc:
+            raise _CannotBound(
+                f"a {seconds:g}s build budget cannot be armed on this platform "
+                f"({exc}); pass --timeout 0 to explicitly waive the bound"
+            ) from None
+        yield window
+    finally:
+        # Restore rather than merely disarm: a nested window that zeroed the
+        # timer would silently unbound its enclosing one.
+        if outer_delay > 0:
+            remaining = max(outer_delay - (time.monotonic() - started), 1e-6)
+            signal.setitimer(signal.ITIMER_REAL, remaining, outer_interval)
+        else:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +199,8 @@ def adopt(obj: Any) -> Any | BuildError:
             # `vals()` is untyped on the CadQuery stubs, so it comes back as
             # `object`; the cast is about the stub, not about the runtime.
             stack = cast("list[Any]", obj.vals())
+        except _BuildTimeout:
+            raise
         except Exception as exc:  # noqa: BLE001 - engine-specific failure surfaces as a build error
             return BuildError(f"could not reduce CadQuery result: {exc}")
         if len(stack) > 1:
@@ -106,6 +214,8 @@ def adopt(obj: Any) -> Any | BuildError:
     elif hasattr(obj, "val") and callable(obj.val):
         try:
             obj = obj.val()
+        except _BuildTimeout:
+            raise
         except Exception as exc:  # noqa: BLE001 - engine-specific failure surfaces as a build error
             return BuildError(f"could not reduce CadQuery result: {exc}")
 
@@ -206,8 +316,52 @@ def _engine_import_error(engine: str, exc: ImportError) -> BuildError:
     )
 
 
-def build(source: PyCADSource) -> Any | BuildError:
-    """Import the model module, call it, and adopt the result."""
+def build(source: PyCADSource, *, timeout_s: float | None = None) -> Any | BuildError:
+    """Import the model module, call it, and adopt the result — within budget.
+
+    `timeout_s` is already resolved (None = unbounded, a number = the bound);
+    the None-means-default rule lives in `effective_timeout`. The window covers
+    the model's import, the factory call and adoption together, because a model
+    can hang in any of them and the reader is owed one rule, not three.
+    """
+    started = time.perf_counter()
+    try:
+        with _time_limit(timeout_s) as window:
+            result = _build(source)
+    except (_BuildTimeout, _BuildTimeoutHard):
+        elapsed = time.perf_counter() - started
+        assert timeout_s is not None  # the alarm only exists when a bound does
+        return BuildError(
+            f"the model build was stopped after {elapsed:.1f}s against its {timeout_s:g}s budget",
+            origin="environment",
+            hint="a legitimately slow model can raise the budget with --timeout or "
+            "PARTSPEC_TIMEOUT; --timeout 0 waives it",
+        )
+    except _CannotBound as exc:
+        return BuildError(str(exc), origin="environment")
+
+    if window["fired"]:
+        # The alarm went off and something caught it — a model's mundane
+        # `except Exception`, or a C extension initialising mid-import — and
+        # the build went on to return anyway. A result computed past the
+        # budget is not a result, and letting it through produced a green
+        # report with zero trace of the blown budget (PR #100 review,
+        # blocker 1). Whatever came back, including a BuildError blaming
+        # something downstream of the alarm, is superseded by the budget.
+        elapsed = time.perf_counter() - started
+        assert timeout_s is not None
+        return BuildError(
+            f"the build budget of {timeout_s:g}s expired, was caught inside the build, "
+            f"and the run continued to {elapsed:.1f}s; the result is discarded because "
+            f"it was computed past the budget",
+            origin="environment",
+            hint="a legitimately slow model can raise the budget with --timeout or "
+            "PARTSPEC_TIMEOUT; --timeout 0 waives it",
+        )
+    return result
+
+
+def _build(source: PyCADSource) -> Any | BuildError:
     try:
         __import__(source.engine)
     except ImportError as exc:
@@ -218,6 +372,8 @@ def build(source: PyCADSource) -> Any | BuildError:
 
     try:
         module = _load(source.path)
+    except _BuildTimeout:
+        raise
     except Exception as exc:  # noqa: BLE001 - any import failure is a build failure
         return BuildError(f"model raised on import: {type(exc).__name__}: {exc}")
 
@@ -240,7 +396,7 @@ def build(source: PyCADSource) -> Any | BuildError:
             hint="partspec calls the model as method(**params); wrap a differently-shaped "
             "signature in a small adapter function in the contract",
         )
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, _BuildTimeout, _BuildTimeoutHard):
         raise
     except BaseException as exc:  # noqa: BLE001 - modelling failure is a build failure
         # BaseException for the same reason as the contract path: a model that

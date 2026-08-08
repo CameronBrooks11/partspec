@@ -43,9 +43,19 @@ _TOOL_VERSION_FALLBACK = "0.0.0+unknown"
 
 
 def run(
-    part: Part, *, out_dir: Path, argv: list[str] | None = None, contract_path: Path | None = None
+    part: Part,
+    *,
+    out_dir: Path,
+    argv: list[str] | None = None,
+    contract_path: Path | None = None,
+    timeout_s: float | None = None,
 ) -> Report:
-    """Evaluate every declared check and return the report."""
+    """Evaluate every declared check and return the report.
+
+    `timeout_s` bounds the build (`effective_timeout` semantics: None defaults,
+    0 waives, positive is the budget) and is recorded in `invocation` — a
+    stopped run must say what budget stopped it.
+    """
     started = time.perf_counter()
     report = Report(
         part_id=part.id,
@@ -57,10 +67,11 @@ def run(
         source_closure=_closure(part.source),
         params=dict(part.source.params),
         argv=argv or [],
+        timeout_s=timeout_s,
     )
 
     try:
-        _evaluate(part, report, out_dir, contract_path)
+        _evaluate(part, report, out_dir, contract_path, timeout_s=timeout_s)
     except ContractError as exc:
         # A malformed question has no answer: every declared check is reported
         # as skipped rather than failed, and the verdict is error.
@@ -77,7 +88,14 @@ def run(
 # --------------------------------------------------------------------------
 
 
-def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | None = None) -> None:
+def _evaluate(
+    part: Part,
+    report: Report,
+    out_dir: Path,
+    contract_path: Path | None = None,
+    *,
+    timeout_s: float | None = None,
+) -> None:
     parameter_specs = [s for s in part.checks if s.phase != GEOMETRY]
     geometry_specs = [s for s in part.checks if s.phase == GEOMETRY]
 
@@ -94,7 +112,7 @@ def _evaluate(part: Part, report: Report, out_dir: Path, contract_path: Path | N
     backend = _backend_for(part.source.engine)
     report.engine = engine_block(part, backend)
 
-    artifact = backend.build(_engine_source(part), out_dir)
+    artifact = backend.build(_engine_source(part), out_dir, timeout_s=timeout_s)
     if isinstance(artifact, BuildError):
         report.hint = artifact.hint
         report.build_origin = artifact.origin

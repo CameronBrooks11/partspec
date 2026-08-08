@@ -22,13 +22,42 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from .status import Measurement
 
 __all__ = [
+    "DEFAULT_TIMEOUT_S",
     "BBox",
     "BuildError",
     "GeometryBackend",
     "Tier",
     "Unsupported",
     "Vec3",
+    "effective_timeout",
 ]
+
+DEFAULT_TIMEOUT_S = 300.0
+"""The build budget when nobody chose one, in seconds.
+
+A bound exists by default because every consumer of a run assumes it
+terminates: a bounded repair loop with an unbounded build step is a stall, not
+a loop (#46). The value is a property of the run, not of the design — it is
+set per invocation (`--timeout` / `PARTSPEC_TIMEOUT`), recorded in
+`invocation.timeout_s`, and never lives in a contract.
+"""
+
+
+def effective_timeout(timeout_s: float | None) -> float | None:
+    """Resolve a requested budget to the one a backend enforces.
+
+    `None` means nobody chose — the default applies. `0` is the explicit
+    waiver — the build runs unbounded, chosen rather than defaulted, so an
+    unbounded run is always something someone asked for. Positive values are
+    themselves. The two tiers share this mapping so `--timeout` means one
+    thing regardless of engine.
+    """
+    if timeout_s is None:
+        return DEFAULT_TIMEOUT_S
+    if timeout_s == 0:
+        return None
+    return timeout_s
+
 
 # `Transform` and `Plane` are deliberately absent in v0. They are needed for
 # placement and datum targets, which are assembly concerns (D11). Adding them
@@ -129,8 +158,15 @@ class GeometryBackend(Protocol):
 
     # --- lifecycle ---
 
-    def build(self, source: Any, params: dict[str, Any]) -> Any | BuildError:
-        """Run the engine and return an opaque artifact handle."""
+    def build(
+        self, source: Any, out_dir: Any, *, timeout_s: float | None = None
+    ) -> Any | BuildError:
+        """Run the engine and return an opaque artifact handle.
+
+        `timeout_s` is interpreted through `effective_timeout` — None defaults,
+        0 waives, positive bounds — and a blown budget is a `BuildError` with
+        `origin="environment"`: a stopwatch disproves nothing about the part.
+        """
         ...
 
     def provenance(self, a: Any) -> dict[str, Any]:

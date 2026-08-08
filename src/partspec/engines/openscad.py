@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..backend import BuildError
+from ..backend import DEFAULT_TIMEOUT_S, BuildError
 
 __all__ = [
     "Closure",
@@ -37,8 +37,6 @@ __all__ = [
     "render_views",
     "scad_literal",
 ]
-
-DEFAULT_TIMEOUT_S = 300
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,13 +201,17 @@ def _method_scratch(source: OpenSCADSource, out_dir: Path) -> Path | BuildError:
 
 
 def render(
-    source: OpenSCADSource, out_dir: Path, *, timeout_s: int = DEFAULT_TIMEOUT_S
+    source: OpenSCADSource, out_dir: Path, *, timeout_s: float | None = DEFAULT_TIMEOUT_S
 ) -> Path | BuildError:
     """Render to binary STL, returning the path or a BuildError.
 
     Binary STL specifically: lib3mf cannot read ASCII STL, and OpenSCAD 2021.01
     defaults to ASCII. Choosing the format explicitly means the export does not
     silently change meaning with the installed version.
+
+    `timeout_s` here is already resolved: a number is the bound, None is
+    unbounded (the explicit `--timeout 0` waiver). The None-means-default rule
+    lives one layer up, in `effective_timeout`.
     """
     executable = find_executable()
     if executable is None:
@@ -383,7 +385,7 @@ def _display_failure(returncode: int, stderr: str) -> bool:
 
 
 def render_views(
-    source: OpenSCADSource, out_dir: Path, *, timeout_s: int = DEFAULT_TIMEOUT_S
+    source: OpenSCADSource, out_dir: Path, *, timeout_s: float | None = DEFAULT_TIMEOUT_S
 ) -> dict[str, Path] | BuildError:
     """Render the canonical views to PNG, or say exactly why not.
 

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..backend import BuildError, Tier, Unsupported, Vec3
+from ..backend import BuildError, Tier, Unsupported, Vec3, effective_timeout
 from ..engines import openscad
 from ..status import Measurement
 
@@ -82,8 +82,10 @@ class MeshBackend:
             self._version = openscad.version()
         return self._version
 
-    def build(self, source: openscad.OpenSCADSource, out_dir: Path) -> Any | BuildError:
-        result = openscad.render(source, out_dir)
+    def build(
+        self, source: openscad.OpenSCADSource, out_dir: Path, *, timeout_s: float | None = None
+    ) -> Any | BuildError:
+        result = openscad.render(source, out_dir, timeout_s=effective_timeout(timeout_s))
         if isinstance(result, BuildError):
             return result
         return self.load(result)
