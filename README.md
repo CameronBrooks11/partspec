@@ -3,8 +3,11 @@
 Verify CAD-as-code parts against declared engineering intent.
 
 > **Status: pre-alpha; v0.1.0 is on PyPI.** It runs end to end — `check` and `measure`
-> across all three engines, `render` on the mesh tier — and is dogfooded on real parts. The
-> check vocabulary is deliberately small; [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is withheld and why.
+> across all three engines, `render` on the mesh tier — and is dogfooded on real parts.
+> Since the release, `main` has grown checks for real mechanical intent — keep-out/keep-in
+> regions, `hole_diameter`, `bolt_circle`, `fillet_radius` (OCCT tier) — and
+> `partspec diff`, the semantic report comparator; all unreleased until v0.2.0.
+> [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is still withheld and why.
 > Expect the Python API to move: the stable surface is the report schema plus the exit
 > codes, and `partspec.run()` is internal.
 
