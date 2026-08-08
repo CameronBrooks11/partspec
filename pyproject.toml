@@ -1,6 +1,6 @@
 [project]
 name = "partspec"
-version = "0.1.0"
+version = "0.2.0"
 description = "Verify CAD-as-code parts against declared engineering intent."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -33,7 +33,7 @@ occt = ["build123d>=0.11,<0.12"]
 # why that matters and `partspec.engines.pycad` for what happens when the
 # environment gets it wrong anyway.
 cadquery = ["cadquery>=2.8,<3", "build123d>=0.11,<0.12", "cadquery-ocp>=7.8"]
-# The MCP adapter (D18): stateless tools over check/measure, stdio transport.
+# The MCP adapter (D18): stateless tools over check/measure/render, stdio transport.
 # Not an engine — pairs with whichever engine extras the parts need.
 mcp = ["mcp>=2,<3"]
 

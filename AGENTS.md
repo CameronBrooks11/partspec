@@ -10,13 +10,13 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha; **v0.1.0 released on PyPI** (2026-08-07, tag → trusted publishing via
+Status: pre-alpha; **v0.2.0 released on PyPI** (2026-08-07, tag → trusted publishing via
 `release.yml`). `check`, `measure` and `diff` work against all three engines, `render` on
 the mesh tier, and `partspec-mcp` serves check/measure/render as stateless MCP tools.
-P0–P6 of `docs/PLAN.md` are complete, and epic #6 (2026-08-07, unreleased) grew the
-vocabulary to real mechanical intent: `keep_out`/`keep_in`, `hole_diameter`,
-`bolt_circle`, `fillet_radius`, plus the `partspec diff` comparator (`SPEC-diff.md`).
-What remains withheld, and why, is `docs/POST-V0.md`.
+P0–P6 of `docs/PLAN.md` are complete; epic #6 grew the vocabulary to real mechanical
+intent (`keep_out`/`keep_in`, `hole_diameter`, `bolt_circle`, `fillet_radius`) and added
+the `partspec diff` comparator (`SPEC-diff.md`). What remains withheld, and why, is
+`docs/POST-V0.md`.
 
 ## Stack
 
@@ -39,7 +39,7 @@ src/partspec/
   runner.py       # phase orchestration: parameters -> build -> geometry -> report
   cli.py          # argparse entry point
   diff.py         # semantic comparison of two reports (SPEC-diff.md)
-  mcp.py          # MCP adapter: stateless tools over check/measure, subprocess per call (D18)
+  mcp.py          # MCP adapter: stateless tools over check/measure/render, subprocess per call (D18)
   backends/
     mesh.py       # OpenSCAD tier — trimesh, measured as exported (D15, D17)
     occt.py       # build123d AND CadQuery, one implementation (D3)
@@ -76,7 +76,7 @@ Run the suite under both before touching `engines/openscad.py`.
 - **The specs in `docs/` are normative.** `SPEC-report.md`, `SPEC-contract.md` and
   `SPEC-backend.md` define behaviour; the code implements them. If code and spec disagree,
   that is a bug in one of them — say which, do not silently pick.
-- **Decisions live in `docs/DECISIONS.md`** (D1–D17), each with the reasoning that produced
+- **Decisions live in `docs/DECISIONS.md`** (D1–D19), each with the reasoning that produced
   it. Do not relitigate a numbered decision; if it is wrong, add a superseding entry.
 - **Status claims are part of the gate.** The "Status:" line here and in `README.md` say
   what does and does not work. Both were left asserting the backends were unimplemented for
