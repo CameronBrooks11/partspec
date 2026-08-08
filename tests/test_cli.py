@@ -79,6 +79,14 @@ def test_measure_says_why_it_refused_rather_than_omitting_the_quantity(tmp_path:
 
 
 @needs_openscad
+def test_measure_shows_cavities(tmp_path: Path, capsys):
+    """#113: the number distinguishing a sealed enclosure from an open tray
+    was absent from the verb whose job is showing every claimable number."""
+    doc = _measure(_contract(tmp_path, "block_with_hole.scad", ""), capsys)
+    assert doc["measurements"]["cavities"]["value"] == 0
+
+
+@needs_openscad
 def test_measure_separates_a_tier_gap_from_a_broken_part(tmp_path: Path, capsys):
     """Two different silences, and conflating them is what went wrong before.
 

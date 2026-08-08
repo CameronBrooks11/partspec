@@ -250,6 +250,8 @@ def test_the_skills_worked_example_executes():
         p = Part("skill-subject", openscad("m.scad", wall=2.4, bore_d=8.0, plate_y=30.0))
         exec(code, {"p": p})  # noqa: S102 - executing the doc is the point
         assert len(p.checks) == 3, "each half declares exactly three checks"
+    # The AFTER half must actually be the structured form it advertises.
+    assert sorted(c.kind for c in p.checks) == ["param_range", "param_range", "requires"]
 
 
 def test_the_skills_pointers_resolve():
@@ -261,7 +263,7 @@ def test_the_skills_pointers_resolve():
         "examples/bearing-block/claims.py",
         "examples/enclosure",
     ):
-        assert path.rstrip("/").split("/")[-1] in SKILL or path in SKILL
+        assert path in SKILL, f"the skill must cite {path} by its full path"
         assert (ROOT / path).exists(), f"{path} is cited by the skill and must exist"
     assert "only against a reference the model does not contain" in SKILL
     assert (

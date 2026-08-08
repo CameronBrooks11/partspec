@@ -134,6 +134,7 @@ on. `p.requires` is the escape hatch for anything relational.
 | `p.watertight()` | `watertight` | bool-valued, exact | both |
 | `p.solid_count(n)` | `solid_count` | scalar, `count`, exact | both |
 | `p.genus(n)` | `genus` | scalar, `count`, exact | both |
+| `p.cavities(n)` | `cavities` | scalar, `count`, exact | both |
 | `p.volume(min=, max=)` | `volume` | scalar, `mm3` | both |
 | `p.area(min=, max=)` | `area` | scalar, `mm2` | both |
 | `p.topology(faces=, edges=, vertices=)` | `topology` | vector, `count`, exact | **occt only** |

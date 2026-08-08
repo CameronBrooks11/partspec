@@ -56,6 +56,8 @@ src/partspec/
     openscad.py   # render to binstl; never parses --summary (D13)
     pycad.py      # import + call a Python model; the `.wrapped` adopt shim
 tests/            # mirrors src; also asserts docs/SPEC-report.md's example conforms
+skills/           # teaching material for partspec USERS (contract-authoring, ...)
+examples/         # worked exemplars, each README stating what to imitate
 scripts/          # helper scripts invoked by just recipes
 docs/             # the specs and decision log — normative, not background reading
 ```
