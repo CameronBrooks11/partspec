@@ -13,10 +13,11 @@ it prevents in `docs/FAILURE-MODES.md`. The fenced examples are executed by
 
 ## Rule 1 — Parameterise at the top; a magic number in geometry is unnameable
 
-A `-D` override can only bind a **top-level variable** (a module-local shadows it),
-and a `-D` that no declared variable matches is accepted without a whisper — the value
-simply never reaches the geometry (partspec refuses that for you: FAILURE-MODES
-entry 5).
+A `-D` override can only bind a **top-level variable** (a module-local assignment
+shadows it). A `-D` whose name the file never declares is accepted without a whisper —
+OpenSCAD just injects a top-level value that matters only if something happens to read
+it — which is why partspec refuses any `-D` matching no declared top-level variable
+(FAILURE-MODES entry 5).
 A number buried in a call can never be overridden, checked by a `param` claim, or
 named in a report.
 
