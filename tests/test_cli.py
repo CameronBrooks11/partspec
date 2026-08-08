@@ -104,6 +104,91 @@ def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
 
 
 # --------------------------------------------------------------------------
+# measure — identity (#47): as identifiable as a report
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_measure_carries_the_same_identity_as_the_report(tmp_path: Path, capsys):
+    """One builder serves both verbs, and this pin is what keeps them from
+    drifting apart again (#73 was exactly that drift, in the engine block).
+    A consumer turning measure output into checks must be able to say which
+    file, which revision, and which parameters produced the numbers."""
+    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    out = tmp_path / "out"
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 0
+    report = json.loads((out / "report.json").read_text())
+
+    doc = _measure(target, capsys)
+    assert doc["schema_version"] == report["schema_version"]
+    assert doc["part"] == report["part"]
+    assert doc["params"] == report["params"]
+    assert list(doc)[:7] == [
+        "schema_version",
+        "tool",
+        "part",
+        "engine",
+        "params",
+        "geometry",
+        "measurements",
+    ]
+
+
+@needs_openscad
+def test_measure_records_the_parameters_that_produced_the_numbers(tmp_path: Path, capsys):
+    shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('subject', openscad('block_with_hole.scad', hole=4))\n"
+    )
+    doc = _measure(f"{module}:make", capsys)
+    assert doc["params"] == {"hole": 4}
+
+
+@needs_openscad
+def test_measure_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
+    """A caller parsing stdout used to get an empty string and a bare exit
+    code, with the reason on stderr only — machine-invisible exactly where a
+    machine is the audience (#47)."""
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('subject', openscad('missing.scad'))\n"
+    )
+    assert main(["measure", f"{module}:make"]) == exit_code(Verdict.ERROR)
+    captured = capsys.readouterr()
+    doc = json.loads(captured.out)
+    assert doc["schema_version"] == 1
+    assert doc["part"]["id"] == "subject"
+    assert doc["part"]["contract"].endswith("spec.py")
+    assert "not found" in doc["error"]
+    assert "hint" in doc
+    assert "not found" in captured.err, "the console courtesy line survives"
+
+
+def test_measure_python_closure_appears_after_the_build(tmp_path: Path, capsys):
+    """A Python model's inputs are only knowable once it has run; measure's
+    identity must carry the same imports-derived closure the report does."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "helper47.py").write_text("SIZE = 2\n")
+    (tmp_path / "model.py").write_text(
+        "import helper47\nfrom build123d import Box\n\n\ndef make_part():\n"
+        "    return Box(helper47.SIZE, 1, 1)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('model.py'))\n"
+    )
+    doc = _measure(f"{module}:make", capsys)
+    closure = doc["part"]["source_closure"]
+    assert closure["scope"] == "model_directory"
+    assert closure["partial"] is True
+    assert closure["files"] >= 2, "the helper the model imported is a build input"
+
+
+# --------------------------------------------------------------------------
 # check — the exit code is half the contract
 # --------------------------------------------------------------------------
 

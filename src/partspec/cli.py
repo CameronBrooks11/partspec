@@ -279,10 +279,11 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
         return resolved
-    part, _ = resolved
+    part, target = resolved
 
     from .backend import BuildError, Unsupported
-    from .runner import _backend_for, _engine_source, engine_block
+    from .report import SCHEMA_VERSION
+    from .runner import _backend_for, _engine_source, _tool_version, engine_block, identity
     from .status import ContractError
 
     try:
@@ -294,10 +295,25 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     out = _out_dir(args.target, args.out)
     artifact = backend.build(_engine_source(part), out, timeout_s=timeout_s)
     if isinstance(artifact, BuildError):
+        # The failure is an artifact too (#47): a caller parsing stdout used
+        # to get an empty string and a bare exit code, with the reason living
+        # only on stderr — machine-invisible exactly where a machine is the
+        # audience. Same identity prefix as the success payload, so the
+        # consumer can tell WHICH file and revision failed to measure.
+        failed: dict[str, object] = {
+            "schema_version": SCHEMA_VERSION,
+            "tool": {"name": "partspec", "version": _tool_version()},
+            "part": identity(part, target.path),
+            "engine": engine_block(part, backend),
+            "params": dict(part.source.params),
+            "error": artifact.message,
+            "hint": artifact.hint,
+        }
+        print(json.dumps(failed, indent=2, allow_nan=False))
         print(f"partspec: {artifact.message}", file=sys.stderr)
         if artifact.hint:
             print(f"  hint: {artifact.hint}", file=sys.stderr)
-        return 4
+        return exit_code(Verdict.ERROR)
 
     measurements: dict[str, object] = {}
     refused: dict[str, str] = {}
@@ -337,8 +353,15 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         measurements[name] = entry
 
     measured: dict[str, object] = {
-        "part": part.id,
+        # The identity prefix mirrors the report's field order exactly
+        # (schema_version, tool, part, engine, params, geometry), so a
+        # consumer of one artifact can orient in the other. `built=True`:
+        # a Python model's imports are only knowable once it has run.
+        "schema_version": SCHEMA_VERSION,
+        "tool": {"name": "partspec", "version": _tool_version()},
+        "part": identity(part, target.path, built=True),
         "engine": engine_block(part, backend),
+        "params": dict(part.source.params),
         "geometry": backend.provenance(artifact),
         "measurements": measurements,
     }

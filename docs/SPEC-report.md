@@ -3,7 +3,10 @@
 **Status:** draft 7 · 2026-08-08 · adds `checks[].components` / `region` / `hole` /
 `source`, run-level `attribution`, render references, and the §8.3 closure reversal
 **Scope:** the JSON artifact `partspec check` emits, and the process exit code that
-accompanies it.
+accompanies it. `partspec measure` emits a sibling payload that MUST share the identity
+prefix — `schema_version`, `tool`, `part`, `engine`, `params`, `geometry`, built by the
+same code (#47) — and MUST emit a JSON object carrying that identity plus `error`/`hint`
+on failure, so a consumer always learns which file and revision it was talking about.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
 **Backing:** `DECISIONS.md` D5, D10, D13; `investigations/04-kernel-capability.md`.
 
