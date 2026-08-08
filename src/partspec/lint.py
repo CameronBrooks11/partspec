@@ -79,13 +79,43 @@ def lint_path(path: Path) -> list[Finding]:
 
 
 def _strip_preserving_lines(raw: str) -> str:
-    """Comments and strings blanked, NEWLINES KEPT — the engine's
-    `_strip_noise` collapses block comments to one space, which shifted every
-    finding's line number after a header comment (PR #119 review, F3).
-    Findings carry file:line; the line must be the author's line."""
-    no_blocks = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), raw, flags=re.S)
-    no_lines = re.sub(r"//[^\n]*", "", no_blocks)
-    return re.sub(r'"(?:[^"\\]|\\.)*"', '""', no_lines)
+    """Comments and strings blanked, NEWLINES KEPT.
+
+    A character scan, not ordered regexes: the first draft stripped `//`
+    before strings, so a URL inside a string swallowed the rest of the line
+    and the dangling quote blanked real code — the exact hazard the engine's
+    `_strip_noise` docstring warns about, reintroduced one module over
+    (PR #119 re-review, N2). And unlike `_strip_noise`, block comments keep
+    their newlines: findings carry file:line, and the line must be the
+    author's line (F3)."""
+    out: list[str] = []
+    i, n = 0, len(raw)
+    while i < n:
+        c = raw[i]
+        if c == '"':
+            out.append('"')
+            i += 1
+            while i < n and raw[i] != '"':
+                if raw[i] == "\\":
+                    i += 1
+                elif raw[i] == "\n":
+                    out.append("\n")
+                i += 1
+            if i < n:
+                out.append('"')
+                i += 1
+        elif raw.startswith("//", i):
+            while i < n and raw[i] != "\n":
+                i += 1
+        elif raw.startswith("/*", i):
+            end = raw.find("*/", i + 2)
+            end = n if end == -1 else end + 2
+            out.append("\n" * raw.count("\n", i, end))
+            i = end
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 
 
 def _entry_top_level(stripped: str) -> dict[str, int]:
@@ -102,7 +132,11 @@ def _entry_top_level(stripped: str) -> dict[str, int]:
             m = re.match(r"\s*(\$?\w+)\s*=", line)
             if m:
                 names.setdefault(m.group(1), i)
-        depth += line.count("{") - line.count("}")
+        # ALL bracket kinds, like the engine's walker: a brace-only count
+        # mistook named arguments in multi-line parenthesized calls for
+        # top-level assignments (PR #119 re-review, N1 — live on the repo's
+        # own open_box fixture).
+        depth += sum(line.count(b) for b in "{([") - sum(line.count(b) for b in "})]")
     return names
 
 

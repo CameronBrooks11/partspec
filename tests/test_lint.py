@@ -227,3 +227,32 @@ def test_an_unreadable_file_is_unlintable_not_a_crash(tmp_path: Path, capsys):
         assert "cannot read" in capsys.readouterr().err
     finally:
         os.chmod(scad, 0o644)
+
+
+def test_multiline_call_arguments_are_not_top_level_variables(tmp_path: Path):
+    """Re-review N1: a brace-only depth count mistook `d = size,` inside a
+    formatted multi-line call for a top-level assignment — live on the
+    open_box fixture's `points`/`faces`."""
+    scad = tmp_path / "m.scad"
+    scad.write_text("size = 5;\ncylinder(\n    d = size,\n    h = size\n);\n")
+    assert lint_path(scad) == []
+    fixture = ROOT / "tests" / "fixtures" / "open_box.scad"
+    names = {
+        f.message.split("'")[1] for f in lint_path(fixture) if f.rule == "scad-unused-top-level"
+    }
+    assert "points" not in names and "faces" not in names
+
+
+def test_a_slash_slash_inside_a_string_is_not_a_comment(tmp_path: Path):
+    """Re-review N2: regex ordering let a URL in a string swallow the line —
+    the engine's own docstring hazard, reintroduced and now killed."""
+    scad = tmp_path / "m.scad"
+    scad.write_text(
+        'note = "see https://example.com/docs";\n'
+        "echo(note);\n"
+        "rotate([0, 0, 45]) cube([note_len(note), 3, 3]);\n"
+    )
+    findings = lint_path(scad)
+    assert not any(f.rule == "scad-unused-top-level" for f in findings), "note IS used"
+    values = {f.message.split()[0] for f in findings if f.rule == "scad-magic-number"}
+    assert values == {"45", "3"}, "the literals after the string must still be seen"
