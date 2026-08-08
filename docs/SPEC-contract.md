@@ -340,9 +340,14 @@ Exactly `count` bores of diameter `d`, axes parallel, centres on one circle of d
 detection (`bore_table`), and adjudicated with **subset semantics**: the claim is that
 such a circle of holes *exists*, so an unrelated Ø`d` bore elsewhere does not break it —
 while a fifth hole ON the claimed circle does, because "4×" is a count, not a minimum.
-Every valid circle through three or more points is determined by three of its members, so
-the search is over candidate triples, capped and refused honestly beyond 60 candidate
-bores per direction rather than answered slowly and called exhaustive.
+Triples of candidate bores *seed* the search; each seed captures loosely (twice the
+band), refits the centre by least squares over the capture, and adjudicates **strictly
+against the refitted pattern circle** — a raw three-point circumcentre shifts by ~2x any
+positional perturbation, enough to eject a conforming hole from a band it genuinely sits
+in, and enough to let a cherry-picked centre defeat count exactness. The search is capped
+at 60 candidate bores per direction; the cap produces a refusal only when the whole
+search ends empty-handed with something unexamined — a passing circle found elsewhere is
+still a pass.
 
 Two deliberate edges:
 
@@ -354,10 +359,18 @@ Two deliberate edges:
   `tol` is the *positional* band on the circle diameter. A toleranced diameter claim
   belongs to `hole_diameter`; blurring the two would let a wrong-size hole satisfy a
   position claim.
+- **`tol` MUST NOT exceed `d`**, refused at declaration. There is no datum to anchor the
+  pattern centre (no selectors, §8), so the claim is existential — *some* circle of
+  ~`bcd` holds exactly `count` holes — and a band wider than the hole itself makes that
+  existential satisfiable by circles no drawing describes. The bound limits the residual
+  rather than eliminating it: an author using an explicit `tol` near `d` on a part with
+  many same-size holes has weakened the claim, and should keep `tol` at true-position
+  scale, far below the hole spacing.
 
-The measurement is the fitted circle diameter (exact, from exact centres); `limit` is the
-`bcd` band; the declared callout is recorded as `hole: {"d", "count", "bcd"}`. On failure
-the detail carries the candidate inventory and the nearest circle found.
+The measurement is the fitted circle diameter (exact, from exact centres; for `count=2`,
+the pair closest to `bcd`, so the recorded value cannot depend on face-iteration order);
+`limit` is the `bcd` band; the declared callout is recorded as `hole: {"d", "count",
+"bcd"}`. On failure the detail carries the candidate count and the nearest circle found.
 
 ---
 

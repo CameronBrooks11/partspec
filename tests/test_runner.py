@@ -1120,3 +1120,116 @@ def test_bolt_circle_is_refused_on_the_mesh_tier(tmp_path: Path):
     assert check.status is Status.UNSUPPORTED
     assert check.requires == "occt"
     assert report.verdict is Verdict.INCOMPLETE
+
+
+# The stub lets the circle search be attacked at speed: canned bore tables,
+# no kernel. The e2e tests above keep the real-geometry path honest.
+class _BoreWorld:
+    kind = "stub"
+
+    def __init__(self, table):
+        self.table = table
+
+    def capabilities(self):
+        return frozenset({"bore_table"})
+
+    def bore_table(self, a):
+        return self.table
+
+
+def _bolt_result(table, *, d=5.0, count=4, bcd=40.0, tol=0.2):
+    from partspec.contract import CheckSpec
+    from partspec.runner import _run_geometry_check
+    from partspec.status import Limit
+
+    spec = CheckSpec(
+        id="bc",
+        kind="bolt_circle",
+        phase="geometry",
+        limit=Limit(min=bcd - tol, max=bcd + tol),
+        hole={"d": d, "count": count, "bcd": bcd},
+    )
+    return _run_geometry_check(spec, _BoreWorld(table), None, "p")
+
+
+def _bore(x, y, d=5.0, direction=(0.0, 0.0, 1.0)):
+    return {"d": d, "direction": direction, "center": (x, y, 0.0)}
+
+
+def _ring(r, n=4, cx=40.0, cy=40.0, phase=0.0):
+    import math
+
+    return [
+        _bore(
+            cx + r * math.cos(math.tau * k / n + phase), cy + r * math.sin(math.tau * k / n + phase)
+        )
+        for k in range(n)
+    ]
+
+
+def test_holes_perturbed_within_tol_still_pass():
+    """PR #89 review, blocker 1: a raw triple circumcentre shifts ~2x the
+    perturbation and ejected a conforming fourth hole mid-band — the check
+    failed a part every hole of which sat within tol of the true circle, and
+    the detail asserted a circle that exists does not. The refit must find it."""
+    import math
+
+    table = [
+        _bore(40 + r * math.cos(t), 40 + r * math.sin(t))
+        for r, t in [(20.05, 0.3), (19.95, 1.87), (20.04, 3.44), (19.97, 5.01)]
+    ]
+    result = _bolt_result(table, tol=0.2)
+    assert result.status is Status.PASS, result.detail
+    assert result.measurement is not None
+    assert result.measurement.value == pytest.approx(40.0, abs=0.1)
+
+
+def test_count_is_exact_against_the_fitted_circle():
+    """Three-of-four on the circle must fail: a count, not a minimum. Kills
+    the >= mutant nothing else caught."""
+    result = _bolt_result(_ring(20.0), count=3)
+    assert result.status is Status.FAIL
+    assert result.detail is not None and "holds 4 of them" in result.detail
+
+
+def test_a_tilted_hole_does_not_complete_a_circle():
+    """Axes must be parallel: three straight holes plus one tilted 15 degrees
+    at the fourth position is not a bolt circle. Kills the direction-grouping
+    mutant."""
+    table = _ring(20.0)[:3] + [
+        {"d": 5.0, "direction": (0.0, 0.2588, 0.9659), "center": _ring(20.0)[3]["center"]}
+    ]
+    assert _bolt_result(table).status is Status.FAIL
+
+
+def test_the_search_cap_refuses_only_when_something_went_unexamined():
+    """61 coaxial candidates alone: honest refusal, never a slow claimed-
+    exhaustive answer. The same 61 plus a clean circle about another axis:
+    the pass is found — a cap in one group must not preempt the others."""
+    noise = [_bore(float(i), float((i * i) % 97)) for i in range(61)]
+    refused = _bolt_result(noise)
+    assert refused.status is Status.UNSUPPORTED
+    assert refused.detail is not None and "refusing to search" in refused.detail
+
+    other_axis = [
+        {"d": 5.0, "direction": (1.0, 0.0, 0.0), "center": (0.0, b["center"][0], b["center"][1])}
+        for b in _ring(20.0)
+    ]
+    assert _bolt_result(noise + other_axis).status is Status.PASS
+
+
+def test_concentric_circles_answer_their_own_claims():
+    table = _ring(20.0) + _ring(30.0, phase=0.4)
+    assert _bolt_result(table, bcd=40.0, tol=0.2).status is Status.PASS
+    assert _bolt_result(table, bcd=60.0, tol=0.2).status is Status.PASS
+    assert _bolt_result(table, bcd=50.0, tol=0.2).status is Status.FAIL
+
+
+def test_count_two_records_the_pair_closest_to_the_claim():
+    """Four holes on Ø40: adjacent pairs sit at ~28.3, diagonal at 40. A wide
+    tol admits both; the measurement must be the diagonal the drafter meant,
+    not whichever pair iteration met first."""
+    result = _bolt_result(_ring(20.0), count=2, bcd=40.0, tol=5.0)
+    assert result.status is Status.PASS
+    assert result.measurement is not None
+    assert result.measurement.value == pytest.approx(40.0)

@@ -393,6 +393,15 @@ class Part:
             not isinstance(tol, int | float) or not math.isfinite(tol) or tol <= 0
         ):
             raise ContractError(f"bolt_circle tol must be > 0 when given (got {tol!r})")
+        if tol is not None and tol > d:
+            # A band wider than the hole itself is not a position claim: it
+            # makes the callout ambiguous, and an ambiguous band is one a
+            # cherry-picked circle centre can satisfy on geometry the drawing
+            # rejects (PR #89 review, blocker 2).
+            raise ContractError(
+                f"bolt_circle tol must not exceed d (got tol={tol!r}, d={d!r}); a "
+                f"positional band wider than the hole is not a position claim"
+            )
         band = float(tol) if tol is not None else epsilon(float(bcd))
         return self._add(
             CheckSpec(

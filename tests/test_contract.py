@@ -443,3 +443,11 @@ def test_bolt_circle_records_the_callout():
     assert spec.hole == {"d": 5.0, "count": 4, "bcd": 40.0}
     assert spec.limit is not None
     assert spec.limit.min == pytest.approx(39.8) and spec.limit.max == pytest.approx(40.2)
+
+
+def test_a_positional_band_wider_than_the_hole_is_refused():
+    """PR #89 review, blocker 2: with no datum the claim is existential, and a
+    wide band is satisfiable by circles no drawing describes — a cherry-picked
+    centre passed 8-on-the-circle as 'exactly 4' at tol=21."""
+    with pytest.raises(ContractError, match="must not exceed d"):
+        _part().bolt_circle(5.0, count=4, bcd=40.0, tol=21.0)
