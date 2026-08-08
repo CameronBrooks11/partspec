@@ -1,0 +1,201 @@
+"""Multi-target check (#29): one interpreter start, N reports, honest exits.
+
+The batch rules are SPEC-report §4 rule 4 and §6.2: no early abort, one report
+per part, exit by the highest-precedence verdict — and the hazard the slice
+owns, POST-V0 §8: `sys.modules` must not serve a later build a stale helper.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+from support import needs_openscad
+
+from partspec.cli import main
+from partspec.status import Verdict, exit_code
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _scad_target(tmp_path: Path, name: str, body: str) -> str:
+    d = tmp_path / name
+    d.mkdir()
+    shutil.copy(FIXTURES / "block_with_hole.scad", d / "block_with_hole.scad")
+    module = d / f"{name}.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        f"    p = Part({name!r}, openscad('block_with_hole.scad'))\n"
+        f"{body}"
+        "    return p\n"
+    )
+    return f"{module}:make"
+
+
+def _report(target: str) -> dict:
+    module, _, _ = target.rpartition(":")
+    path = Path(module)
+    return json.loads((path.parent / "outputs" / f"{path.stem}-make" / "report.json").read_text())
+
+
+# --------------------------------------------------------------------------
+# exits and no-early-abort
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_a_batch_writes_every_report_and_exits_the_worst_verdict(tmp_path: Path, capsys):
+    good = _scad_target(tmp_path, "good", "    p.watertight()\n")
+    bad = _scad_target(tmp_path, "bad", "    p.envelope(max=(1, 1, 1))\n")
+    assert main(["check", good, bad, "--quiet"]) == exit_code(Verdict.FAIL)
+    assert _report(good)["verdict"] == "pass", "the passing part still got its fresh report"
+    assert _report(bad)["verdict"] == "fail"
+
+
+@needs_openscad
+def test_an_erroring_part_does_not_stop_the_rest(tmp_path: Path, capsys):
+    raising = tmp_path / "raising.py"
+    raising.write_text("def make():\n    raise TypeError('broken contract')\n")
+    good = _scad_target(tmp_path, "good", "    p.watertight()\n")
+    assert main(["check", f"{raising}:make", good, "--quiet"]) == exit_code(Verdict.ERROR)
+    assert _report(good)["verdict"] == "pass", "SPEC-report 4.4: failures must not abort the batch"
+
+
+@needs_openscad
+def test_an_unresolvable_target_is_usage_and_the_rest_still_run(tmp_path: Path, capsys):
+    good = _scad_target(tmp_path, "good", "    p.watertight()\n")
+    assert main(["check", str(tmp_path / "nowhere.py") + ":make", good, "--quiet"]) == 64
+    assert _report(good)["verdict"] == "pass"
+
+
+@needs_openscad
+def test_empty_outranks_fail_in_the_batch_exit(tmp_path: Path, capsys):
+    """SPEC-report 6.1 precedence, pinned: the vacuous-green case is the more
+    dangerous signal and must not hide behind a mere failure."""
+    empty = _scad_target(tmp_path, "empty", "")
+    bad = _scad_target(tmp_path, "bad", "    p.envelope(max=(1, 1, 1))\n")
+    assert main(["check", empty, bad, "--quiet"]) == exit_code(Verdict.EMPTY)
+
+
+@needs_openscad
+def test_the_summary_names_the_tally_and_quiet_suppresses_it(tmp_path: Path, capsys):
+    good = _scad_target(tmp_path, "good", "    p.watertight()\n")
+    bad = _scad_target(tmp_path, "bad", "    p.envelope(max=(1, 1, 1))\n")
+    main(["check", good, bad])
+    out = capsys.readouterr().out
+    assert "BATCH: 2 parts" in out and "1 pass" in out and "1 fail" in out
+
+    main(["check", good, bad, "--quiet"])
+    assert "BATCH" not in capsys.readouterr().out
+
+
+@needs_openscad
+def test_a_single_target_emits_no_batch_summary(tmp_path: Path, capsys):
+    good = _scad_target(tmp_path, "good", "    p.watertight()\n")
+    assert main(["check", good]) == 0
+    assert "BATCH" not in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# --out in a batch
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_explicit_out_gets_a_subdirectory_per_part(tmp_path: Path):
+    good = _scad_target(tmp_path, "good", "    p.watertight()\n")
+    bad = _scad_target(tmp_path, "bad", "    p.envelope(max=(1, 1, 1))\n")
+    out = tmp_path / "reports"
+    main(["check", good, bad, "--quiet", "--out", str(out)])
+    assert json.loads((out / "good-make" / "report.json").read_text())["verdict"] == "pass"
+    assert json.loads((out / "bad-make" / "report.json").read_text())["verdict"] == "fail"
+
+
+def test_colliding_slugs_under_one_out_dir_are_refused(tmp_path: Path, capsys):
+    """Two targets named spec.py:make in different directories share a slug;
+    letting the second silently overwrite the first's report under one
+    deterministic path is the stale-artifact failure, chosen on purpose."""
+    for name in ("a", "b"):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "spec.py").write_text("def make():\n    pass\n")
+    code = main(
+        [
+            "check",
+            f"{tmp_path / 'a' / 'spec.py'}:make",
+            f"{tmp_path / 'b' / 'spec.py'}:make",
+            "--quiet",
+            "--out",
+            str(tmp_path / "reports"),
+        ]
+    )
+    assert code == 64
+    assert "collide" in capsys.readouterr().err
+
+
+def test_render_refuses_a_batch(tmp_path: Path, capsys):
+    code = main(["check", "a.py:x", "b.py:x", "--render", "--quiet"])
+    assert code == 64
+    assert "single-target" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------
+# the POST-V0 §8 hazard: stale modules across builds in one process
+# --------------------------------------------------------------------------
+
+
+def _py_target(d: Path, size: float) -> str:
+    d.mkdir(exist_ok=True)
+    (d / "helper29.py").write_text(f"SIZE = {size}\n")
+    (d / "model.py").write_text(
+        "import helper29\nfrom build123d import Box\n\n\ndef make_part():\n"
+        "    return Box(helper29.SIZE, 1, 1)\n"
+    )
+    spec = d / "spec.py"
+    spec.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    p = Part('subject', build123d('model.py'))\n"
+        "    p.volume(min=0.0)\n"
+        "    return p\n"
+    )
+    return f"{spec}:make"
+
+
+def _measured_volume(out: Path) -> float:
+    report = json.loads((out / "report.json").read_text())
+    (check,) = [c for c in report["checks"] if c["kind"] == "volume"]
+    return check["measurement"]["value"]
+
+
+def test_an_edited_helper_reaches_the_second_run_in_one_process(tmp_path: Path):
+    """The acceptance test of POST-V0 §8: before invalidation, the second run
+    measured the FIRST run's geometry — a stale build reported as fresh, with
+    a closure digest taken from the edited file that never got imported."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    target = _py_target(tmp_path / "m", 1.0)
+    out1, out2 = tmp_path / "o1", tmp_path / "o2"
+    assert main(["check", target, "--quiet", "--out", str(out1)]) == 0
+    assert _measured_volume(out1) == pytest.approx(1.0)
+
+    # A different-LENGTH value on purpose: CPython validates a cached .pyc by
+    # (mtime seconds, size), so a same-length edit within one second serves
+    # stale bytecode to any interpreter — a ceiling beneath this tool's reach,
+    # noted on `invalidate_model_modules`.
+    _py_target(tmp_path / "m", 12.5)
+    assert main(["check", target, "--quiet", "--out", str(out2)]) == 0
+    assert _measured_volume(out2) == pytest.approx(12.5), "the edited helper must be re-imported"
+
+
+def test_batch_of_two_python_models_each_measures_its_own(tmp_path: Path):
+    """PR #101's review demonstrated the cross live: model B built with model
+    A's cached helper. In one batch invocation each part must measure its own."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    a = _py_target(tmp_path / "a", 1.0)
+    b = _py_target(tmp_path / "b", 3.0)
+    assert main(["check", a, b, "--quiet"]) == 0
+    vol_a = _measured_volume(tmp_path / "a" / "outputs" / "spec-make")
+    vol_b = _measured_volume(tmp_path / "b" / "outputs" / "spec-make")
+    assert vol_a == pytest.approx(1.0)
+    assert vol_b == pytest.approx(3.0), "model B must not build with model A's cached helper"

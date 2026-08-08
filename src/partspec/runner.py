@@ -81,6 +81,14 @@ def run(
         report.checks = [
             _skipped(spec, "not evaluated: the contract raised") for spec in _all_specs(part)
         ]
+    finally:
+        # After the closure was read, never before: `_python_closure` is what
+        # consumes `sys.modules`, and this is what keeps a later run in the
+        # same process from building with this model's cached helpers (#29).
+        if part.source.engine != "openscad":
+            from .engines.pycad import invalidate_model_modules
+
+            invalidate_model_modules(part.source.path)
 
     report.duration_ms = int((time.perf_counter() - started) * 1000)
     return report

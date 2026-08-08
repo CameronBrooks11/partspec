@@ -27,7 +27,67 @@ from typing import Any, cast
 
 from ..backend import BuildError
 
-__all__ = ["PyCADSource", "adopt", "build"]
+__all__ = ["PyCADSource", "adopt", "build", "invalidate_model_modules"]
+
+
+_LOADED_MODEL_MODULES: dict[str, set[str]] = {}
+"""Resolved model directory -> module names its builds added to `sys.modules`.
+
+A registry of what each build actually imported, not a directory sweep: an
+early draft evicted "everything whose file sits under the model's directory",
+and a model path that resolves near the repo root made that a grenade — it
+evicted the editable-installed partspec itself and the test suite's own
+modules, mid-session. Only what a build introduced can be stale because of
+that build, so only that is remembered and evicted."""
+
+
+def _record_model_modules(model_path: Path, before: set[str]) -> None:
+    """Remember which modules this build added from the model's directory."""
+    root = model_path.resolve().parent
+    added: set[str] = set()
+    for name in set(sys.modules) - before:
+        filename = getattr(sys.modules.get(name), "__file__", None)
+        if not filename or "site-packages" in Path(filename).parts:
+            # A build's first lazy import of an installed package (OCP
+            # submodules, typically) is process-wide state, not model state;
+            # evicting a C extension for re-import buys nothing and risks
+            # duplicate-class identity bugs.
+            continue
+        try:
+            if Path(filename).resolve().is_relative_to(root):
+                added.add(name)
+        except OSError:
+            continue
+    if added:
+        _LOADED_MODEL_MODULES.setdefault(str(root), set()).update(added)
+
+
+def invalidate_model_modules(model_path: Path) -> None:
+    """Evict the modules this model's builds imported from beside it.
+
+    `sys.modules` caches a model's helpers top-level, so a later build in the
+    same process that imports an edited helper gets the *previous* version —
+    a stale build reported as fresh, with a closure digest computed from the
+    file on disk that never reached the interpreter (POST-V0 §8, #29). PR
+    #101's review demonstrated it live: two models with same-named helpers in
+    one process, and the second silently built with the first's.
+
+    Called after every Python-engine run rather than only between batch
+    targets, because the hazard is a property of the process, not of the
+    batch verb — a library caller or a test suite hits it identically.
+    Evicting is safe for live objects (existing references keep working; only
+    the next import re-reads the file).
+
+    One ceiling beneath this function's reach, stated rather than hidden:
+    CPython validates a cached `.pyc` by (mtime seconds, size), so an edit
+    that changes neither — same byte count, within the same second — serves
+    stale bytecode to ANY interpreter, fresh process included. The closure
+    digest still changes (it reads the file), which is how such a run would
+    be caught on comparison.
+    """
+    root = str(model_path.resolve().parent)
+    for name in _LOADED_MODEL_MODULES.pop(root, set()):
+        sys.modules.pop(name, None)
 
 
 class _BuildTimeout(Exception):
@@ -325,6 +385,18 @@ def build(source: PyCADSource, *, timeout_s: float | None = None) -> Any | Build
     can hang in any of them and the reader is owed one rule, not three.
     """
     started = time.perf_counter()
+    # Snapshot around the WHOLE build, not just the module load, so a
+    # factory-time lazy import is remembered for invalidation too.
+    modules_before = set(sys.modules)
+    try:
+        return _bounded_build(source, timeout_s, started)
+    finally:
+        _record_model_modules(source.path, modules_before)
+
+
+def _bounded_build(
+    source: PyCADSource, timeout_s: float | None, started: float
+) -> Any | BuildError:
     try:
         with _time_limit(timeout_s) as window:
             result = _build(source)
