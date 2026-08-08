@@ -138,3 +138,31 @@ def test_a_broken_local_import_chain_is_still_the_parts_fault(tmp_path: Path):
     assert report["verdict"] == "fail"
     statuses = {c["kind"]: c["status"] for c in report["checks"]}
     assert statuses["builds"] == "fail"
+
+
+def test_a_stranded_ocp_proxy_is_named_not_circular(monkeypatch):
+    """#109: cadquery-ocp-proxy installed but no OCP delivered (the uv pip
+    case) — the old hint said pip install partspec[occt], which a uv user
+    re-runs through uv, forever."""
+    import importlib.metadata as md
+
+    from partspec.engines.pycad import _engine_import_error
+
+    real = md.distribution
+
+    class _Proxy:
+        version = "7.9.3.1.1"
+
+    def fake(name):
+        if name == "cadquery-ocp-proxy":
+            return _Proxy()
+        raise md.PackageNotFoundError(name)
+
+    monkeypatch.setattr(md, "distribution", fake)
+    try:
+        err = _engine_import_error("build123d", ImportError("No module named 'OCP'"))
+    finally:
+        monkeypatch.setattr(md, "distribution", real)
+    assert err.origin == "environment"
+    assert "cadquery-ocp-proxy" in err.message and "delivered no OCP" in err.message
+    assert err.hint is not None and "plain pip" in err.hint and "#109" in err.hint

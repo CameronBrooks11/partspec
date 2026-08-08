@@ -4,7 +4,10 @@
 **Scope:** `partspec lint <source>…` over `.scad` and `.py` model sources. Findings are
 **advisory and never a verdict on the part — it is about the source** (#26, verbatim):
 exit 0 says the lint ran, the findings are data in the JSON payload, and 64 is reserved
-for inputs that cannot be linted at all. Tier 1 runs **without an engine installed**.
+for inputs that cannot be linted at all. The payload (schema 2) is per-file
+blocks — `{file, digest, findings}` — so a clean file is a visible entry with the
+sha256 of the bytes that were linted, not an absence; duplicate arguments are deduped
+(#120). Tier 1 runs **without an engine installed**.
 
 Each rule states its exact predicate — a lint whose rules are vibes teaches nothing —
 plus the rationale and a real example. The rule registry in `src/partspec/lint.py` and
@@ -12,7 +15,7 @@ this document are held together by test (`tests/test_lint.py`).
 
 Lint is for **model sources**. Pointing it at a contract flags check *limits* as if
 they were model constants — advice aimed at the wrong file. An agent loop should read
-`findings[]` before the first render and treat each as an optional aimed edit, never
+each file block's `findings[]` before the first render and treat each as an optional aimed edit, never
 as a failure to clear (exit 0 with findings is not AGENT-CONTRACT's exit-0 row: that
 map governs `check`).
 

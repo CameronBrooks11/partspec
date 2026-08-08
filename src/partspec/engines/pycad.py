@@ -372,6 +372,26 @@ def _engine_import_error(engine: str, exc: ImportError) -> BuildError:
         except PackageNotFoundError:
             continue
 
+    if not installed:
+        try:
+            proxy = distribution("cadquery-ocp-proxy").version
+        except PackageNotFoundError:
+            proxy = None
+        if proxy is not None:
+            # The proxy selects a concrete OCP wheel with an install-time hook
+            # that some installers (uv pip) never run — so it sits in the
+            # environment having delivered nothing, and the generic
+            # "pip install partspec[occt]" hint would send a uv user in a
+            # circle (#109, found in the v0.4.0 cold verification).
+            return BuildError(
+                f"{engine} is not importable: {exc}; cadquery-ocp-proxy {proxy} is "
+                f"installed but delivered no OCP — its install-time selection does "
+                f"not run under every installer (uv pip is the known case)",
+                hint="install the engine with plain pip, or pin a concrete "
+                "cadquery-ocp; see partspec issue #109",
+                origin="environment",
+            )
+
     if len(installed) > 1:
         return BuildError(
             f"{engine} could not be imported because two OCP providers are installed "

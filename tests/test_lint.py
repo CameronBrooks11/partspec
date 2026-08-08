@@ -113,10 +113,27 @@ def test_the_lint_verb_is_advisory_and_machine_readable(tmp_path: Path, capsys):
     assert payload["schema_version"] == LINT_SCHEMA_VERSION
     assert payload["tool"]["name"] == "partspec-lint"
     assert payload["counts"] == {"files": 1, "findings": 3}
-    for finding in payload["findings"]:
+    (entry,) = payload["files"]
+    assert entry["digest"].startswith("sha256:"), "identity per file (#120)"
+    for finding in entry["findings"]:
         assert set(finding) == {"rule", "file", "line", "message"}
         assert finding["rule"] in RULES
     assert "scad-magic-number" in captured.err, "the console courtesy lines name the rule"
+
+
+def test_duplicate_arguments_are_one_file_and_a_clean_file_is_visible(tmp_path: Path, capsys):
+    """#120: the same file twice used to double counts, and a clean file was
+    invisible except as a number."""
+    dirty = tmp_path / "dirty.scad"
+    dirty.write_text("cube([60, 40, 4]);\n")
+    clean = tmp_path / "clean.scad"
+    clean.write_text("a = 3;\ncube([a, a, a]);\n")
+    assert main(["lint", str(dirty), str(dirty), str(clean)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["counts"] == {"files": 2, "findings": 3}
+    by_name = {Path(e["file"]).name: e for e in payload["files"]}
+    assert by_name["clean.scad"]["findings"] == []
+    assert by_name["clean.scad"]["digest"].startswith("sha256:")
 
 
 def test_unlintable_inputs_are_usage_not_findings(tmp_path: Path, capsys):
