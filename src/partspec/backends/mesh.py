@@ -343,6 +343,14 @@ class MeshBackend:
         """Same refusal as `bores`, for the positional view `bolt_circle` uses."""
         return self.bores(a)
 
+    def blend_radii(self, a: Any) -> Unsupported:
+        """Same refusal again: a fillet fitted to facets is not a fillet."""
+        return Unsupported(
+            "a triangle mesh has no cylindrical face; a blend radius fitted to "
+            "facets would be a confident wrong number in the unsafe direction",
+            requires=Tier.OCCT,
+        )
+
     def region_solid(self, region: Any) -> Any:
         """Materialize a declared region as this tier's native solid.
 

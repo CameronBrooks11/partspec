@@ -101,7 +101,8 @@ believing a green run on an unfamiliar file").
 ## 4. BREP-tier checks
 
 ~~`hole_diameter`~~ (shipped 2026-08-07, #80 — `SPEC-contract.md` §4.5), ~~`hole_pattern` /
-bolt circle~~ (shipped 2026-08-07, #81 — §4.6), `fillet_radius`, `draft_angle`, `self_intersection`, `step_roundtrip`. All
+bolt circle~~ (shipped 2026-08-07, #81 — §4.6), ~~`fillet_radius`~~ (shipped 2026-08-07,
+#82 — §4.7), `draft_angle`, `self_intersection`, `step_roundtrip`. All
 `unsupported` on mesh, irreducibly — no conversion recovers them (`investigations/04` §4).
 
 **These were predicted to be the first checks to exercise the `approximate` machinery.**

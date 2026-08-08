@@ -41,6 +41,7 @@ CAPABILITIES = frozenset(
         "region_solid",
         "bores",
         "bore_table",
+        "blend_radii",
     }
 )
 
@@ -327,15 +328,34 @@ class OcctBackend:
         data rather than a Measurement; one detection implementation serves
         every consumer, so the bore definition cannot fork.
         """
-        if _empty(a):
-            return Unsupported(_EMPTY_REASON)
         import math
 
+        clusters = self._cylinder_clusters(a)
+        if isinstance(clusters, Unsupported):
+            return clusters
+        table = [
+            {"d": c["radius"] * 2, "direction": c["direction"], "center": c["center"]}
+            for c in clusters
+            if c["inward"] and c["wrap"] >= 2 * math.pi - 1e-6
+        ]
+        table.sort(key=lambda bore: -bore["d"])
+        return table
+
+    def _cylinder_clusters(self, a: Any) -> list[dict[str, Any]] | Unsupported:
+        """Every cylindrical surface cluster: one entry per (axis line, radius,
+        orientation, contiguous axial span), with its summed angular wrap.
+
+        The single detection implementation beneath `bore_table` (inward,
+        full-wrap clusters) and `blend_radii` (partial-wrap clusters): both
+        kinds read one walk, so their definitions cannot fork.
+        """
+        if _empty(a):
+            return Unsupported(_EMPTY_REASON)
         from build123d import GeomType
         from OCP.BRepAdaptor import BRepAdaptor_Surface  # type: ignore[attr-defined]
         from OCP.BRepTools import BRepTools  # type: ignore[attr-defined]
 
-        # key -> list of (axial_lo, axial_hi, angular_extent, radius, dir, foot)
+        # (key, inward) -> list of (axial_lo, axial_hi, extent, radius, dir, foot)
         groups: dict[tuple, list[tuple]] = {}
         for face in a.faces().filter_by(GeomType.CYLINDER):
             # BRepAdaptor, not the raw Geom surface: a planar cut part-way
@@ -355,8 +375,7 @@ class OcctBackend:
             normal_vec = face.normal_at(surface_point)
             normal = (float(normal_vec.X), float(normal_vec.Y), float(normal_vec.Z))
             radial = _radial(point, origin, direction)
-            if sum(n * r for n, r in zip(normal, radial, strict=True)) >= 0:
-                continue  # faces outward: a boss, not a bore
+            inward = sum(n * r for n, r in zip(normal, radial, strict=True)) < 0
 
             key, canonical = _axis_key(origin, direction, radius)
             # The v parameter measures axial distance from the face's own
@@ -365,33 +384,56 @@ class OcctBackend:
             base = sum(o * d for o, d in zip(origin, canonical, strict=True))
             sign = sum(d0 * d for d0, d in zip(direction, canonical, strict=True))
             ends = sorted((base + sign * vmin, base + sign * vmax))
-            along = sum(o * d for o, d in zip(origin, canonical, strict=True))
-            foot = tuple(o - along * d for o, d in zip(origin, canonical, strict=True))
-            groups.setdefault(key, []).append(
+            foot = tuple(o - base * d for o, d in zip(origin, canonical, strict=True))
+            groups.setdefault((key, inward), []).append(
                 (ends[0], ends[1], umax - umin, radius, canonical, foot)
             )
 
-        table: list[dict[str, Any]] = []
-        for spans in groups.values():
+        clusters: list[dict[str, Any]] = []
+        for (_, inward), spans in groups.items():
             for cluster in _axial_clusters(spans):
                 # The rounded key groups; the surface parameter is the
                 # measurement. Reporting the key's quantised radius flipped
                 # verdicts at tolerances below its 1e-6 quantum — a false
                 # pass with the true value appearing nowhere in the report.
-                wrap = sum(entry[2] for entry in cluster)
-                if wrap < 2 * math.pi - 1e-6:
-                    continue
                 _, _, _, radius, canonical, foot = cluster[0]
                 mid = (min(e[0] for e in cluster) + max(e[1] for e in cluster)) / 2
-                table.append(
+                clusters.append(
                     {
-                        "d": radius * 2,
+                        "radius": radius,
                         "direction": canonical,
                         "center": tuple(f + mid * d for f, d in zip(foot, canonical, strict=True)),
+                        "inward": inward,
+                        "wrap": sum(entry[2] for entry in cluster),
                     }
                 )
-        table.sort(key=lambda bore: -bore["d"])
-        return table
+        return clusters
+
+    def blend_radii(self, a: Any) -> Measurement | Unsupported:
+        """Radii of every partial-wrap cylindrical surface, sorted ascending.
+
+        The blend candidates a `fillet_radius` claim ranges over
+        (SPEC-contract.md 4.7). Partial wrap is the definition: a full wrap is
+        a bore or a boss, whose radii are `hole_diameter`'s business, and the
+        clustering shared with `bore_table` is what stops a seam-split bore's
+        two half faces from masquerading as blends. Both orientations count —
+        a convex-corner round and a concave-corner fillet are the same claim —
+        and so do slot ends and grooves, deliberately: nothing at the surface
+        level distinguishes them from fillets, and for the machinability claim
+        this kind exists for they constrain the tool identically.
+        """
+        import math
+
+        clusters = self._cylinder_clusters(a)
+        if isinstance(clusters, Unsupported):
+            return clusters
+        radii = sorted(c["radius"] for c in clusters if c["wrap"] < 2 * math.pi - 1e-6)
+        return Measurement(
+            tuple(radii),
+            "mm",
+            exact=True,
+            axes=tuple(f"blend_{i + 1}" for i in range(len(radii))),
+        )
 
     def bores(self, a: Any) -> Measurement | Unsupported:
         """Diameters of every cylindrical bore on the shape, sorted descending.

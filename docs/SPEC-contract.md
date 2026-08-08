@@ -110,8 +110,8 @@ error.
 
 `SPEC-report.md` §7.1 declares `kind` an open vocabulary so the report format never needs
 revising when a check is added. **This document closes it at each release**: v0 shipped the
-set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5) and
-`bolt_circle` (§4.6) are the post-v0.1 additions, from epic #6.
+set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5),
+`bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6.
 
 ### 4.1 Parameter phase
 
@@ -140,6 +140,7 @@ on. `p.requires` is the escape hatch for anything relational.
 | `p.keep_in(region, shell=)` | `keep_in` | vector, `mm3`, exact | both |
 | `p.hole_diameter(d, count=, tol=)` | `hole_diameter` | vector, `mm`, exact | **occt only** |
 | `p.bolt_circle(d, count=, bcd=, tol=)` | `bolt_circle` | scalar, `mm`, exact | **occt only** |
+| `p.fillet_radius(min=, max=)` | `fillet_radius` | vector, `mm`, exact | **occt only** |
 
 `builds` is **implicit and always present**: every part gets it, and it fails if the engine
 exits non-zero or emits no artifact. It is the one check an author cannot forget, and it is
@@ -371,6 +372,29 @@ The measurement is the fitted circle diameter (exact, from exact centres; for `c
 the pair closest to `bcd`, so the recorded value cannot depend on face-iteration order);
 `limit` is the `bcd` band; the declared callout is recorded as `hole: {"d", "count",
 "bcd"}`. On failure the detail carries the candidate count and the nearest circle found.
+
+### 4.7 `fillet_radius` — every blend within bounds
+
+`p.fillet_radius(min=, max=)`: every blend on the part is within the radius bounds.
+**OCCT tier only.** `min=` is the machinability claim — no blend tighter than the tool
+that must cut it.
+
+**A blend is any partial-wrap cylindrical surface cluster**, either orientation, using the
+same clustering as §4.5's bores — which is what stops a seam-split bore's two half faces
+from masquerading as blends. Full-wrap surfaces (bores, bosses) never count; their radii
+are `hole_diameter`'s business. Slot ends and grooves DO count, deliberately: nothing at
+the surface level distinguishes them from fillets, and for the machinability claim they
+constrain the tool identically — a definition that guessed at design intent would be
+dishonest about what it measured. Toroidal and spherical blends are not yet detected;
+that is a recorded gap, not a claim that they conform.
+
+**Zero blends fails.** "Every blend is within bounds" over an empty set is vacuously
+true, and vacuous truth is the green this tool refuses; an author who wants no constraint
+on an unfilleted part does not declare the check.
+
+The measurement is the full vector of blend radii, ascending, adjudicated by the generic
+per-component machinery — so `components` (SPEC-report.md §7.1) names exactly which blend
+broke which bound, and the failure detail reads `blend_1=1.5 outside min=2`.
 
 ---
 

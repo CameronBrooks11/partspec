@@ -44,6 +44,7 @@ GEOMETRY_KINDS: dict[str, str] = {
     "keep_in": "region_solid",
     "hole_diameter": "bores",
     "bolt_circle": "bore_table",
+    "fillet_radius": "blend_radii",
 }
 """The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
@@ -410,6 +411,41 @@ class Part:
                 phase=GEOMETRY,
                 limit=Limit(min=float(bcd) - band, max=float(bcd) + band),
                 hole={"d": float(d), "count": count, "bcd": float(bcd)},
+            )
+        )
+
+    def fillet_radius(
+        self, *, min: float | None = None, max: float | None = None, id: str | None = None
+    ) -> Part:
+        """Every blend on the part is within these radius bounds. **OCCT tier
+        only.** `min=` is the machinability claim — no blend tighter than the
+        tool that must cut it.
+
+        A blend is any partial-wrap cylindrical surface, either orientation:
+        convex-corner rounds, concave-corner fillets — and, deliberately, slot
+        ends and grooves, which nothing at the surface level distinguishes
+        from fillets and which constrain the tool identically. Full-wrap
+        surfaces (bores, bosses) are `hole_diameter`'s business and never
+        count. A part with NO blends fails rather than passing vacuously: a
+        claim about every blend needs at least one, and an author who wants no
+        constraint on an unfilleted part simply does not declare the check.
+        """
+        if min is None and max is None:
+            raise ContractError(
+                "fillet_radius() must bound min, max or both; a check that "
+                "claims nothing cannot pass"
+            )
+        for name, value in (("min", min), ("max", max)):
+            if value is not None and (
+                not isinstance(value, int | float) or not math.isfinite(value) or value <= 0
+            ):
+                raise ContractError(f"fillet_radius {name} must be > 0 (got {value!r})")
+        return self._add(
+            CheckSpec(
+                id=id or "fillet_radius",
+                kind="fillet_radius",
+                phase=GEOMETRY,
+                limit=Limit(min=min, max=max),
             )
         )
 
