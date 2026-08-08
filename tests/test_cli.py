@@ -474,6 +474,109 @@ def test_check_render_on_the_occt_tier_records_the_views(tmp_path: Path):
     assert report["render_tessellation"]["triangles"] > 0
 
 
+def test_a_section_shows_the_bore_the_outside_views_cannot(tmp_path: Path, capsys):
+    """#19: F16's bore is invisible from outside; the section makes it a
+    void in the cut face. The payload records the resolved plane and offset
+    — never implicit — and the cut-facet count."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box, Cylinder, Location\n\n\ndef make_part():\n"
+        "    return Box(20, 10, 6) - Location((5, 0, 0)) * Cylinder(2, 6)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    code = main(["render", f"{module}:make", "--out", str(tmp_path / "out"), "--section", "xy"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload["renders"]) == {"iso", "front", "top", "right", "section_xy"}
+    assert Path(payload["renders"]["section_xy"]).stat().st_size > 0
+    assert payload["section"]["plane"] == "xy"
+    assert payload["section"]["offset_mm"] == 0.0, "default: the bbox centre, resolved"
+    assert payload["section"]["cut_triangles"] > 0
+
+
+def test_a_section_offset_is_recorded_as_given(tmp_path: Path, capsys):
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    code = main(["render", f"{module}:make", "--out", str(tmp_path / "out"), "--section", "xz:1.5"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["section"] == {
+        "plane": "xz",
+        "offset_mm": 1.5,
+        "cut_triangles": payload["section"]["cut_triangles"],
+    }
+    assert "section_xz" in payload["renders"]
+
+
+def test_a_section_that_misses_the_part_is_refused_with_the_range(tmp_path: Path, capsys):
+    """A plane outside the part would render the uncut part — an image that
+    looks fine, which is this project's documented failure. Refused, with
+    the span the caller needs to aim again."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    code = main(["render", f"{module}:make", "--out", str(tmp_path / "o"), "--section", "xy:99"])
+    assert code == exit_code(Verdict.ERROR)
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["renders"] == {}
+    assert "misses the part" in doc["error"]
+    assert "z spans" in doc["error"]
+
+
+def test_a_malformed_section_is_usage_before_any_work(tmp_path: Path, capsys):
+    module = tmp_path / "spec.py"
+    module.write_text("def make():\n    raise AssertionError('must not resolve')\n")
+    for bad in ("ab", "xy:abc", "xy:inf", "zz:1"):
+        assert main(["render", f"{module}:make", "--section", bad]) == 64, bad
+        assert "--section takes" in capsys.readouterr().err
+
+
+@needs_openscad
+def test_a_section_works_on_the_openscad_tier_too(tmp_path: Path, capsys):
+    """#19's both-tiers acceptance: the engine cuts its own exported STL
+    (kernel-capped), the shared rasterizer draws it. Needs a display only
+    for the canonical views that ride along."""
+    pytest.importorskip("numpy", reason="no extra installed")
+    (tmp_path / "part.scad").write_text(
+        "difference() { cube([20, 10, 6], center = true);"
+        " translate([5, 0, 0]) cylinder(h = 8, r = 2, center = true, $fn = 32); }\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('subject', openscad('part.scad'))\n"
+    )
+    code = main(["render", f"{module}:make", "--out", str(tmp_path / "out"), "--section", "xy"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    if code == 0:
+        assert "section_xy" in payload["renders"]
+        assert Path(payload["renders"]["section_xy"]).stat().st_size > 0
+        assert payload["section"]["offset_mm"] == 0.0
+        assert payload["section"]["cut_triangles"] > 0
+    else:
+        # No display: the canonical views fail first, and the artifact says so.
+        assert code == 4
+        assert "display" in payload["error"]
+
+
 def test_the_two_python_engines_render_comparable_images(tmp_path: Path):
     """#18's differential arm: the same nominal box through build123d and
     CadQuery must produce near-identical images — same tessellator, same

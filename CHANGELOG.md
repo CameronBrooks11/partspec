@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `render` payloads carry the report's identity prefix, and a render failure is
   a JSON artifact with `error`/`hint` at exit 4 instead of a bare stderr line
   (#103); the MCP `render` tool returns the whole payload as `rendered`.
+- `render --section xy|xz|yz[:offset]` cuts through a named plane and renders
+  the cut with exposed material in a distinct colour, on both tiers (#19):
+  OpenSCAD subtracts a half-space from its exported STL (kernel-capped), the
+  OCCT tier booleans the shape, and the shared rasterizer draws both. The
+  payload records the resolved plane, offset and cut-facet count; a plane
+  that misses the part is refused with its span.
 
 ## [0.5.0] - 2026-08-08
 

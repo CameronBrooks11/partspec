@@ -21,6 +21,8 @@ from partspec.backend import BuildError  # noqa: E402
 from partspec.raster import (  # noqa: E402
     TESSELLATION_TOLERANCE_MM,
     rasterize,
+    read_stl,
+    render_section,
     render_views,
     write_png,
 )
@@ -298,3 +300,78 @@ def test_render_views_refuses_an_empty_shape(tmp_path: Path):
     assert isinstance(result, BuildError)
     assert "nothing to render" in result.message
     assert not (tmp_path / "renders").exists(), "a refusal writes no files"
+
+
+# ---------------------------------------------------------------------------
+# sections (#19): the cut faces are found, coloured, and framed like the views
+# ---------------------------------------------------------------------------
+
+
+def _decode(path: Path):
+    data = path.read_bytes()
+    width, height = struct.unpack(">II", data[16:24])
+    idat = b""
+    pos = 8
+    while pos < len(data):
+        length, kind = struct.unpack(">I4s", data[pos : pos + 8])
+        if kind == b"IDAT":
+            idat += data[pos + 8 : pos + 8 + length]
+        pos += 12 + length
+    raw = zlib.decompress(idat)
+    return (
+        np.frombuffer(raw, np.uint8).reshape(height, width * 3 + 1)[:, 1:].reshape(height, width, 3)
+    )
+
+
+def test_read_stl_round_trips_a_hand_written_facet(tmp_path: Path):
+    stl = tmp_path / "one.stl"
+    header = b"\x00" * 80 + struct.pack("<I", 1)
+    facet = struct.pack("<12fH", 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0)
+    stl.write_bytes(header + facet)
+    points, faces = read_stl(stl)
+    assert points.shape == (3, 3) and faces.shape == (1, 3)
+    assert points.tolist() == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+
+
+def test_the_cut_faces_wear_the_cut_colour_and_nothing_else_does(tmp_path: Path):
+    """A half-cube whose top face lies on the section plane: the cap must
+    render terracotta at the exact shaded value (deterministic pixels), the
+    silhouette must match the full part's framing, and the count must be the
+    cap's two triangles."""
+    verts, faces = _box(20, 20, 10, at=(0, 0, -5))  # the kept half: z in [-10, 0]
+    full = _box(20, 20, 20)  # the original part frames the section
+    png, cut_n = render_section(
+        np.asarray(verts, np.float64),
+        np.asarray(faces, np.int64),
+        "xy",
+        0.0,
+        np.asarray(full[0], np.float64),
+        tmp_path,
+    )
+    assert cut_n == 2, "the cap is two triangles"
+    img = _decode(png)
+    # The cap faces the camera head-on: shade = 0.35 + 0.65·lz, applied to
+    # terracotta (204, 92, 63) — an exact, deterministic pixel.
+    lz = 0.89 / math.sqrt(0.35**2 + 0.30**2 + 0.89**2)
+    shade = 0.35 + 0.65 * lz
+    expected = tuple(int(c * shade) for c in (204, 92, 63))
+    assert tuple(img[400, 400]) == expected
+    # Framed by the ORIGINAL 20 mm cube, not the cut half: same 528 px span
+    # as the canonical views, so sections and views compare.
+    mask = np.abs(img.astype(int) - img[0, 0].astype(int)).sum(axis=2) > 40
+    ys, xs = np.nonzero(mask)
+    assert abs((xs.max() - xs.min() + 1) - 528) <= 2
+
+
+def test_coplanarity_survives_the_float32_round_trip(tmp_path: Path):
+    """The OpenSCAD path stores vertices as float32: a cap at a non-dyadic
+    offset lands within float32 rounding of the plane, and must still be
+    found by the tolerance."""
+    offset = 3.3333333
+    verts, faces = _box(20, 20, 10, at=(0, 0, offset - 5))
+    quantised = np.asarray(verts, np.float32).astype(np.float64)
+    full = np.asarray(_box(20, 20, 20)[0], np.float64)
+    png, cut_n = render_section(
+        quantised, np.asarray(faces, np.int64), "xy", offset, full, tmp_path
+    )
+    assert cut_n == 2, "float32 rounding must not lose the cap"

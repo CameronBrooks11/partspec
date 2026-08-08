@@ -323,6 +323,93 @@ def render(
             scratch.unlink(missing_ok=True)
 
 
+def render_section_stl(
+    stl: Path,
+    plane: str,
+    offset: float,
+    bbox: tuple[tuple[float, ...], tuple[float, ...]],
+    out_dir: Path,
+    *,
+    timeout_s: float | None = DEFAULT_TIMEOUT_S,
+) -> Path | BuildError:
+    """Cut the exported STL with a half-space and re-export it, kernel-capped.
+
+    The cut subtracts from the ALREADY-EXPORTED mesh rather than the source:
+    D15's measurand is the artifact as exported, and importing it back keeps
+    every parameter binding exactly as the canonical views saw it — no second
+    pass through `-D`/method scratch machinery to drift. The engine does the
+    boolean, so the exposed faces are real capped material, not a display
+    trick. The discard side per plane follows `raster.SECTION_VIEWS`: the
+    material between the section camera and the plane is removed.
+    """
+    import json as _json
+
+    executable = find_executable()
+    if executable is None:
+        return BuildError(
+            "openscad not found on PATH",
+            origin="environment",
+            hint="install the stable package, or the nightly AppImage via workstation-configs",
+        )
+    lo, hi = bbox
+    pad = max(*(top - bottom for top, bottom in zip(hi, lo, strict=True)), 1.0)
+    axis = {"xy": 2, "xz": 1, "yz": 0}[plane]
+    mins = [c - pad for c in lo]
+    maxs = [c + pad for c in hi]
+    if plane == "xz":
+        maxs[axis] = offset  # camera at -Y: discard y < offset
+    else:
+        mins[axis] = offset  # camera at +Z / +X: discard above the plane
+    sizes = [b - a for a, b in zip(mins, maxs, strict=True)]
+
+    scratch = out_dir / f"{stl.stem}.section.scad"
+    out = out_dir / f"{stl.stem}.section.stl"
+    try:
+        out.unlink(missing_ok=True)  # same stale-artifact rule as render()
+    except OSError as exc:
+        return BuildError(
+            f"could not clear the previous artifact in {out_dir}: {exc.strerror}",
+            origin="environment",
+        )
+    scratch.write_text(
+        "difference() {\n"
+        f"  import({_json.dumps(str(stl.resolve()))});\n"
+        f"  translate([{mins[0]!r}, {mins[1]!r}, {mins[2]!r}])"
+        f" cube([{sizes[0]!r}, {sizes[1]!r}, {sizes[2]!r}]);\n"
+        "}\n"
+    )
+    try:
+        try:
+            proc = subprocess.run(
+                [executable, "--export-format", "binstl", "-o", str(out), str(scratch)],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return BuildError(f"openscad timed out after {timeout_s}s", origin="environment")
+        except OSError as exc:
+            return BuildError(
+                f"could not run the openscad binary at {executable!r}: {exc.strerror}",
+                origin="environment",
+            )
+        if proc.returncode != 0:
+            return BuildError(
+                f"openscad exited {proc.returncode} cutting the {plane} section",
+                hint=_first_error_line(proc.stderr),
+                stderr=proc.stderr,
+            )
+        if not out.is_file() or out.stat().st_size == 0:
+            return BuildError(
+                f"the {plane} section at {offset:g} mm discards the whole part",
+                hint=_first_error_line(proc.stderr),
+            )
+        return out
+    finally:
+        scratch.unlink(missing_ok=True)
+
+
 VIEWS: dict[str, tuple[float, float, float]] = {
     "iso": (55.0, 0.0, 25.0),
     "front": (90.0, 0.0, 0.0),

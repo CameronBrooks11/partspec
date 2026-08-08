@@ -156,6 +156,13 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("target", help="<module-path>[:<factory>]")
     render.add_argument("--out", type=Path, default=None)
     render.add_argument(
+        "--section",
+        default=None,
+        metavar="PLANE[:OFFSET]",
+        help="also render a cut through xy, xz or yz at OFFSET mm "
+        "(default: the bounding-box centre) — internal features made visible",
+    )
+    render.add_argument(
         "--timeout",
         type=_timeout_arg,
         default=None,
@@ -453,7 +460,7 @@ def _check_resolved(
         if isinstance(result, BuildError):
             render_error = result
         else:
-            views, tessellation = result
+            views, tessellation, _section = result
             # Relative to the report's own directory, POSIX-separated — the
             # same portability rule part.source follows (SPEC-report.md §8).
             report.renders = {v: p.relative_to(out).as_posix() for v, p in views.items()}
@@ -698,6 +705,18 @@ def _cmd_render(args: argparse.Namespace) -> int:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
+    section = None
+    if args.section is not None:
+        section = _parse_section(args.section)
+        if section is None:
+            # Usage, before any work: the ask itself is malformed.
+            print(
+                f"partspec: --section takes xy, xz or yz with an optional "
+                f":offset in mm, got {args.section!r}",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
+
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
         from .engines.pycad import invalidate_model_modules
@@ -707,27 +726,50 @@ def _cmd_render(args: argparse.Namespace) -> int:
     part, target = resolved
 
     try:
-        return _render_resolved(args, part, target, timeout_s)
+        return _render_resolved(args, part, target, timeout_s, section)
     finally:
         # The render verb resolves contracts too; it leaked its sibling
         # records on every exit path until PR #124's review demonstrated it.
         _invalidate_after(part, target)
 
 
+def _parse_section(text: str) -> tuple[str, float | None] | None:
+    """`xy` | `xy:5.5` → (plane, offset); None when it is not a section ask."""
+    plane, sep, tail = text.partition(":")
+    if plane not in ("xy", "xz", "yz"):
+        return None
+    if not sep:
+        return plane, None
+    try:
+        offset = float(tail)
+    except ValueError:
+        return None
+    if not math.isfinite(offset):
+        return None
+    return plane, offset
+
+
+_AXIS_NAMES = ("x", "y", "z")
+
+
 def _render_files(
-    part: Part, out: Path, timeout_s: float
-) -> tuple[dict[str, Path], dict[str, object] | None] | BuildError:
+    part: Part,
+    out: Path,
+    timeout_s: float,
+    section: tuple[str, float | None] | None = None,
+) -> tuple[dict[str, Path], dict[str, object] | None, dict[str, object] | None] | BuildError:
     """The view files for either tier — one dispatcher, so the `render` verb
     and `check --render` cannot drift apart (#18).
 
     OpenSCAD parts render through the engine's own viewer; OCCT-tier parts
     build through the same backend `check`/`measure` use and are rasterized
     from the tessellation (`raster.py`) — headless, deterministic, no GPU.
-    The second tuple element is the tessellation record, None on the tier
-    whose engine draws its own geometry. Raises `ContractError` when the
-    engine has no backend, exactly as `measure` would.
+    A section (#19) is cut by the kernel that owns the geometry — OpenSCAD
+    subtracts a half-space from its exported STL, the OCCT tier booleans the
+    shape — and both are rasterized by the same code, cut faces distinct.
+    Returns (views, tessellation record | None, section record | None).
+    Raises `ContractError` when the engine has no backend, as `measure` would.
     """
-    from .backend import BuildError
     from .runner import _backend_for, _engine_source
 
     if part.source.engine == "openscad":
@@ -738,7 +780,36 @@ def _render_files(
         )
         if isinstance(views, BuildError):
             return views
-        return views, None
+        if section is None:
+            return views, None, None
+        try:
+            import numpy  # noqa: F401
+        except ModuleNotFoundError:
+            return BuildError(
+                "the section rasterizer needs numpy, and this environment has none",
+                origin="environment",
+                hint="any partspec engine extra brings it, e.g. pip install 'partspec[mesh]'",
+            )
+        from . import raster
+
+        plane, offset = section
+        # render_views just exported this — the deterministic path render() owns.
+        stl = out / f"{_engine_source(part).path.stem}.stl"
+        bbox = openscad._stl_bbox(stl)
+        axis = raster.SECTION_VIEWS[plane][1]
+        resolved = _resolve_offset(offset, bbox[0][axis], bbox[1][axis], plane)
+        if isinstance(resolved, BuildError):
+            return resolved
+        cut_stl = openscad.render_section_stl(
+            stl, plane, resolved, bbox, out, timeout_s=effective_timeout(timeout_s)
+        )
+        if isinstance(cut_stl, BuildError):
+            return cut_stl
+        points, faces = raster.read_stl(cut_stl)
+        frame_points, _ = raster.read_stl(stl)
+        png, cut_n = raster.render_section(points, faces, plane, resolved, frame_points, out)
+        views[f"section_{plane}"] = png
+        return views, None, {"plane": plane, "offset_mm": resolved, "cut_triangles": cut_n}
 
     backend = _backend_for(part.source.engine)
     artifact = backend.build(_engine_source(part), out, timeout_s=timeout_s)
@@ -750,10 +821,74 @@ def _render_files(
     # import classification exists to produce (PR #127 review, F1).
     from . import raster
 
-    return raster.render_views(artifact, out)
+    result = raster.render_views(artifact, out)
+    if isinstance(result, BuildError):
+        return result
+    views, tessellation = result
+    if section is None:
+        return views, tessellation, None
+
+    import numpy as np
+
+    plane, offset = section
+    frame_points = np.array(
+        [(v.X, v.Y, v.Z) for v in artifact.tessellate(raster.TESSELLATION_TOLERANCE_MM)[0]]
+    )
+    axis = raster.SECTION_VIEWS[plane][1]
+    lo, hi = frame_points.min(axis=0), frame_points.max(axis=0)
+    resolved = _resolve_offset(offset, float(lo[axis]), float(hi[axis]), plane)
+    if isinstance(resolved, BuildError):
+        return resolved
+
+    import build123d as bd
+
+    pad = float(max(*(hi - lo), 1.0))
+    mins = [float(c) - pad for c in lo]
+    maxs = [float(c) + pad for c in hi]
+    if plane == "xz":
+        maxs[axis] = resolved  # camera at -Y: discard y < offset
+    else:
+        mins[axis] = resolved  # camera at +Z / +X: discard above the plane
+    sizes = [b - a for a, b in zip(mins, maxs, strict=True)]
+    middle = tuple((a + b) / 2 for a, b in zip(mins, maxs, strict=True))
+    cut_shape = artifact - bd.Location(middle) * bd.Box(sizes[0], sizes[1], sizes[2])
+    try:
+        vertices, faces = cut_shape.tessellate(raster.TESSELLATION_TOLERANCE_MM)
+    except ValueError:
+        vertices, faces = [], []
+    if not faces:
+        return BuildError(f"the {plane} section at {resolved:g} mm discards the whole part")
+    points = np.array([(v.X, v.Y, v.Z) for v in vertices])
+    png, cut_n = raster.render_section(points, faces, plane, resolved, frame_points, out)
+    views[f"section_{plane}"] = png
+    return views, tessellation, {"plane": plane, "offset_mm": resolved, "cut_triangles": cut_n}
 
 
-def _render_resolved(args: argparse.Namespace, part: Part, target: Target, timeout_s: float) -> int:
+def _resolve_offset(offset: float | None, lo: float, hi: float, plane: str) -> float | BuildError:
+    """The section offset, resolved and range-checked — never left implicit.
+
+    A plane outside the part would render the uncut part with zero cut faces:
+    an image that *looks fine*, which is precisely the failure this project
+    documents. Refused with the range instead."""
+    from . import raster
+
+    axis = raster.SECTION_VIEWS[plane][1]
+    resolved = (lo + hi) / 2.0 if offset is None else offset
+    if not (lo - 1e-9 <= resolved <= hi + 1e-9):
+        return BuildError(
+            f"the {plane} section at {resolved:g} mm misses the part "
+            f"({_AXIS_NAMES[axis]} spans {lo:g} mm to {hi:g} mm)"
+        )
+    return resolved
+
+
+def _render_resolved(
+    args: argparse.Namespace,
+    part: Part,
+    target: Target,
+    timeout_s: float,
+    section: tuple[str, float | None] | None = None,
+) -> int:
     from .backend import BuildError
     from .report import SCHEMA_VERSION
     from .runner import _backend_for, _tool_version, engine_block, identity
@@ -796,7 +931,7 @@ def _render_resolved(args: argparse.Namespace, part: Part, target: Target, timeo
     }
 
     out = _out_dir(args.target, args.out)
-    result = _render_files(part, out, timeout_s)
+    result = _render_files(part, out, timeout_s, section)
     if isinstance(result, BuildError):
         # The failure is an artifact too (#47): this path used to print to
         # stderr and return a bare 4 — machine-invisible exactly where a
@@ -811,13 +946,15 @@ def _render_resolved(args: argparse.Namespace, part: Part, target: Target, timeo
             print(f"  hint: {result.hint}", file=sys.stderr)
         return exit_code(Verdict.ERROR)
 
-    views, tessellation = result
+    views, tessellation, section_record = result
     # `built=True`: a Python model's imports are only knowable once it has
     # run, and on this path it just did. No-op for OpenSCAD.
     payload["part"] = identity(part, target.path, built=True)
     payload["renders"] = {view: str(path) for view, path in views.items()}
     if tessellation is not None:
         payload["render_tessellation"] = tessellation
+    if section_record is not None:
+        payload["section"] = section_record
     print(json.dumps(payload, indent=2, allow_nan=False))
     return 0
 

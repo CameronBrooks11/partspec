@@ -93,7 +93,7 @@ def _check(target: str, out: str | None, render: bool = False) -> dict[str, Any]
     return result
 
 
-def _render(target: str, out: str | None) -> dict[str, Any]:
+def _render(target: str, out: str | None, section: str | None = None) -> dict[str, Any]:
     # The whole payload, like measure's: since #103 the render output carries
     # the part's identity and a JSON failure artifact, and extracting just the
     # view map here would strip both — the error would arrive as a bare exit
@@ -101,6 +101,8 @@ def _render(target: str, out: str | None) -> dict[str, Any]:
     args = ["render", target]
     if out is not None:
         args += ["--out", out]
+    if section is not None:
+        args += ["--section", section]
     proc = _run_cli(args)
     result: dict[str, Any] = {"exit_code": proc.returncode, "rendered": None}
     try:
@@ -153,17 +155,20 @@ def build_server() -> MCPServer:
         return _measure(target)
 
     @server.tool()
-    def render(target: str, out: str | None = None) -> dict[str, Any]:
+    def render(target: str, out: str | None = None, section: str | None = None) -> dict[str, Any]:
         """Write the canonical views (iso, front, top, right) as PNGs.
 
         Deterministically framed from the bounding box, so two runs of the
-        same geometry are comparable. Returns the render payload: the part's
-        identity, the engine block, and `renders` mapping view name -> file
-        path (empty, beside an `error`, when rendering failed). The images
-        are evidence, not judgement — no verdict rides with them, and
-        rendering never substitutes for measurement.
+        same geometry are comparable. `section` ("xy"|"xz"|"yz", optionally
+        ":offset" in mm, default the bounding-box centre) adds a cut view —
+        internal features made visible, cut faces in a distinct colour.
+        Returns the render payload: the part's identity, the engine block,
+        and `renders` mapping view name -> file path (empty, beside an
+        `error`, when rendering failed). The images are evidence, not
+        judgement — no verdict rides with them, and rendering never
+        substitutes for measurement.
         """
-        return _render(target, out)
+        return _render(target, out, section)
 
     return server
 
