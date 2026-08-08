@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
+## [0.5.0] - 2026-08-08
+
+The repo teaches the craft it verifies (epic #3): skills, exemplars, the failure
+catalogue, a source linter, and a recorded before/after on agent output.
+
+### Added
+
+- **`partspec lint`** — tier-1 advisory source lint over `.scad`/`.py` models, in the
+  wheel and engine-free: five rules with exact predicates (`docs/LINT.md`), findings
+  as data at exit 0 — advisory and never a verdict on the part — with 64 reserved for
+  unlintable input. The `-1`/`+2` overshoot idiom is exempt by design; tier 2
+  (geometry-dependent rules over the `.csg` tree) is deferred to #118 behind its
+  prior-art survey (#119).
+- **Three authoring skills** (repo content, not wheel content): `contract-authoring`
+  (the decision table, the limit-provenance ladder, the retrofit path),
+  `openscad-authoring`, and `build123d-authoring` — every executable claim in them is
+  executed by the test suite, and several were corrected by exactly that discipline
+  before shipping (#115, #116, #117).
+- **Three worked exemplars** under `examples/`: a NEMA 17 bracket whose interface is
+  one cited `nema17.mount` call, a bearing-seat family in OpenSCAD **and** build123d
+  with shared claims stated once and the ISO 15 designations cited, and a
+  sealed-cavity enclosure whose sealedness claim is `cavities(1)` — because an open
+  tray is also watertight, one solid, genus 0 (#112).
+- **`docs/FAILURE-MODES.md`** — the eight observed CAD-as-code failure modes from the
+  dogfood corpus, each with symptom, root cause, detection, and what it looks like
+  when green; raw record frozen at `notes/dogfood-results.md` (#111).
+- **The authoring before/after, recorded** (`evals/AUTHORING.md`): guidance-present vs
+  absent arms over exemplar-shaped tasks, 12 trials. Pass rate saturated (6/6 both
+  arms); on the transfer tasks the guidance moved source quality from mixed to
+  uniformly lint-clean (6 → 0 findings) while LoC rose — the added lines are the
+  parameterisation. One task's treatment output was a line-for-line copy of a skill's
+  own worked block; it is scored separately as retrieval and kept as the
+  contamination exhibit (#121).
+- **`notes/`** — the analysis the tracker cites (gap inventory, W1–W10 findings, the
+  audit synthesis, as-filed tracker scripts) is tracked and visible to clones, with
+  per-item dispositions recorded (#110).
+
+### Fixed
+
+- **`measure` reports `cavities`** — the number distinguishing a sealed enclosure
+  from an open tray was absent from the verb whose job is showing every claimable
+  number (#113, landed with #115).
+- **A contract's sibling imports no longer cross directories** — a shared `claims.py`
+  cached from directory A silently supplied directory B's checks in one process; the
+  module-cache registry now covers resolve-time additions for every engine (#112).
+
 ## [0.4.0] - 2026-08-08
 
 The loop can be trusted unattended (epic #4's remnant): a run that cannot hang, a
@@ -381,7 +427,8 @@ callouts, and reports become comparable.
   `measure` and `render` carry the same engine provenance as `check`; the OpenSCAD method
   scratch moved out of the source tree.
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/CameronBrooks11/partspec/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/CameronBrooks11/partspec/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/CameronBrooks11/partspec/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/CameronBrooks11/partspec/compare/v0.1.0...v0.2.0
