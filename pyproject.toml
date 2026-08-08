@@ -83,7 +83,11 @@ target-version = "py312"
 # which rewrites the deliberately-aligned illustrative snippets in docs/ (the
 # Protocol stubs, the `openscad(path, **params)  # ...` comment column). The
 # specs are normative prose and a formatter should not own their layout.
-extend-exclude = ["*.md"]
+# notes/ is archival analysis and the as-filed tracker scripts (#51) — their
+# value is provenance, and a formatter rewriting provenance owns nothing.
+extend-exclude = ["*.md", "notes"]
+# Bind the exclusion even for explicitly-passed paths (`ruff check notes/`):
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

@@ -51,3 +51,16 @@ outputs/
 # The cited baseline lives in evals/baseline-*/ and IS tracked.
 evals/results/
 evals/cases/*/outputs/
+
+# notes/ is TRACKED (analysis the tracker cites — see notes/README.md; #51).
+# These entries within it are not. Comments on their own lines: gitignore has
+# no trailing-comment syntax, and a pattern with a trailing "# ..." matches
+# nothing — silently, which is this project's least favourite adverb.
+# Vendored reference clones, each carrying its own .git:
+notes/upstream/
+# Raw audit transcript and output; the tracked synthesis is the artifact:
+notes/audit-journal.jsonl
+notes/audit-run1-raw.json
+# Tracker snapshots, regenerable with `gh issue list`:
+notes/issues-snapshot-*
+notes/issues-final-*
