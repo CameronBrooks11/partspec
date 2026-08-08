@@ -219,7 +219,9 @@ def run_trial(
         shutil.copytree(
             case_dir, work, ignore=shutil.ignore_patterns("outputs", "__pycache__", "case.toml")
         )
-        if arm == "skills":
+        if arm == "skills" and authoring:
+            # Gated on authoring: a skills copy the repair prompt never
+            # mentions would be an arm label describing no treatment.
             shutil.copytree(SKILLS, work / "skills")
         baseline = digests(work, frozen)
         prev_sev = len(SEVERITY)
@@ -340,6 +342,15 @@ def main() -> int:
         cases = [(d, c) for d, c in cases if c["id"] in args.case]
         if not cases:
             print(f"no case matched {args.case}", file=sys.stderr)
+            return 64
+
+    if args.arm == "skills":
+        skipped = [c["id"] for _d, c in cases if c.get("mode") != "authoring"]
+        cases = [(d, c) for d, c in cases if c.get("mode") == "authoring"]
+        if skipped:
+            print(f"--arm skills applies to authoring cases only; skipping: {', '.join(skipped)}")
+        if not cases:
+            print("no authoring cases to run under --arm skills", file=sys.stderr)
             return 64
 
     if not shutil.which(args.partspec.split()[0]):

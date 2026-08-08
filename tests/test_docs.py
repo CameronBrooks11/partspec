@@ -508,10 +508,31 @@ def test_the_authoring_record_matches_its_results():
     assert control_lint == 17 and skills_lint == 0
 
     doc = (ROOT / "evals" / "AUTHORING.md").read_text()
-    assert "**17**" in doc and "**0**" in doc
+    assert "| 17 | 0 |" in doc, "the all-tasks lint totals"
+    assert "**6** | **0**" in doc, "the transfer-task separation is the headline"
     assert "6/6" in doc
     control_loc = sum(t["loc"] for t in control["trials"]) / 6
     skills_loc = sum(t["loc"] for t in skills["trials"]) / 6
     assert f"{control_loc:.1f}" in doc and f"{skills_loc:.1f}" in doc
-    for exhibit in ("exhibit-control-plate-bore.scad", "exhibit-skills-plate-bore.scad"):
-        assert (record_dir / exhibit).is_file()
+
+    # Transfer-task separation, stated separately from the contaminated task
+    # (PR #121 review, F1): plate-bore's treatment output is a verbatim copy
+    # of a skill block, and the record must keep saying so.
+    transfer = [t for t in control["trials"] if t["case"] != "plate-bore"]
+    assert sum(t["lint_findings"] for t in transfer) == 6
+    assert "contaminated" in doc and "line-for-line copy" in doc
+
+    # Exhibits pinned by content, not existence — results/ is gitignored, so
+    # an edited exhibit would otherwise pass CI (F7).
+    import hashlib as _hashlib
+
+    exhibits = {
+        "exhibit-control-plate-bore.scad",
+        "exhibit-skills-plate-bore.scad",
+        "exhibit-control-motor-plate.scad",
+        "exhibit-skills-motor-plate.scad",
+    }
+    manifest = _json.loads((record_dir / "exhibits.json").read_text())
+    for name in exhibits:
+        digest = _hashlib.sha256((record_dir / name).read_bytes()).hexdigest()
+        assert manifest[name] == digest, f"{name} no longer matches the recorded run"
