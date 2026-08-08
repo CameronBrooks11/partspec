@@ -22,6 +22,10 @@ Per-item disposition (#51's acceptance — decided, not defaulted):
 | `issues-snapshot-*`, `issues-final-*` | **ignored** — tracker snapshots, regenerable with `gh issue list` |
 | `upstream/` | **ignored** — vendored reference clones (`build123d-mcp`, `cadgenbench`), each carrying its own `.git`; vendoring them into history would nest repositories |
 
+Transcripts and paths inside these files are verbatim as captured — including
+local absolute paths — because their value is provenance; they are frozen, not
+maintained, and statements inside them describe the repo as of their date.
+
 The dogfood workspace (`~/repos/partspec-dogfood`, still not a git repository) is
 deliberately **not** this issue's box: #24 owns promoting its `results.md` into
 `docs/FAILURE-MODES.md` and resolving that workspace's status.
