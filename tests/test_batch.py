@@ -330,9 +330,11 @@ def test_a_contract_that_raises_after_its_sibling_import_does_not_poison_the_nex
     assert kinds == {"solid_count"}, "B must not inherit A's cached claims module"
 
 
-def test_a_render_refusal_does_not_leave_the_sibling_cached(tmp_path: Path):
-    """#114 path 2: the --render-on-OCCT usage refusal returned before the
-    eviction; the try/finally now covers it."""
+def test_a_check_render_run_does_not_leave_the_sibling_cached(tmp_path: Path):
+    """#114 path 2, as evolved by #18: this used to pin the --render-on-OCCT
+    usage refusal; that refusal no longer exists, so the pin is now on the
+    full check-with-renders run — the render build must not re-cache what
+    the check's eviction already cleared."""
     pytest.importorskip("build123d", reason="occt extra not installed")
     a, b = tmp_path / "a", tmp_path / "b"
     for d, size in ((a, "1.0"), (b, "3.0")):
@@ -352,8 +354,8 @@ def test_a_render_refusal_does_not_leave_the_sibling_cached(tmp_path: Path):
             "    p.volume(min=0.0)\n"
             "    return p\n"
         )
-    # The refusal path on A caches A's claims module during resolve...
-    assert main(["check", f"{a / 'spec.py'}:make", "--render", "--quiet"]) == 64
+    # The run on A caches A's claims module during resolve and build...
+    assert main(["check", f"{a / 'spec.py'}:make", "--render", "--quiet"]) == 0
     # ...which must not answer for B's model in the same process.
     assert main(["check", f"{b / 'spec.py'}:make", "--quiet", "--out", str(tmp_path / "o")]) == 0
     vol = _measured_volume(tmp_path / "o")
@@ -396,10 +398,11 @@ def _b_is_clean(tmp_path: Path, dirs) -> None:
 def test_the_render_verbs_exits_evict_the_sibling(tmp_path: Path):
     """PR #124 re-review residual: the render verb's eviction call sites had
     no binding test — reverting them passed the suite. Both exits bound: the
-    post-resolve OCCT refusal (the try/finally) and the failed resolve."""
+    successful OCCT render (#18 replaced the old refusal on this path; the
+    try/finally must survive the build) and the failed resolve."""
     pytest.importorskip("build123d", reason="occt extra not installed")
     dirs = _sibling_pair(tmp_path)
-    assert main(["render", f"{dirs['a'] / 'spec.py'}:make"]) == 64  # OCCT refusal
+    assert main(["render", f"{dirs['a'] / 'spec.py'}:make"]) == 0
     _b_is_clean(tmp_path, dirs)
 
     (tmp_path / "second").mkdir()

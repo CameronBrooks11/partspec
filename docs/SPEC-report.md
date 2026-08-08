@@ -1,6 +1,9 @@
 # SPEC — the `partspec` report
 
-**Status:** draft 9 · 2026-08-08 · extends the identity-prefix scope to `render` (#103);
+**Status:** draft 10 · 2026-08-08 · `render` covers the OCCT tier (#18): the verb accepts
+every engine, its OCCT payloads and reports carry `render_tessellation`, and the Scope's
+engine-block subset is now the OpenSCAD case only; draft 9 extended the identity-prefix
+scope to `render` (#103);
 draft 8 added `expectation` (the claims pin), `invocation.timeout_s`, the exit-130 row,
 batch coverage of `64` (reversing the earlier no-aggregation theory), the
 model-cache-invalidation MUST, and the `measure` identity-prefix scope; draft 7 added
@@ -10,10 +13,15 @@ references, and the §8.3 closure reversal
 accompanies it. `partspec measure` and `partspec render` emit sibling payloads that MUST
 share the identity prefix — `schema_version`, `tool`, `part`, `engine`, `params`, built
 by the same code (#47, #103) — followed by `geometry` for `measure` and by `renders` for
-`render`, which runs no measurement tier and so carries no `geometry` block (its `engine`
-block is the §7 subset `kind`, `version`, `render_backend`, `method`, `param_mode`:
-`backend` names the measurement tier that did not run, and `adopted_via` could only ever
-be null on the one engine the verb accepts). On any failure after the target resolves, both
+`render`, which carries no `geometry` block. `render`'s engine block states what ran
+(#18): on the OCCT tier the part builds through the same backend `check` uses, so the
+block is §7's in full — `backend` included — and the payload carries
+`render_tessellation` after `renders` (`{tolerance_mm, triangles}`: under D15 the
+tessellation is what was shown, so its quality rides with the images). On OpenSCAD the
+engine draws its own geometry and no measurement tier runs, so the block is the subset
+`kind`, `version`, `render_backend`, `method`, `param_mode` (`backend` would name a tier
+that did not run; `adopted_via` could only ever be null there) and there is no
+tessellation record. On any failure after the target resolves, both
 MUST emit a JSON object carrying that identity plus `error`/`hint` — `renders` empty
 rather than absent — so a consumer always learns which file and revision it was talking
 about. A target that never resolves has no identity to emit: those failures are stderr +
@@ -805,6 +813,11 @@ sibling payload is the opposite by design — its failure artifact carries `rend
 beside an `error`, per the Scope above — because there the empty map sits next to the
 error that explains it, while in a report it would sit next to a verdict it has nothing
 to do with.)
+
+When the images came from the OCCT tier's rasterizer (#18), `render_tessellation` —
+`{tolerance_mm, triangles}` — MUST sit beside `renders`: under D15 the tessellation is
+what was shown. It is absent for OpenSCAD renders, where the engine draws its own
+geometry, and never present without `renders`.
 
 The images are evidence, not judgement — no verdict, status, or measurement may be derived
 from them (D18). §9's rule stands: paths only, never inline image data.

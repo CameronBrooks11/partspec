@@ -167,6 +167,11 @@ class Report:
     absent otherwise — never an empty block, and never an empty-string path
     that reads as a file (SPEC-report.md §8.4). The images carry no verdict.
     """
+    render_tessellation: dict[str, Any] | None = None
+    """`{tolerance_mm, triangles}` when the renders came from a tessellation
+    (the OCCT tier, #18) — under D15 the tessellation is what was shown, so
+    its quality rides with the images. Absent for OpenSCAD renders, where the
+    engine draws its own geometry."""
     checks: list[CheckResult] = field(default_factory=list)
     error: str | None = None
     hint: str | None = None
@@ -270,6 +275,8 @@ class Report:
         }
         if self.renders:
             doc["renders"] = self.renders
+            if self.render_tessellation is not None:
+                doc["render_tessellation"] = self.render_tessellation
         doc |= {
             "verdict": str(self.verdict),
             "counts": self.counts(),

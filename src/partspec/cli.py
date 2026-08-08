@@ -20,7 +20,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from .backend import DEFAULT_TIMEOUT_S, effective_timeout
+from .backend import DEFAULT_TIMEOUT_S, BuildError, effective_timeout
 from .contract import Part
 from .report import write_placeholder
 from .runner import run
@@ -436,16 +436,6 @@ def _check_resolved(
     out: Path,
     expected_claims: dict[str, str] | None,
 ) -> int:
-    if args.render and part.source.engine != "openscad":
-        # Before the run, so the refusal costs nothing and no artifact claims
-        # a render pass that was never going to happen.
-        print(
-            "partspec: --render currently requires an OpenSCAD source "
-            "(the OCCT tier does not have it yet)",
-            file=sys.stderr,
-        )
-        return EXIT_USAGE
-
     report = run(
         part,
         out_dir=out,
@@ -458,18 +448,16 @@ def _check_resolved(
     render_error = None
     if args.render and report.error is None:
         from .backend import BuildError
-        from .engines import openscad
-        from .runner import _engine_source
 
-        views = openscad.render_views(
-            _engine_source(part), out, timeout_s=effective_timeout(timeout_s)
-        )
-        if isinstance(views, BuildError):
-            render_error = views
+        result = _render_files(part, out, timeout_s)
+        if isinstance(result, BuildError):
+            render_error = result
         else:
+            views, tessellation = result
             # Relative to the report's own directory, POSIX-separated — the
             # same portability rule part.source follows (SPEC-report.md §8).
             report.renders = {v: p.relative_to(out).as_posix() for v, p in views.items()}
+            report.render_tessellation = tessellation
 
     path = report.write(out)
 
@@ -726,32 +714,71 @@ def _cmd_render(args: argparse.Namespace) -> int:
         _invalidate_after(part, target)
 
 
-def _render_resolved(args: argparse.Namespace, part: Part, target: Target, timeout_s: float) -> int:
-    if part.source.engine != "openscad":
-        # Usage, not error: nothing failed — this verb does not exist for the
-        # OCCT tier yet, and saying so beats a traceback from pretending it does.
-        print(
-            "partspec: render currently requires an OpenSCAD source "
-            "(the OCCT tier does not have it yet)",
-            file=sys.stderr,
-        )
-        return EXIT_USAGE
+def _render_files(
+    part: Part, out: Path, timeout_s: float
+) -> tuple[dict[str, Path], dict[str, object] | None] | BuildError:
+    """The view files for either tier — one dispatcher, so the `render` verb
+    and `check --render` cannot drift apart (#18).
 
+    OpenSCAD parts render through the engine's own viewer; OCCT-tier parts
+    build through the same backend `check`/`measure` use and are rasterized
+    from the tessellation (`raster.py`) — headless, deterministic, no GPU.
+    The second tuple element is the tessellation record, None on the tier
+    whose engine draws its own geometry. Raises `ContractError` when the
+    engine has no backend, exactly as `measure` would.
+    """
     from .backend import BuildError
-    from .engines import openscad
-    from .report import SCHEMA_VERSION
-    from .runner import _engine_source, _tool_version, identity
+    from .runner import _backend_for, _engine_source
 
-    # The section-7 subset that applies to a render: no measurement tier is
-    # involved, so no `backend` key — but method/param_mode still decide what
-    # was built, and their absence made a method= render ambiguous (#73).
-    engine: dict[str, object] = {
-        "kind": "openscad",
-        "version": openscad.version(),
-        "render_backend": part.source.backend,
-        "method": part.source.method,
-        "param_mode": "call" if part.source.method else "define",
-    }
+    if part.source.engine == "openscad":
+        from .engines import openscad
+
+        views = openscad.render_views(
+            _engine_source(part), out, timeout_s=effective_timeout(timeout_s)
+        )
+        if isinstance(views, BuildError):
+            return views
+        return views, None
+
+    from . import raster
+
+    backend = _backend_for(part.source.engine)
+    artifact = backend.build(_engine_source(part), out, timeout_s=timeout_s)
+    if isinstance(artifact, BuildError):
+        return artifact
+    return raster.render_views(artifact, out)
+
+
+def _render_resolved(args: argparse.Namespace, part: Part, target: Target, timeout_s: float) -> int:
+    from .backend import BuildError
+    from .report import SCHEMA_VERSION
+    from .runner import _backend_for, _tool_version, engine_block, identity
+    from .status import ContractError
+
+    if part.source.engine == "openscad":
+        from .engines import openscad
+
+        # The section-7 subset that applies here: no measurement tier is
+        # involved, so no `backend` key — but method/param_mode still decide
+        # what was built, and their absence made a method= render ambiguous
+        # (#73).
+        engine: dict[str, object] = {
+            "kind": "openscad",
+            "version": openscad.version(),
+            "render_backend": part.source.backend,
+            "method": part.source.method,
+            "param_mode": "call" if part.source.method else "define",
+        }
+    else:
+        # The OCCT tier builds through its backend to render (#18), so the
+        # full engine block is true here — `backend` names a tier that ran.
+        try:
+            backend = _backend_for(part.source.engine)
+        except ContractError as exc:
+            print(f"partspec: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        engine = engine_block(part, backend)
+
     # The identity prefix mirrors the report's field order (#103, the #47
     # pattern): render was the last verb whose payload named its part with a
     # bare id string — no digests, no closure — so its images could not be
@@ -765,9 +792,7 @@ def _render_resolved(args: argparse.Namespace, part: Part, target: Target, timeo
     }
 
     out = _out_dir(args.target, args.out)
-    result = openscad.render_views(
-        _engine_source(part), out, timeout_s=effective_timeout(timeout_s)
-    )
+    result = _render_files(part, out, timeout_s)
     if isinstance(result, BuildError):
         # The failure is an artifact too (#47): this path used to print to
         # stderr and return a bare 4 — machine-invisible exactly where a
@@ -782,7 +807,13 @@ def _render_resolved(args: argparse.Namespace, part: Part, target: Target, timeo
             print(f"  hint: {result.hint}", file=sys.stderr)
         return exit_code(Verdict.ERROR)
 
-    payload["renders"] = {view: str(path) for view, path in result.items()}
+    views, tessellation = result
+    # `built=True`: a Python model's imports are only knowable once it has
+    # run, and on this path it just did. No-op for OpenSCAD.
+    payload["part"] = identity(part, target.path, built=True)
+    payload["renders"] = {view: str(path) for view, path in views.items()}
+    if tessellation is not None:
+        payload["render_tessellation"] = tessellation
     print(json.dumps(payload, indent=2, allow_nan=False))
     return 0
 

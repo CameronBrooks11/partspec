@@ -320,14 +320,52 @@ def test_argparse_still_owns_its_own_exits():
         main(["--version"])
 
 
-def test_render_on_a_python_engine_target_is_usage_not_a_crash(tmp_path: Path):
+def test_render_on_the_occt_tier_from_the_same_verb(tmp_path: Path, capsys):
+    """#18: same verb, same view names, and the payload carries what this
+    tier uniquely knows — the backend that ran, the build-derived closure,
+    and the tessellation that is what was actually shown (D15)."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "helper18.py").write_text("SIZE = 20\n")
+    (tmp_path / "model.py").write_text(
+        "import helper18\nfrom build123d import Box\n\n\ndef make_part():\n"
+        "    return Box(helper18.SIZE, 10, 5)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('model.py'))\n"
+    )
+    assert main(["render", f"{module}:make", "--out", str(tmp_path / "out")]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload["renders"]) == {"iso", "front", "top", "right"}
+    for path in payload["renders"].values():
+        assert Path(path).stat().st_size > 0
+    assert payload["engine"]["kind"] == "build123d"
+    assert payload["engine"]["backend"] == "occt", "the tier that ran is named"
+    assert payload["render_tessellation"]["tolerance_mm"] == 0.1
+    assert payload["render_tessellation"]["triangles"] > 0
+    # built=True identity: the helper the model imported is a build input,
+    # knowable only because this verb actually built the part.
+    assert payload["part"]["source_closure"]["files"] >= 2
+
+
+def test_render_on_a_broken_python_model_is_an_artifact(tmp_path: Path, capsys):
+    """This target used to be refused as usage (64) when the tier had no
+    render; now the tier renders, a model with no factory is a build failure
+    — an identifiable artifact at exit 4, like every resolved-target failure."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
     (tmp_path / "m.py").write_text("")
     module = tmp_path / "spec.py"
     module.write_text(
         "from partspec import Part, build123d\n\n\ndef make():\n"
         "    return Part('subject', build123d('m.py'))\n"
     )
-    assert main(["render", f"{module}:make"]) == 64
+    assert main(["render", f"{module}:make"]) == exit_code(Verdict.ERROR)
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["part"]["id"] == "subject"
+    assert doc["engine"]["backend"] == "occt"
+    assert doc["renders"] == {}
+    assert doc["error"]
 
 
 @needs_openscad
@@ -374,14 +412,55 @@ def test_a_report_without_render_carries_no_renders_key(tmp_path: Path):
     assert "renders" not in json.loads((out / "report.json").read_text())
 
 
-def test_check_render_on_a_python_engine_target_is_usage(tmp_path: Path):
-    (tmp_path / "m.py").write_text("")
+def test_check_render_on_the_occt_tier_records_the_views(tmp_path: Path):
+    """The same-verb half of #18: `check --render` on a Python part records
+    the views and the tessellation in the report, exactly as the OpenSCAD
+    tier does — no display in the loop, so this branch has no refusal arm."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
+    )
     module = tmp_path / "spec.py"
     module.write_text(
         "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    return Part('subject', build123d('m.py'))\n"
+        "    p = Part('subject', build123d('m.py'))\n"
+        "    p.volume(min=0.0)\n"
+        "    return p\n"
     )
-    assert main(["check", f"{module}:make", "--render", "--quiet"]) == 64
+    out = tmp_path / "out"
+    assert main(["check", f"{module}:make", "--render", "--quiet", "--out", str(out)]) == 0
+    report = json.loads((out / "report.json").read_text())
+    assert set(report["renders"]) == {"iso", "front", "top", "right"}
+    for rel in report["renders"].values():
+        assert not Path(rel).is_absolute()
+        assert (out / rel).stat().st_size > 0
+    assert report["render_tessellation"]["triangles"] > 0
+
+
+def test_the_two_python_engines_render_comparable_images(tmp_path: Path):
+    """#18's differential arm: the same nominal box through build123d and
+    CadQuery must produce near-identical images — same tessellator, same
+    framing, same rasterizer, so a disagreement is a real geometry change."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    pytest.importorskip("cadquery", reason="cadquery extra not installed")
+    (tmp_path / "bd.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
+    )
+    (tmp_path / "cq.py").write_text(
+        "import cadquery\n\n\ndef make_part():\n    return cadquery.Workplane().box(20, 10, 5)\n"
+    )
+    for name, engine in (("bd", "build123d"), ("cq", "cadquery")):
+        module = tmp_path / f"spec_{name}.py"
+        module.write_text(
+            f"from partspec import Part, {engine}\n\n\ndef make():\n"
+            f"    return Part('subject', {engine}('{name}.py'))\n"
+        )
+        code = main(["render", f"{module}:make", "--out", str(tmp_path / name)])
+        assert code == 0
+    for view in ("iso", "front", "top", "right"):
+        a = (tmp_path / "bd" / "renders" / f"{view}.png").read_bytes()
+        b = (tmp_path / "cq" / "renders" / f"{view}.png").read_bytes()
+        assert a == b, f"the {view} view differs between engines"
 
 
 @needs_openscad
