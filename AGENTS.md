@@ -17,7 +17,11 @@ P0–P6 of `docs/PLAN.md` are complete; epic #6 grew the vocabulary to real mech
 intent (`keep_out`/`keep_in`, `hole_diameter`, `bolt_circle`, `fillet_radius`) and added
 the `partspec diff` comparator (`SPEC-diff.md`); epic #5 added reference data with
 provenance — `partspec.refs` tables and fragments (`iso15`, `nema17`), cited limits in
-the report, and the unattributed-limit disclosure (SPEC-contract §6/§10/§11).
+the report, and the unattributed-limit disclosure (SPEC-contract §6/§10/§11); epic #4
+(unreleased) made the loop trustworthy unattended — bounded builds (`--timeout`),
+missing-wheel/environment origin, identifiable `measure` output, multi-target `check`
+with module-cache invalidation, the claims pin (`--pin`/`--expect`, SPEC-report §7.1
+`expectation`), and the agent contract (`docs/AGENT-CONTRACT.md`).
 What remains withheld, and why, is `docs/POST-V0.md`.
 
 ## Stack
