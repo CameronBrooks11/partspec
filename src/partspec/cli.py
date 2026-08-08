@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
 import sys
 import traceback
 from pathlib import Path
 
+from .backend import DEFAULT_TIMEOUT_S
 from .contract import Part
 from .report import write_placeholder
 from .runner import run
@@ -25,6 +28,47 @@ from .status import EXIT_USAGE, Status, Verdict, exit_code
 from .target import Target, TargetError, resolve
 
 __all__ = ["main"]
+
+ENV_TIMEOUT = "PARTSPEC_TIMEOUT"
+
+
+def _timeout_arg(text: str) -> float:
+    """argparse type for --timeout: seconds >= 0, where 0 waives the bound."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number of seconds") from None
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError(
+            f"the budget must be a finite number of seconds >= 0 (0 waives it), got {text}"
+        )
+    return value
+
+
+class _TimeoutUsage(Exception):
+    """PARTSPEC_TIMEOUT holds something that is not a budget."""
+
+
+def _timeout_s(explicit: float | None) -> float:
+    """Resolve the run's build budget: flag, then environment, then default.
+
+    Fully resolved here — never left implicit — so `invocation.timeout_s`
+    always names the budget that actually governed a CLI run, including the
+    default; a run stopped by a budget nobody typed must still be attributable
+    to it from the artifact alone. A garbage `PARTSPEC_TIMEOUT` raises
+    `_TimeoutUsage` rather than being silently ignored, because a
+    machine-level bound that quietly stopped applying is the unbounded run
+    wearing a configured one's clothes.
+    """
+    if explicit is not None:
+        return explicit
+    raw = os.environ.get(ENV_TIMEOUT)
+    if raw is None or not raw.strip():
+        return DEFAULT_TIMEOUT_S
+    try:
+        return _timeout_arg(raw)
+    except argparse.ArgumentTypeError as exc:
+        raise _TimeoutUsage(f"{ENV_TIMEOUT} is unusable: {exc}") from None
 
 
 def _version() -> str:
@@ -53,6 +97,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also write the canonical views and record their paths in the report",
     )
+    check.add_argument(
+        "--timeout",
+        type=_timeout_arg,
+        default=None,
+        metavar="SECONDS",
+        help=f"build budget in seconds (default {DEFAULT_TIMEOUT_S:g}, or "
+        f"{ENV_TIMEOUT}; 0 waives the bound)",
+    )
 
     measure = sub.add_parser(
         "measure",
@@ -60,6 +112,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     measure.add_argument("target", help="<module-path>[:<factory>]")
     measure.add_argument("--out", type=Path, default=None)
+    measure.add_argument(
+        "--timeout",
+        type=_timeout_arg,
+        default=None,
+        metavar="SECONDS",
+        help=f"build budget in seconds (default {DEFAULT_TIMEOUT_S:g}, or "
+        f"{ENV_TIMEOUT}; 0 waives the bound)",
+    )
 
     render = sub.add_parser(
         "render",
@@ -134,6 +194,12 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
     out = _out_dir(args.target, args.out)
     write_placeholder(out, contract=args.target, argv=argv)
 
+    try:
+        timeout_s = _timeout_s(args.timeout)
+    except _TimeoutUsage as exc:
+        print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
         return resolved
@@ -149,7 +215,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         )
         return EXIT_USAGE
 
-    report = run(part, out_dir=out, argv=argv, contract_path=target.path)
+    report = run(part, out_dir=out, argv=argv, contract_path=target.path, timeout_s=timeout_s)
 
     render_error = None
     if args.render and report.error is None:
@@ -187,6 +253,12 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     deliberately does not auto-generate checks from this — a check the tool wrote
     is a check nobody decided.
     """
+    try:
+        timeout_s = _timeout_s(args.timeout)
+    except _TimeoutUsage as exc:
+        print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
         return resolved
@@ -203,7 +275,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         return EXIT_USAGE
 
     out = _out_dir(args.target, args.out)
-    artifact = backend.build(_engine_source(part), out)
+    artifact = backend.build(_engine_source(part), out, timeout_s=timeout_s)
     if isinstance(artifact, BuildError):
         print(f"partspec: {artifact.message}", file=sys.stderr)
         if artifact.hint:

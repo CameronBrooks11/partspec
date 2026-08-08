@@ -60,7 +60,12 @@ class GeometryBackend(Protocol):
     engine_version: str
 
     # --- lifecycle ---
-    def build(self, source: SourceRef, params: dict) -> Artifact | BuildError: ...
+    def build(self, source: SourceRef, out_dir, *, timeout_s: float | None = None) -> Artifact | BuildError: ...
+    #   timeout_s: None -> the 300 s default; 0 -> explicitly unbounded; positive -> the
+    #   budget. A blown budget MUST return BuildError(origin="environment") naming it —
+    #   a stopwatch disproves nothing about the part (#46). On the Python tier the bound
+    #   covers the model's Python execution; a hang inside a C kernel call is not
+    #   preemptible in-process, and that ceiling is stated, not hidden.
     def provenance(self, a) -> dict: ...    # -> report.geometry block
 
     # --- the primitives (the original twelve: investigation 03 §2) ---

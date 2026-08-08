@@ -16,7 +16,11 @@ Spec: SPEC-backend.md section 4, SPEC-contract.md section 3.
 from __future__ import annotations
 
 import importlib.util
+import signal
 import sys
+import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -24,6 +28,63 @@ from typing import Any, cast
 from ..backend import BuildError
 
 __all__ = ["PyCADSource", "adopt", "build"]
+
+
+class _BuildTimeout(Exception):
+    """Raised by the SIGALRM handler when the build budget expires.
+
+    Ordinary `Exception`, so every broad catch inside the build path needs an
+    explicit re-raise clause ahead of it — and has one. Making it a
+    `BaseException` would instead dodge the model's own `except Exception`
+    handlers, which is behaviour a *model* should never observe differently
+    because a budget exists."""
+
+
+class _CannotBound(Exception):
+    """A bound was requested where no timer can be armed."""
+
+
+@contextmanager
+def _time_limit(seconds: float | None):
+    """Bound the enclosed block with a real-time alarm; None means no bound.
+
+    SIGALRM, not a watchdog thread: a thread cannot interrupt the main thread's
+    Python frames, while an alarm raises inside them. The known ceiling is
+    shared by both approaches and stated rather than hidden: the interpreter
+    delivers the exception between bytecodes, so a hang inside a C kernel call
+    (an OCCT boolean that never returns) is not preemptible in-process. The
+    bound covers everything the model does in Python — imports, loops, sleeps,
+    recursion — which is where a broken model actually spends forever.
+
+    Requesting a bound somewhere it cannot be armed (a non-main thread, a
+    platform without SIGALRM) raises `_CannotBound` instead of proceeding
+    unbounded: a budget that silently does not exist is the silence-as-success
+    failure in run-control clothing. `--timeout 0` is the explicit waiver.
+    """
+    if seconds is None:
+        yield
+        return
+    if not hasattr(signal, "SIGALRM"):
+        raise _CannotBound(
+            f"a {seconds:g}s build budget was requested but this platform has no "
+            f"SIGALRM to enforce it; pass --timeout 0 to explicitly waive the bound"
+        )
+    if threading.current_thread() is not threading.main_thread():
+        raise _CannotBound(
+            f"a {seconds:g}s build budget was requested off the main thread, where "
+            f"no alarm can be armed; pass --timeout 0 to explicitly waive the bound"
+        )
+
+    def _expired(signum: int, frame: Any) -> None:
+        raise _BuildTimeout
+
+    previous = signal.signal(signal.SIGALRM, _expired)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +154,8 @@ def adopt(obj: Any) -> Any | BuildError:
             # `vals()` is untyped on the CadQuery stubs, so it comes back as
             # `object`; the cast is about the stub, not about the runtime.
             stack = cast("list[Any]", obj.vals())
+        except _BuildTimeout:
+            raise
         except Exception as exc:  # noqa: BLE001 - engine-specific failure surfaces as a build error
             return BuildError(f"could not reduce CadQuery result: {exc}")
         if len(stack) > 1:
@@ -106,6 +169,8 @@ def adopt(obj: Any) -> Any | BuildError:
     elif hasattr(obj, "val") and callable(obj.val):
         try:
             obj = obj.val()
+        except _BuildTimeout:
+            raise
         except Exception as exc:  # noqa: BLE001 - engine-specific failure surfaces as a build error
             return BuildError(f"could not reduce CadQuery result: {exc}")
 
@@ -206,8 +271,32 @@ def _engine_import_error(engine: str, exc: ImportError) -> BuildError:
     )
 
 
-def build(source: PyCADSource) -> Any | BuildError:
-    """Import the model module, call it, and adopt the result."""
+def build(source: PyCADSource, *, timeout_s: float | None = None) -> Any | BuildError:
+    """Import the model module, call it, and adopt the result — within budget.
+
+    `timeout_s` is already resolved (None = unbounded, a number = the bound);
+    the None-means-default rule lives in `effective_timeout`. The window covers
+    the model's import, the factory call and adoption together, because a model
+    can hang in any of them and the reader is owed one rule, not three.
+    """
+    started = time.perf_counter()
+    try:
+        with _time_limit(timeout_s):
+            return _build(source)
+    except _BuildTimeout:
+        elapsed = time.perf_counter() - started
+        assert timeout_s is not None  # the alarm only exists when a bound does
+        return BuildError(
+            f"the model build was stopped after {elapsed:.1f}s against its {timeout_s:g}s budget",
+            origin="environment",
+            hint="a legitimately slow model can raise the budget with --timeout or "
+            "PARTSPEC_TIMEOUT; --timeout 0 waives it",
+        )
+    except _CannotBound as exc:
+        return BuildError(str(exc), origin="environment")
+
+
+def _build(source: PyCADSource) -> Any | BuildError:
     try:
         __import__(source.engine)
     except ImportError as exc:
@@ -218,6 +307,8 @@ def build(source: PyCADSource) -> Any | BuildError:
 
     try:
         module = _load(source.path)
+    except _BuildTimeout:
+        raise
     except Exception as exc:  # noqa: BLE001 - any import failure is a build failure
         return BuildError(f"model raised on import: {type(exc).__name__}: {exc}")
 
@@ -240,7 +331,7 @@ def build(source: PyCADSource) -> Any | BuildError:
             hint="partspec calls the model as method(**params); wrap a differently-shaped "
             "signature in a small adapter function in the contract",
         )
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, _BuildTimeout):
         raise
     except BaseException as exc:  # noqa: BLE001 - modelling failure is a build failure
         # BaseException for the same reason as the contract path: a model that
