@@ -104,6 +104,27 @@ def test_a_lazy_missing_wheel_in_the_factory_is_the_same_statement(tmp_path: Pat
     assert "definitely_not_installed_xyz" in report["error"]
 
 
+def test_a_lazy_local_import_names_the_harness_asymmetry(tmp_path: Path):
+    """A helper beside the model imports fine at module top level but not from
+    inside the factory — the model's directory leaves sys.path after `_load`.
+    That stays a build failure, but the hint must say why (PR #101 review):
+    a model that runs under plain `python model.py` reading as a disproven
+    design with no explanation sends the repair loop at the wrong file."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    # A name unique to this test: `sys.modules` caches a previously-built
+    # model's helpers top-level (the review's finding 3, owned by #29), and a
+    # shared name here would import a stale module instead of failing.
+    (tmp_path / "lazyhelper_78.py").write_text("VALUE = 1\n")
+    out = tmp_path / "out"
+    target = _target(tmp_path, "def make_part():\n    import lazyhelper_78\n")
+    code = main(["check", target, "--quiet", "--out", str(out)])
+    assert code == 1
+
+    report = json.loads((out / "report.json").read_text())
+    assert "import time only" in report["hint"]
+    assert "sys.path" in report["hint"]
+
+
 def test_a_broken_local_import_chain_is_still_the_parts_fault(tmp_path: Path):
     pytest.importorskip("build123d", reason="occt extra not installed")
     (tmp_path / "helpers").mkdir()

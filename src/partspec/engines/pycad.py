@@ -446,7 +446,18 @@ def _build(source: PyCADSource) -> Any | BuildError:
         missing = _missing_module_error(exc, model_dir, f"{name}() raised on a missing import")
         if missing is not None:
             return missing
-        return BuildError(f"{name}() raised: {type(exc).__name__}: {exc}")
+        # Reaching here means something by that name IS beside the model —
+        # and on this path that is exactly why the import failed: the model's
+        # directory is on sys.path during `_load` only, so a helper that
+        # imports fine at module top level is unreachable from inside the
+        # factory. Without this hint the failure reads as a disproven design
+        # with no clue the harness removed the path (PR #101 review).
+        return BuildError(
+            f"{name}() raised: {type(exc).__name__}: {exc}",
+            hint="modules beside the model are importable at import time only — the "
+            "model's directory leaves sys.path before the factory runs; import the "
+            "helper at module top level instead",
+        )
     except BaseException as exc:  # noqa: BLE001 - modelling failure is a build failure
         # BaseException for the same reason as the contract path: a model that
         # calls sys.exit() must not get to pick partspec's exit code.
