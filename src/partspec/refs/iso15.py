@@ -20,11 +20,15 @@ standard and reproduces nothing else from it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..provenance import Referenced
 from ..status import ContractError
 
-__all__ = ["Bearing", "bearing"]
+if TYPE_CHECKING:
+    from ..contract import Part
+
+__all__ = ["Bearing", "bearing", "seat"]
 
 _STANDARD = "ISO 15"
 
@@ -89,3 +93,15 @@ def bearing(designation: int) -> Bearing:
         od=ref(od, "outside_diameter"),
         width=ref(width, "width"),
     )
+
+
+def seat(part: Part, designation: int, *, tol: float = 0.05) -> Part:
+    """Declare a bearing seat: one bore at the designation's outside diameter.
+
+    A fragment (SPEC-contract.md 11): declares checks only, ids namespaced
+    `iso15:*`. The nominal is the standard's and carries its citation; `tol`
+    is the designer's fit allowance and stays theirs.
+    """
+    b = bearing(designation)
+    part.hole_diameter(b.od, count=1, tol=tol, id=f"iso15:{designation}:seat")
+    return part

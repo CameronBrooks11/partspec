@@ -585,3 +585,31 @@ and an extra would put an import error between an agent and the numbers.
 Out of scope: reproducing any standard's text, figures, or tolerancing tables, and any
 value not verifiable from public manufacturer documentation. An unknown designation is a
 `ContractError` naming what the table does carry — a table must not guess.
+
+---
+
+## 11. Contract fragments — an interface standard as an import
+
+A fragment is a plain function that declares a mechanical interface's checks onto a part:
+
+```python
+from partspec.refs import nema17
+
+nema17.mount(p)            # nema17:pilot + nema17:bolt_circle, pattern cited
+iso15.seat(p, 608)         # iso15:608:seat, nominal cited
+```
+
+No new machinery — a fragment is ordinary contract authoring, factored. Three rules:
+
+1. **A fragment declares checks and nothing else.** No geometry, no measuring the part,
+   and no checks invented from measurements — the §6 auto-generation ban applies to
+   fragments exactly as to tools. A fragment's defaults are declarations the caller
+   adopts, the same way a factory's defaults are the master design (§2).
+2. **Ids are namespaced** (`nema17:pilot`, `iso15:608:seat`), so two fragments never
+   collide, a collision with the author's own checks is loud (§4's duplicate-id error),
+   and `diff` joins stably across runs.
+3. **The standard's numbers carry the citation; the designer's stay theirs.** A pattern
+   dimension is `Referenced`; a clearance diameter is an argument the caller owns. Where
+   a table *derives* a value (NEMA 17's bolt-circle diameter from its 31 mm square), the
+   derivation is stated in the citation's `note` — a table may derive and say so, while a
+   call site deriving silently owns the result (§10 rule 2).
