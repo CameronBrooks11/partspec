@@ -10,7 +10,7 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha; **v0.4.0 released on PyPI** (2026-08-08, tag → trusted publishing via
+Status: pre-alpha; **v0.5.0 released on PyPI** (2026-08-08, tag → trusted publishing via
 `release.yml`). `check`, `measure` and `diff` work against all three engines, `render` on
 the mesh tier, and `partspec-mcp` serves check/measure/render as stateless MCP tools.
 P0–P6 of `docs/PLAN.md` are complete; epic #6 grew the vocabulary to real mechanical
@@ -21,8 +21,7 @@ the report, and the unattributed-limit disclosure (SPEC-contract §6/§10/§11);
 made the loop trustworthy unattended — bounded builds (`--timeout`),
 missing-wheel/environment origin, identifiable `measure` output, multi-target `check`
 with module-cache invalidation, the claims pin (`--pin`/`--expect`, SPEC-report §7.1
-`expectation`), and the agent contract (`docs/AGENT-CONTRACT.md`); epic #3 (unreleased)
-shipped the craft — three tested skills, three worked exemplars, the failure catalogue
+`expectation`), and the agent contract (`docs/AGENT-CONTRACT.md`); epic #3 shipped the craft — three tested skills, three worked exemplars, the failure catalogue
 (`docs/FAILURE-MODES.md`), `partspec lint` tier 1 (`docs/LINT.md`), and the recorded
 guidance before/after (`evals/AUTHORING.md`).
 What remains withheld, and why, is `docs/POST-V0.md`.
@@ -62,6 +61,8 @@ src/partspec/
 tests/            # mirrors src; also asserts docs/SPEC-report.md's example conforms
 skills/           # teaching material for partspec USERS (contract-authoring, ...)
 examples/         # worked exemplars, each README stating what to imitate
+evals/            # agent-in-the-loop evidence: convergence (#30), authoring arms (#53)
+notes/            # frozen analysis the tracker cites (see notes/README.md; #51)
 scripts/          # helper scripts invoked by just recipes
 docs/             # the specs and decision log — normative, not background reading
 ```

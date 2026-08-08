@@ -10,6 +10,11 @@ Verify CAD-as-code parts against declared engineering intent.
 > one process, a committed claims pin (`--pin`/`--expect`) catches a contract that shrank
 > with no baseline in hand, and the rules an agent follows are
 > [`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md).
+> And the repo teaches the craft it verifies: `partspec lint` (advisory, engine-free),
+> three authoring skills, worked exemplars, the observed
+> [failure catalogue](https://github.com/CameronBrooks11/partspec/blob/main/docs/FAILURE-MODES.md),
+> and a [recorded before/after](https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md)
+> showing what the guidance changes.
 > [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is still withheld and why.
 > Expect the Python API to move: the stable surface is the report schema plus the exit
 > codes, and `partspec.run()` is internal.
@@ -21,8 +26,8 @@ bore that has to clear an 8 mm shaft. Usually it lives in a README, a comment, o
 head, and nothing checks it. `partspec` lets you declare it next to the model and enforce
 it in CI.
 
-This is [`examples/spacer/spec.py`](https://github.com/CameronBrooks11/partspec/blob/main/examples/spacer/spec.py) — the whole contract, less its
-docstring:
+This is [`examples/spacer/spec.py`](https://github.com/CameronBrooks11/partspec/blob/main/examples/spacer/spec.py) — the whole contract, minus
+docstrings and formatting:
 
 ```python
 from partspec import Part, openscad
@@ -202,6 +207,8 @@ The specs are normative and were written before the implementation:
 - [`docs/SPEC-contract.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-contract.md) — the Python contract API and check
   vocabulary.
 - [`docs/SPEC-backend.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-backend.md) — the geometry backend protocol.
+- [`docs/SPEC-diff.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-diff.md) — the semantic report comparator.
+- [`docs/FAILURE-MODES.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/FAILURE-MODES.md) — the observed CAD-as-code failure catalogue: what wrong parts look like when they're green.
 - [`docs/DECISIONS.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md) — every design decision, with its reasoning.
 - [`docs/PLAN.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/PLAN.md) — what v0 is and how it gets built.
 - [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) — what is deliberately not here yet, and why.
