@@ -349,20 +349,25 @@ def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], 
             detail = stderr_lines[-1] if stderr_lines else f"openscad exited {proc.returncode}"
             reason = f"the .csg export failed: {detail}"
             return [], [{"rule": r, "reason": reason} for r in TIER2_RULES]
-        try:
-            nodes = csg.read_csg(out)
-        except csg.CsgError as exc:
-            return [], [{"rule": r, "reason": f"unreadable .csg: {exc}"} for r in TIER2_RULES]
-        if csg.contains_strings(nodes):
-            # The format does not escape string interiors (text(), import()),
-            # so a quote inside one can silently reshape the parse — PR #125's
-            # review drove four phantom findings through exactly that. No
-            # parse of such a file is trustworthy; refuse it whole.
+        raw = out.read_text(encoding="utf-8", errors="replace")
+        if '"' in raw:
+            # BEFORE the parse, on the raw bytes: the format does not escape
+            # string interiors (text(), import()), so a quote can silently
+            # reshape the parse — and a detector running over the parsed tree
+            # was bypassable by hiding the string in a %-dropped statement
+            # (PR #125 re-review). A quote can only ever become a string
+            # token or a parse error, so refusing on the character itself is
+            # airtight and loses nothing on quote-free files.
             reason = (
-                "the tree carries string content, which the .csg format does not "
-                "escape — the parse cannot be trusted, so the file is refused whole"
+                "the export carries string content, which the .csg format does "
+                "not escape — no parse of it can be trusted, so the file is "
+                "refused whole"
             )
             return [], [{"rule": r, "reason": reason} for r in TIER2_RULES]
+        try:
+            nodes = csg.parse_csg(raw)
+        except csg.CsgError as exc:
+            return [], [{"rule": r, "reason": f"unreadable .csg: {exc}"} for r in TIER2_RULES]
 
     findings: list[Finding] = []
     unsupported: list[dict] = []

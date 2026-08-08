@@ -510,3 +510,25 @@ def test_string_bearing_trees_are_refused_whole():
     assert contains_strings(labeled)
     nested = parse_csg('group() { color([1, 0, 0, 1]) { import(file = "x.stl"); } }')
     assert contains_strings(nested)
+
+
+@needs_openscad
+def test_a_string_hidden_in_dropped_geometry_still_refuses(tmp_path: Path, capsys):
+    """PR #125 re-review: hiding the string vehicle inside a %-dropped
+    statement bypassed the tree-level detector — the check now runs on the
+    RAW text before any statement is dropped, so a quote anywhere refuses."""
+    scad = tmp_path / "hidden.scad"
+    scad.write_text(
+        "s = 10;\n"
+        '%linear_extrude(1) text("decoy");\n'
+        "difference() {\n"
+        "    cube([s, s, 4]);\n"
+        "    translate([2, 2, -1]) cube([4, 4, 6]);\n"
+        "}\n"
+    )
+    assert main(["lint", str(scad)]) == 0
+    entry = json.loads(capsys.readouterr().out)["files"][0]
+    assert not any(f["rule"].startswith("csg-") for f in entry["findings"])
+    unsupported = entry.get("unsupported", [])
+    assert {u["rule"] for u in unsupported} == {"csg-difference-order", "csg-coincident-face"}
+    assert all("refused whole" in u["reason"] or "unreadable" in u["reason"] for u in unsupported)
