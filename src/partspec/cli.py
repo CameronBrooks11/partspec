@@ -164,6 +164,12 @@ def build_parser() -> argparse.ArgumentParser:
         f"{ENV_TIMEOUT}; 0 waives the bound)",
     )
 
+    lint = sub.add_parser(
+        "lint",
+        help="advisory findings about CAD source — never a verdict on the part",
+    )
+    lint.add_argument("sources", nargs="+", type=Path, metavar="source", help=".scad or .py")
+
     diff = sub.add_parser(
         "diff",
         help="compare two reports of one part semantically (exit 0 identical, "
@@ -590,6 +596,37 @@ def _cmd_measure(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_lint(args: argparse.Namespace) -> int:
+    """Tier-1 source lint (#26): engine-free, advisory, machine-readable.
+
+    Exit 0 says the lint RAN; the findings are data in the payload — an
+    advisory that failed the process would be a verdict the source never
+    earned (the issue's bullet 3, verbatim: "advisory and never a verdict on
+    the part"). 64 is reserved for inputs that cannot be linted at all.
+    """
+    from .lint import LINT_SCHEMA_VERSION, LintError, lint_path
+    from .runner import _tool_version
+
+    findings = []
+    try:
+        for source in args.sources:
+            findings.extend(lint_path(source))
+    except LintError as exc:
+        print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    payload = {
+        "schema_version": LINT_SCHEMA_VERSION,
+        "tool": {"name": "partspec-lint", "version": _tool_version()},
+        "findings": [f.to_json() for f in findings],
+        "counts": {"files": len(args.sources), "findings": len(findings)},
+    }
+    print(json.dumps(payload, indent=2, allow_nan=False))
+    for f in findings:
+        print(f"  {f.rule}  {f.file}:{f.line}  {f.message}", file=sys.stderr)
+    return 0
+
+
 def _cmd_render(args: argparse.Namespace) -> int:
     """Evidence, not judgement: images the report can reference (#20), framed
     deterministically from the bounding box so iterations are comparable. No
@@ -774,6 +811,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_measure(args)
         if args.command == "render":
             return _cmd_render(args)
+        if args.command == "lint":
+            return _cmd_lint(args)
         if args.command == "diff":
             return _cmd_diff(args)
     except KeyboardInterrupt:

@@ -79,6 +79,10 @@ model matches itself — real external footing looks like
 `p.hole_diameter(iso15.bearing(608).od)`, where the number arrives from `partspec.refs`
 with its citation recorded in the report.
 
+`partspec lint` gives advisory findings about the source itself — magic numbers,
+unused parameters, oversize modules — before a render is ever attempted; the rules and
+their exact predicates are
+[`docs/LINT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/LINT.md).
 How to write a contract that proves something — check selection, limit provenance, the
 retrofit path — is
 [`skills/contract-authoring/`](https://github.com/CameronBrooks11/partspec/tree/main/skills/contract-authoring).
