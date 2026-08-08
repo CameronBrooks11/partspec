@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-08-08
+
+Reference data with provenance — limits that know where their numbers came from (epic #5).
+
+### Added
+
+- **`partspec.refs`** — reference tables shipped in the wheel, importable with no engine
+  installed: ISO 15 deep-groove bearing boundary dimensions (`iso15`, 22 designations) and
+  the NEMA 17 mounting interface (`nema17`, exact conversions of the standard's own inch
+  figures, with the inch figure in every note) (#95, #96).
+- **`Referenced` values.** A bound taken from a reference table carries its citation into
+  the report as `checks[].source` (`{standard, subject, field}`). Arithmetic sheds the
+  attribution — a derived number is the author's, and a fragment must never launder the
+  designer's numbers into a standard's (#95).
+- **Contract fragments.** `nema17.mount(p)` and `iso15.seat(p, 608)` declare an interface
+  standard's checks in one call, with namespaced ids (`nema17:pilot`,
+  `nema17:left:bolt_circle`) and atomic failure — an invalid argument lands no checks. The
+  bolt pattern carries the standard's citation; the clearance diameters are the designer's
+  arguments and deliberately carry none (#96).
+- **The report says when it proved nothing external.** A run-level
+  `attribution: {dimensional, attributed}` block, and a CLI warning when every dimensional
+  limit is unattributed — bounds derived from the model's own numbers prove only that the
+  model matches itself (#97). The signal lives in the artifact, not just on stderr, because
+  the MCP tools run `--quiet`.
+
+### Changed
+
+- `partspec diff` treats a check's `source` as part of the claim: stripping a citation
+  reports as `limit_changed`, so quietly de-attributing a limit is visible on comparison
+  (#95).
+
+### Fixed
+
+- The first version of the NEMA 17 table cited the catalogue's 31 mm hole square to the
+  standard and derived the pitch circle from it — exactly backwards: NEMA ICS 16 states the
+  pitch circle (1.725 in) directly. Caught in review against the standard's own text before
+  release; the corrected derivation is recorded in `SPEC-contract.md` §11 as the cautionary
+  example (#96).
+
+## [0.2.0] - 2026-08-08
+
+A part proven against mechanical intent (epic #6): the check vocabulary reaches drawing
+callouts, and reports become comparable.
+
+### Added
+
+- **`keep_out` / `keep_in`** — spatial claims over declared regions, each with a mandatory
+  weak-form verification shell so a region check can never pass vacuously; the region
+  materializes tier-identically as a circumscribed prism (#85, `SPEC-contract.md` §4.4).
+- **`checks[].components`** — a vector check names the failing axis: per-axis statuses whose
+  worst is exactly the check's own, one adjudication rendered two ways (#86).
+- **`hole_diameter`** — the first drawing dimension: count claims over detected bores, OCCT
+  tier only; the mesh tier refuses rather than approximating a cylinder from triangles
+  (#87, §4.5).
+- **`partspec diff`** — two reports compared semantically (`SPEC-diff.md`): `removed` /
+  `added` / `regressed` / `fixed` / `drifted` / `limit_changed`, exit 0 identical / 1
+  different / 2 indeterminate / 64 usage. A partial or missing source closure blocks only
+  the `identical` claim, and every indeterminate entry carries a machine-readable code.
+  This closes the silent-contract-weakening gap on comparison (#88).
+- **`bolt_circle`** — the mounting-interface callout as one check: the pattern circle is
+  least-squares fitted, adjudication is strict against the fitted centre, and `tol > d` is
+  refused at declaration (#89, §4.6).
+- **`fillet_radius`** — every cylindrical blend within bounds; a part with no detected
+  blends FAILS rather than passing vacuously, and the message names the detection gap
+  (toroidal/spherical blends) rather than claiming none exist (#90, §4.7).
+
+### Changed
+
+- Usage errors exit 64 CLI-wide — argparse's exit 2 is remapped, because 2 belongs to
+  `incomplete` (#88).
+
+## [0.1.0] - 2026-08-07
+
 ### Added
 
 - The report/status seam (P0), specified before implementation because it — not the CLI
@@ -227,4 +302,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build, with `partial` unconditional. `SPEC-report.md` §8.3 previously specified emitting
   nothing here; the reversal and its reasoning are recorded in place.
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/main...HEAD
+### Added
+
+- **P6 — the product surface for agents.** `partspec-mcp`, an MCP server exposing `check`,
+  `measure` and `render` as stateless tools — every call a fresh subprocess returning the
+  same artifact the CLI writes, per the D18 boundary (#63, #66). `partspec render` emits
+  canonical multi-view PNGs on the mesh tier, and the report references the renders it
+  produced (#64, #65).
+- **The convergence eval, run and recorded** (`evals/CONVERGENCE.md`): 15/15 trials across
+  five defect classes, an agent taking a broken part to green with exactly one edit each and
+  zero contract-weakening attempts (#67).
+- Tagged releases publish to PyPI via trusted publishing: tag/version assertion, build,
+  `twine check`, cold-wheel smoke test, then OIDC upload (#60).
+
+### Fixed
+
+- The two pre-tag adversarial audits (#56, #57) and the eight-defect close: measurements
+  that lied, failures that blamed the part instead of the machine, and one rename the audit
+  itself got backwards.
+- Release-window fixes (#70–#77): a failed build's hint is the diagnosis rather than a
+  cache statistic; comparison operators slug to distinct check ids; the report records the
+  invoked callable and how parameters applied; `engine.render_backend` is always present;
+  `measure` and `render` carry the same engine provenance as `check`; the OpenSCAD method
+  scratch moved out of the source tree.
+
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/CameronBrooks11/partspec/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/CameronBrooks11/partspec/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/CameronBrooks11/partspec/releases/tag/v0.1.0

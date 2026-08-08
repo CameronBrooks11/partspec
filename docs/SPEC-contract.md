@@ -1,6 +1,7 @@
 # SPEC — the `partspec` contract
 
-**Status:** draft 1 · 2026-08-02
+**Status:** draft 2 · 2026-08-08 · adds §4.4–4.7 (regions, hole_diameter, bolt_circle,
+fillet_radius), §10 (referenced values) and §11 (fragments)
 **Scope:** the Python API an author (human or agent) writes to declare a part and the
 claims it must satisfy. Defines the `kind` vocabulary that `SPEC-report.md` deliberately
 left open.
