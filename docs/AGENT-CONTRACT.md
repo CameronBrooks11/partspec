@@ -98,8 +98,9 @@ Read the non-`pass` statuses in `checks[]`:
 - **Otherwise** → the contract itself raised (the report says "the contract is wrong,
   not the part"), or the report is still the placeholder ("run did not complete") —
   whose most common cause is deterministic, not transient: **the contract failed to
-  resolve** (a typo'd keyword, an import error at contract scope), and this is the one
-  exit-4 state whose diagnosis (the traceback) is on stderr only. Re-run once; if the
+  resolve** (a typo'd keyword, an import error at contract scope), and here the
+  diagnosis (the traceback) is on stderr only, like the uncovered-pin case — though
+  here a placeholder exists where that one leaves no report at all. Re-run once; if the
   placeholder recurs, read the console before escalating — the fix is usually a
   one-line contract repair to propose.
 
