@@ -2,7 +2,7 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.2.0 is on PyPI.** It runs end to end — `check` and `measure`
+> **Status: pre-alpha; v0.3.0 is on PyPI.** It runs end to end — `check` and `measure`
 > across all three engines, `diff` on the reports they produce, `render` on the mesh tier — and is dogfooded on real
 > parts. The vocabulary covers real mechanical intent: keep-out/keep-in regions,
 > `hole_diameter`, `bolt_circle` and `fillet_radius` on the OCCT tier.
@@ -88,7 +88,10 @@ writes, `measure` and `render` the same output as their verbs, every call a fres
 evaluation. And the loop is measured, not assumed: in the seeded-defect eval suite
 ([`evals/`](https://github.com/CameronBrooks11/partspec/tree/main/evals)), an agent shown
 only the report — no shell, no hints, contract frozen — repaired all five defect classes in
-a single edit each, without once weakening its contract.
+a single edit each, without once weakening its contract. The rules of that loop — bounded
+attempts, what each exit code instructs, greppable escalation, and the guards watching the
+weakening moves — are
+[`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md).
 
 ## The idea it is built around
 

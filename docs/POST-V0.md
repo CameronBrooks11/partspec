@@ -92,11 +92,13 @@ a check.
 tools, each a fresh subprocess returning the artifact the CLI writes (D18). The paragraph
 below was the design basis; D5's "~100 lines" estimate held.
 
-Still open from this section — now issue #28: cad-khana's `SKILL.md` agent contract, the
-strongest artifact in that repo: a bounded **3–5 attempt** repair loop, machine-greppable
-escalation (`HUMAN_REVIEW: <why> — last failure: <assertion>`), feeding failure forward
-rather than restarting, and the **vacuous green** warning ("check `assertions` is non-empty
-before believing a green run on an unfamiliar file").
+The other half **shipped 2026-08-08 (#28): `docs/AGENT-CONTRACT.md`** — cad-khana's
+`SKILL.md` agent contract, the strongest artifact in that repo, rebuilt against this
+tool's real surfaces: a bounded **5-attempt** repair loop, machine-greppable escalation
+(`HUMAN_REVIEW: <why> — last failure: <check id>: <detail>`), feeding failure forward
+rather than restarting, the **vacuous green** checklist (counts, attribution, closure,
+expectation), and the out-of-bounds section naming the guards (#31's claims pin, `diff`,
+`attribution`) that watch the weakening moves it forbids.
 
 ---
 
