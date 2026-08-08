@@ -37,7 +37,7 @@ from .status import (
     epsilon,
 )
 
-__all__ = ["run"]
+__all__ = ["identity", "run"]
 
 _TOOL_VERSION_FALLBACK = "0.0.0+unknown"
 
@@ -57,14 +57,15 @@ def run(
     stopped run must say what budget stopped it.
     """
     started = time.perf_counter()
+    ident = identity(part, contract_path)
     report = Report(
         part_id=part.id,
-        contract=_relative(contract_path, contract_path) if contract_path else "<in-memory>",
+        contract=ident["contract"],
         tool_version=_tool_version(),
-        contract_digest=_digest(contract_path),
-        source=_relative(part.source.path, contract_path),
-        source_digest=_digest(part.source.path),
-        source_closure=_closure(part.source),
+        contract_digest=ident.get("contract_digest"),
+        source=ident.get("source"),
+        source_digest=ident.get("source_digest"),
+        source_closure=ident.get("source_closure"),
         params=dict(part.source.params),
         argv=argv or [],
         timeout_s=timeout_s,
@@ -162,6 +163,42 @@ def _evaluate(
     report.geometry = backend.provenance(artifact)
     results.extend(_run_geometry_check(spec, backend, artifact, part.id) for spec in geometry_specs)
     report.checks = results
+
+
+def identity(part: Part, contract_path: Path | None, *, built: bool = False) -> dict[str, Any]:
+    """The part-identity block, shared by `check`'s report and `measure` (#47).
+
+    One builder, because the two verbs had already drifted once before (#73,
+    engine block) and `measure` shipped with no identity at all — a consumer
+    could not tell which file, which revision, or which parameter set produced
+    the numbers it was about to turn into checks, in the verb whose stated
+    purpose is bootstrapping contracts. Same keys, same omission rules, same
+    path portability as `Report.to_json`'s `part` block; a pinned test holds
+    the two equal.
+
+    `built=True` after a Python-engine build swaps in the imports-derived
+    closure, mirroring the runner's own post-build upgrade — a Python model's
+    inputs are only knowable once it has run.
+    """
+    out: dict[str, Any] = {
+        "id": part.id,
+        "contract": _relative(contract_path, contract_path) if contract_path else "<in-memory>",
+    }
+    contract_digest = _digest(contract_path)
+    if contract_digest:
+        out["contract_digest"] = contract_digest
+    source = _relative(part.source.path, contract_path)
+    if source:
+        out["source"] = source
+    source_digest = _digest(part.source.path)
+    if source_digest:
+        out["source_digest"] = source_digest
+    closure = _closure(part.source)
+    if built and part.source.engine != "openscad":
+        closure = _python_closure(part.source, contract_path)
+    if closure:
+        out["source_closure"] = closure
+    return out
 
 
 def engine_block(part: Part, backend: Any) -> dict[str, Any]:
