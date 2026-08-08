@@ -254,7 +254,7 @@ def adopt(obj: Any) -> Any | BuildError:
     #     w = cq.Workplane('XY').rect(20, 20, forConstruction=True) \
     #           .vertices().box(5, 5, 5, combine=False)
     #     len(w.vals())  # 4
-    #     .val().volume  # 125.0, not 500.0
+    #     .val().Volume()  # 125.0, not 500.0
     #
     # So `solid_count(4)` measured 1 and `volume` measured a quarter of the
     # part, both exact, on three quarters of the model quietly discarded.

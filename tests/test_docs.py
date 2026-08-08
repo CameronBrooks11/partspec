@@ -373,3 +373,111 @@ def test_the_scad_skill_cites_the_catalogue_and_its_neighbours():
         "source_closure",
     ):
         assert needle in SCAD_SKILL, f"the skill must reference {needle}"
+
+
+# --------------------------------------------------------------------------
+# skills/build123d-authoring — the skill's examples build and mean what they say
+# --------------------------------------------------------------------------
+
+BD_SKILL = (ROOT / "skills" / "build123d-authoring" / "SKILL.md").read_text()
+
+
+def _bd_blocks() -> dict[str, str]:
+    blocks = {}
+    for body in re.findall(r"```python\n(.*?)```", BD_SKILL, re.S):
+        m = re.match(r"# (bd-rule-\d+-(?:before|after))", body.splitlines()[0])
+        assert m, f"every python block carries a marker: {body.splitlines()[0]!r}"
+        blocks[m.group(1)] = body
+    return blocks
+
+
+def test_the_bd_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    import sys
+
+    from partspec.backends.occt import OcctBackend
+    from partspec.engines import pycad
+
+    blocks = _bd_blocks()
+    assert set(blocks) >= {
+        "bd-rule-1-after",
+        "bd-rule-2-after",
+        "bd-rule-3-before",
+        "bd-rule-5-after",
+    }
+    backend = OcctBackend("build123d")
+
+    def factory_of(name: str):
+        ns: dict = {}
+        exec(blocks[name], ns)  # noqa: S102 - executing the doc is the point
+        return ns["make_part"]
+
+    # Rule 1: the factory shape builds a genuine through-bored plate, and
+    # the parameters MEAN something — a hardcoded body passed this test
+    # until the review's mutation showed it (PR #117, F3).
+    factory = factory_of("bd-rule-1-after")
+    part = pycad.adopt(factory())
+    assert measured(backend.genus(part)).value == 1
+    assert measured(backend.watertight(part)).value is True
+    widened = pycad.adopt(factory(plate_w=50.0))
+    assert measured(backend.bbox(widened)).value == (50.0, 30.0, 4.0)
+
+    # Rule 2: the three-line adapter drives an untouched community class.
+    (tmp_path / "cq_gridfinity_like.py").write_text(
+        "from build123d import Box\n\n\n"
+        "class GridfinityBox:\n"
+        "    def __init__(self, w, d, h):\n"
+        "        self.w, self.d, self.h = w, d, h\n\n"
+        "    def render(self):\n"
+        "        return Box(42 * self.w, 42 * self.d, 7 * self.h)\n"
+    )
+    sys.path.insert(0, str(tmp_path))
+    try:
+        adapted = pycad.adopt(factory_of("bd-rule-2-after")(2, 1))
+        assert measured(backend.solid_count(adapted)).value == 1
+        assert measured(backend.bbox(adapted)).value == (84.0, 42.0, 21.0)
+        assert "cq_gridfinity_like" in sys.modules, (
+            "the adapter must DRIVE the community class, not replace it"
+        )
+    finally:
+        sys.path.remove(str(tmp_path))
+        sys.modules.pop("cq_gridfinity_like", None)
+
+    # Rule 3: both selector variants build watertight — that is the trap —
+    # and the chamfer measurably moved: the boss rim sheds less material
+    # than the plate rim it silently abandoned.
+    make = factory_of("bd-rule-3-before")
+    flat, bossed = pycad.adopt(make(0.0)), pycad.adopt(make(2.0))
+    for shape in (flat, bossed):
+        assert measured(backend.watertight(shape)).value is True
+    removed_flat = 40 * 30 * 4 - measured(backend.volume(flat)).value
+    removed_bossed = (40 * 30 * 4 + 10 * 10 * 2) - measured(backend.volume(bossed)).value
+    assert removed_bossed < removed_flat * 0.5, (
+        "the chamfer must have silently moved to the smaller boss rim"
+    )
+
+    # Rule 5: the CadQuery factory drives the SAME kernel to the same part.
+    cadquery = pytest.importorskip("cadquery", reason="cadquery extra not installed")
+    assert cadquery
+    cq_part = pycad.adopt(factory_of("bd-rule-5-after")())
+    assert measured(backend.genus(cq_part)).value == 1
+    assert measured(backend.watertight(cq_part)).value is True
+    assert measured(backend.bbox(cq_part)).value == (40.0, 30.0, 4.0)
+
+
+def test_the_bd_skill_cites_its_evidence_and_neighbours():
+    for needle in (
+        "docs/FAILURE-MODES.md",
+        "entry 7",
+        "entry 8",
+        "engines/pycad.py",
+        "skills/contract-authoring/SKILL.md",
+        "skills/openscad-authoring/SKILL.md",
+        "examples/bearing-block/",
+        "tests/test_differential.py",
+        "test_the_same_hole_contract_holds_on_cadquery",
+        "ocp-guard",
+        "combine=False",
+        "ShapePredicate",
+    ):
+        assert needle in BD_SKILL, f"the skill must reference {needle}"
