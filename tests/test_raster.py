@@ -262,6 +262,36 @@ def test_render_views_writes_the_views_and_records_the_tessellation(tmp_path: Pa
     }
 
 
+def test_the_production_framing_constants_bind(tmp_path: Path):
+    """PR #127 review, F2: the framing tests above derive half_height through
+    a formula this file duplicates, so the production constants could drift
+    and nothing failed — 2.2 → 2.0 and tan(11.25°) → 0.25 both passed the
+    whole suite. This pin goes through `render_views` itself: a 20 mm cube at
+    distance 2.2·20√3 has half-height 15.1585 mm, so its silhouette spans
+    2·round(400·10/15.1585) = 528 px. Either constant moving breaks 528."""
+    bd = pytest.importorskip("build123d", reason="occt extra not installed")
+    result = render_views(bd.Box(20, 20, 20), tmp_path)
+    assert not isinstance(result, BuildError)
+    views, _ = result
+    data = views["front"].read_bytes()
+    width, height = struct.unpack(">II", data[16:24])
+    idat = b""
+    pos = 8
+    while pos < len(data):
+        length, kind = struct.unpack(">I4s", data[pos : pos + 8])
+        if kind == b"IDAT":
+            idat += data[pos + 8 : pos + 8 + length]
+        pos += 12 + length
+    raw = zlib.decompress(idat)
+    img = (
+        np.frombuffer(raw, np.uint8).reshape(height, width * 3 + 1)[:, 1:].reshape(height, width, 3)
+    )
+    mask = np.abs(img.astype(int) - img[0, 0].astype(int)).sum(axis=2) > 40
+    ys, xs = np.nonzero(mask)
+    assert abs((xs.max() - xs.min() + 1) - 528) <= 2
+    assert abs((ys.max() - ys.min() + 1) - 528) <= 2
+
+
 def test_render_views_refuses_an_empty_shape(tmp_path: Path):
     bd = pytest.importorskip("build123d", reason="occt extra not installed")
     result = render_views(bd.Compound(), tmp_path)

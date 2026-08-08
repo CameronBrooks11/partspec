@@ -460,6 +460,10 @@ an unknown major version rather than best-effort parse it.
     "top": "renders/top.png",
     "right": "renders/right.png"
   },
+  "render_tessellation": {           // §8.4 — beside renders when they came from the OCCT
+    "tolerance_mm": 0.1,             // tier's rasterizer (#18): the tessellation is what was
+    "triangles": 520                 // shown (D15). Absent for OpenSCAD renders.
+  },
 
   "verdict": "incomplete",
   "counts": { "total": 5, "pass": 3, "fail": 0,

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -347,6 +348,35 @@ def test_render_on_the_occt_tier_from_the_same_verb(tmp_path: Path, capsys):
     # built=True identity: the helper the model imported is a build input,
     # knowable only because this verb actually built the part.
     assert payload["part"]["source_closure"]["files"] >= 2
+
+
+def test_a_failed_build_never_reaches_the_rasterizer(tmp_path: Path, capsys, monkeypatch):
+    """PR #127 review, F1: the raster import (which pulls numpy) sat before
+    the build, so with the occt extra missing the verb died as a raw numpy
+    traceback — empty stdout — instead of the build's honest environment
+    artifact. The import order is the fix; this hook is the pin: a failing
+    build must produce the #103 artifact without partspec.raster ever
+    loading."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+
+    class _Block:
+        def find_spec(self, name, path=None, target=None):
+            if name == "partspec.raster":
+                raise ImportError("partspec.raster must not load before the build succeeds")
+            return None
+
+    monkeypatch.delitem(sys.modules, "partspec.raster", raising=False)
+    monkeypatch.setattr(sys, "meta_path", [_Block(), *sys.meta_path])
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('missing.py'))\n"
+    )
+    assert main(["render", f"{module}:make"]) == exit_code(Verdict.ERROR)
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["part"]["id"] == "subject"
+    assert doc["renders"] == {}
+    assert doc["error"]
 
 
 def test_render_on_a_broken_python_model_is_an_artifact(tmp_path: Path, capsys):
