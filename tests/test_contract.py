@@ -218,7 +218,7 @@ def test_the_tier_specific_kinds_are_exactly_the_declared_ones():
     from partspec.backends.mesh import CAPABILITIES as MESH
     from partspec.backends.occt import CAPABILITIES as OCCT
 
-    occt_only = {"topology", "hole_diameter"}
+    occt_only = {"topology", "hole_diameter", "bolt_circle"}
     for kind in occt_only:
         assert GEOMETRY_KINDS[kind] in OCCT
         assert GEOMETRY_KINDS[kind] not in MESH
@@ -418,3 +418,36 @@ def test_degenerate_hole_claims_are_refused(kwargs, match):
 
 def test_hole_diameter_gates_on_the_bores_primitive():
     assert GEOMETRY_KINDS["hole_diameter"] == "bores"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"d": 0, "count": 4, "bcd": 40.0}, "d > 0"),
+        ({"d": 5.0, "count": 1, "bcd": 40.0}, "count >= 2"),
+        ({"d": 5.0, "count": True, "bcd": 40.0}, "count >= 2"),
+        ({"d": 5.0, "count": 4, "bcd": 4.0}, "bcd > d"),
+        ({"d": 5.0, "count": 4, "bcd": 40.0, "tol": 0.0}, "tol must be > 0"),
+    ],
+)
+def test_degenerate_bolt_circle_claims_are_refused(kwargs, match):
+    with pytest.raises(ContractError, match=match):
+        _part().bolt_circle(kwargs.pop("d"), **kwargs)
+
+
+def test_bolt_circle_records_the_callout():
+    p = _part()
+    p.bolt_circle(5.0, count=4, bcd=40.0, tol=0.2)
+    spec = p.checks[0]
+    assert spec.id == "bolt_circle_4x_d5"
+    assert spec.hole == {"d": 5.0, "count": 4, "bcd": 40.0}
+    assert spec.limit is not None
+    assert spec.limit.min == pytest.approx(39.8) and spec.limit.max == pytest.approx(40.2)
+
+
+def test_a_positional_band_wider_than_the_hole_is_refused():
+    """PR #89 review, blocker 2: with no datum the claim is existential, and a
+    wide band is satisfiable by circles no drawing describes — a cherry-picked
+    centre passed 8-on-the-circle as 'exactly 4' at tol=21."""
+    with pytest.raises(ContractError, match="must not exceed d"):
+        _part().bolt_circle(5.0, count=4, bcd=40.0, tol=21.0)

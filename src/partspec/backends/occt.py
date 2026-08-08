@@ -40,6 +40,7 @@ CAPABILITIES = frozenset(
         "intersect_volume",
         "region_solid",
         "bores",
+        "bore_table",
     }
 )
 
@@ -90,29 +91,23 @@ def _axis_key(
     return key, canonical
 
 
-def _clustered_wraps(spans: list[tuple[float, float, float, float]]) -> list[tuple[float, float]]:
-    """Per contiguous axial cluster: (summed angular extent, surface radius).
+def _axial_clusters(spans: list[tuple]) -> list[list[tuple]]:
+    """Group spans `(lo, hi, ...)` into contiguous axial clusters.
 
     Faces whose axial spans touch or overlap belong to one bore (a seam-split
     cylinder, a bore interrupted by nothing); a gap along the axis separates
-    two bores that merely share an axis line — the clevis's two lugs. The
-    radius carried out is a member face's un-rounded surface parameter, so the
-    caller reports a measurement rather than the grouping key's quantisation.
+    two bores that merely share an axis line — the clevis's two lugs.
     """
-    wraps: list[tuple[float, float]] = []
+    clusters: list[list[tuple]] = []
     hi: float | None = None
-    wrap = 0.0
-    radius = 0.0
-    for lo, span_hi, extent, face_radius in sorted(spans):
-        if hi is None or lo > hi + 1e-6:
-            if hi is not None:
-                wraps.append((wrap, radius))
-            hi, wrap, radius = span_hi, extent, face_radius
+    for span in sorted(spans, key=lambda s: (s[0], s[1])):
+        if hi is None or span[0] > hi + 1e-6:
+            clusters.append([span])
+            hi = span[1]
         else:
-            hi, wrap = max(hi, span_hi), wrap + extent
-    if hi is not None:
-        wraps.append((wrap, radius))
-    return wraps
+            clusters[-1].append(span)
+            hi = max(hi, span[1])
+    return clusters
 
 
 def _empty(a: Any) -> bool:
@@ -320,25 +315,17 @@ class OcctBackend:
         face = bd.Face(bd.Wire.make_polygon(points, close=True))
         return bd.extrude(face, amount=region.h, dir=region.axis_vector())
 
-    def bores(self, a: Any) -> Measurement | Unsupported:
-        """Diameters of every cylindrical bore on the shape, sorted descending.
+    def bore_table(self, a: Any) -> list[dict[str, Any]] | Unsupported:
+        """Every bore with its geometry: `{"d", "direction", "center"}`.
 
-        A bore is a set of cylindrical faces sharing one axis line, one radius
-        and one **contiguous axial span**, that (a) face **inward** — the
-        surface normal points toward the axis, so material surrounds the void;
-        a boss is the same surface facing out — and (b) wrap the **full
-        circle**: angular extents summing to 2π. Full-wrap is what keeps a
-        concave fillet (a quarter-wrap) and a half-round groove (a half-wrap)
-        from being counted as holes they are not. Coaxial groups of different
-        radius stay distinct, so a counterbore reports one bore per diameter —
-        each portion is a real seat with a real drawing callout. The axial-span
-        clustering is what makes two aligned holes through two clevis lugs
-        count as the two bores the drawing calls out, not one.
-
-        Diameters are read from the BREP surface parameter, so they are exact:
-        the predicted first exercise of `approximate` (POST-V0 §4) did not
-        materialise, because a modelled cylinder's radius is a parameter, not
-        an estimate.
+        The raw data `bores` summarises and `bolt_circle` positions against
+        (SPEC-contract.md 4.6): `direction` is the canonical unit axis (sign
+        normalised, so parallel bores compare equal), `center` the midpoint of
+        the bore's axial span on its axis — a real point of the feature, where
+        the axis-line foot would be an artifact of where the world origin
+        happens to sit. Like `triangles` and `region_solid`, this returns raw
+        data rather than a Measurement; one detection implementation serves
+        every consumer, so the bore definition cannot fork.
         """
         if _empty(a):
             return Unsupported(_EMPTY_REASON)
@@ -348,9 +335,8 @@ class OcctBackend:
         from OCP.BRepAdaptor import BRepAdaptor_Surface  # type: ignore[attr-defined]
         from OCP.BRepTools import BRepTools  # type: ignore[attr-defined]
 
-        # key -> list of (axial_lo, axial_hi, angular_extent, radius) per
-        # inward face
-        groups: dict[tuple, list[tuple[float, float, float, float]]] = {}
+        # key -> list of (axial_lo, axial_hi, angular_extent, radius, dir, foot)
+        groups: dict[tuple, list[tuple]] = {}
         for face in a.faces().filter_by(GeomType.CYLINDER):
             # BRepAdaptor, not the raw Geom surface: a planar cut part-way
             # around a cylinder (a slit clamp, an obround slot) wraps the
@@ -379,18 +365,58 @@ class OcctBackend:
             base = sum(o * d for o, d in zip(origin, canonical, strict=True))
             sign = sum(d0 * d for d0, d in zip(direction, canonical, strict=True))
             ends = sorted((base + sign * vmin, base + sign * vmax))
-            groups.setdefault(key, []).append((ends[0], ends[1], umax - umin, radius))
+            along = sum(o * d for o, d in zip(origin, canonical, strict=True))
+            foot = tuple(o - along * d for o, d in zip(origin, canonical, strict=True))
+            groups.setdefault(key, []).append(
+                (ends[0], ends[1], umax - umin, radius, canonical, foot)
+            )
 
-        diameters: list[float] = []
+        table: list[dict[str, Any]] = []
         for spans in groups.values():
-            # The rounded key groups; the surface parameter is the
-            # measurement. Reporting the key's quantised radius flipped
-            # verdicts at tolerances below its 1e-6 quantum — a false pass
-            # with the true value appearing nowhere in the report.
-            for wrap, radius in _clustered_wraps(spans):
-                if wrap >= 2 * math.pi - 1e-6:
-                    diameters.append(radius * 2)
-        diameters.sort(reverse=True)
+            for cluster in _axial_clusters(spans):
+                # The rounded key groups; the surface parameter is the
+                # measurement. Reporting the key's quantised radius flipped
+                # verdicts at tolerances below its 1e-6 quantum — a false
+                # pass with the true value appearing nowhere in the report.
+                wrap = sum(entry[2] for entry in cluster)
+                if wrap < 2 * math.pi - 1e-6:
+                    continue
+                _, _, _, radius, canonical, foot = cluster[0]
+                mid = (min(e[0] for e in cluster) + max(e[1] for e in cluster)) / 2
+                table.append(
+                    {
+                        "d": radius * 2,
+                        "direction": canonical,
+                        "center": tuple(f + mid * d for f, d in zip(foot, canonical, strict=True)),
+                    }
+                )
+        table.sort(key=lambda bore: -bore["d"])
+        return table
+
+    def bores(self, a: Any) -> Measurement | Unsupported:
+        """Diameters of every cylindrical bore on the shape, sorted descending.
+
+        A bore is a set of cylindrical faces sharing one axis line, one radius
+        and one **contiguous axial span**, that (a) face **inward** — the
+        surface normal points toward the axis, so material surrounds the void;
+        a boss is the same surface facing out — and (b) wrap the **full
+        circle**: angular extents summing to 2π. Full-wrap is what keeps a
+        concave fillet (a quarter-wrap) and a half-round groove (a half-wrap)
+        from being counted as holes they are not. Coaxial groups of different
+        radius stay distinct, so a counterbore reports one bore per diameter —
+        each portion is a real seat with a real drawing callout. The axial-span
+        clustering is what makes two aligned holes through two clevis lugs
+        count as the two bores the drawing calls out, not one.
+
+        Diameters are read from the BREP surface parameter, so they are exact:
+        the predicted first exercise of `approximate` (POST-V0 §4) did not
+        materialise, because a modelled cylinder's radius is a parameter, not
+        an estimate.
+        """
+        table = self.bore_table(a)
+        if isinstance(table, Unsupported):
+            return table
+        diameters = [bore["d"] for bore in table]
         return Measurement(
             tuple(diameters),
             "mm",

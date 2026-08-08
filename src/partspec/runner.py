@@ -248,6 +248,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         return _run_region_check(spec, backend, artifact, common)
     if spec.kind == "hole_diameter":
         return _run_hole_check(spec, backend, artifact, common)
+    if spec.kind == "bolt_circle":
+        return _run_bolt_circle_check(spec, backend, artifact, common)
 
     outcome = getattr(backend, primitive_name)(artifact)
     if isinstance(outcome, Unsupported):
@@ -353,6 +355,205 @@ def _run_hole_check(
         status=Status.PASS if len(matched) == expected else Status.FAIL,
         measurement=measurement,
         detail=detail,
+    )
+
+
+_BOLT_CIRCLE_SEARCH_CAP = 60
+"""Candidate bores per direction group before the triple search is refused.
+C(60,3) ≈ 34k circumcircles is cheap; a part with more same-diameter parallel
+bores than that deserves an honest refusal over an unbounded search."""
+
+
+def _run_bolt_circle_check(
+    spec: CheckSpec, backend: Any, artifact: Any, common: dict[str, Any]
+) -> CheckResult:
+    """Exactly `count` matching bores, axes parallel, concyclic at `bcd`.
+
+    Subset semantics (SPEC-contract.md 4.6): the claim is that such a circle
+    EXISTS, searched over every subset of candidate bores — an unrelated hole
+    elsewhere must not break it, and a fifth hole on the claimed circle must.
+    Every valid circle through >= 3 points is determined by 3 of its members,
+    so searching triples finds it without enumerating subsets.
+    """
+    assert spec.limit is not None and spec.hole is not None
+    table = backend.bore_table(artifact)
+    if isinstance(table, Unsupported):
+        return CheckResult(
+            **common, status=Status.UNSUPPORTED, detail=table.reason, requires=table.requires
+        )
+
+    d, count, bcd = spec.hole["d"], int(spec.hole["count"]), spec.hole["bcd"]
+    lo, hi = spec.limit.min, spec.limit.max
+    band = hi - bcd
+    candidates = [b for b in table if abs(b["d"] - d) <= epsilon(d)]
+
+    groups: dict[tuple, list[dict[str, Any]]] = {}
+    for bore in candidates:
+        groups.setdefault(tuple(round(c, 6) for c in bore["direction"]), []).append(bore)
+
+    fitted, best = None, None  # best: (members_found, circle_diameter) for the detail
+    capped = 0
+    for group in groups.values():
+        if len(group) < count:
+            continue
+        if len(group) > _BOLT_CIRCLE_SEARCH_CAP:
+            # Noted, not returned: a passing circle in another direction group
+            # must still be found — the refusal is only the outcome when the
+            # whole search ends empty-handed with part of it unexamined.
+            capped = max(capped, len(group))
+            continue
+        points = _plane_coordinates(group)
+        fitted, best = _find_circle(points, count, bcd, band, lo, hi, best)
+        if fitted is not None:
+            break
+
+    if fitted is not None:
+        return CheckResult(
+            **common, status=Status.PASS, measurement=Measurement(fitted, "mm", exact=True)
+        )
+    if capped:
+        return CheckResult(
+            **common,
+            status=Status.UNSUPPORTED,
+            detail=f"{capped} candidate bores share one axis direction; refusing to "
+            f"search beyond {_BOLT_CIRCLE_SEARCH_CAP} rather than answer slowly and "
+            f"claim it was exhaustive",
+        )
+    if best is not None:
+        found, circle_d = best
+        near = f"; the nearest circle of Ø{circle_d:.9g} holds {found} of them"
+    else:
+        near = ""
+    return CheckResult(
+        **common,
+        status=Status.FAIL,
+        detail=f"no circle of Ø{bcd:.9g} (±{band:.9g}) holds exactly {count} parallel "
+        f"bores of Ø{d:g}; {len(candidates)} candidate bore(s) on this part{near}",
+    )
+
+
+def _plane_coordinates(group: list[dict[str, Any]]) -> list[tuple[float, float]]:
+    """Project each bore centre onto the plane perpendicular to the shared axis."""
+    dx, dy, dz = group[0]["direction"]
+    # Any vector not parallel to the axis seeds the basis.
+    ax, ay, az = (1.0, 0.0, 0.0) if abs(dx) < 0.9 else (0.0, 1.0, 0.0)
+    ux, uy, uz = dy * az - dz * ay, dz * ax - dx * az, dx * ay - dy * ax
+    norm = (ux * ux + uy * uy + uz * uz) ** 0.5
+    ux, uy, uz = ux / norm, uy / norm, uz / norm
+    vx, vy, vz = dy * uz - dz * uy, dz * ux - dx * uz, dx * uy - dy * ux
+    return [
+        (cx * ux + cy * uy + cz * uz, cx * vx + cy * vy + cz * vz)
+        for cx, cy, cz in (bore["center"] for bore in group)
+    ]
+
+
+def _find_circle(
+    points: list[tuple[float, float]],
+    count: int,
+    bcd: float,
+    band: float,
+    lo: float,
+    hi: float,
+    best: tuple[int, float] | None,
+) -> tuple[float | None, tuple[int, float] | None]:
+    """Search for a circle of ~bcd holding exactly `count` points.
+
+    Triples only SEED the search: three points determine a circle exactly, but
+    band membership is a claim about the *pattern* circle, and a raw
+    circumcentre of perturbed points shifts by ~2x the perturbation — enough
+    to eject a conforming fourth hole from a band it genuinely sits in (PR #89
+    review, blocker 1). Each seed therefore captures loosely (2x band),
+    refits the centre by least squares over the capture, and only then
+    adjudicates strictly against the refitted centre. Exactness is judged
+    against that fitted pattern circle, never against a seed's own centre.
+
+    Returns (fitted diameter or None, best near-miss for the failure detail).
+    """
+    import itertools
+    import math
+
+    def dist(a: tuple[float, float], b: tuple[float, float]) -> float:
+        return math.hypot(a[0] - b[0], a[1] - b[1])
+
+    if count == 2:
+        # Two bolts on a BCD sit diametrically opposite: the circle claim
+        # collapses to centre distance == bcd. The closest in-band pair is the
+        # measurement — the first found would make the recorded value depend
+        # on face-iteration order.
+        closest = None
+        for a, b in itertools.combinations(points, 2):
+            separation = dist(a, b)
+            if closest is None or abs(separation - bcd) < abs(closest - bcd):
+                closest = separation
+        if closest is not None and lo <= closest <= hi:
+            return closest, best
+        if closest is not None:
+            best = (2, closest) if best is None or abs(closest - bcd) < abs(best[1] - bcd) else best
+        return None, best
+
+    for triple in itertools.combinations(points, 3):
+        centre = _circumcentre(*triple)
+        if centre is None:
+            continue  # collinear
+        if any(abs(2 * dist(centre, p) - bcd) > 2 * band for p in triple):
+            continue  # a seed nowhere near the claimed radius cannot converge to it
+        for _ in range(8):
+            capture = [p for p in points if abs(2 * dist(centre, p) - bcd) <= 2 * band]
+            if len(capture) < 3:
+                break
+            refit = _fit_centre(capture)
+            if refit is None or dist(refit, centre) < 1e-12:
+                break
+            centre = refit
+        members = [p for p in points if abs(2 * dist(centre, p) - bcd) <= band]
+        if not members:
+            continue
+        circle_d = 2 * sum(dist(centre, p) for p in members) / len(members)
+        if len(members) == count and lo <= circle_d <= hi:
+            return circle_d, best
+        if best is None or abs(len(members) - count) < abs(best[0] - count):
+            best = (len(members), circle_d)
+    return None, best
+
+
+def _fit_centre(points: list[tuple[float, float]]) -> tuple[float, float] | None:
+    """Algebraic least-squares circle centre (Kåsa fit) — linear, stdlib-only."""
+    n = len(points)
+    sx = sum(p[0] for p in points) / n
+    sy = sum(p[1] for p in points) / n
+    # Centre the data first: the normal equations are ill-conditioned far
+    # from the origin, and bore coordinates routinely sit at ~1e2.
+    u = [p[0] - sx for p in points]
+    v = [p[1] - sy for p in points]
+    suu = sum(a * a for a in u)
+    svv = sum(a * a for a in v)
+    suv = sum(a * b for a, b in zip(u, v, strict=True))
+    suuu = sum(a * a * a for a in u)
+    svvv = sum(a * a * a for a in v)
+    suvv = sum(a * b * b for a, b in zip(u, v, strict=True))
+    svuu = sum(b * a * a for a, b in zip(u, v, strict=True))
+    det = suu * svv - suv * suv
+    if abs(det) < 1e-12:
+        return None  # collinear
+    cu = ((suuu + suvv) * svv - (svvv + svuu) * suv) / (2 * det)
+    cv = ((svvv + svuu) * suu - (suuu + suvv) * suv) / (2 * det)
+    return (cu + sx, cv + sy)
+
+
+def _circumcentre(
+    a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]
+) -> tuple[float, float] | None:
+    d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]))
+    if abs(d) < 1e-12:
+        return None
+    a2, b2, c2 = (
+        a[0] * a[0] + a[1] * a[1],
+        b[0] * b[0] + b[1] * b[1],
+        c[0] * c[0] + c[1] * c[1],
+    )
+    return (
+        (a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d,
+        (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d,
     )
 
 

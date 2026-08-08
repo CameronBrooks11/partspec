@@ -339,6 +339,10 @@ class MeshBackend:
             requires=Tier.OCCT,
         )
 
+    def bore_table(self, a: Any) -> Unsupported:
+        """Same refusal as `bores`, for the positional view `bolt_circle` uses."""
+        return self.bores(a)
+
     def region_solid(self, region: Any) -> Any:
         """Materialize a declared region as this tier's native solid.
 

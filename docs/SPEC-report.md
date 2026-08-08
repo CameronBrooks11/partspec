@@ -580,8 +580,8 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   paired one (empty here AND solid nearby, or the mirror) that no limit form expresses — and
   their `measurement` is the two-component vector `(region, shell)` of material volumes.
   Additive (no schema bump).
-- **`checks[].hole`** — present only on `hole_diameter` checks: the declared bore,
-  `{"d": ..., "count": ...}`. The diameter band lives in the check's `limit`; the
+- **`checks[].hole`** — present on `hole_diameter` and `bolt_circle` checks: the declared
+  callout, `{"d": ..., "count": ...}` (plus `"bcd"` for a bolt circle). The diameter band lives in the check's `limit`; the
   measurement is the vector of matched diameters (null when none matched, with the part's
   full bore inventory in `detail` on failure). Additive (no schema bump).
 - **`checks[].kind`** — an **open vocabulary**, defined in `SPEC-contract.md`. This document

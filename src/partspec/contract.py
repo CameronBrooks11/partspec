@@ -43,6 +43,7 @@ GEOMETRY_KINDS: dict[str, str] = {
     "keep_out": "region_solid",
     "keep_in": "region_solid",
     "hole_diameter": "bores",
+    "bolt_circle": "bore_table",
 }
 """The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
@@ -355,6 +356,60 @@ class Part:
                 phase=GEOMETRY,
                 limit=Limit(min=float(d) - band, max=float(d) + band),
                 hole={"d": float(d), "count": count},
+            )
+        )
+
+    def bolt_circle(
+        self, d: float, *, count: int, bcd: float, tol: float | None = None, id: str | None = None
+    ) -> Part:
+        """The mounting-interface callout as one check: exactly `count` bores
+        of diameter `d`, axes parallel, centres on one circle of diameter
+        `bcd`. **OCCT tier only**, like `hole_diameter`, whose bore detection
+        this builds on.
+
+        Subset semantics, consistent with `hole_diameter`'s: the claim is that
+        such a circle of holes *exists*, so an unrelated Ø`d` bore elsewhere on
+        the part does not break it — but a fifth hole ON the claimed circle
+        does, because "4×" is a count, not a minimum. `tol` is the positional
+        acceptance band on the circle diameter; omitted, it is the comparison
+        epsilon (modelled exactly as drawn). The bores' own diameters always
+        match at the comparison epsilon — a toleranced diameter claim belongs
+        to `hole_diameter`, and blurring the two would let a wrong-size hole
+        satisfy a position claim.
+        """
+        if not isinstance(d, int | float) or not math.isfinite(d) or d <= 0:
+            raise ContractError(f"bolt_circle needs d > 0 (got {d!r})")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 2:
+            raise ContractError(
+                f"bolt_circle needs count >= 2 (got {count!r}); one hole has no "
+                f"circle — that claim is hole_diameter's"
+            )
+        if not isinstance(bcd, int | float) or not math.isfinite(bcd) or bcd <= d:
+            raise ContractError(
+                f"bolt_circle needs bcd > d (got bcd={bcd!r}, d={d!r}); holes wider "
+                f"than their own circle would overlap at its centre"
+            )
+        if tol is not None and (
+            not isinstance(tol, int | float) or not math.isfinite(tol) or tol <= 0
+        ):
+            raise ContractError(f"bolt_circle tol must be > 0 when given (got {tol!r})")
+        if tol is not None and tol > d:
+            # A band wider than the hole itself is not a position claim: it
+            # makes the callout ambiguous, and an ambiguous band is one a
+            # cherry-picked circle centre can satisfy on geometry the drawing
+            # rejects (PR #89 review, blocker 2).
+            raise ContractError(
+                f"bolt_circle tol must not exceed d (got tol={tol!r}, d={d!r}); a "
+                f"positional band wider than the hole is not a position claim"
+            )
+        band = float(tol) if tol is not None else epsilon(float(bcd))
+        return self._add(
+            CheckSpec(
+                id=id or f"bolt_circle_{count}x_d{d:g}".replace(".", "_"),
+                kind="bolt_circle",
+                phase=GEOMETRY,
+                limit=Limit(min=float(bcd) - band, max=float(bcd) + band),
+                hole={"d": float(d), "count": count, "bcd": float(bcd)},
             )
         )
 
