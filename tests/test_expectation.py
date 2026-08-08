@@ -43,6 +43,22 @@ def test_a_swap_under_the_same_count_is_caught():
     assert compare(pinned, declared), "same id, same count, weaker claim — must not slip"
 
 
+def test_the_shell_thickness_is_part_of_the_claim():
+    """A keep_out with a thinner verification shell is a weaker claim; the
+    slug must see it (PR #105 review, mutation survivor F3)."""
+    from partspec import Part, openscad
+    from partspec.expectation import claims_of
+    from partspec.region import box
+
+    def bracket(shell: float) -> dict[str, str]:
+        p = Part("b", openscad("m.scad"))
+        p.keep_out(box(min=(0, 0, 0), max=(5, 5, 5)), shell=shell, id="clearance")
+        return claims_of(p)
+
+    assert compare(bracket(5.0), bracket(1.0)), "a thinned shell must not slip the pin"
+    assert compare(bracket(5.0), bracket(5.0)) == []
+
+
 def test_a_missing_or_corrupt_lock_is_a_named_refusal(tmp_path: Path):
     with pytest.raises(LockError, match="--pin"):
         read_lock(tmp_path / "absent.lock")
@@ -174,6 +190,36 @@ def test_pin_and_expect_together_are_refused(tmp_path: Path):
     with pytest.raises(SystemExit) as excinfo:
         main(["check", "spec.py:make", "--pin", "a.lock", "--expect", "b.lock"])
     assert excinfo.value.code == 64
+
+
+@needs_openscad
+def test_a_pinned_part_dropped_from_the_invocation_is_not_green(tmp_path: Path, capsys):
+    """PR #105's review, F1 — the one defeat inside the pin's own charter:
+    'delete the check' at part granularity. Pin two parts, invoke --expect
+    with only one target: the uncovered pin entry must fail the run."""
+    a_dir, b_dir = tmp_path / "a", tmp_path / "b"
+    a_dir.mkdir(), b_dir.mkdir()
+    targets = []
+    for d, name in ((a_dir, "part_a"), (b_dir, "part_b")):
+        (d / "m.scad").write_text("cube([30, 20, 10]);\n")
+        spec = d / f"{name}.py"
+        spec.write_text(
+            "from partspec import Part, openscad\n\n\ndef make():\n"
+            f"    p = Part({name!r}, openscad('m.scad'))\n"
+            "    p.watertight()\n"
+            "    return p\n"
+        )
+        targets.append(f"{spec}:make")
+    lock = tmp_path / "claims.lock"
+    assert main(["check", *targets, "--quiet", "--pin", str(lock)]) == 0
+
+    code = main(["check", targets[0], "--quiet", "--expect", str(lock)])
+    assert code == 4, "a deleted part is a deleted claim set"
+    err = capsys.readouterr().err
+    assert "part_b" in err and "no target" in err
+
+    # Both targets present again: covered, green.
+    assert main(["check", *targets, "--quiet", "--expect", str(lock)]) == 0
 
 
 @needs_openscad

@@ -15,6 +15,14 @@ entry, and stripping a `source` citation (laundering an attributed bound into
 an authorless one) is too. Deliberate updates are one flag (`--pin`);
 accidental ones would require editing a generated file by hand.
 
+Two scope limits, stated rather than implied. The pin binds the CLAIM set,
+not the source: identical claims pointed at a different model pass — source
+identity belongs to `source_digest` and `diff`. And the lockfile is a
+generated file an agent can regenerate, so the tamper-resistance that makes
+the pin bite is the committed lock showing in review plus the agent contract
+(#28) declaring re-pin-after-weakening out of bounds; the tool's job is to
+make the weakening IMPOSSIBLE to do silently, not impossible to do.
+
 Spec: SPEC-report.md §7.1 (`expectation`).
 """
 
@@ -42,8 +50,11 @@ def _limit_slug(limit: Limit | None) -> str:
     if limit is None:
         return ""
     parts = []
-    for name in ("min", "max", "equals"):
-        value = getattr(limit, name)
+    # Every Limit form, including `choices` — no Part method emits it today,
+    # but a form the slug ignores is a weakening channel waiting for the
+    # first check that adopts it (PR #105 review, F4).
+    for name in ("min", "max", "equals", "choices"):
+        value = getattr(limit, name, None)
         if value is not None:
             parts.append(f"{name}={json.dumps(value)}")
     return " ".join(parts)
