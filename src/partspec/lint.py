@@ -353,6 +353,16 @@ def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], 
             nodes = csg.read_csg(out)
         except csg.CsgError as exc:
             return [], [{"rule": r, "reason": f"unreadable .csg: {exc}"} for r in TIER2_RULES]
+        if csg.contains_strings(nodes):
+            # The format does not escape string interiors (text(), import()),
+            # so a quote inside one can silently reshape the parse — PR #125's
+            # review drove four phantom findings through exactly that. No
+            # parse of such a file is trustworthy; refuse it whole.
+            reason = (
+                "the tree carries string content, which the .csg format does not "
+                "escape — the parse cannot be trusted, so the file is refused whole"
+            )
+            return [], [{"rule": r, "reason": reason} for r in TIER2_RULES]
 
     findings: list[Finding] = []
     unsupported: list[dict] = []

@@ -495,3 +495,18 @@ def test_a_singular_transform_is_an_entry_not_a_crash(tmp_path: Path, capsys):
     assert main(["lint", str(scad)]) == 0
     entry = json.loads(capsys.readouterr().out)["files"][0]
     assert any("could not be evaluated" in u["reason"] for u in entry.get("unsupported", []))
+
+
+def test_string_bearing_trees_are_refused_whole():
+    """PR #125 review F3: the format does not escape string interiors, so a
+    hostile label silently reshaped the parse into phantom findings. Any
+    string in the tree refuses tier 2 at file level — engine-free pin on the
+    detector, plus the parse-side admission path it guards."""
+    from partspec.csg import contains_strings, parse_csg
+
+    innocent = parse_csg("difference() { cube(size = [4, 4, 4], center = false); }")
+    assert not contains_strings(innocent)
+    labeled = parse_csg('group() { text(text = "hi", size = 10); }')
+    assert contains_strings(labeled)
+    nested = parse_csg('group() { color([1, 0, 0, 1]) { import(file = "x.stl"); } }')
+    assert contains_strings(nested)

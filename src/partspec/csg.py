@@ -9,10 +9,11 @@ literals, vectors, named arguments, braces, and the statement modifiers
 `#%!*`. One tokenizer, one recursive-descent parser, stdlib only.
 
 One stated limitation: the engines print string CONTENTS raw (a quote inside
-a text() label is not escaped), so such a file is ambiguous at the format
-level — the tokenizer matches to the next quote and the parse then fails as
-a clean CsgError (an honest refusal) rather than silently misreading. There
-is no parse that could be trusted for those files.
+a text() label is not escaped), so a file whose tree carries any string is
+ambiguous at the format level — depending on the content, the parse either
+fails as a CsgError or, worse, silently admits phantom nodes (demonstrated
+in PR #125's review). No parse of such a file can be trusted, so
+`contains_strings` exists for callers to refuse the whole file honestly.
 
 The evaluation layer is the part no candidate provided at any price: analytic
 volumes for the primitives (scaled by |det M| under `multmatrix`) and face
@@ -29,7 +30,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-__all__ = ["CsgError", "Node", "parse_csg", "planes_of", "volume_of"]
+__all__ = ["CsgError", "Node", "contains_strings", "parse_csg", "planes_of", "volume_of"]
 
 _TOKEN = re.compile(
     r"""
@@ -353,3 +354,26 @@ def planes_of(node: Node, matrix=_IDENTITY) -> set[tuple[float, float, float, fl
 
 def read_csg(path: Path) -> list[Node]:
     return parse_csg(path.read_text(encoding="utf-8", errors="replace"))
+
+
+def contains_strings(nodes: list[Node]) -> bool:
+    """Whether any node carries string content — the format does not escape
+    string interiors, so such a tree may be silently misparsed and a caller
+    must refuse it whole rather than trust any of it."""
+
+    def value_has_string(value: object) -> bool:
+        if isinstance(value, str):
+            return True
+        if isinstance(value, list):
+            return any(value_has_string(v) for v in value)
+        return False
+
+    stack = list(nodes)
+    while stack:
+        node = stack.pop()
+        if any(value_has_string(v) for v in node.args) or any(
+            value_has_string(v) for v in node.kwargs.values()
+        ):
+            return True
+        stack.extend(node.children)
+    return False
