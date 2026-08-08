@@ -420,3 +420,62 @@ def test_render_engine_block_states_the_method(tmp_path: Path, capsys):
         assert payload["engine"]["param_mode"] == "call"
     else:
         assert code == 4  # no display; the refusal path is asserted elsewhere
+
+
+@needs_openscad
+def test_render_carries_the_same_identity_as_the_report(tmp_path: Path, capsys):
+    """render was the last verb whose payload named its part with a bare id
+    string (#103): no digests, no closure — its images could not be tied to
+    the revision that produced them. Same pin as measure's (#47)."""
+    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    out = tmp_path / "out"
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 0
+    report = json.loads((out / "report.json").read_text())
+    capsys.readouterr()
+
+    code = main(["render", target, "--out", str(tmp_path / "r")])
+    payload = json.loads(capsys.readouterr().out)
+    # With or without a display: the failure artifact carries the same
+    # identity prefix as the success payload, so both branches pin here.
+    assert code in (0, exit_code(Verdict.ERROR))
+    assert payload["schema_version"] == report["schema_version"]
+    assert payload["part"] == report["part"]
+    assert payload["params"] == report["params"]
+    # Presence, not just sameness: the equality pin alone cannot see a field
+    # both sides lost together (PR #102 review, mutant survivor).
+    assert payload["part"]["contract_digest"].startswith("sha256:")
+    assert payload["part"]["source_digest"].startswith("sha256:")
+    assert list(payload)[:6] == [
+        "schema_version",
+        "tool",
+        "part",
+        "engine",
+        "params",
+        "renders",
+    ]
+
+
+@needs_openscad
+def test_render_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
+    """The render failure path printed to stderr and returned a bare 4 —
+    machine-invisible exactly where a machine is the audience (#103, the
+    hole #47 closed for measure)."""
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('subject', openscad('missing.scad', bore_diamter=8))\n"
+    )
+    assert main(["render", f"{module}:make"]) == exit_code(Verdict.ERROR)
+    captured = capsys.readouterr()
+    doc = json.loads(captured.out)
+    assert doc["schema_version"] == 1
+    assert doc["part"]["id"] == "subject"
+    assert doc["part"]["contract"].endswith("spec.py")
+    assert doc["engine"]["kind"] == "openscad"
+    # The payload records what was ASKED; `error` says what happened. A
+    # typo'd parameter stays visible rather than vanishing with the build.
+    assert doc["params"] == {"bore_diamter": 8}
+    assert doc["renders"] == {}
+    assert "not found" in doc["error"]
+    assert "hint" in doc
+    assert "not found" in captured.err, "the console courtesy line survives"

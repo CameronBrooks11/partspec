@@ -1,18 +1,24 @@
 # SPEC — the `partspec` report
 
-**Status:** draft 8 · 2026-08-08 · adds `expectation` (the claims pin),
-`invocation.timeout_s`, the exit-130 row, batch coverage of `64` (reversing the earlier
-no-aggregation theory), the model-cache-invalidation MUST, and the `measure`
-identity-prefix scope; draft 7 added `checks[].components` / `region` / `hole` /
-`source`, run-level `attribution`, render references, and the §8.3 closure reversal
+**Status:** draft 9 · 2026-08-08 · extends the identity-prefix scope to `render` (#103);
+draft 8 added `expectation` (the claims pin), `invocation.timeout_s`, the exit-130 row,
+batch coverage of `64` (reversing the earlier no-aggregation theory), the
+model-cache-invalidation MUST, and the `measure` identity-prefix scope; draft 7 added
+`checks[].components` / `region` / `hole` / `source`, run-level `attribution`, render
+references, and the §8.3 closure reversal
 **Scope:** the JSON artifact `partspec check` emits, and the process exit code that
-accompanies it. `partspec measure` emits a sibling payload that MUST share the identity
-prefix — `schema_version`, `tool`, `part`, `engine`, `params`, `geometry`, built by the
-same code (#47) — and, on any failure after the target resolves, MUST emit a JSON object
-carrying that identity plus `error`/`hint`, so a consumer always learns which file and
-revision it was talking about. A target that never resolves has no identity to emit:
-those failures are stderr + exit code only (for `check`, the placeholder artifact covers
-that window; `measure` writes no artifact).
+accompanies it. `partspec measure` and `partspec render` emit sibling payloads that MUST
+share the identity prefix — `schema_version`, `tool`, `part`, `engine`, `params`, built
+by the same code (#47, #103) — followed by `geometry` for `measure` and by `renders` for
+`render`, which runs no measurement tier and so carries no `geometry` block (its `engine`
+block is the §7 subset `kind`, `version`, `render_backend`, `method`, `param_mode`:
+`backend` names the measurement tier that did not run, and `adopted_via` could only ever
+be null on the one engine the verb accepts). On any failure after the target resolves, both
+MUST emit a JSON object carrying that identity plus `error`/`hint` — `renders` empty
+rather than absent — so a consumer always learns which file and revision it was talking
+about. A target that never resolves has no identity to emit: those failures are stderr +
+exit code only (for `check`, the placeholder artifact covers that window; `measure` and
+`render` write no artifact).
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
 **Backing:** `DECISIONS.md` D5, D10, D13; `investigations/04-kernel-capability.md`.
 
@@ -794,7 +800,11 @@ View name → image path, relative to the report's own directory (rule 4). Prese
 when the invocation actually produced images (`check --render`); when nothing was rendered
 the key MUST be absent — never an empty object, and never an empty-string path, which reads
 as a file that exists. A requested render that fails exits `4` and leaves the key absent:
-the report speaks for the part, the exit code for the run.
+the report speaks for the part, the exit code for the run. (The `render` verb's own
+sibling payload is the opposite by design — its failure artifact carries `renders: {}`
+beside an `error`, per the Scope above — because there the empty map sits next to the
+error that explains it, while in a report it would sit next to a verdict it has nothing
+to do with.)
 
 The images are evidence, not judgement — no verdict, status, or measurement may be derived
 from them (D18). §9's rule stands: paths only, never inline image data.
