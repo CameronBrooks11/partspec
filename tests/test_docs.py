@@ -270,3 +270,86 @@ def test_the_skills_pointers_resolve():
         "only against a reference the model does not contain"
         in (ROOT / "docs" / "PLAN.md").read_text()
     ), "the promoted lesson must still match its source"
+
+
+# --------------------------------------------------------------------------
+# skills/openscad-authoring — the skill's examples build and mean what they say
+# --------------------------------------------------------------------------
+
+SCAD_SKILL = (ROOT / "skills" / "openscad-authoring" / "SKILL.md").read_text()
+
+
+def _scad_blocks() -> dict[str, str]:
+    blocks = {}
+    for body in re.findall(r"```scad\n(.*?)```", SCAD_SKILL, re.S):
+        first = body.splitlines()[0]
+        m = re.match(r"// (rule-\d+-(?:before|after))", first)
+        assert m, f"every scad block carries a rule marker, got: {first!r}"
+        blocks[m.group(1)] = body
+    return blocks
+
+
+@needs_openscad
+def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
+    """Acceptance (#22): the examples in the skill actually build and satisfy
+    what they claim — executed, per rule, not asserted in prose."""
+    from partspec.backend import BuildError
+    from partspec.backends.mesh import MeshBackend
+    from partspec.engines.openscad import OpenSCADSource
+
+    blocks = _scad_blocks()
+    assert set(blocks) >= {
+        "rule-1-before",
+        "rule-1-after",
+        "rule-2-before",
+        "rule-2-after",
+        "rule-5-after",
+    }
+
+    def build(name: str):
+        scad = tmp_path / f"{name}.scad"
+        scad.write_text(blocks[name])
+        backend = MeshBackend()
+        return backend, backend.build(OpenSCADSource(path=scad), tmp_path / name)
+
+    # Rule 1: both build; the after-form has drivable top-level parameters.
+    for name in ("rule-1-before", "rule-1-after"):
+        _, artifact = build(name)
+        assert not isinstance(artifact, BuildError), name
+    from partspec.engines.openscad import top_level_variables
+
+    scad = tmp_path / "rule-1-after.scad"
+    assert {"plate_w", "plate_d", "plate_t"} <= top_level_variables(scad)
+
+    # Rule 2: the wrong order is EMPTY geometry exiting 0 — partspec makes it
+    # a build failure; the right order is a genuine through-hole, genus 1.
+    _, before = build("rule-2-before")
+    assert isinstance(before, BuildError), "hole-minus-plate must fail as empty geometry"
+    backend, after = build("rule-2-after")
+    assert not isinstance(after, BuildError)
+    assert measured(backend.genus(after)).value == 1
+    assert backend.watertight(after).value is True
+
+    # Rule 5: the decomposed form produces the same part as rule 2's after.
+    backend5, decomposed = build("rule-5-after")
+    assert not isinstance(decomposed, BuildError)
+    assert measured(backend5.genus(decomposed)).value == 1
+    assert measured(backend5.volume(decomposed)).value == pytest.approx(
+        measured(backend.volume(after)).value, rel=1e-9
+    )
+
+
+def test_the_scad_skill_cites_the_catalogue_and_its_neighbours():
+    """Acceptance (#22): cross-references the failure catalogue — this is also
+    the skills' half of #24's deferred cross-reference box, OpenSCAD side."""
+    for needle in (
+        "docs/FAILURE-MODES.md",
+        "entry 1",
+        "entry 2",
+        "entry 4",
+        "entry 5",
+        "skills/contract-authoring/SKILL.md",
+        "PARTSPEC_OPENSCAD",
+        "source_closure",
+    ):
+        assert needle in SCAD_SKILL, f"the skill must reference {needle}"
