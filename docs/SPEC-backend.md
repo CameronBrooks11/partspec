@@ -1,6 +1,7 @@
 # SPEC — the `partspec` geometry backend
 
-**Status:** draft 2 · 2026-08-03
+**Status:** draft 3 · 2026-08-08 · `build()` grows `timeout_s` with the blown-budget
+MUSTs and the stated in-process enforcement ceiling
 **Scope:** the protocol a geometry backend implements, the two v0 implementations, and how
 `exactness`, `bounds` and capability gating are determined.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.

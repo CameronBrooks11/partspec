@@ -2,10 +2,14 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.3.0 is on PyPI.** It runs end to end — `check` and `measure`
+> **Status: pre-alpha; v0.4.0 is on PyPI.** It runs end to end — `check` and `measure`
 > across all three engines, `diff` on the reports they produce, `render` on the mesh tier — and is dogfooded on real
 > parts. The vocabulary covers real mechanical intent: keep-out/keep-in regions,
-> `hole_diameter`, `bolt_circle` and `fillet_radius` on the OCCT tier.
+> `hole_diameter`, `bolt_circle` and `fillet_radius` on the OCCT tier. The loop is built
+> to run unattended: every build is bounded (`--timeout`), `check` takes many targets in
+> one process, a committed claims pin (`--pin`/`--expect`) catches a contract that shrank
+> with no baseline in hand, and the rules an agent follows are
+> [`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md).
 > [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is still withheld and why.
 > Expect the Python API to move: the stable surface is the report schema plus the exit
 > codes, and `partspec.run()` is internal.
@@ -66,7 +70,8 @@ PASS: 8 pass
 ```
 
 The JSON report is the actual product surface; the console summary is a courtesy. Exit
-codes: `0` pass, `1` fail, `2` incomplete, `3` empty, `4` error, `64` bad usage.
+codes: `0` pass, `1` fail, `2` incomplete, `3` empty, `4` error, `64` bad usage
+(`130` is the SIGINT convention, not a verdict).
 
 That last warning line is the tool being honest about its own example: every bound above
 is derived from the same constants the model is built from, so this contract proves the
