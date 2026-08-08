@@ -27,7 +27,7 @@ from typing import Any, cast
 
 from ..backend import BuildError
 
-__all__ = ["PyCADSource", "adopt", "build", "invalidate_model_modules"]
+__all__ = ["PyCADSource", "adopt", "build", "invalidate_model_modules", "record_model_modules"]
 
 
 _LOADED_MODEL_MODULES: dict[str, set[str]] = {}
@@ -41,7 +41,7 @@ modules, mid-session. Only what a build introduced can be stale because of
 that build, so only that is remembered and evicted."""
 
 
-def _record_model_modules(model_path: Path, before: set[str]) -> None:
+def record_model_modules(model_path: Path, before: set[str]) -> None:
     """Remember which modules this build added from the model's directory."""
     root = model_path.resolve().parent
     added: set[str] = set()
@@ -78,12 +78,16 @@ def invalidate_model_modules(model_path: Path) -> None:
     Evicting is safe for live objects (existing references keep working; only
     the next import re-reads the file).
 
-    One ceiling beneath this function's reach, stated rather than hidden:
+    Two ceilings beneath this function's reach, stated rather than hidden.
     CPython validates a cached `.pyc` by (mtime seconds, size), so an edit
     that changes neither — same byte count, within the same second — serves
-    stale bytecode to ANY interpreter, fresh process included. The closure
-    digest still changes (it reads the file), which is how such a run would
-    be caught on comparison.
+    stale bytecode to ANY interpreter, fresh process included; the closure
+    digest still changes (it reads the file), which is how such a run is
+    caught on comparison. And a module a caller imported BEFORE any build —
+    a same-named helper from an unrelated directory, say — predates every
+    snapshot, is never recorded, and shadows the model's own helper for as
+    long as the process lives; its file sits outside the model's directory,
+    so no subtree rule would reach it either.
     """
     root = str(model_path.resolve().parent)
     for name in _LOADED_MODEL_MODULES.pop(root, set()):
@@ -391,7 +395,7 @@ def build(source: PyCADSource, *, timeout_s: float | None = None) -> Any | Build
     try:
         return _bounded_build(source, timeout_s, started)
     finally:
-        _record_model_modules(source.path, modules_before)
+        record_model_modules(source.path, modules_before)
 
 
 def _bounded_build(

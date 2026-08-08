@@ -355,6 +355,7 @@ it does not know what to assert.
 | `3` | `empty` | no checks declared |
 | `4` | `error` | the contract raised, or the environment prevented a build |
 | `64` | — | usage error: unresolvable target, bad arguments (`EX_USAGE`) |
+| `130` | — | user interrupt (SIGINT convention); the operator's own abort, never a verdict |
 
 **`2` is the load-bearing one.** It is what stops D10 from being a comment. A tool that
 exits 0 on a part whose checks were mostly unavailable has told the operator that the part
@@ -366,7 +367,7 @@ several parts are checked at once, the process exit code is that of the
 (`error > empty > fail > incomplete > pass`).
 
 An unresolvable target exits `64`, outranking every verdict — but the remaining targets
-MUST still be evaluated and written first (§4 rule 4). An earlier draft reserved `64`
+MUST still be evaluated and written first (§5 rule 4). An earlier draft reserved `64`
 from this aggregation on the theory that usage failures produce no reports; the
 placeholder rule (§4 rule 2) means they do — an error artifact naming the dead run — and
 a batch that reported a mistyped (or deleted: that is how a contract vanishes in a

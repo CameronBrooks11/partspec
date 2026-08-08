@@ -178,9 +178,21 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
     report as a wrong answer, and in CI the two are indistinguishable. It is
     `EXIT_ERROR` for the same reason a `ContractError` raised during a run is:
     nothing was evaluated, so nothing may be said about the part.
+
+    Resolution is also snapshot for the model-module registry: a CONTRACT that
+    imports a helper beside the model puts it into `sys.modules` before the
+    build's own snapshot, and PR #104's review reproduced POST-V0 §8's
+    stale-helper build through exactly that path. Recording resolve-time
+    additions against the model's directory closes it.
     """
+    modules_before = set(sys.modules)
     try:
-        return resolve(spec)
+        part, target = resolve(spec)
+        if part.source.engine != "openscad":
+            from .engines.pycad import record_model_modules
+
+            record_model_modules(part.source.path, modules_before)
+        return part, target
     except TargetError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -230,14 +242,19 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
     targets: list[str] = args.targets
     batch = len(targets) > 1
 
+    # EVERY target's placeholder goes down before ANY target runs — not per
+    # target inside the loop. An invocation that dies mid-batch (usage error,
+    # interrupt during part two) meant to re-check the later targets too, and
+    # their previous `verdict: "pass"` sitting untouched at the deterministic
+    # path is a stale artifact reading as current — the worst failure in the
+    # system (SPEC-report 5, rules 1-2; PR #104 review). `_out_dir_for` only
+    # parses the target string, so it needs no resolved Part.
+    for spec in targets:
+        write_placeholder(_out_dir_for(spec, args.out, batch=batch), contract=spec, argv=argv)
+
     try:
         timeout_s = _timeout_s(args.timeout)
     except _TimeoutUsage as exc:
-        # The placeholder rule still holds on this exit: a stale
-        # `verdict: "pass"` must not survive an invocation that died.
-        for spec in targets:
-            out = _out_dir_for(spec, args.out, batch=batch)
-            write_placeholder(out, contract=spec, argv=argv)
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
@@ -279,18 +296,11 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
 def _check_one(
     spec: str, args: argparse.Namespace, argv: list[str], timeout_s: float, *, batch: bool
 ) -> int:
-    # The placeholder goes down BEFORE the contract is resolved, not after.
-    # Resolving is itself something that can fail -- a contract that raises on
-    # import, a typo in a keyword argument -- and until this moved, that path
-    # returned an exit code without touching the output directory, leaving the
-    # *previous* run's `verdict: "pass"` at the deterministic path. The exit
-    # code said error; the artifact on disk said the part was fine, and the
-    # artifact is what a later reader trusts. Making the failure quieter was a
-    # regression this ordering fixes.
-    #
-    # `_out_dir_for` only parses the target string, so it needs no resolved Part.
+    # The placeholder is already on disk — written by `_cmd_check` for every
+    # target before any ran — so a resolution failure here (a contract that
+    # raises on import, a typo in a keyword argument) leaves an artifact
+    # saying the run died, never the previous run's `verdict: "pass"`.
     out = _out_dir_for(spec, args.out, batch=batch)
-    write_placeholder(out, contract=spec, argv=argv)
 
     resolved = _resolve_or_report(spec)
     if isinstance(resolved, int):

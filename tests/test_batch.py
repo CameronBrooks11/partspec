@@ -1,6 +1,6 @@
 """Multi-target check (#29): one interpreter start, N reports, honest exits.
 
-The batch rules are SPEC-report §4 rule 4 and §6.2: no early abort, one report
+The batch rules are SPEC-report §5 rule 4 and §6.2: no early abort, one report
 per part, exit by the highest-precedence verdict — and the hazard the slice
 owns, POST-V0 §8: `sys.modules` must not serve a later build a stale helper.
 """
@@ -60,7 +60,7 @@ def test_an_erroring_part_does_not_stop_the_rest(tmp_path: Path, capsys):
     raising.write_text("def make():\n    raise TypeError('broken contract')\n")
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
     assert main(["check", f"{raising}:make", good, "--quiet"]) == exit_code(Verdict.ERROR)
-    assert _report(good)["verdict"] == "pass", "SPEC-report 4.4: failures must not abort the batch"
+    assert _report(good)["verdict"] == "pass", "SPEC-report 5.4: failures must not abort the batch"
 
 
 @needs_openscad
@@ -186,6 +186,72 @@ def test_an_edited_helper_reaches_the_second_run_in_one_process(tmp_path: Path):
     _py_target(tmp_path / "m", 12.5)
     assert main(["check", target, "--quiet", "--out", str(out2)]) == 0
     assert _measured_volume(out2) == pytest.approx(12.5), "the edited helper must be re-imported"
+
+
+def test_a_helper_the_contract_imports_is_invalidated_too(tmp_path: Path):
+    """PR #104's review blocker: a helper the CONTRACT imports top-level
+    enters sys.modules during resolve, before the build's snapshot — so it
+    was never recorded, never evicted, and an edit produced POST-V0 §8's
+    worst case verbatim: a stale build with a closure digest of the edited
+    file that never reached the interpreter. Resolution is snapshot now."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+
+    def write(size: float) -> str:
+        d = tmp_path / "m"
+        d.mkdir(exist_ok=True)
+        (d / "contract_helper.py").write_text(f"SIZE = {size}\n")
+        (d / "model.py").write_text(
+            "from build123d import Box\n\n\ndef make_part(size=1.0):\n    return Box(size, 1, 1)\n"
+        )
+        spec = d / "spec.py"
+        spec.write_text(
+            "from contract_helper import SIZE\n"
+            "from partspec import Part, build123d\n\n\ndef make():\n"
+            "    p = Part('subject', build123d('model.py', size=SIZE))\n"
+            "    p.volume(min=0.0)\n"
+            "    return p\n"
+        )
+        return f"{spec}:make"
+
+    target = write(1.0)
+    out1, out2 = tmp_path / "o1", tmp_path / "o2"
+    assert main(["check", target, "--quiet", "--out", str(out1)]) == 0
+    assert _measured_volume(out1) == pytest.approx(1.0)
+
+    write(12.5)  # different length: sidestep the .pyc mtime-second ceiling
+    assert main(["check", target, "--quiet", "--out", str(out2)]) == 0
+    assert _measured_volume(out2) == pytest.approx(12.5), (
+        "the contract's own import must be re-read, not served from sys.modules"
+    )
+
+
+@needs_openscad
+def test_garbage_timeout_env_still_placeholders_every_target(tmp_path: Path, monkeypatch, capsys):
+    """The fan-out exists so an invocation that dies at the door leaves every
+    target's artifact saying the run died — never a previous verdict."""
+    good = _scad_target(tmp_path, "good", "    p.watertight()\n")
+    bad = _scad_target(tmp_path, "bad", "    p.watertight()\n")
+    assert main(["check", good, bad, "--quiet"]) == 0
+
+    monkeypatch.setenv("PARTSPEC_TIMEOUT", "soon")
+    assert main(["check", good, bad, "--quiet"]) == 64
+    assert _report(good)["verdict"] == "error", "the stale pass must not survive"
+    assert _report(bad)["verdict"] == "error"
+
+
+def test_an_interrupt_leaves_no_stale_pass_behind_it(tmp_path: Path, capsys):
+    """A batch interrupted at part two meant to re-check part three; part
+    three's previous pass sitting untouched would be a stale artifact reading
+    as current. Placeholders for every target go down before any runs."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    calm = _py_target(tmp_path / "calm", 1.0)
+    assert main(["check", calm, "--quiet"]) == 0
+
+    interrupting = tmp_path / "interrupting.py"
+    interrupting.write_text("def make():\n    raise KeyboardInterrupt\n")
+    assert main(["check", f"{interrupting}:make", calm, "--quiet"]) == 130
+    report = json.loads((tmp_path / "calm" / "outputs" / "spec-make" / "report.json").read_text())
+    assert report["verdict"] == "error", "the never-reached target's artifact says the run died"
 
 
 def test_batch_of_two_python_models_each_measures_its_own(tmp_path: Path):
