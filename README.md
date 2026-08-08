@@ -88,7 +88,10 @@ writes, `measure` and `render` the same output as their verbs, every call a fres
 evaluation. And the loop is measured, not assumed: in the seeded-defect eval suite
 ([`evals/`](https://github.com/CameronBrooks11/partspec/tree/main/evals)), an agent shown
 only the report — no shell, no hints, contract frozen — repaired all five defect classes in
-a single edit each, without once weakening its contract.
+a single edit each, without once weakening its contract. The rules of that loop — bounded
+attempts, what each exit code instructs, greppable escalation, and the guards watching the
+weakening moves — are
+[`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md).
 
 ## The idea it is built around
 
