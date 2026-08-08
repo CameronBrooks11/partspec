@@ -42,7 +42,15 @@ import numpy as np
 from .backend import BuildError
 from .engines.openscad import IMAGE_SIZE, VIEWS
 
-__all__ = ["TESSELLATION_TOLERANCE_MM", "rasterize", "render_views", "write_png"]
+__all__ = [
+    "SECTION_VIEWS",
+    "TESSELLATION_TOLERANCE_MM",
+    "rasterize",
+    "read_stl",
+    "render_section",
+    "render_views",
+    "write_png",
+]
 
 # The same tolerance the OCCT backend's `triangles` capability uses: one
 # tessellation is the measurand (D15), not one per consumer.
@@ -50,8 +58,20 @@ TESSELLATION_TOLERANCE_MM = 0.1
 
 _BACKGROUND = (255, 255, 229)  # OpenSCAD's Cornfield background
 _FACE = (249, 215, 44)  # Cornfield's face colour, shaded below
+_CUT = (204, 92, 63)  # terracotta: the material the section plane exposed (#19)
 _AMBIENT = 0.35
 _LIGHT = (0.35, 0.30, 0.89)  # towards the camera, upper-left — fixed, in view space
+
+# A section is viewed along the cut plane's normal, looking INTO the cut: the
+# material on the camera's side of the plane is discarded, so the exposed
+# faces at the plane fill the frame. The rotations are the canonical views'
+# own (top / front / right), so a section frames exactly like the view it
+# extends; the int is the axis the plane fixes (x=0, y=1, z=2).
+SECTION_VIEWS: dict[str, tuple[tuple[float, float, float], int]] = {
+    "xy": ((0.0, 0.0, 0.0), 2),  # camera +Z: discard z > offset
+    "xz": ((90.0, 0.0, 0.0), 1),  # camera -Y: discard y < offset
+    "yz": ((90.0, 0.0, 90.0), 0),  # camera +X: discard x > offset
+}
 
 
 def _view_matrix(rot: tuple[float, float, float]) -> Any:
@@ -75,6 +95,7 @@ def rasterize(
     center: Any,
     half_height: float,
     size: tuple[int, int] = IMAGE_SIZE,
+    colors: Any = None,
 ) -> Any:
     """One orthographic view as an (H, W, 3) uint8 array.
 
@@ -96,6 +117,11 @@ def rasterize(
     light = np.asarray(_LIGHT) / np.linalg.norm(_LIGHT)
 
     tri = np.asarray(faces, dtype=np.int64)
+    base_colors = (
+        np.broadcast_to(np.asarray(_FACE, dtype=np.float64), (len(tri), 3))
+        if colors is None
+        else np.asarray(colors, dtype=np.float64)
+    )
     ax, ay, az = xs[tri[:, 0]], ys[tri[:, 0]], zs[tri[:, 0]]
     bx, by, bz = xs[tri[:, 1]], ys[tri[:, 1]], zs[tri[:, 1]]
     cx, cy, cz = xs[tri[:, 2]], ys[tri[:, 2]], zs[tri[:, 2]]
@@ -133,7 +159,7 @@ def rasterize(
         if normal[2] < 0.0:
             normal = -normal
         shade = _AMBIENT + (1.0 - _AMBIENT) * max(float(normal @ light), 0.0)
-        colour = np.clip(np.asarray(_FACE) * shade, 0, 255).astype(np.uint8)
+        colour = np.clip(base_colors[i] * shade, 0, 255).astype(np.uint8)
         patch_z[wins] = depth[wins]
         img[y0 : y1 + 1, x0 : x1 + 1][wins] = colour
     return img
@@ -194,3 +220,63 @@ def render_views(
         "tolerance_mm": TESSELLATION_TOLERANCE_MM,
         "triangles": len(faces),
     }
+
+
+def read_stl(path: Path) -> tuple[Any, Any]:
+    """A binary STL as (vertices, faces) — vertices per-facet, float64.
+
+    Binary specifically: the engine layer exports `binstl` by choice (its
+    `render()` docstring owns that decision), so this reader matches the one
+    format those files can be. The 50-byte facet layout mirrors
+    `openscad._stl_bbox`."""
+    data = path.read_bytes()
+    (count,) = struct.unpack_from("<I", data, 80)
+    facet = np.dtype([("normal", "<3f4"), ("verts", "<9f4"), ("attr", "<u2")])
+    facets = np.frombuffer(data, dtype=facet, count=count, offset=84)
+    coords = facets["verts"].astype(np.float64).reshape(count * 3, 3)
+    faces = np.arange(count * 3, dtype=np.int64).reshape(count, 3)
+    return coords, faces
+
+
+def render_section(
+    points: Any,
+    faces: Any,
+    plane: str,
+    offset: float,
+    frame_points: Any,
+    out_dir: Path,
+) -> tuple[Path, int]:
+    """One section image of an already-cut mesh, cut faces in a distinct colour.
+
+    `points`/`faces` are the CUT solid — the kernel that owns the geometry did
+    the boolean, so the cap is real capped material, not a rasterizer trick.
+    `frame_points` are the ORIGINAL part's vertices: a section frames exactly
+    like the canonical view it extends, so iterations and views compare.
+
+    Cut faces are found by coplanarity with the section plane. The tolerance
+    scales with the offset because the OpenSCAD path round-trips through
+    float32 STL; an interior face that happens to lie exactly on the plane
+    will be coloured as cut — that is the true geometry of the section, not a
+    misidentification. Returns the image path and the cut-facet count, which
+    the payload records: zero states the plane passed only through voids."""
+    rot, axis = SECTION_VIEWS[plane]
+    frame = np.asarray(frame_points, dtype=np.float64)
+    lo, hi = frame.min(axis=0), frame.max(axis=0)
+    center = (lo + hi) / 2.0
+    diagonal = float(np.linalg.norm(hi - lo))
+    distance = max(2.2 * diagonal, 1.0)
+    half_height = distance * math.tan(math.radians(22.5 / 2.0))
+
+    pts = np.asarray(points, dtype=np.float64)
+    tri = np.asarray(faces, dtype=np.int64)
+    eps = 1e-5 * max(1.0, abs(offset))
+    on_plane = np.asarray(np.abs(pts[:, axis] - offset) <= eps)
+    cut = np.asarray(on_plane[tri].all(axis=1))
+    colors = np.where(cut[:, None], np.asarray(_CUT, np.float64), np.asarray(_FACE, np.float64))
+
+    png = out_dir / "renders" / f"section_{plane}.png"
+    png.parent.mkdir(parents=True, exist_ok=True)
+    png.unlink(missing_ok=True)  # same stale-artifact rule as the views
+    img = rasterize(pts, tri, rot, center=center, half_height=half_height, colors=colors)
+    write_png(png, img)
+    return png, int(cut.sum())

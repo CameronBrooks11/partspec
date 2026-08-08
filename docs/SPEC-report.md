@@ -1,9 +1,10 @@
 # SPEC — the `partspec` report
 
-**Status:** draft 10 · 2026-08-08 · `render` covers the OCCT tier (#18): the verb accepts
-every engine, its OCCT payloads and reports carry `render_tessellation`, and the Scope's
-engine-block subset is now the OpenSCAD case only; draft 9 extended the identity-prefix
-scope to `render` (#103);
+**Status:** draft 11 · 2026-08-08 · `render --section` (#19): the payload may carry a
+`section_<plane>` view and a `section` block; draft 10 made `render` cover the OCCT tier
+(#18): the verb accepts every engine, its OCCT payloads and reports carry
+`render_tessellation`, and the Scope's engine-block subset is now the OpenSCAD case only;
+draft 9 extended the identity-prefix scope to `render` (#103);
 draft 8 added `expectation` (the claims pin), `invocation.timeout_s`, the exit-130 row,
 batch coverage of `64` (reversing the earlier no-aggregation theory), the
 model-cache-invalidation MUST, and the `measure` identity-prefix scope; draft 7 added
@@ -21,7 +22,14 @@ tessellation is what was shown, so its quality rides with the images). On OpenSC
 engine draws its own geometry and no measurement tier runs, so the block is the subset
 `kind`, `version`, `render_backend`, `method`, `param_mode` (`backend` would name a tier
 that did not run; `adopted_via` could only ever be null there) and there is no
-tessellation record. On any failure after the target resolves, both
+tessellation record. With `--section` (#19) the payload's `renders` additionally carries
+`section_<plane>` and a `section` block follows — `{plane, offset_mm, cut_triangles}`:
+the offset is always the RESOLVED value (the bounding-box centre when none was given,
+never left implicit), and `cut_triangles` counts the facets lying on the plane, so zero
+states the plane passed only through voids rather than looking like an uncut render. A
+plane outside the part's span on its axis MUST be refused (a section that misses the
+part renders an image that looks fine — the documented failure), and the refusal names
+the span. On any failure after the target resolves, both
 MUST emit a JSON object carrying that identity plus `error`/`hint` — `renders` empty
 rather than absent — so a consumer always learns which file and revision it was talking
 about. A target that never resolves has no identity to emit: those failures are stderr +
