@@ -66,6 +66,10 @@ def test_the_enclosure_family_is_green_and_the_contradiction_is_not(tmp_path: Pa
     report = _report(tmp_path / "ok" / "spec-small")
     genus = next(c for c in report["checks"] if c["kind"] == "genus")
     assert genus["status"] == "pass" and genus["measurement"]["value"] == 0
+    cavities = next(c for c in report["checks"] if c["kind"] == "cavities")
+    assert cavities["status"] == "pass" and cavities["measurement"]["value"] == 1, (
+        "the sealedness claim is cavities(1) — an open tray passes everything else"
+    )
 
     code = main(["check", f"{spec}:contradictory", "--quiet", "--out", str(tmp_path / "bad")])
     assert code == 1, "the impossible member fails in the parameter phase"

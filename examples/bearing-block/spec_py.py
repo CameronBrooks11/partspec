@@ -15,12 +15,13 @@ from partspec.refs import iso15
 
 
 def _seat(designation: int) -> Part:
-    od = float(iso15.bearing(designation).od)
+    bearing = iso15.bearing(designation)
+    od = float(bearing.od)
     p = Part(
         f"bearing-block-{designation}",
         build123d("block.py", "block", bore_d=od, wall=8.0, depth=12.0),
     )
-    shared_claims(p, bore_d=od)
+    shared_claims(p, bore_d=od, min_depth=float(bearing.width))
     iso15.seat(p, designation)
     return p
 

@@ -7,7 +7,7 @@ What to imitate here:
   purpose: `requires` proves a wall-vs-cavity contradiction in milliseconds,
   before any engine runs.
 - **A contract with no dimensional claims at all.** Every bound here is
-  topological (`watertight`, `solid_count`, `genus`) or parametric
+  topological (`watertight`, `solid_count`, `genus`, `cavities`) or parametric
   (`requires`, `param`). That is the honest retrofit position for a part with
   no external drawing to cite: asserting the envelope from the same numbers
   the model is built from would only prove the model matches itself
@@ -15,7 +15,9 @@ What to imitate here:
   PCB it must hold, the rail it must clip — its numbers join as cited limits.
 - **Topology is the claim visual review is worst at** (`docs/FAILURE-MODES.md`
   entry 3): a cavity breached by one wall going thin is invisible in a render
-  and a one-word change in the genus.
+  and a one-number change in `cavities` (1 -> 0). Note it is NOT a genus
+  change — an open tray is also genus 0 — which is exactly why the sealedness
+  claim must be `cavities(1)`.
 """
 
 from partspec import Part, openscad
@@ -30,10 +32,14 @@ def _enclosure(name: str, w: float, d: float, h: float, wall: float) -> Part:
     p.requires("2 * wall < h")
     p.param("wall", min=0.8)
 
-    # Geometry phase: sealed means exactly this, and nothing else measures it.
+    # Geometry phase. `cavities(1)` is the sealedness claim — an open tray is
+    # ALSO watertight, one solid, genus 0, so without it a breached cavity
+    # passes every other check here (PR #112 review proved it). `genus(0)`
+    # guards the different failure of a channel punched in-and-out.
     p.watertight()
     p.solid_count(1)
     p.genus(0)
+    p.cavities(1)
     return p
 
 

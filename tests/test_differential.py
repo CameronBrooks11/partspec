@@ -161,7 +161,7 @@ def test_the_bearing_block_exemplar_holds_parity_between_its_legs(tmp_path: Path
     mesh_checks = {c.id: c for c in mesh.checks}
     occt_checks = {c.id: c for c in occt.checks}
     shared = sorted(set(mesh_checks) & set(occt_checks))
-    assert len(shared) >= 6, shared  # requires x2, builds, envelope, watertight, solid_count, genus
+    assert len(shared) == 6, shared  # requires, builds, envelope, watertight, solid_count, genus
 
     for check_id in shared:
         m, o = mesh_checks[check_id], occt_checks[check_id]

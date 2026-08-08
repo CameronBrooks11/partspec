@@ -9,6 +9,8 @@ ICS 16's numbers, and the contract declares them through `partspec.refs.nema17`
 so the report carries the citation.
 """
 
+import math
+
 from build123d import Align, Box, Cylinder, Location, Part, Rotation
 
 # The interface the bracket must present (NEMA ICS 16, flange 17). The values
@@ -16,7 +18,9 @@ from build123d import Align, Box, Cylinder, Location, Part, Rotation
 # pattern they sit on is asserted from partspec.refs.nema17 in the contract.
 BOLT_HOLE_D = 3.4  # M3 clearance, designer's choice
 PILOT_D = 22.3  # clearance over the 22.0 pilot boss, designer's choice
-HOLE_SQUARE = 30.9834  # AJ / sqrt(2); the contract asserts the circle itself
+HOLE_SQUARE = 43.815 / math.sqrt(2)  # AJ / sqrt(2), COMPUTED — a transcribed
+# constant is how a comment comes to claim a provenance its digits lack
+# (docs/FAILURE-MODES.md entry 4; this line was 30.9834 until review caught it)
 
 
 def _plate(width: float, height: float, thickness: float) -> Part:

@@ -79,6 +79,11 @@ model matches itself — real external footing looks like
 `p.hole_diameter(iso15.bearing(608).od)`, where the number arrives from `partspec.refs`
 with its citation recorded in the report.
 
+Worked exemplars beyond the spacer live in
+[`examples/`](https://github.com/CameronBrooks11/partspec/tree/main/examples) — a cited
+NEMA 17 bracket, a two-engine bearing-seat family, a sealed enclosure — each with a README
+saying what to imitate and why.
+
 Writing a contract for a part you did not model? `partspec measure` dumps every quantity
 the backend can honestly produce, with no verdict — so you can see the numbers before
 deciding which of them are *intent*. It will not write the checks for you: a check the tool

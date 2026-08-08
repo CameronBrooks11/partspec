@@ -6,16 +6,24 @@ answer exactly. The block's envelope, its single-solid topology, and the one
 through-bore (genus 1) hold identically for a 96-gon bore and a true cylinder.
 The bore's *diameter* does not — it is a cylinder-precision claim, so
 `iso15.seat` is declared only on the OCCT engine's contract, cited.
+
+Deliberately absent: any floor on `wall`. No requirement fixes one — it is
+the designer's number — and a shared claim inventing a floor would be
+exactly the over-assertion entry 6 catalogues. The one parameter a
+requirement DOES fix is the seat depth: the bearing must sit flush or below,
+so each leg passes the designation's ISO 15 width in as `min_depth`.
 """
 
 from partspec import Part
 
 
-def shared_claims(p: Part, *, bore_d: float, wall: float = 8.0, depth: float = 12.0) -> Part:
+def shared_claims(
+    p: Part, *, bore_d: float, min_depth: float, wall: float = 8.0, depth: float = 12.0
+) -> Part:
     w = bore_d + 2 * wall
-    # Parameter phase: provable before any engine runs, on either engine.
-    p.requires("wall >= 5.0")
-    p.requires("depth >= 8.0")
+    # The one spec-fixed parameter claim: the seat is at least as deep as the
+    # bearing is wide (ISO 15's width for the designation, passed by the leg).
+    p.requires(f"depth >= {min_depth}")
     # Geometry both tiers answer exactly: the box is the box, the bore is
     # inside it, and one through-hole is genus 1 whatever its cross-section.
     p.envelope(max=(w, depth, w))

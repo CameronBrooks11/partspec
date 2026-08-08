@@ -20,6 +20,13 @@ parametric family over ISO 15 designations on the OCCT leg. What it teaches:
   leg. An exemplar that hid the warning would teach that warnings are
   ignorable.
 
+Fit intent, stated so a machinist does not have to ask: the bore is modelled
+at the bearing's **nominal** OD — never with a press/slip allowance baked into
+the constant (`docs/FAILURE-MODES.md` entry 4); the real fit is a tolerance
+decision made at manufacture. The seat is a plain through-bore, deeper than
+the bearing's ISO 15 width (asserted via `requires`); axial retention
+(shoulder, circlip) is out of this exemplar's scope on purpose.
+
 ```sh
 partspec check spec_scad.py:seat_608 spec_py.py:seat_608 spec_py.py:seat_6000 spec_py.py:seat_6200
 ```

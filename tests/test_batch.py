@@ -270,3 +270,33 @@ def test_batch_of_two_python_models_each_measures_its_own(tmp_path: Path):
     vol_b = _measured_volume(tmp_path / "b" / "outputs" / "spec-make")
     assert vol_a == pytest.approx(1.0)
     assert vol_b == pytest.approx(3.0), "model B must not build with model A's cached helper"
+
+
+@needs_openscad
+def test_a_contracts_shared_claims_module_does_not_cross_directories(tmp_path: Path):
+    """PR #112's review: the taught `from claims import shared_claims`
+    pattern, copied into two directories and batched, served directory A's
+    cached claims module to directory B's contract — part B green under part
+    A's checks. The eviction registry now covers contract-sibling imports on
+    every engine."""
+    for name, body in (("a", "p.watertight()"), ("b", "p.solid_count(1)")):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "m.scad").write_text("cube([2, 2, 2]);\n")
+        (d / "claims.py").write_text(f"def shared_claims(p):\n    {body}\n    return p\n")
+        (d / "spec.py").write_text(
+            "from claims import shared_claims\n\n"
+            "from partspec import Part, openscad\n\n\ndef make():\n"
+            f"    return shared_claims(Part('{name}', openscad('m.scad')))\n"
+        )
+    targets = [f"{tmp_path / 'a' / 'spec.py'}:make", f"{tmp_path / 'b' / 'spec.py'}:make"]
+    assert main(["check", *targets, "--quiet"]) == 0
+
+    def kinds(d: Path) -> set[str]:
+        report = json.loads((d / "outputs" / "spec-make" / "report.json").read_text())
+        return {c["kind"] for c in report["checks"]} - {"builds"}
+
+    assert kinds(tmp_path / "a") == {"watertight"}
+    assert kinds(tmp_path / "b") == {"solid_count"}, (
+        "part B must be checked by ITS claims module, not directory A's cached one"
+    )

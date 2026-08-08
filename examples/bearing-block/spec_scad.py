@@ -11,8 +11,9 @@ from claims import shared_claims
 from partspec import Part, openscad
 
 OD_608 = 22.0  # ISO 15's number; the OCCT leg asserts it WITH the citation
+WIDTH_608 = 7.0  # ISO 15 width for 608 — the seat must be at least this deep
 
 
 def seat_608() -> Part:
     p = Part("bearing-block-608", openscad("block.scad", bore_d=OD_608, wall=8.0, depth=12.0))
-    return shared_claims(p, bore_d=OD_608)
+    return shared_claims(p, bore_d=OD_608, min_depth=WIDTH_608)
