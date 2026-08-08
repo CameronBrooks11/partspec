@@ -157,3 +157,73 @@ def test_every_rule_is_documented_with_its_limits():
     assert f"|value| > {MAGIC_EXEMPT:g}" in LINT_DOC
     assert "advisory and never a verdict on the part" in LINT_DOC, "bullet 3, verbatim"
     assert "#118" in LINT_DOC, "the tier-2 deferral names its tracked issue"
+
+
+# --------------------------------------------------------------------------
+# PR #119 review reproductions
+# --------------------------------------------------------------------------
+
+
+def test_keyword_arguments_are_arguments(tmp_path: Path):
+    """The review's blocker: build123d idiom is keyword-heavy, and the first
+    draft was silent exactly there."""
+    model = tmp_path / "model.py"
+    model.write_text("def make_part(w: float = 30.0):\n    return Box(w, depth=40, radius=5)\n")
+    values = sorted(f.message.split()[0] for f in lint_path(model))
+    assert values == ["40", "5"]
+
+
+def test_nested_calls_report_each_literal_once(tmp_path: Path):
+    model = tmp_path / "model.py"
+    model.write_text("def make_part():\n    return outer(inner(50))\n")
+    assert len(lint_path(model)) == 1
+
+
+def test_signs_are_kept_and_lambdas_are_private(tmp_path: Path):
+    model = tmp_path / "model.py"
+    model.write_text(
+        "def make_part():\n    return spin(Rotation(-90, 0, 0), key=lambda v: v * 7.5)\n"
+    )
+    findings = lint_path(model)
+    assert [f.message.split()[0] for f in findings] == ["-90"]
+
+
+def test_line_numbers_survive_a_block_comment(tmp_path: Path):
+    scad = tmp_path / "m.scad"
+    scad.write_text("/*\n a\n header\n comment\n*/\ncube([60, 40, 4]);\n")
+    assert {f.line for f in lint_path(scad)} == {6}, "the finding names the author's line"
+
+
+def test_included_library_variables_are_not_the_entry_files_business(tmp_path: Path):
+    (tmp_path / "lib.scad").write_text("helper = 1;\nmodule thing() { cube([helper, 1, 1]); }\n")
+    entry = tmp_path / "entry.scad"
+    entry.write_text("include <lib.scad>\n\nthing();\n")
+    assert lint_path(entry) == []
+
+
+def test_scientific_literals_match_whole(tmp_path: Path):
+    scad = tmp_path / "m.scad"
+    scad.write_text("d = 6;\ncylinder(h = 1e-3, d = d);\ncube([1e6, d, d]);\n")
+    findings = lint_path(scad)
+    assert [f.message.split()[0] for f in findings] == ["1e6"], (
+        "1e-3 is 0.001 (exempt); its exponent digit is not a magic 3"
+    )
+
+
+def test_the_exempt_boundary_behaves(tmp_path: Path):
+    scad = tmp_path / "m.scad"
+    scad.write_text("cube([2, 2.5, 3]);\n")
+    assert [f.message.split()[0] for f in lint_path(scad)] == ["2.5", "3"]
+
+
+def test_an_unreadable_file_is_unlintable_not_a_crash(tmp_path: Path, capsys):
+    import os
+
+    scad = tmp_path / "m.scad"
+    scad.write_text("cube([3, 3, 3]);\n")
+    os.chmod(scad, 0)
+    try:
+        assert main(["lint", str(scad)]) == 64
+        assert "cannot read" in capsys.readouterr().err
+    finally:
+        os.chmod(scad, 0o644)

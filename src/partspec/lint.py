@@ -39,7 +39,7 @@ RULES = {
     "scad-unused-top-level": "a top-level variable the geometry never reads",
     "scad-magic-number": "a numeric literal in geometry with no name",
     "scad-module-size": f"a module body over {MODULE_LINE_LIMIT} lines",
-    "py-magic-number": "a numeric literal in a call inside a factory",
+    "py-magic-number": "a numeric literal in a call inside a function body",
     "py-function-size": f"a function body over {FUNCTION_LINE_LIMIT} lines",
 }
 
@@ -62,6 +62,10 @@ class Finding:
 def lint_path(path: Path) -> list[Finding]:
     if not path.is_file():
         raise LintError(f"no source at {path}")
+    try:
+        path.read_bytes()
+    except OSError as exc:
+        raise LintError(f"cannot read {path}: {exc}") from None
     if path.suffix == ".scad":
         return _lint_scad(path)
     if path.suffix == ".py":
@@ -74,15 +78,41 @@ def lint_path(path: Path) -> list[Finding]:
 # --------------------------------------------------------------------------
 
 
-def _lint_scad(path: Path) -> list[Finding]:
-    from .engines.openscad import _strip_noise, top_level_variables
+def _strip_preserving_lines(raw: str) -> str:
+    """Comments and strings blanked, NEWLINES KEPT — the engine's
+    `_strip_noise` collapses block comments to one space, which shifted every
+    finding's line number after a header comment (PR #119 review, F3).
+    Findings carry file:line; the line must be the author's line."""
+    no_blocks = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), raw, flags=re.S)
+    no_lines = re.sub(r"//[^\n]*", "", no_blocks)
+    return re.sub(r'"(?:[^"\\]|\\.)*"', '""', no_lines)
 
+
+def _entry_top_level(stripped: str) -> dict[str, int]:
+    """name -> line of the ENTRY file's own top-level assignments.
+
+    Deliberately narrower than the -D guard's closure-wide walk: lint speaks
+    about the file it was pointed at, and flagging a parameter library's
+    internals at the entry's include line taught nothing (PR #119, F4).
+    """
+    names: dict[str, int] = {}
+    depth = 0
+    for i, line in enumerate(stripped.splitlines(), start=1):
+        if depth == 0:
+            m = re.match(r"\s*(\$?\w+)\s*=", line)
+            if m:
+                names.setdefault(m.group(1), i)
+        depth += line.count("{") - line.count("}")
+    return names
+
+
+def _lint_scad(path: Path) -> list[Finding]:
     raw = path.read_text(encoding="utf-8", errors="replace")
-    stripped = _strip_noise(raw)
+    stripped = _strip_preserving_lines(raw)
     findings: list[Finding] = []
 
-    declared = top_level_variables(path)
-    for name in sorted(declared):
+    declared = _entry_top_level(stripped)
+    for name, line in sorted(declared.items()):
         if name.startswith("$"):
             continue  # $fn etc. are read by the engine, not the text
         # Everything except this variable's own assignment lines; a reference
@@ -91,10 +121,6 @@ def _lint_scad(path: Path) -> list[Finding]:
             ln for ln in stripped.splitlines() if not re.match(rf"\s*{re.escape(name)}\s*=", ln)
         )
         if not re.search(rf"\b{re.escape(name)}\b", others):
-            line = next(
-                (i + 1 for i, ln in enumerate(raw.splitlines()) if re.match(rf"\s*{name}\s*=", ln)),
-                1,
-            )
             findings.append(
                 Finding(
                     "scad-unused-top-level",
@@ -107,8 +133,10 @@ def _lint_scad(path: Path) -> list[Finding]:
             )
 
     assignment = re.compile(r"^\s*\$?\w+\s*=")
-    number = re.compile(r"(?<![\w.])-?\d+\.?\d*(?![\w.])")
-    for i, line_text in enumerate(_strip_noise(raw).splitlines(), start=1):
+    # Whole scientific literals match as one number (1e-3 is 0.001, not a
+    # magic 3 — PR #119, F5); a bare digit right after e/E is never a number.
+    number = re.compile(r"(?<![\w.])(?<![eE])(?<![eE][+-])-?\d+\.?\d*(?:[eE][+-]?\d+)?(?![\w.])")
+    for i, line_text in enumerate(stripped.splitlines(), start=1):
         if assignment.match(line_text) or re.match(r"\s*(include|use)\b", line_text):
             continue
         for m in number.finditer(line_text):
@@ -174,24 +202,55 @@ def _lint_python(path: Path) -> list[Finding]:
                     f"decompose features into named functions",
                 )
             )
+        seen: set[tuple[int, int]] = set()
         for node in ast.walk(fn):
             if not isinstance(node, ast.Call):
                 continue
-            for top_arg in node.args:
-                for arg in ast.walk(top_arg):
-                    if (
-                        isinstance(arg, ast.Constant)
-                        and isinstance(arg.value, int | float)
-                        and not isinstance(arg.value, bool)
-                        and abs(arg.value) > MAGIC_EXEMPT
-                    ):
-                        findings.append(
-                            Finding(
-                                "py-magic-number",
-                                str(path),
-                                arg.lineno,
-                                f"{arg.value} has no name; hoist it to a parameter with a "
-                                f"default (skills/build123d-authoring rule 1)",
-                            )
-                        )
+            # Positional AND keyword arguments — build123d/CadQuery idiom is
+            # keyword-heavy (radius=, depth=), and the first draft was silent
+            # exactly there (PR #119 review, F1). Traversal prunes at nested
+            # Call boundaries (each call reports its own arguments once, F2)
+            # and at Lambda (a lambda body's constants are its own affair).
+            exprs = list(node.args) + [kw.value for kw in node.keywords]
+            for value, where in _numeric_constants(exprs):
+                key = (where.lineno, where.col_offset)
+                if abs(value) <= MAGIC_EXEMPT or key in seen:
+                    continue
+                seen.add(key)
+                findings.append(
+                    Finding(
+                        "py-magic-number",
+                        str(path),
+                        where.lineno,
+                        f"{value} has no name; hoist it to a parameter with a "
+                        f"default (skills/build123d-authoring rule 1)",
+                    )
+                )
     return sorted(findings, key=lambda f: (f.line, f.rule))
+
+
+def _numeric_constants(exprs: list[ast.expr]):
+    """(value, node) for every numeric literal in the expressions, signs kept
+    (`-90` reports as -90, not 90), pruned at Call and Lambda boundaries."""
+    stack: list[ast.AST] = list(exprs)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Call | ast.Lambda):
+            continue
+        if (
+            isinstance(node, ast.UnaryOp)
+            and isinstance(node.op, ast.USub)
+            and isinstance(node.operand, ast.Constant)
+            and isinstance(node.operand.value, int | float)
+            and not isinstance(node.operand.value, bool)
+        ):
+            yield -node.operand.value, node.operand
+            continue
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, int | float)
+            and not isinstance(node.value, bool)
+        ):
+            yield node.value, node
+            continue
+        stack.extend(ast.iter_child_nodes(node))

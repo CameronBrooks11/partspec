@@ -10,12 +10,18 @@ Each rule states its exact predicate — a lint whose rules are vibes teaches no
 plus the rationale and a real example. The rule registry in `src/partspec/lint.py` and
 this document are held together by test (`tests/test_lint.py`).
 
+Lint is for **model sources**. Pointing it at a contract flags check *limits* as if
+they were model constants — advice aimed at the wrong file. An agent loop should read
+`findings[]` before the first render and treat each as an optional aimed edit, never
+as a failure to clear (exit 0 with findings is not AGENT-CONTRACT's exit-0 row: that
+map governs `check`).
+
 ## `scad-unused-top-level`
 
-- **Predicate:** a top-level variable (per the same `top_level_variables` walk the
-  `-D` guard uses, `include`s included) whose name appears nowhere in the
-  noise-stripped source outside its own assignment lines. `$`-variables are exempt —
-  the engine reads them.
+- **Predicate:** a top-level variable **of the entry file itself** (deliberately
+  narrower than the `-D` guard's include-closure walk: lint speaks about the file it
+  was pointed at) whose name appears nowhere in the noise-stripped source outside its
+  own assignment lines. `$`-variables are exempt — the engine reads them.
 - **Rationale:** a declared knob the geometry ignores is either dead weight or a
   misrouted parameter — the same family as FAILURE-MODES entry 5, one step earlier.
 - **Real example:** `examples/spacer/spacer.scad:10` — `wall = 2;` is never read by
@@ -34,6 +40,10 @@ this document are held together by test (`tests/test_lint.py`).
   (skills/openscad-authoring rule 1).
 - **Real example:** `cube([60, 40, 4]);` — the openscad skill's rule-1-before block,
   three findings; its after-form lints clean.
+- **Known noise, owned:** canonical-orientation angles (`rotate([-90, 0, 0])`, `45`,
+  `360` in ranges) fire. Accept them knowingly, or name them (`quarter_turn = 90;`) —
+  the advisory verdict means acceptance costs nothing. Scientific literals match as
+  whole numbers (`1e-3` is 0.001, exempt; `1e6` flags).
 
 ## `scad-module-size`
 
@@ -46,9 +56,11 @@ this document are held together by test (`tests/test_lint.py`).
 
 ## `py-magic-number`
 
-- **Predicate:** a numeric `Constant` with `|value| > 2` inside a `Call`'s arguments
-  within any function body (stdlib `ast`; defaults in the signature are exactly where
-  numbers SHOULD live and are never flagged; module-level constants likewise).
+- **Predicate:** a numeric `Constant` with `|value| > 2` inside a `Call`'s arguments —
+  positional and keyword alike — within any function body (stdlib `ast`; each call
+  reports its own arguments once; lambda bodies are pruned; defaults in the signature
+  are exactly where numbers SHOULD live and are never flagged; module-level constants
+  likewise; signs are kept, so `-90` reports as -90).
 - **Rationale:** skills/build123d-authoring rule 1 — hoist it to a parameter with a
   default.
 - **Real example:** `Box(40, 30, 4)` inside a factory — the bd skill's rule-3 block
