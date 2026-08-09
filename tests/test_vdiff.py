@@ -208,6 +208,16 @@ def test_a_corrupt_image_is_unusable_input_not_a_partspec_failure(runs, tmp_path
     assert main(["vdiff", str(runs["base"]), str(bare), "--out", str(tmp_path / "d")]) == 64
     assert "not well-formed render artifacts" in capsys.readouterr().err
 
+    # F6: truncated INSIDE the header — the signature alone, then nothing.
+    # The IHDR unpack sat outside the decode guard and crashed at exit 4.
+    header_only = tmp_path / "header"
+    shutil.copytree(runs["base"], header_only)
+    png = header_only / "renders" / "top.png"
+    png.write_bytes(png.read_bytes()[:18])
+    code = main(["vdiff", str(runs["base"]), str(header_only), "--out", str(tmp_path / "d")])
+    assert code == 64
+    assert "truncated in the header" in capsys.readouterr().err
+
 
 def test_an_absent_bbox_witness_is_stated_never_scored(runs, tmp_path: Path, capsys):
     """PR #131 review, F3: a pre-draft-12 artifact carries no render_bbox,

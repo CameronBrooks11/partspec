@@ -112,6 +112,10 @@ def read_png(path: Path) -> Any:
     data = path.read_bytes()
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise VdiffUsageError(f"{path} is not a PNG")
+    if len(data) < 29:
+        # A write interrupted before the header finished: the signature
+        # alone must not reach the unpack as a crash (PR #131 review, F6).
+        raise VdiffUsageError(f"{path} is not a decodable PNG (truncated in the header)")
     width, height, depth, colour, _, _, interlace = struct.unpack(">IIBBBBB", data[16:29])
     if depth != 8 or colour not in (2, 6) or interlace != 0:
         raise VdiffUsageError(
