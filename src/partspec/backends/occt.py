@@ -203,6 +203,142 @@ def _circle_has_material(solid: Any, torus: Any) -> bool | None:
         return None
 
 
+def _chord_span(
+    solid: Any, p1: tuple[float, float, float], p2: tuple[float, float, float]
+) -> float | None:
+    """The length of the chord p1-p2 if the WHOLE of it is material, else None.
+
+    The exact boolean common of the chord edge with the solid, compared by
+    LENGTH against the chord: equal length means the common is the whole
+    chord. Where `_segment_has_material` asks "is any of this material?" to
+    decide whether a span may count at all, this asks the stronger question
+    "is all of it material?" (issue #145, item 2).
+
+    **What this does and does not prove.** It is a tightness gate, not the
+    soundness argument — PR #146's review earned that correction. The upper
+    end is sound because a face's diametric span is a member of the declared
+    measurand (SPEC-contract.md 4.11) and every member is an upper bound on
+    the measurand's minimum; the certificate exists so the interval only
+    collapses where real material can be shown along the span, keeping the
+    number tethered to the part instead of to a formality. It does NOT prove
+    a crossing between two points of the face: on a v-trimmed periodic face
+    (a fillet band is a quarter-tube) the antipodal parameter lands off the
+    face, inside the solid, and the chord still certifies. The span is still
+    the face's own declared diametric span, so the bound holds; the executed
+    fixture is pinned in the tests.
+
+    The length comparison is two-sided, so an over-counted common would
+    decline rather than certify. No shape has been found that produces one —
+    an unreachable guard, recorded rather than claimed as tested.
+    """
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common  # type: ignore[attr-defined]
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge  # type: ignore[attr-defined]
+    from OCP.BRepGProp import BRepGProp  # type: ignore[attr-defined]
+    from OCP.gp import gp_Pnt  # type: ignore[attr-defined]
+    from OCP.GProp import GProp_GProps  # type: ignore[attr-defined]
+
+    length = math.dist(p1, p2)
+    if length <= 1e-9:
+        # Load-bearing, and only for separations the kernel accepts:
+        # `BRepBuilderAPI_MakeEdge` raises StdFail_NotDone on IDENTICAL
+        # points, but at 1e-12 apart it builds a perfectly good edge that
+        # measures 0.0 long. Without this gate that edge would compare mass
+        # 0.0 against length 1e-12, pass the comparison, and certify a span
+        # nothing was shown material along — a boolean that proves nothing,
+        # read as proof (PR #146 review, round 2).
+        return None
+    try:
+        edge = BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge()
+        common = BRepAlgoAPI_Common(edge, solid)
+        if not common.IsDone():
+            return None
+        props = GProp_GProps()
+        BRepGProp.LinearProperties_s(common.Shape(), props)
+    except Exception:  # noqa: BLE001 - an unanswerable certificate is None, never a guess
+        return None
+    if abs(props.Mass() - length) > 1e-7 * max(1.0, length):
+        return None
+    return length
+
+
+Chord = tuple[tuple[float, float, float], tuple[float, float, float]]
+
+
+def _diametric_chords(surf: Any, kind: Any) -> list[Chord]:
+    """Candidate point pairs whose separation IS the face's diametric span.
+
+    The antipodal parameter map differs per family and each is verified by
+    execution (the chord length equals the analytic span to 1e-9): cylinder
+    and cone `(u, v) -> (u + pi, v)`, sphere `-> (u + pi, -v)`, torus
+    `-> (u, v + pi)`. The cone is sampled only at its minimal-radius end,
+    which is the span the lower bound used; the others are sampled along the
+    face so a chord blocked by a bore can be answered by one that is not —
+    a fixture per family pins that (the cross-drilled rod, a bead with blind
+    equatorial bores, a torus with pockets in its outer surface).
+    """
+    from OCP.GeomAbs import GeomAbs_SurfaceType  # type: ignore[attr-defined]
+
+    u1, u2 = surf.FirstUParameter(), surf.LastUParameter()
+    v1, v2 = surf.FirstVParameter(), surf.LastVParameter()
+
+    if kind == GeomAbs_SurfaceType.GeomAbs_Cone:
+        cone = surf.Cone()
+        _, v_min = min(
+            (abs(cone.RefRadius() + v * math.sin(cone.SemiAngle())), v) for v in (v1, v2)
+        )
+        vs, antipode = [v_min], lambda u, v: (u + math.pi, v)
+    elif kind == GeomAbs_SurfaceType.GeomAbs_Sphere:
+        vs = [v1 + (v2 - v1) * f for f in (0.5, 0.3, 0.7)]
+        antipode = lambda u, v: (u + math.pi, -v)  # noqa: E731
+    elif kind == GeomAbs_SurfaceType.GeomAbs_Torus:
+        vs = [v1 + (v2 - v1) * f for f in (0.5, 0.25, 0.75)]
+        antipode = lambda u, v: (u, v + math.pi)  # noqa: E731
+    else:
+        vs = [v1 + (v2 - v1) * f for f in (0.5, 0.2, 0.8)]
+        antipode = lambda u, v: (u + math.pi, v)  # noqa: E731
+
+    def point(u: float, v: float) -> tuple[float, float, float]:
+        p = surf.Value(u, v)
+        return (p.X(), p.Y(), p.Z())
+
+    chords: list[Chord] = []
+    for v in vs:
+        for fraction in (0.3, 0.7):
+            u = u1 + (u2 - u1) * fraction
+            chords.append((point(u, v), point(*antipode(u, v))))
+    return chords
+
+
+def _certified_self_span(
+    solid: Any, candidates: list[tuple[float, list[Chord]]], ceiling: float | None
+) -> float | None:
+    """The smallest certified diametric span among closed analytic faces that
+    would improve on `ceiling` (the upper end the ray witness already found),
+    or None if there is none.
+
+    Candidates are tried in ascending span order and the search stops at the
+    first certificate, so the usual cost is one boolean. `ceiling` bounds the
+    other end of the work: a span at or above it cannot tighten anything, and
+    since the list is sorted neither can any span after it. Without that
+    guard a part whose chords are all blocked pays for every one of them and
+    learns nothing — 20 cross-drilled rods measured 2.4x the whole check
+    (PR #146 review, MINOR 3). Failing to certify is not a defect; it leaves
+    the upper end to the ray witness, which is the loose direction.
+
+    The certified value returned is the face's analytic span, not the chord's
+    measured length: the two agree to 3e-15 by construction, and the analytic
+    one is the number the lower bound already used, so a collapsed interval
+    reports 2.0 rather than 2.0000000000000013.
+    """
+    for span, chords in sorted(candidates, key=lambda item: item[0]):
+        if ceiling is not None and span >= ceiling:
+            return None
+        for p1, p2 in chords:
+            if _chord_span(solid, p1, p2) is not None:
+                return span
+    return None
+
+
 def _min_wall_measurement(raw: dict[str, Any]) -> Measurement:
     """The Measurement rule shared by `measure` and the check branch: exact
     when the interval collapses, else the guaranteed [lo, hi]."""
@@ -768,12 +904,16 @@ class OcctBackend:
         entirely void (PR #144, F1: a single probe point once discarded a
         rod's diameter because it landed in a cross-hole).
 
-        `hi` is the smallest measurand-consistent witnessed crossing: an
-        inward normal ray whose first exit lands on a non-adjacent face (or
-        the same closed face). A witnessed crossing BELOW lo is not clamped
-        away — it is proof the analysis contradicts itself, and the check
-        refuses (PR #144, F3: the old clamp silenced exactly that
-        counter-evidence).
+        `hi` is the smallest measurand member this can point to. Either a
+        witnessed crossing — an inward normal ray whose first exit lands on a
+        non-adjacent face, or on the same closed face — or the diametric span
+        of a closed analytic face shown material along a chord (issue #145,
+        item 2: the chord reaches a frustum's narrow rim, which the ray grid
+        misses, and answers a frustum whose every normal exits through an
+        adjacent cap). A RAY crossing below lo is not clamped away — it is
+        proof the analysis contradicts itself, and the check refuses (PR #144,
+        F3: the old clamp silenced exactly that counter-evidence). A certified
+        span cannot go below lo: it is one of the values lo minimised over.
 
         **Recorded escapes** (SPEC-contract.md 4.11): material bounded by
         edge-SHARING faces — the web beside a drilled hole, a boss root —
@@ -803,6 +943,7 @@ class OcctBackend:
         best: float | None = None
         witness = ""
         self_span_faces: set[int] = set()
+        span_chords: list[tuple[float, list[Chord]]] = []
 
         # -- certified self-spans of closed analytic faces ------------------
         for index, face in enumerate(faces):
@@ -858,6 +999,7 @@ class OcctBackend:
             if not include:
                 continue  # the enclosed line is certified void: a bore, not a wall
             self_span_faces.add(index)
+            span_chords.append((span, _diametric_chords(surf, kind)))
             if best is None or span < best:
                 best, witness = span, f"face_{index} self-span"
 
@@ -911,6 +1053,14 @@ class OcctBackend:
             return {"vacuous": True, "pair_seen": pair_seen}
 
         hi = self._min_wall_witnessed_span(a, faces, edge_sets, self_span_faces, witness, best)
+        certified = _certified_self_span(solid, span_chords, hi)
+        if certified is not None:
+            # A diametric span shown to be material caps the interval as
+            # surely as a ray crossing does — and it reaches the narrow rim of
+            # a frustum, where a fixed sampling grid does not (issue #145,
+            # item 2). `_certified_self_span` returns only spans below `hi`,
+            # so this can never loosen the upper end it was given.
+            hi = certified
         if hi is None:
             return Unsupported(
                 "no witnessed span could be measured, so the interval has no "
