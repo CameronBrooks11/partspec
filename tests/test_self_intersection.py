@@ -69,7 +69,12 @@ def test_the_spindle_torus_is_the_recorded_limit():
     SPEC 4.9 sentence must move."""
     backend = OcctBackend()
     assert backend.self_intersection_free(bd.Torus(6, 10)).value is True
-    fused = bd.Torus(6, 10) + bd.Pos(0, 0, -15) * bd.Box(30, 30, 4)
+    # Genuinely overlapping fuse (reviewer-verified: volume < sum, real
+    # intersection seams cut into the torus surface) — the strongest form
+    # of the escape. The boolean even splits the result into two solids,
+    # OCCT already misbehaving on the self-intersecting operand: the
+    # motivation prose made flesh.
+    fused = bd.Torus(6, 10) + bd.Pos(0, 0, -12) * bd.Box(30, 30, 8)
     assert backend.self_intersection_free(fused).value is True
 
 
