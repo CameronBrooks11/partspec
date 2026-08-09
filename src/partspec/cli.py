@@ -600,6 +600,7 @@ def _measure_resolved(
         "center_of_mass",
         "is_valid",
         "watertight",
+        "self_intersection_free",
         "solid_count",
         "cavities",
         "genus",

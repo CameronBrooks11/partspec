@@ -48,6 +48,7 @@ GEOMETRY_KINDS: dict[str, str] = {
     "bolt_circle": "bore_table",
     "fillet_radius": "blend_radii",
     "draft_angle": "draft_angle",
+    "self_intersection_free": "self_intersection_free",
 }
 """The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
@@ -493,6 +494,27 @@ class Part:
                 phase=GEOMETRY,
                 limit=Limit(min=min, max=max),
                 source=source_map(min=min, max=max),
+            )
+        )
+
+    def self_intersection_free(self, *, id: str | None = None) -> Part:
+        """The shape does not intersect itself — no sub-shape pair crossing
+        where the boundary says it must not. **OCCT tier only** (D14 accepted
+        the mesh-side gap rather than a GPL dependency).
+
+        A self-intersecting BREP measures volume and topology plausibly and
+        fails downstream — booleans, STEP consumers, slicers — the classic
+        silently wrong part. Exact: the kernel analyses, nothing samples.
+        The recorded limit: a single surface intersecting ITSELF internally
+        (a spindle torus) has no pair to flag and passes; pairwise analysis
+        answers the pairwise question (SPEC-contract.md 4.9).
+        """
+        return self._add(
+            CheckSpec(
+                id=id or "self_intersection_free",
+                kind="self_intersection_free",
+                phase=GEOMETRY,
+                limit=Limit(equals=True),
             )
         )
 

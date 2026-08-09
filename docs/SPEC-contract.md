@@ -113,7 +113,7 @@ error.
 revising when a check is added. **This document closes it at each release**: v0 shipped the
 set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5),
 `bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6;
-`draft_angle` (§4.8) opens the depth epic (#136).
+`draft_angle` (§4.8) and `self_intersection_free` (§4.9) are the depth epic's (#136).
 
 ### 4.1 Parameter phase
 
@@ -450,6 +450,35 @@ of per-face drafts, ascending, adjudicated by the generic per-component machiner
 `face_3=0 outside min=2.0`. `min=` is a number an author chose, so the kind is in
 `DIMENSIONAL_KINDS` and an unattributed bound draws the §6 warning; the pull axis is part
 of the claim's identity, so `direction` is a claim field the report diff compares.
+
+---
+
+### 4.9 `self_intersection_free` — the shape does not cross itself
+
+`p.self_intersection_free()`: no sub-shape pair intersects where the boundary says it must
+not. **OCCT tier only** — D14 accepted the mesh-side gap deliberately rather than pull in
+GPL libigl or heavyweight pymeshlab, and that decision stands; the mesh tier refuses with
+`requires: occt`.
+
+A self-intersecting BREP measures volume and topology plausibly and fails downstream —
+booleans, STEP consumers, slicers — the classic silently wrong part. The check is the
+kernel's own argument analysis (`BRepAlgoAPI_Check`, self-intersection mode): **exact**,
+because it is analysis, not sampling. The failure detail is an inventory of the faulty
+pairs by entity type (`20 self-intersecting entity pair(s): 4 edge/edge, 8 edge/face,
+8 vertex/edge`).
+
+**The recorded limit, executed:** a SINGLE surface that intersects itself internally — a
+spindle torus, `Torus(6, 10)` — has no sub-shape pair to flag and **passes**. Pairwise
+analysis answers the pairwise question; it does not prove the surface embedding is
+injective. A test pins this as executed fact, so if the kernel ever starts catching it the
+spec sentence must move with the behavior.
+
+**Relationship to `is_valid`, executed:** neither subsumes the other in general — the
+overlap-swept solid fails both, the spindle torus passes both. `is_valid` is BRepCheck's
+well-formedness; this check is interference. Declare the one whose failure you mean.
+
+The quantity appears in `measure` (parameterless, like `watertight`), so an author sees it
+before deciding to claim it.
 
 ---
 

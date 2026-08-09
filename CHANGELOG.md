@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `p.self_intersection_free()` — the shape does not cross itself, OCCT tier
+  (#138): the kernel's own pairwise interference analysis, exact, with the
+  faulty pairs inventoried in the failure detail. The recorded limit is
+  pinned by a test: a single self-intersecting surface (spindle torus) has
+  no pair to flag and passes. Listed by `measure`. SPEC-contract 4.9.
 - `p.draft_angle(min=, direction=)` — every face's draft at least `min`
   for a declared pull axis, OCCT tier (#137). Deliberately no `max=`: an
   every-face maximum is unsatisfiable under the two-half convention (caps
