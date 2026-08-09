@@ -49,6 +49,7 @@ GEOMETRY_KINDS: dict[str, str] = {
     "fillet_radius": "blend_radii",
     "draft_angle": "draft_angle",
     "self_intersection_free": "self_intersection_free",
+    "step_roundtrip": "step_roundtrip",
 }
 """The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
@@ -516,6 +517,41 @@ class Part:
                 kind="self_intersection_free",
                 phase=GEOMETRY,
                 limit=Limit(equals=True),
+            )
+        )
+
+    def step_roundtrip(self, *, tol: float = 1e-6, id: str | None = None) -> Part:
+        """The part survives its own exchange format: written to STEP, read
+        back, volume and area within `tol` (relative) and topology counts
+        unchanged. **OCCT tier only.**
+
+        STEP is how a part leaves for manufacturing; a shape that degrades
+        through its own exchange ships a different part than the one
+        verified. `tol` defaults to 1e-6 relative — ~50x above the worst
+        delta measured across healthy construction families (a fused
+        threaded rod at 1.9e-8; most families sit below 4e-13) and six
+        orders below real degradation (an ill-formed solid loses its whole
+        volume). The comparison is plain membership — the tol IS the
+        tolerance, never epsilon-widened. Topology drift fails regardless
+        of `tol`: a count that changed is a different part at any tolerance
+        (SPEC-contract.md 4.10).
+        """
+        if (
+            not isinstance(tol, int | float)
+            or isinstance(tol, bool)
+            or not math.isfinite(tol)
+            or tol <= 0
+            or tol > 1
+        ):
+            raise ContractError(
+                f"step_roundtrip tol must be a relative delta in (0, 1] (got {tol!r})"
+            )
+        return self._add(
+            CheckSpec(
+                id=id or "step_roundtrip",
+                kind="step_roundtrip",
+                phase=GEOMETRY,
+                limit=Limit(max=float(tol)),
             )
         )
 

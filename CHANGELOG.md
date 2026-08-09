@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `p.step_roundtrip(tol=)` — the part survives its own exchange format,
+  OCCT tier (#139): written to STEP and read back, volume/area within a
+  calibrated relative tolerance (default 1e-6: most families measure below
+  4e-13, threaded parts ~1.9e-8, the executed degrader loses everything)
+  and topology counts unchanged at any tolerance. Plain membership — the
+  tol is never epsilon-widened. The writer schema rides on the check
+  (`checks[].step.schema`). SPEC-contract 4.10.
 - `p.self_intersection_free()` — the shape does not cross itself, OCCT tier
   (#138): the kernel's own pairwise interference analysis, exact, with the
   faults inventoried in the failure detail. The recorded limit is pinned

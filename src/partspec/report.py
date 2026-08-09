@@ -109,6 +109,10 @@ class CheckResult:
     """The declared pull axis of a `draft_angle` check (normalised), on the
     same what-was-claimed principle as `region` and `hole`. Additive per
     SPEC-report.md 7.1."""
+    step: dict[str, Any] | None = None
+    """The `step_roundtrip` exchange record — `{"schema": ...}` — because
+    the writer schema changes the artifact (the F13 lesson). Additive per
+    SPEC-report.md 7.1."""
     detail: str | None = None
     requires: str | None = None
     part_refs: tuple[str, ...] = ()
@@ -133,6 +137,8 @@ class CheckResult:
             out["region"] = self.region
         if self.direction is not None:
             out["direction"] = self.direction
+        if self.step is not None:
+            out["step"] = self.step
         if self.hole is not None:
             out["hole"] = self.hole
         if self.source is not None:

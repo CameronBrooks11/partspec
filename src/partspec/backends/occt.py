@@ -45,6 +45,7 @@ CAPABILITIES = frozenset(
         "blend_radii",
         "draft_angle",
         "self_intersection_free",
+        "step_roundtrip",
     }
 )
 
@@ -152,6 +153,24 @@ def _min_draft_deg(a_coef: float, b_coef: float, c_coef: float, u1: float, u2: f
 
     best = min(abs(radius * math.cos(u - phi) + c_coef) for u in candidates)
     return math.degrees(math.asin(min(1.0, best)))
+
+
+class _quiet_occt:
+    """Silence OCCT's console printers for the duration — the STEP machinery
+    narrates transfers to stdout, and the CLI's stdout is the artifact
+    channel. Printers are restored on exit, whatever happens."""
+
+    def __enter__(self) -> None:
+        from OCP.Message import Message  # type: ignore[attr-defined]
+
+        self._messenger = Message.DefaultMessenger_s()
+        self._printers = list(self._messenger.Printers())
+        for printer in self._printers:
+            self._messenger.RemovePrinter(printer)
+
+    def __exit__(self, *exc: object) -> None:
+        for printer in self._printers:
+            self._messenger.AddPrinter(printer)
 
 
 def _surface_name(kind: Any) -> str:
@@ -581,6 +600,83 @@ class OcctBackend:
             )
             pairs.append(kinds)
         return pairs
+
+    def step_roundtrip(self, a: Any) -> dict[str, Any] | Unsupported:
+        """Write the shape to STEP, read it back, measure what survived.
+
+        Returns the raw comparison — relative volume and area deltas (exact:
+        both sides are the kernel's own exact quantities, so the delta is a
+        computed number, not an estimate), the topology counts before and
+        after, and the writer schema, which is recorded because it changes
+        the artifact (the F13 lesson). The runner adjudicates.
+
+        The exchange happens in a scratch directory: this check is about
+        survivability, not about producing an export.
+        """
+        import tempfile
+
+        from ..engines.pycad import adopt
+
+        with _quiet_occt(), tempfile.TemporaryDirectory() as scratch:
+            path = str(Path(scratch) / "part.step")
+            schema = self._write_step(a, path)
+            if schema is None:
+                return Unsupported(
+                    "the STEP writer could not serialise this shape; nothing "
+                    "was compared, so nothing may be said about survivability"
+                )
+            raw = self._read_step(path)
+            if raw is None:
+                # The writer accepted it and the reader will not: that IS
+                # degradation, total — but with nothing to measure, the
+                # honest report is the refusal naming the asymmetry.
+                return Unsupported(
+                    "the STEP reader could not read back what the writer "
+                    "wrote — the exchange failed whole"
+                )
+            back = adopt(raw)
+        if isinstance(back, BuildError):
+            return Unsupported(f"the round-tripped shape did not survive adoption: {back.message}")
+
+        volume = abs(a.volume)
+        area = abs(a.area)
+        return {
+            "schema": schema,
+            "volume_rel": abs(back.volume - a.volume) / max(volume, 1e-12),
+            "area_rel": abs(back.area - a.area) / max(area, 1e-12),
+            "faces": (len(a.faces()), len(back.faces())),
+            "edges": (len(a.edges()), len(back.edges())),
+            "solids": (len(a.solids()), len(back.solids())),
+        }
+
+    def _write_step(self, a: Any, path: str) -> str | None:
+        """Write the shape to `path`; the writer schema on success, None on
+        refusal. A seam, so the refusal branch is testable (PR #143, F3)."""
+        from OCP.IFSelect import IFSelect_ReturnStatus  # type: ignore[attr-defined]
+        from OCP.Interface import Interface_Static  # type: ignore[attr-defined]
+        from OCP.STEPControl import (
+            STEPControl_StepModelType,  # pyright: ignore[reportAttributeAccessIssue]
+            STEPControl_Writer,  # pyright: ignore[reportAttributeAccessIssue]
+        )
+
+        writer = STEPControl_Writer()
+        writer.Transfer(a.wrapped, STEPControl_StepModelType.STEPControl_AsIs)
+        if writer.Write(path) != IFSelect_ReturnStatus.IFSelect_RetDone:
+            return None
+        return str(Interface_Static.CVal_s("write.step.schema"))
+
+    def _read_step(self, path: str) -> Any | None:
+        """Read a STEP file back; the raw shape, or None on refusal."""
+        from OCP.IFSelect import IFSelect_ReturnStatus  # type: ignore[attr-defined]
+        from OCP.STEPControl import (
+            STEPControl_Reader,  # pyright: ignore[reportAttributeAccessIssue]
+        )
+
+        reader = STEPControl_Reader()
+        if reader.ReadFile(path) != IFSelect_ReturnStatus.IFSelect_RetDone:
+            return None
+        reader.TransferRoots()
+        return reader.OneShape()
 
     def blend_radii(self, a: Any) -> Measurement | Unsupported:
         """Radii of every partial-wrap cylindrical surface, sorted ascending.

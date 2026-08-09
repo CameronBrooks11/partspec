@@ -236,6 +236,7 @@ def test_the_tier_specific_kinds_are_exactly_the_declared_ones():
         "fillet_radius",
         "draft_angle",
         "self_intersection_free",
+        "step_roundtrip",
     }
     for kind in occt_only:
         assert GEOMETRY_KINDS[kind] in OCCT

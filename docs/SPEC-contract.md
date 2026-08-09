@@ -113,7 +113,8 @@ error.
 revising when a check is added. **This document closes it at each release**: v0 shipped the
 set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5),
 `bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6;
-`draft_angle` (§4.8) and `self_intersection_free` (§4.9) are the depth epic's (#136).
+`draft_angle` (§4.8), `self_intersection_free` (§4.9) and `step_roundtrip` (§4.10) are
+the depth epic's (#136).
 
 ### 4.1 Parameter phase
 
@@ -488,6 +489,45 @@ before it is measured.
 
 The quantity appears in `measure` (parameterless, like `watertight`), so an author sees it
 before deciding to claim it.
+
+---
+
+### 4.10 `step_roundtrip` — the part survives its own exchange format
+
+`p.step_roundtrip(tol=1e-6)`: written to STEP and read back, the part's volume and area
+change by at most `tol` (relative) and its topology counts do not change at all. **OCCT
+tier only** — STEP is a BREP format; a mesh has no BREP identity to preserve, and the mesh
+tier refuses with `requires: occt`.
+
+STEP is how a part leaves for manufacturing; a shape that degrades through its own
+exchange ships a different part than the one verified. **Two gates, deliberately
+separate**: topology drift (solids, faces, edges) fails at ANY tolerance — a count that
+changed is a different part — and only then are the relative deltas held to `tol` by **plain membership — the tol IS
+the tolerance, never epsilon-widened**. The shared comparison epsilon (§3.3's absolute
+1e-6 floor, built for mm-scale STL round-trips) would silently swallow any tighter tol on
+this unitless delta, recording a limit stricter than what was enforced (PR #143 review,
+F2 — an executed incoherent artifact). The deltas themselves are **exact**: both sides
+are the kernel's own exact quantities, so the comparison is a computed number, not an
+estimate. (Consequence: this check does not carry POST-V0
+§4's `approximate` obligation either; after this slice that debt rests entirely on
+`min_wall`, #140, and if that slice ends in a recorded refusal the obligation stays
+outstanding and recorded.)
+
+**The default `tol` is calibrated, not chosen** — and recalibrated by execution: most
+healthy families (booleans, fillets, lofts, text, 100-hole grids, 1e-3 to 1e6 mm scales)
+round-trip below ~4e-13 relative, but the THREAD family — a helical sweep fused to a
+cylinder, the canonical threaded rod — measures ~1.9e-8 (PR #143 review, F1). Real
+degradation — an ill-formed open shell forced into a solid, which the reader's healing
+silently drops — loses its ENTIRE volume (`volume_rel = 1.0`, solids 1 → 0, the executed
+degrader in the test suite). 1e-6 sits ~50x above the worst healthy citizen and six
+orders below the failure; both halves are pinned by the threaded-rod test, so if
+exchange fidelity moves, the calibration moves with it.
+
+The writer schema (`AP214IS` on the current toolchain) is recorded on the check
+(`checks[].step.schema`) because it changes the artifact — the F13 lesson. The exchange
+happens in a scratch directory: the check is about survivability, not producing an
+export. `tol` is a fidelity tolerance with a calibrated default, not a design dimension,
+so the kind is deliberately NOT in `DIMENSIONAL_KINDS` and draws no attribution warning.
 
 ---
 

@@ -106,7 +106,9 @@ expectation), and the out-of-bounds section naming the guards (#31's claims pin,
 
 ~~`hole_diameter`~~ (shipped 2026-08-07, #80 — `SPEC-contract.md` §4.5), ~~`hole_pattern` /
 bolt circle~~ (shipped 2026-08-07, #81 — §4.6), ~~`fillet_radius`~~ (shipped 2026-08-07,
-#82 — §4.7), `draft_angle`, `self_intersection`, `step_roundtrip`. All
+#82 — §4.7), ~~`draft_angle`~~ (shipped 2026-08-08, #137 — §4.8),
+~~`self_intersection`~~ (shipped 2026-08-08, #138 — §4.9), ~~`step_roundtrip`~~
+(shipped 2026-08-08, #139 — §4.10). All
 `unsupported` on mesh, irreducibly — no conversion recovers them (`investigations/04` §4).
 
 **These were predicted to be the first checks to exercise the `approximate` machinery.**
