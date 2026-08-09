@@ -212,11 +212,24 @@ def _chord_span(
     LENGTH against the chord: equal length means the common is the whole
     chord. Where `_segment_has_material` asks "is any of this material?" to
     decide whether a span may count at all, this asks the stronger question
-    "is all of it material?" — and an affirmative answer makes the span
-    ACHIEVED, not merely bounded: both ends are boundary points of the same
-    closed face, so a real crossing of exactly this length exists (issue
-    #145, item 2). An overshooting common (duplicate edges) fails the
-    comparison and so declines to certify, which is the safe direction.
+    "is all of it material?" (issue #145, item 2).
+
+    **What this does and does not prove.** It is a tightness gate, not the
+    soundness argument — PR #146's review earned that correction. The upper
+    end is sound because a face's diametric span is a member of the declared
+    measurand (SPEC-contract.md 4.11) and every member is an upper bound on
+    the measurand's minimum; the certificate exists so the interval only
+    collapses where real material can be shown along the span, keeping the
+    number tethered to the part instead of to a formality. It does NOT prove
+    a crossing between two points of the face: on a v-trimmed periodic face
+    (a fillet band is a quarter-tube) the antipodal parameter lands off the
+    face, inside the solid, and the chord still certifies. The span is still
+    the face's own declared diametric span, so the bound holds; the executed
+    fixture is pinned in the tests.
+
+    The length comparison is two-sided, so an over-counted common would
+    decline rather than certify. No shape has been found that produces one —
+    an unreachable guard, recorded rather than claimed as tested.
     """
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Common  # type: ignore[attr-defined]
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge  # type: ignore[attr-defined]
@@ -226,6 +239,12 @@ def _chord_span(
 
     length = math.dist(p1, p2)
     if length <= 1e-9:
+        # Redundant on this toolchain — `BRepBuilderAPI_MakeEdge` raises
+        # StdFail_NotDone on identical points and the handler below returns
+        # None anyway — and kept because the failure it prevents is silent:
+        # a kernel that returned a degenerate edge instead would compare
+        # mass 0 against length 0, certify a span of zero, and refuse the
+        # check as self-contradictory. Recorded as deliberate, not tested.
         return None
     try:
         edge = BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge()
@@ -252,8 +271,9 @@ def _diametric_chords(surf: Any, kind: Any) -> list[Chord]:
     and cone `(u, v) -> (u + pi, v)`, sphere `-> (u + pi, -v)`, torus
     `-> (u, v + pi)`. The cone is sampled only at its minimal-radius end,
     which is the span the lower bound used; the others are sampled along the
-    face so a chord blocked by a bore (the cross-drilled rod) can be answered
-    by one that is not.
+    face so a chord blocked by a bore can be answered by one that is not —
+    a fixture per family pins that (the cross-drilled rod, a bead with blind
+    equatorial bores, a torus with pockets in its outer surface).
     """
     from OCP.GeomAbs import GeomAbs_SurfaceType  # type: ignore[attr-defined]
 
@@ -288,21 +308,33 @@ def _diametric_chords(surf: Any, kind: Any) -> list[Chord]:
     return chords
 
 
-def _certified_self_span(solid: Any, candidates: list[tuple[float, list[Chord]]]) -> float | None:
-    """The smallest ACHIEVED diametric span among closed analytic faces, or
-    None if none can be certified.
+def _certified_self_span(
+    solid: Any, candidates: list[tuple[float, list[Chord]]], ceiling: float | None
+) -> float | None:
+    """The smallest certified diametric span among closed analytic faces that
+    would improve on `ceiling` (the upper end the ray witness already found),
+    or None if there is none.
 
     Candidates are tried in ascending span order and the search stops at the
-    first certificate, so the usual cost is one boolean: a certified chord's
-    length is at least its face's span, and the spans only grow down the
-    list. Failing to certify is not a defect — it leaves the upper end to the
-    ray witness, which is the loose direction.
+    first certificate, so the usual cost is one boolean. `ceiling` bounds the
+    other end of the work: a span at or above it cannot tighten anything, and
+    since the list is sorted neither can any span after it. Without that
+    guard a part whose chords are all blocked pays for every one of them and
+    learns nothing — 20 cross-drilled rods measured 2.4x the whole check
+    (PR #146 review, MINOR 3). Failing to certify is not a defect; it leaves
+    the upper end to the ray witness, which is the loose direction.
+
+    The certified value returned is the face's analytic span, not the chord's
+    measured length: the two agree to 3e-15 by construction, and the analytic
+    one is the number the lower bound already used, so a collapsed interval
+    reports 2.0 rather than 2.0000000000000013.
     """
-    for _, chords in sorted(candidates, key=lambda item: item[0]):
+    for span, chords in sorted(candidates, key=lambda item: item[0]):
+        if ceiling is not None and span >= ceiling:
+            return None
         for p1, p2 in chords:
-            length = _chord_span(solid, p1, p2)
-            if length is not None:
-                return length
+            if _chord_span(solid, p1, p2) is not None:
+                return span
     return None
 
 
@@ -871,14 +903,16 @@ class OcctBackend:
         entirely void (PR #144, F1: a single probe point once discarded a
         rod's diameter because it landed in a cross-hole).
 
-        `hi` is the smallest measurand-consistent witnessed crossing: an
-        inward normal ray whose first exit lands on a non-adjacent face (or
-        the same closed face), or a diametric chord of a closed analytic face
-        certified material end to end (issue #145, item 2 — the chord reaches
-        a frustum's narrow rim, which the ray grid misses). A crossing BELOW lo is not clamped
-        away — it is proof the analysis contradicts itself, and the check
-        refuses (PR #144, F3: the old clamp silenced exactly that
-        counter-evidence).
+        `hi` is the smallest measurand member this can point to. Either a
+        witnessed crossing — an inward normal ray whose first exit lands on a
+        non-adjacent face, or on the same closed face — or the diametric span
+        of a closed analytic face shown material along a chord (issue #145,
+        item 2: the chord reaches a frustum's narrow rim, which the ray grid
+        misses, and answers a frustum whose every normal exits through an
+        adjacent cap). A RAY crossing below lo is not clamped away — it is
+        proof the analysis contradicts itself, and the check refuses (PR #144,
+        F3: the old clamp silenced exactly that counter-evidence). A certified
+        span cannot go below lo: it is one of the values lo minimised over.
 
         **Recorded escapes** (SPEC-contract.md 4.11): material bounded by
         edge-SHARING faces — the web beside a drilled hole, a boss root —
@@ -1018,12 +1052,13 @@ class OcctBackend:
             return {"vacuous": True, "pair_seen": pair_seen}
 
         hi = self._min_wall_witnessed_span(a, faces, edge_sets, self_span_faces, witness, best)
-        certified = _certified_self_span(solid, span_chords)
-        if certified is not None and (hi is None or certified < hi):
-            # A fully-material diametric chord is an achieved span, so it caps
-            # the interval as surely as a ray crossing does — and it reaches
-            # the narrow rim of a frustum, where a fixed sampling grid does
-            # not (issue #145, item 2).
+        certified = _certified_self_span(solid, span_chords, hi)
+        if certified is not None:
+            # A diametric span shown to be material caps the interval as
+            # surely as a ray crossing does — and it reaches the narrow rim of
+            # a frustum, where a fixed sampling grid does not (issue #145,
+            # item 2). `_certified_self_span` returns only spans below `hi`,
+            # so this can never loosen the upper end it was given.
             hi = certified
         if hi is None:
             return Unsupported(

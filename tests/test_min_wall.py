@@ -359,11 +359,14 @@ def test_the_antipodal_maps_are_diametric():
     parameter map really does land on the far side — and the map differs for
     each: `(u+pi, v)` for cylinder and cone, `(u+pi, -v)` for sphere,
     `(u, v+pi)` for torus. Executed here rather than reasoned about, because
-    a map that is merely close would certify a SHORTER chord, and a certified
-    chord shorter than lo does not read as a small error: it trips the
-    contradiction refusal. The flatted bead is the fixture that makes the
-    sphere's `-v` bite — a full sphere's mid-parameter is the equator, where
-    v and -v coincide and a wrong map hides."""
+    a map that is merely close certifies a SHORTER chord while the value
+    reported stays the face's analytic span — nothing downstream would
+    notice, so this assertion IS the guard (PR #146 review, MINOR 1: the
+    contradiction tripwire cannot catch it, since a certified span is by
+    construction one of the values `lo` minimised over). The flatted bead is
+    the fixture that makes the sphere's `-v` bite — a full sphere's
+    mid-parameter is the equator, where v and -v coincide and a wrong map
+    hides."""
     import math
 
     from OCP.BRepAdaptor import BRepAdaptor_Surface  # pyright: ignore[reportAttributeAccessIssue]
@@ -379,7 +382,7 @@ def test_the_antipodal_maps_are_diametric():
         (bd.Cone(8, 2, 20), 4.0),
     ]
     for shape, span in families:
-        seen = False
+        seen = False  # noqa: SIM113
         for face in shape.faces():
             surf = BRepAdaptor_Surface(face.wrapped)
             if not (surf.IsUClosed() or surf.IsVClosed()):
@@ -434,14 +437,195 @@ def test_the_certificate_is_tested_where_the_ray_witness_cannot_mask_it():
     candidates = _closed_analytic_candidates(ball_on_shaft)
     assert len(candidates) >= 2, "the fixture must offer two certifiable spans"
     largest_first = sorted(candidates, key=lambda item: -item[0])
-    assert _certified_self_span(ball_on_shaft.wrapped, largest_first) == pytest.approx(4.0)
+    assert _certified_self_span(ball_on_shaft.wrapped, largest_first, None) == pytest.approx(4.0)
 
     rod = bd.Cylinder(2, 40) - bd.Rot(90, 0, 0) * bd.Cylinder(1, 10)
     rod_candidates = [c for c in _closed_analytic_candidates(rod) if c[0] == pytest.approx(4.0)]
     assert rod_candidates, "the rod's own diametric span must be a candidate"
     mid_only = [(span, chords[:2]) for span, chords in rod_candidates]
-    assert _certified_self_span(rod.wrapped, mid_only) is None, "the hole blocks the middle"
-    assert _certified_self_span(rod.wrapped, rod_candidates) == pytest.approx(4.0, abs=1e-9)
+    assert _certified_self_span(rod.wrapped, mid_only, None) is None, "the hole blocks the middle"
+    assert _certified_self_span(rod.wrapped, rod_candidates, None) == pytest.approx(4.0, abs=1e-9)
+
+
+def test_the_spread_along_a_face_is_pinned_for_every_family():
+    """PR #146 review, MINOR 4/N5-N6: the docstring claims each family is
+    sampled along the face 'so a chord blocked by a bore can be answered by
+    one that is not', and only the cylinder's spread was pinned. Two
+    fixtures make the claim executed fact for the other two.
+
+    A bead with blind bores at both sampled azimuths of its equator: the
+    mid-parameter chords are interrupted, the off-equator ones are not. A
+    torus with shallow pockets in its outer surface: the radial tube
+    diameter is interrupted, the axial one is not. In both, a sample taken
+    only at the middle would find nothing on a part whose span is real."""
+    import math
+
+    from OCP.BRepAdaptor import BRepAdaptor_Surface  # pyright: ignore[reportAttributeAccessIssue]
+
+    from partspec.backends.occt import _certified_self_span, _diametric_chords
+
+    bead = bd.Sphere(6)
+    for fraction in (0.3, 0.7):
+        theta = 2 * math.pi * fraction
+        bead -= (
+            bd.Pos(5 * math.cos(theta), 5 * math.sin(theta), 0)
+            * bd.Rot(0, 90, math.degrees(theta))
+            * bd.Cylinder(0.5, 4)
+        )
+    donut = bd.Torus(10, 2)
+    for fraction in (0.3, 0.7):
+        theta = 2 * math.pi * fraction
+        donut -= (
+            bd.Pos(11.8 * math.cos(theta), 11.8 * math.sin(theta), 0)
+            * bd.Rot(0, 90, math.degrees(theta))
+            * bd.Cylinder(0.4, 1.2)
+        )
+
+    for shape, family, span in ((bead, "Sphere", 12.0), (donut, "Torus", 4.0)):
+        surf = next(
+            s
+            for s in (BRepAdaptor_Surface(f.wrapped) for f in shape.faces())
+            if str(s.GetType()).endswith(family)
+        )
+        chords = _diametric_chords(surf, surf.GetType())
+        assert _certified_self_span(shape.wrapped, [(span, chords[:2])], None) is None, (
+            f"the {family} fixture must block its mid-parameter chords"
+        )
+        assert _certified_self_span(shape.wrapped, [(span, chords)], None) == pytest.approx(span)
+
+
+def test_a_certified_span_can_only_tighten_the_upper_end():
+    """PR #146 review, MINOR 4/N3: the ceiling is load-bearing and was
+    untested — a certified span must never RAISE `hi`. A rod with a 0.5 mm
+    flange is the fixture: the ray witness reaches 0.5 across the flange
+    while the smallest certifiable span is the rod's 4.0, so an unbounded
+    search would report [0.5, 4.0] and turn a conclusive fail into a shrug.
+    The ceiling also stops the work: nothing at or above it can help, and
+    the list is sorted, so the search ends there rather than paying for
+    every blocked chord (MINOR 3 measured 2.4x on such a part)."""
+    from partspec.backends.occt import _certified_self_span
+
+    flange = bd.Cylinder(2, 40) + bd.Cylinder(8, 0.5)
+    raw = _raw(flange)
+    assert isinstance(raw, dict)
+    assert raw["lo"] == raw["hi"] == pytest.approx(0.5, abs=1e-9), "the flange, not the rod"
+
+    candidates = _closed_analytic_candidates(flange)
+    assert any(span == pytest.approx(4.0) for span, _ in candidates), "the rod's 4.0 is offered"
+    assert _certified_self_span(flange.wrapped, candidates, 0.5) is None, "the ceiling binds"
+    assert _certified_self_span(flange.wrapped, candidates, None) == pytest.approx(4.0)
+
+    result = _run_geometry_check(_spec(min=0.6), OcctBackend(), flange, "subject")
+    assert result.status is Status.FAIL, "0.6 is refuted by the 0.5 flange"
+
+
+def test_a_trimmed_periodic_face_certifies_a_span_that_is_not_a_crossing():
+    """PR #146 review, MAJOR: the certificate proves material along the
+    chord, NOT that the chord runs between two points of the face. A 1 mm
+    round on an edge leaves a fillet band that is a QUARTER tube — closed in
+    u, trimmed to v in [0, pi/2] — so the antipodal parameter lands off the
+    face, 1.85 mm inside the solid, and the chord certifies anyway.
+
+    Pinned as declared behavior rather than fixed, because the bound is
+    sound for a different reason than 'a crossing exists': the face's
+    diametric span is a member of the declared measurand (SPEC 4.11) and
+    every member is an upper bound on the measurand's minimum. The value is
+    also the one the LOWER bound already minimised over, so refusing it here
+    would leave the two ends ranging over different sets. What the review
+    corrected is the claim, not the number."""
+    import math
+
+    from OCP.BRepAdaptor import BRepAdaptor_Surface  # pyright: ignore[reportAttributeAccessIssue]
+    from OCP.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeVertex,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+    from OCP.BRepExtrema import (
+        BRepExtrema_DistShapeShape,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+    from OCP.gp import gp_Pnt  # pyright: ignore[reportAttributeAccessIssue]
+
+    from partspec.backends.occt import _chord_span, _diametric_chords
+
+    boss = bd.fillet(bd.Cylinder(10, 20).edges().filter_by(bd.GeomType.CIRCLE)[0], 1.0)
+    band = next(
+        face
+        for face in boss.faces()
+        if str(BRepAdaptor_Surface(face.wrapped).GetType()).endswith("Torus")
+    )
+    surf = BRepAdaptor_Surface(band.wrapped)
+    assert surf.IsUClosed() and not surf.IsVClosed(), "a quarter tube, not a full one"
+
+    p1, p2 = _diametric_chords(surf, surf.GetType())[0]
+    assert math.dist(p1, p2) == pytest.approx(2.0, abs=1e-9), "2 * the fillet radius"
+    assert _chord_span(boss.wrapped, p1, p2) is not None, "material end to end"
+    off_face = BRepExtrema_DistShapeShape(
+        BRepBuilderAPI_MakeVertex(gp_Pnt(*p2)).Vertex(), band.wrapped
+    )
+    assert off_face.Value() > 1.0, "and yet the far end is not on the face at all"
+
+    raw = _raw(boss)
+    assert isinstance(raw, dict)
+    assert raw["lo"] == pytest.approx(2**0.5, abs=1e-9), "the documented fillet-flip escape"
+    assert raw["hi"] == pytest.approx(2.0, abs=1e-9)
+
+
+def test_the_fillet_flip_now_fails_conclusively():
+    """PR #146 review, MINOR 5: an unrecorded verdict escalation, pinned so
+    it stays deliberate. SPEC 4.11 already warned that filleting a knife
+    edge flips it from feature to wall; before the chord witness a rounded
+    boss reported [1.414, 20.0] and a min=3 claim could only shrug. The
+    upper end now collapses to 2.0, so the same claim FAILS conclusively.
+    Correct within the measurand — the 1.414 span is real — but a stronger
+    verdict than the escape's wording implied, so 4.11 says so."""
+    boss = bd.fillet(bd.Cylinder(10, 20).edges().filter_by(bd.GeomType.CIRCLE)[0], 1.0)
+    result = _run_geometry_check(_spec(min=3.0), OcctBackend(), boss, "subject")
+    assert result.status is Status.FAIL
+    assert result.measurement is not None and result.measurement.bounds == pytest.approx(
+        (2**0.5, 2.0)
+    )
+
+
+def test_the_certificate_declines_a_chord_that_is_nearly_material(monkeypatch):
+    """PR #146 review, MINOR 4/N2: the 1e-7 comparison was unpinned — a
+    tolerance of 10% changed nothing in the whole suite. A chord that is 95%
+    material is not a certificate, and a bore that removes a twentieth of it
+    must still stop it."""
+    from partspec.backends.occt import _chord_span
+
+    rod = bd.Cylinder(2, 40) - bd.Rot(90, 0, 0) * bd.Cylinder(0.1, 10)
+    chord = ((-2.0, 0.0, 0.0), (2.0, 0.0, 0.0))
+    assert _chord_span(rod.wrapped, *chord) is None, "0.2 mm of void is still void"
+    assert _chord_span(bd.Cylinder(2, 40).wrapped, *chord) == pytest.approx(4.0, abs=1e-9)
+
+
+def test_an_unanswerable_chord_is_never_a_certificate(monkeypatch):
+    """PR #146 review, MINOR 4: issue #145's own item 3 held that a branch no
+    fixture can reach must be forced at the seam rather than accepted as
+    untestable — and the new function had two such branches. Both are forced
+    here: a kernel that reports failure, and a kernel that raises."""
+    import OCP.BRepAlgoAPI  # pyright: ignore[reportMissingImports]
+
+    from partspec.backends.occt import _chord_span
+
+    rod = bd.Cylinder(2, 40)
+    chord = ((-2.0, 0.0, 0.0), (2.0, 0.0, 0.0))
+    assert _chord_span(rod.wrapped, *chord) == pytest.approx(4.0, abs=1e-9)
+
+    class _NotDone:
+        def __init__(self, *args):
+            pass
+
+        def IsDone(self):
+            return False
+
+    monkeypatch.setattr(OCP.BRepAlgoAPI, "BRepAlgoAPI_Common", _NotDone)
+    assert _chord_span(rod.wrapped, *chord) is None, "an unfinished boolean certifies nothing"
+
+    def _explode(*args):
+        raise RuntimeError("the kernel gave up")
+
+    monkeypatch.setattr(OCP.BRepAlgoAPI, "BRepAlgoAPI_Common", _explode)
+    assert _chord_span(rod.wrapped, *chord) is None, "nor does one that raises"
 
 
 def test_an_unanswerable_certificate_keeps_the_span(monkeypatch):

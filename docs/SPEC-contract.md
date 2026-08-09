@@ -559,27 +559,45 @@ tube circle common'd with the solid — certifies the enclosed line entirely voi
 diameter was discarded because the probe landed in the hole, and the tool certified
 19 mm, exact). A cone apex is the wedge-in-the-round and is skipped as a feature.
 
-`hi` is the smallest measurand-consistent witnessed crossing, from either of two
+`hi` is the smallest measurand member the analysis can point to, from either of two
 witnesses. An inward normal ray whose first exit lands on a non-adjacent face, or crosses
 the same closed face diametrically — sampled on a parameter grid, which is why it is a
 witness and not a bound. Or a **certified chord**: a diametric chord of a closed analytic
-face whose exact boolean common with the solid has the chord's own LENGTH, proving the
-span is material end to end and therefore *achieved*, not merely bounded. The chord
-witness closes issue #145's two loosenings: it reaches the narrow rim of a frustum, where
-the ray grid never samples (an interval of `[4, 6.88]` on a part whose wall is exactly
-4.0), and it answers a 45° frustum whose every inward normal exits through an adjacent
-cap, which used to refuse the whole check for want of any witness at all. Its teeth are
-that the whole chord must be material: a chord crossing a bore does not certify, so the
-achieved-span argument never degrades into the probe-point fallacy of F1. Tightening `hi`
-is safe by construction — a limit at or below `lo` passes on `lo` alone, so a smaller
-`hi` can only turn an `approximate` into a `fail`, and only on evidence.
+face whose exact boolean common with the solid has the chord's own LENGTH, so the span is
+material end to end. The chord witness closes issue #145's two loosenings: it reaches the
+narrow rim of a frustum, where the ray grid never samples (an interval of `[4, 6.88]` on a
+part whose wall is exactly 4.0), and it answers a 45° frustum whose every inward normal
+exits through an adjacent cap, which used to refuse the whole check for want of any
+witness at all.
 
-**A witnessed crossing below `lo` refuses the whole check** ("the analysis contradicts
+**Why a smaller `hi` is sound, stated precisely** (PR #146's review corrected the first
+draft of this paragraph, which claimed more than the code proves). Two independent legs.
+Adjudication is one-sided: a `min` limit at or below `lo` passes on `lo` alone, so
+tightening `hi` can only turn an `approximate` into a `fail` — the false-alarm direction —
+and never manufacture a pass. And a face's diametric span is a *member of the measurand
+declared above*, so it is an upper bound on that measurand's minimum by definition; it is
+also one of the values `lo` minimised over, which is why a certified span can never fall
+below `lo` and why the two ends range over the same set. The boolean certificate is
+therefore a **tightness gate, not the soundness argument**: it exists so the interval only
+collapses where real material can be shown along the span, keeping the number tethered to
+the part. Its teeth are that the whole chord must be material — a chord crossing a bore
+does not certify, and one that is 95% material does not either — so it never degrades into
+the probe-point fallacy of F1.
+
+What the certificate does **not** prove is that the chord runs between two points of the
+face. On a v-trimmed periodic face — a fillet band is a quarter-tube — the antipodal
+parameter lands off the face, inside the solid, and the chord certifies anyway. The span
+is still that face's own declared diametric span, so the bound holds; the fixture is in
+the suite so the boundary stays visible rather than being assumed away.
+
+**A witnessed RAY crossing below `lo` refuses the whole check** ("the analysis contradicts
 itself") — PR #144 (F3) found the first draft clamping exactly that counter-evidence
-away, the thesis violation in one line. `[lo, hi]` collapses to exact on
-parallel-analytic walls (uniform shells, tubes, sphere shells, the hidden thin spot, the
-cross-drilled rod's diameter, every closed analytic family: hand-computed truth to 1e-9);
-a straddling limit adjudicates `approximate` — the tool does not know, and will not guess.
+away, the thesis violation in one line. (A certified span cannot reach that tripwire, per
+the leg above; what guards the chord machinery instead is a direct test that each family's
+antipodal map really is diametric.) `[lo, hi]` collapses to exact on parallel-analytic
+walls (uniform shells, tubes, sphere shells, the hidden thin spot, the cross-drilled rod's
+diameter, every closed analytic family: hand-computed truth to 1e-9); a straddling limit
+adjudicates `approximate` — the tool does not know, and will not guess.
 
 **The wedge policy is structural, not a threshold.** Faces meeting at a shared edge are a
 modeling feature — a wedge, a corner — never a wall; a 5.71° taper does not fail as a
@@ -592,7 +610,12 @@ adjacent) and FAILS with the empty-set detail; and **filleting a knife edge flip
 feature to wall** — the fillet band no longer shares an edge with both flanks, so the
 real material behind it (0.6 mm for an r=0.3 fillet on a thin wedge) is measured and may
 fail where the sharp edge passed. That is the material's truth, stated so nobody is
-surprised by it.
+surprised by it. Since #145 the flip also **fails conclusively rather than straddling**: a
+fillet band is a closed analytic face, so the chord witness collapses the upper end onto
+twice the fillet radius, and a rounded Ø20 boss that used to report `[1.414, 20.0]` and
+shrug at a `min=3` claim now reports `[1.414, 2.0]` and fails it. Correct within the
+measurand — the 1.414 mm span is real — but a stronger verdict than "may fail", and
+recorded here for that reason.
 
 **Recorded escapes — what the measurand does not cover:**
 
@@ -611,7 +634,8 @@ surprised by it.
   wall. The false-alarm direction, recorded (and pinned by a fixture) so the `approximate`
   is understood as structural, not sampling noise. The interval's *width* on such parts is
   loose for a second reason worth knowing: the ray witness samples only the faces that
-  realized `lo`, so a stepped slab's upper end can be the full part width.
+  realized `lo`, so the 1.5 mm ledge above reports `hi = 27.0` — the width of the stepped
+  section whose side faces realized it, not anything about the 2.0 mm wall.
 
 **Gaps are not walls, but they bound them.** The U-channel (walls 3.0, gap 1.0) reports
 `lo = 1.0, gap-limited`: conclusive pass for `min ≤ 1`, honest `approximate` above. The

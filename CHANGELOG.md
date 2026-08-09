@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   above — an inward normal ray, or a diametric chord certified material end
   to end by exact boolean, which is what makes every closed analytic family
   exact and answers a frustum whose every normal exits through an adjacent
-  cap (#145). A crossing thinner than the bound refuses the check as
+  cap (#145). One consequence to know: a fillet band is a closed analytic
+  face, so the documented fillet-flip now FAILS conclusively where it used
+  to straddle. A crossing thinner than the bound refuses the check as
   self-contradictory, and a straddling limit adjudicates `approximate` —
   the first genuine exercise of the interval machinery, closing POST-V0's
   outstanding obligation. Gap-limited claims straddle honestly (never
