@@ -601,6 +601,7 @@ def _measure_resolved(
         "is_valid",
         "watertight",
         "self_intersection_free",
+        "min_wall",
         "solid_count",
         "cavities",
         "genus",

@@ -113,8 +113,8 @@ error.
 revising when a check is added. **This document closes it at each release**: v0 shipped the
 set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5),
 `bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6;
-`draft_angle` (§4.8), `self_intersection_free` (§4.9) and `step_roundtrip` (§4.10) are
-the depth epic's (#136).
+`draft_angle` (§4.8), `self_intersection_free` (§4.9), `step_roundtrip` (§4.10) and
+`min_wall` (§4.11) are the depth epic's (#136).
 
 ### 4.1 Parameter phase
 
@@ -528,6 +528,58 @@ The writer schema (`AP214IS` on the current toolchain) is recorded on the check
 happens in a scratch directory: the check is about survivability, not producing an
 export. `tol` is a fidelity tolerance with a calibrated default, not a design dimension,
 so the kind is deliberately NOT in `DIMENSIONAL_KINDS` and draws no attribution warning.
+
+---
+
+### 4.11 `min_wall` — every wall thick enough, guaranteed
+
+`p.min_wall(min=)`: every wall of the part is at least `min` mm. **OCCT tier only.** The
+first check whose measurement is a genuine interval, and therefore the first to exercise
+§3.1's `approximate` adjudication — the debt POST-V0 §4 carried since `hole_diameter`
+landed exact.
+
+**The guarantee (Method E, #140's executed research).** `lo` is the minimum over
+admissible face pairs of the kernel-exact distance (`BRepExtrema_DistShapeShape`), plus
+the analytic self-spans of closed faces (a rod's or bead's diameter; a frustum's narrow
+end): every first-exit normal span from one face landing on another is at least the pair
+distance, so **no sampling can sneak a thinner wall past `lo`**. `hi` is the smallest
+WITNESSED material crossing (an achieved self-span, or a sampled inward-normal ray), so
+the true minimum can never exceed it. `[lo, hi]` contains the truth — §3.1's bar — and
+collapses to exact on parallel-analytic walls (uniform shells, tubes, sphere shells, the
+hidden thin spot over an internal void: all land on the hand-computed truth to 1e-9). A
+straddling limit adjudicates `approximate`: the tool does not know, and will not guess.
+A false pass is impossible in any direction: `lo ≤ true` always, and `pass` requires
+`lo ≥ min`.
+
+**The wedge policy is structural, not a threshold.** Faces meeting at a shared edge are a
+modeling feature — a wedge, a corner — never a wall; a 5.71° taper does not fail as a
+sliver. The moment the tip is truncated into an actual sliver the faces stop sharing the
+edge and it is measured exactly (the 0.05 mm truncation fixture). cad-khana's
+`min_wall_alignment` scalar was reconstructed and **falsified by execution** — a shallow
+taper measures alignment 0.995, indistinguishable from a slab — so the structural rule
+replaces it. A cone apex (radius 0) is the wedge-in-the-round and is skipped as a
+feature under the same policy.
+
+**Gaps are not walls.** A pair is excluded only on the two-signal test: the min-segment
+midpoint outside the solid AND the normals at the realization facing each other. The
+U-channel trap (walls 3.0, gap 1.0) answers 3.0. Anything unclassifiable stays in, which
+can only shrink `lo` — the false-alarm direction, never the false-pass one. A part where
+EVERY face pair shares an edge (a tetrahedron) has no walls, and FAILS like
+`fillet_radius`'s empty set: vacuous green, refused.
+
+**Refusal edges, recorded:** a closed periodic face outside the analytic families
+(cylinder / sphere / torus / frustum) has no guaranteed self-span, and a face pair the
+kernel cannot resolve leaves `lo` unguaranteed — both refuse the whole check by name.
+
+**The mesh tier's refusal stands, now with executed evidence** (#140's research, all four
+candidates run against fixtures with hand-computed walls): ray sampling is one-sided and
+silent (1.75 reported on a true 0.8 wall at n=100, converging from above with no
+completion signal; coarse tessellation makes it 13x); BREP inward-offset feasibility
+certifies the wrong quantity (max inscribed depth — a false "walls ≥ 1.5" certificate on
+a true 1.1 wall) and crashes or returns negative-volume "successes" on hollow shells;
+voxel occupancy adds unsafe-direction gap fusion; morphological opening gives a real
+bracket but only above a corner-shed noise floor, which is a threshold, not a bound.
+POST-V0 §5's ship condition — "a different method on the BREP tier" — is met by Method E.
 
 ---
 

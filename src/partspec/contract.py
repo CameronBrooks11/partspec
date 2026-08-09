@@ -50,6 +50,7 @@ GEOMETRY_KINDS: dict[str, str] = {
     "draft_angle": "draft_angle",
     "self_intersection_free": "self_intersection_free",
     "step_roundtrip": "step_roundtrip",
+    "min_wall": "min_wall",
 }
 """The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
@@ -75,6 +76,7 @@ DIMENSIONAL_KINDS = frozenset(
         "bolt_circle",
         "fillet_radius",
         "draft_angle",
+        "min_wall",
     }
 )
 """The kinds whose limits are numbers an author chose — and so the kinds that
@@ -517,6 +519,37 @@ class Part:
                 kind="self_intersection_free",
                 phase=GEOMETRY,
                 limit=Limit(equals=True),
+            )
+        )
+
+    def min_wall(self, *, min: float, id: str | None = None) -> Part:
+        """Every wall of the part is at least `min` mm thick. **OCCT tier
+        only** (POST-V0 section 5's condition — a different method on the
+        BREP tier — is met; the mesh tier's refusal stands, with the
+        executed evidence recorded in SPEC-contract.md 4.11).
+
+        The measurement is a GUARANTEED interval, not a sample: the kernel's
+        exact face-pair minima bound the wall from below (no sampling can
+        sneak a thinner wall past it), a witnessed material crossing bounds
+        it from above, and a straddling limit adjudicates APPROXIMATE — the
+        tool says "I do not know" rather than guessing. Faces meeting at an
+        edge are a modeling feature (a wedge, a corner), never a wall; the
+        moment a tip is truncated into an actual sliver it is measured.
+        """
+        if (
+            not isinstance(min, int | float)
+            or isinstance(min, bool)
+            or not math.isfinite(min)
+            or min <= 0
+        ):
+            raise ContractError(f"min_wall min must be a positive thickness in mm (got {min!r})")
+        return self._add(
+            CheckSpec(
+                id=id or "min_wall",
+                kind="min_wall",
+                phase=GEOMETRY,
+                limit=Limit(min=float(min)),
+                source=source_map(min=min),
             )
         )
 

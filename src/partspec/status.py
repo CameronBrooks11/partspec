@@ -62,8 +62,10 @@ class Status(StrEnum):
 
     Used when the representation *lacks the entity* (a triangle mesh has no
     cylindrical face, so no hole diameter), or when no honest error bound exists
-    for a quantity (sampled wall thickness is one-sided: more samples can only
-    find a thinner wall, so there is no principled lower bound).
+    for a quantity (MESH-tier wall thickness: sampling is one-sided — more
+    samples can only find a thinner wall — and every erosion-style candidate
+    was executed and refused, SPEC-contract.md 4.11; the BREP tier answers
+    with a guaranteed face-pair bound instead).
     """
 
     SKIPPED = "skipped"

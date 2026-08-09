@@ -122,17 +122,17 @@ nor heavyweight (pymeshlab) — currently an open dependency question (D14).
 
 ---
 
-## 5. `min_wall`
+## 5. `min_wall` — SHIPPED on the BREP tier (2026-08-09, #140 — SPEC-contract §4.11)
 
-Deferred with a specific reason worth preserving: it is **`unsupported`, not
-`approximate`**, because sampling is one-sided by construction — more samples can only ever
-find a *thinner* wall — so a measurement is an upper bound on the true minimum and no
-principled `lo` exists.
-
-It ships when either a defensible lower bound is derived, or the BREP tier makes a different
-method available. Absorb cad-khana's **`min_wall_alignment`** scalar when it does: it
-distinguishes a wedge tip from a real sliver, and is what makes the number actionable rather
-than a false-alarm generator.
+The deferral reason held for the mesh tier and is now recorded with executed evidence
+(§4.11): sampling is one-sided by construction — more samples can only ever find a
+*thinner* wall — so no principled `lo` exists there, and every erosion-style candidate
+was executed and refused. The ship condition ("the BREP tier makes a different method
+available") was met by the face-pair minimum-distance method: kernel-exact `lo`,
+witnessed-span `hi`, a guaranteed interval that finally exercises the `approximate`
+machinery. cad-khana's `min_wall_alignment` was reconstructed and falsified by execution
+(a shallow taper measures alignment 0.995); the shared-edge exclusion replaces it
+structurally.
 
 ---
 

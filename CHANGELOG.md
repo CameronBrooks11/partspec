@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `p.min_wall(min=)` — every wall thick enough, guaranteed, OCCT tier
+  (#140): the kernel's exact face-pair minima bound the wall from below (no
+  sampling can sneak a thinner wall past it), a witnessed crossing bounds it
+  from above, and a straddling limit adjudicates `approximate` — the first
+  genuine exercise of the interval machinery, closing POST-V0's outstanding
+  obligation. Faces meeting at an edge are features, not walls (the wedge
+  policy, structural); gaps are excluded by a two-signal test; the mesh
+  tier's refusal stands with the research's executed evidence recorded.
+  SPEC-contract 4.11.
 - `p.step_roundtrip(tol=)` — the part survives its own exchange format,
   OCCT tier (#139): written to STEP and read back, volume/area within a
   calibrated relative tolerance (default 1e-6: most families measure below
