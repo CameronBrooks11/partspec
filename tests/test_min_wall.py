@@ -580,9 +580,12 @@ def test_the_fillet_flip_now_fails_conclusively():
     boss = bd.fillet(bd.Cylinder(10, 20).edges().filter_by(bd.GeomType.CIRCLE)[0], 1.0)
     result = _run_geometry_check(_spec(min=3.0), OcctBackend(), boss, "subject")
     assert result.status is Status.FAIL
-    assert result.measurement is not None and result.measurement.bounds == pytest.approx(
-        (2**0.5, 2.0)
-    )
+    assert result.measurement is not None and result.measurement.bounds is not None
+    assert result.measurement.bounds[0] == pytest.approx(2**0.5, abs=1e-9)
+    # Exactly 2.0, not 2.0000000000000013 (PR #146 review, MINOR 6): the
+    # certified value reported is the face's analytic span, not the chord's
+    # measured length, and this is the number a report consumer reads.
+    assert result.measurement.bounds[1] == 2.0
 
 
 def test_the_certificate_declines_a_chord_that_is_nearly_material(monkeypatch):
@@ -611,12 +614,22 @@ def test_an_unanswerable_chord_is_never_a_certificate(monkeypatch):
     chord = ((-2.0, 0.0, 0.0), (2.0, 0.0, 0.0))
     assert _chord_span(rod.wrapped, *chord) == pytest.approx(4.0, abs=1e-9)
 
+    real_common = OCP.BRepAlgoAPI.BRepAlgoAPI_Common  # pyright: ignore[reportAttributeAccessIssue]
+
     class _NotDone:
+        """Reports failure while still offering a perfectly good shape — so
+        a check that ignored `IsDone()` would certify from it. A stub that
+        merely lacked `Shape()` would be caught by the exception handler and
+        prove nothing about the guard."""
+
         def __init__(self, *args):
-            pass
+            self._real = real_common(*args)
 
         def IsDone(self):
             return False
+
+        def Shape(self):
+            return self._real.Shape()
 
     monkeypatch.setattr(OCP.BRepAlgoAPI, "BRepAlgoAPI_Common", _NotDone)
     assert _chord_span(rod.wrapped, *chord) is None, "an unfinished boolean certifies nothing"
