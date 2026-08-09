@@ -542,6 +542,12 @@ def _run_min_wall_check(
                 f"[{raw['lo']:.6g}, {raw['hi']:.6g}] straddles the limit — "
                 "the tool does not know, and will not guess"
             )
+            if raw.get("gap_limited"):
+                detail += (
+                    " (the bound is limited by a gap-like pair — a nearby "
+                    "void, not a proven thin wall; PR #144 review, F2: "
+                    "excluding such pairs once hid a real wall)"
+                )
         else:
             detail = thinnest
     return CheckResult(**common, status=status, measurement=measurement, detail=detail)

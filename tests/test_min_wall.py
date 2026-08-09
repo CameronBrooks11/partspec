@@ -51,13 +51,24 @@ def test_the_lower_bound_lands_on_the_truth(name, builder, truth):
     assert raw["lo"] == pytest.approx(truth, abs=1e-9), name
 
 
-def test_the_gap_is_not_a_wall():
-    """The U-channel trap: walls 3.0, gap 1.0 — the two-signal test must
-    reject the gap pair, or min_wall silently becomes min_gap."""
+def test_the_gap_limits_the_bound_honestly():
+    """The U-channel: walls 3.0, gap 1.0. PR #144's review (F2) proved that
+    EXCLUDING gap-classified pairs can hide a real wall, so the gap pair is
+    retained: lo is the gap distance (sound — any wall between two faces is
+    at least their pair distance), the claim straddles honestly instead of
+    passing on a falsely tight 3.0, and the gap limitation is flagged."""
     channel = bd.Box(7, 20, 10) - bd.Pos(0, 0, 1.5) * bd.Box(1, 20, 7)
     raw = _raw(channel)
     assert isinstance(raw, dict)
-    assert raw["lo"] == pytest.approx(3.0, abs=1e-9)
+    assert raw["lo"] == pytest.approx(1.0, abs=1e-9), "the gap bounds from below"
+    assert raw["gap_limited"] is True
+    assert raw["hi"] >= 3.0 - 1e-9, "the interval still contains the true wall"
+
+    result = _run_geometry_check(_spec(min=2.0), OcctBackend(), channel, "subject")
+    assert result.status is Status.APPROXIMATE
+    assert result.detail is not None and "gap-like pair" in result.detail
+    conclusive = _run_geometry_check(_spec(min=0.5), OcctBackend(), channel, "subject")
+    assert conclusive.status is Status.PASS
 
 
 def test_closed_faces_answer_by_self_span():
@@ -177,6 +188,117 @@ def test_approximate_surfaces_in_the_verdict(tmp_path):
     assert check["status"] == "approximate"
     assert check["measurement"]["exactness"] == "approximate"
     assert check["measurement"]["bounds"] is not None
+
+
+# ---------------------------------------------------------------------------
+# PR #144's falsified certificates, as regressions
+# ---------------------------------------------------------------------------
+
+
+def test_the_cross_drilled_rod_reads_its_diameter():
+    """PR #144 review, F1: the single-point axis probe landed inside the
+    cross-hole and discarded the rod's 4 mm diametric wall — the tool
+    certified 19 mm on a 4 mm part, exact, and min_wall(min=10) passed. The
+    exact segment-material certificate closes it: drilling a hole must
+    never RAISE the reported wall."""
+    rod = bd.Cylinder(2, 40) - bd.Rot(90, 0, 0) * bd.Cylinder(1, 10)
+    raw = _raw(rod)
+    assert isinstance(raw, dict)
+    assert raw["lo"] == pytest.approx(4.0, abs=1e-9)
+    assert "self-span" in raw["witness"]
+    result = _run_geometry_check(_spec(min=10.0), OcctBackend(), rod, "subject")
+    assert result.status is Status.FAIL, "the reviewer's false pass, dead"
+
+
+def test_the_spiral_wall_cannot_false_pass():
+    """PR #144 review, F2: a spline spiral whose inner/outer pair minimum
+    crosses the 2 mm air gap — excluding that pair as a gap took its real
+    3 mm wall with it, and min_wall(min=10) passed end to end reading 20.0
+    exact. With gap pairs retained, lo <= the gap < the wall < 10: the
+    claim can no longer pass."""
+    import math
+
+    a0, b, t, n = 10.0, 5.0 / (2 * math.pi), 3.0, 200
+    thetas = [3 * math.pi * i / n for i in range(n + 1)]
+    inner = bd.Spline(
+        *[((a0 + b * th) * math.cos(th), (a0 + b * th) * math.sin(th)) for th in thetas]
+    )
+    outer = bd.Spline(
+        *[((a0 + t + b * th) * math.cos(th), (a0 + t + b * th) * math.sin(th)) for th in thetas]
+    )
+    e1 = bd.Line(inner @ 0, outer @ 0)
+    e2 = bd.Line(inner @ 1, outer @ 1)
+    profile = bd.make_face([inner, e2, outer.reversed(), e1.reversed()])
+    spiral = bd.extrude(profile, 20)
+    raw = _raw(spiral)
+    assert isinstance(raw, dict)
+    assert raw["lo"] <= 3.0 + 1e-6, "lo can never exceed the true wall"
+    result = _run_geometry_check(_spec(min=10.0), OcctBackend(), spiral, "subject")
+    assert result.status is not Status.PASS, "the reviewer's false pass, dead"
+
+
+def test_a_tiny_bore_is_still_a_void():
+    """The mutant-(c) killer the reviewer demanded: a thick tube with a tiny
+    bore — the bore's 2 mm self-span must be excluded (certified void), or
+    lo drops to 2 on a 9 mm wall and every thick claim false-alarms."""
+    raw = _raw(bd.Cylinder(10, 20) - bd.Cylinder(1, 20))
+    assert isinstance(raw, dict)
+    assert raw["lo"] == pytest.approx(9.0, abs=1e-9), "9.0, not the bore's 2.0"
+
+
+def test_the_analytic_families_have_fixtures():
+    """The mutant-(e) coverage the reviewer demanded: frustum, solid torus
+    and torus shell all answer, and the solid cone's apex stays a feature
+    (vacuous FAIL with the empty-set detail, never a near-zero sliver)."""
+    backend = OcctBackend()
+    donut = _raw(bd.Torus(10, 2))
+    assert isinstance(donut, dict) and donut["lo"] == pytest.approx(4.0, abs=1e-9)
+    shell = _raw(bd.Torus(10, 2) - bd.Torus(10, 1.4))
+    assert isinstance(shell, dict) and shell["lo"] == pytest.approx(0.6, abs=1e-9)
+    frustum = _raw(bd.Cone(8, 5, 6))
+    assert isinstance(frustum, dict) and frustum["lo"] > 0
+
+    cone = _run_geometry_check(_spec(min=1.0), backend, bd.Cone(8, 0, 6), "subject")
+    assert cone.status is Status.FAIL
+    assert cone.detail is not None and "no wall spans exist" in cone.detail, (
+        "the apex skip makes the solid cone vacuous, never a near-zero sliver"
+    )
+
+
+def test_the_exactness_threshold_binds():
+    """The mutant-(g) killer: a near-threshold interval must stay honest."""
+    from partspec.backends.occt import _min_wall_measurement
+
+    wide = _min_wall_measurement({"lo": 1.0, "hi": 1.0005, "witness": "x"})
+    assert wide.exact is False and wide.bounds == (1.0, 1.0005)
+    tight = _min_wall_measurement({"lo": 1.0, "hi": 1.0 + 1e-10, "witness": "x"})
+    assert tight.exact is True
+
+
+def test_a_witnessed_span_below_lo_refuses(monkeypatch):
+    """PR #144 review, F3: the old floor-clamp DELETED witnessed crossings
+    thinner than lo — counter-evidence silenced into an exact false
+    certificate. A contradicting witness now refuses the whole check."""
+    monkeypatch.setattr(
+        OcctBackend,
+        "_min_wall_witnessed_span",
+        lambda self, a, faces, edge_sets, spans, witness, floor: floor / 2,
+    )
+    raw = _raw(bd.Box(30, 20, 10) - bd.Box(26, 16, 6))
+    assert isinstance(raw, Unsupported)
+    assert "contradicts itself" in raw.reason
+
+
+def test_the_drilled_web_escape_is_documented_behavior():
+    """The recorded escape (SPEC 4.11): material bounded by edge-SHARING
+    faces — the web beside the cross-hole — is outside the measurand. This
+    pin documents the boundary as executed fact: the rod reads its
+    diametric 4.0, NOT the ~1 mm web, and the spec says why. If pair
+    analysis ever grows web coverage, this pin moves with the spec."""
+    rod = bd.Cylinder(2, 40) - bd.Rot(90, 0, 0) * bd.Cylinder(1, 10)
+    raw = _raw(rod)
+    assert isinstance(raw, dict)
+    assert raw["lo"] == pytest.approx(4.0, abs=1e-9)
 
 
 # ---------------------------------------------------------------------------

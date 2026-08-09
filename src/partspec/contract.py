@@ -528,13 +528,18 @@ class Part:
         BREP tier — is met; the mesh tier's refusal stands, with the
         executed evidence recorded in SPEC-contract.md 4.11).
 
-        The measurement is a GUARANTEED interval, not a sample: the kernel's
-        exact face-pair minima bound the wall from below (no sampling can
-        sneak a thinner wall past it), a witnessed material crossing bounds
-        it from above, and a straddling limit adjudicates APPROXIMATE — the
-        tool says "I do not know" rather than guessing. Faces meeting at an
-        edge are a modeling feature (a wedge, a corner), never a wall; the
-        moment a tip is truncated into an actual sliver it is measured.
+        The measurement is a guaranteed interval WITHIN A DECLARED
+        MEASURAND (SPEC-contract.md 4.11): the minimum span between
+        non-adjacent boundary faces through material, plus certified
+        diametric spans of closed analytic faces. Inside it, the kernel's
+        exact face-pair minima bound the wall from below, a witnessed
+        crossing bounds it from above, a crossing thinner than the bound
+        refuses the check as self-contradictory, and a straddling limit
+        adjudicates APPROXIMATE — the tool says "I do not know" rather than
+        guessing. Outside it — the web beside a drilled hole, a single-face
+        fold — is recorded as unmeasured, not silently green. Faces meeting
+        at an edge are a modeling feature (a wedge, a corner), never a
+        wall; a truncated tip is measured.
         """
         if (
             not isinstance(min, int | float)

@@ -156,6 +156,53 @@ def _min_draft_deg(a_coef: float, b_coef: float, c_coef: float, u1: float, u2: f
     return math.degrees(math.asin(min(1.0, best)))
 
 
+def _segment_has_material(
+    solid: Any, p1: tuple[float, float, float], p2: tuple[float, float, float]
+) -> bool | None:
+    """Whether the open segment p1-p2 crosses any material — an EXACT boolean
+    common of the segment edge with the solid (PR #144, F1: a single probe
+    point is not a certificate). None when the kernel cannot answer."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common  # type: ignore[attr-defined]
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge  # type: ignore[attr-defined]
+    from OCP.gp import gp_Pnt  # type: ignore[attr-defined]
+    from OCP.TopAbs import TopAbs_EDGE  # type: ignore[attr-defined]
+    from OCP.TopExp import TopExp_Explorer  # type: ignore[attr-defined]
+
+    if abs(p1[0] - p2[0]) < 1e-12 and abs(p1[1] - p2[1]) < 1e-12 and abs(p1[2] - p2[2]) < 1e-12:
+        return None  # a degenerate segment cannot certify anything
+    try:
+        edge = BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge()
+        common = BRepAlgoAPI_Common(edge, solid)
+        if not common.IsDone():
+            return None
+        return TopExp_Explorer(common.Shape(), TopAbs_EDGE).More()
+    except Exception:  # noqa: BLE001 - an unanswerable certificate is None, never a guess
+        return None
+
+
+def _circle_has_material(solid: Any, torus: Any) -> bool | None:
+    """Whether the torus tube-centre circle crosses material — the exact
+    boolean, on the circle edge."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common  # type: ignore[attr-defined]
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge  # type: ignore[attr-defined]
+    from OCP.gp import gp_Ax2, gp_Circ  # type: ignore[attr-defined]
+    from OCP.TopAbs import TopAbs_EDGE  # type: ignore[attr-defined]
+    from OCP.TopExp import TopExp_Explorer  # type: ignore[attr-defined]
+
+    try:
+        pos = torus.Position()
+        circle = gp_Circ(
+            gp_Ax2(pos.Location(), pos.Direction(), pos.XDirection()), torus.MajorRadius()
+        )
+        edge = BRepBuilderAPI_MakeEdge(circle).Edge()
+        common = BRepAlgoAPI_Common(edge, solid)
+        if not common.IsDone():
+            return None
+        return TopExp_Explorer(common.Shape(), TopAbs_EDGE).More()
+    except Exception:  # noqa: BLE001 - an unanswerable certificate is None, never a guess
+        return None
+
+
 def _min_wall_measurement(raw: dict[str, Any]) -> Measurement:
     """The Measurement rule shared by `measure` and the check branch: exact
     when the interval collapses, else the guaranteed [lo, hi]."""
@@ -703,34 +750,37 @@ class OcctBackend:
         return _min_wall_measurement(raw)
 
     def _min_wall_raw(self, a: Any) -> dict[str, Any] | Unsupported:
-        """Method E (#140, executed research): a GUARANTEED interval on the
-        minimum wall.
+        """Method E (#140), reworked after PR #144's review falsified the
+        first draft's impossibility claim: the MEASURAND is now declared
+        precisely, the bound is sound within it, and its escapes are
+        recorded rather than denied.
 
-        `lo` = the kernel-exact minimum distance over admissible face pairs
-        (`BRepExtrema_DistShapeShape`) plus the analytic self-spans of closed
-        faces — every first-exit normal span from F landing on G satisfies
-        span >= dist(F, G), so lo can never exceed the true minimum wall.
-        `hi` = the smallest WITNESSED span (an achieved self-span, or a
-        sampled inward normal ray) — an actual material crossing, so the true
-        minimum can never exceed it. [lo, hi] therefore contains the truth
-        (SPEC-report 3.1's bar), and collapses to exact on parallel-analytic
-        walls.
+        **Measurand**: the minimum span between NON-ADJACENT boundary faces
+        through material, plus the certified diametric spans of closed
+        analytic faces. `lo` is the minimum over ALL non-adjacent pairs of
+        the kernel-exact distance — gap-classified pairs are RETAINED (PR
+        #144, F2: any wall between two faces is at least their pair
+        distance, so keeping the gap value is always sound; excluding the
+        pair once took a real wall with it), which makes a gap-limited claim
+        adjudicate approximate rather than falsely tight. A closed face's
+        diametric span is included unless an EXACT boolean (its axis edge or
+        tube circle against the solid) certifies the enclosed line is
+        entirely void (PR #144, F1: a single probe point once discarded a
+        rod's diameter because it landed in a cross-hole).
 
-        Admissible = non-adjacent: faces meeting at a shared edge are a
-        modeling feature (a wedge, a corner), never a wall — the structural
-        form of the wedge policy; a truncated tip stops sharing the edge and
-        is measured. A pair is excluded as a GAP only on the two-signal test
-        (min-segment midpoint outside the solid AND the normals at the
-        realization facing each other); anything unclassifiable stays in,
-        which can only shrink lo — the false-alarm direction, never the
-        false-pass one.
+        `hi` is the smallest measurand-consistent witnessed crossing: an
+        inward normal ray whose first exit lands on a non-adjacent face (or
+        the same closed face). A witnessed crossing BELOW lo is not clamped
+        away — it is proof the analysis contradicts itself, and the check
+        refuses (PR #144, F3: the old clamp silenced exactly that
+        counter-evidence).
 
-        Refusal edges, recorded: a closed periodic face outside the analytic
-        families (cylinder / sphere / torus / frustum) has no guaranteed
-        self-span; a pair the kernel cannot resolve leaves lo unguaranteed.
-        Both refuse the whole check by name. A cone tip (apex radius 0) is
-        the wedge-in-the-round and is skipped as a feature, mirroring the
-        shared-edge policy.
+        **Recorded escapes** (SPEC-contract.md 4.11): material bounded by
+        edge-SHARING faces — the web beside a drilled hole, a boss root —
+        is outside the measurand (the shared-edge span tends to zero at the
+        rim, which is the same geometry as a wedge tip); so is a wall whose
+        two sides are one open non-analytic face (a folded sheet modeled as
+        a single spline face). Neither is measured, and the spec says so.
         """
         from OCP.Bnd import Bnd_Box  # type: ignore[attr-defined]
         from OCP.BRepAdaptor import BRepAdaptor_Surface  # type: ignore[attr-defined]
@@ -746,15 +796,15 @@ class OcctBackend:
         faces = a.faces()
         solid = a.wrapped
 
-        def inside(x: float, y: float, z: float) -> bool:
+        def point_inside(x: float, y: float, z: float) -> bool:
             probe = BRepClass3d_SolidClassifier(solid, gp_Pnt(x, y, z), 1e-7)
             return probe.State() in (TopAbs_IN, TopAbs_ON)
 
         best: float | None = None
         witness = ""
-        exact_witness = False  # a self-span is achieved, not just bounded
+        self_span_faces: set[int] = set()
 
-        # -- analytic self-spans of closed faces ---------------------------
+        # -- certified self-spans of closed analytic faces ------------------
         for index, face in enumerate(faces):
             surf = BRepAdaptor_Surface(face.wrapped)
             if not (surf.IsUClosed() or surf.IsVClosed()):
@@ -764,58 +814,54 @@ class OcctBackend:
                 cyl = surf.Cylinder()
                 span = 2.0 * cyl.Radius()
                 pos = cyl.Position()
-                v_mid = (surf.FirstVParameter() + surf.LastVParameter()) / 2.0
                 loc, axis = pos.Location(), pos.Direction()
-                px = loc.X() + axis.X() * v_mid
-                py = loc.Y() + axis.Y() * v_mid
-                pz = loc.Z() + axis.Z() * v_mid
+                v1, v2 = surf.FirstVParameter(), surf.LastVParameter()
+                include = _segment_has_material(
+                    solid,
+                    (loc.X() + axis.X() * v1, loc.Y() + axis.Y() * v1, loc.Z() + axis.Z() * v1),
+                    (loc.X() + axis.X() * v2, loc.Y() + axis.Y() * v2, loc.Z() + axis.Z() * v2),
+                )
             elif kind == GeomAbs_SurfaceType.GeomAbs_Sphere:
                 sph = surf.Sphere()
                 span = 2.0 * sph.Radius()
                 centre = sph.Location()
-                px, py, pz = centre.X(), centre.Y(), centre.Z()
+                include = point_inside(centre.X(), centre.Y(), centre.Z())
             elif kind == GeomAbs_SurfaceType.GeomAbs_Torus:
                 tor = surf.Torus()
                 span = 2.0 * tor.MinorRadius()
-                pos = tor.Position()
-                loc, xdir = pos.Location(), pos.XDirection()
-                major = tor.MajorRadius()
-                px = loc.X() + xdir.X() * major
-                py = loc.Y() + xdir.Y() * major
-                pz = loc.Z() + xdir.Z() * major
+                include = _circle_has_material(solid, tor)
             elif kind == GeomAbs_SurfaceType.GeomAbs_Cone:
                 cone = surf.Cone()
                 alpha = cone.SemiAngle()
                 ref = cone.RefRadius()
-                radii = sorted(
-                    abs(ref + v * math.sin(alpha))
-                    for v in (surf.FirstVParameter(), surf.LastVParameter())
-                )
+                v1, v2 = surf.FirstVParameter(), surf.LastVParameter()
+                radii = sorted(abs(ref + v * math.sin(alpha)) for v in (v1, v2))
                 if radii[0] <= 1e-9:
                     continue  # the apex: a wedge-in-the-round, a feature
                 span = 2.0 * radii[0]
-                v_at = min(
-                    (surf.FirstVParameter(), surf.LastVParameter()),
-                    key=lambda v: abs(ref + v * math.sin(alpha)),
-                )
                 pos = cone.Position()
                 loc, axis = pos.Location(), pos.Direction()
-                along = v_at * math.cos(alpha)
-                px = loc.X() + axis.X() * along
-                py = loc.Y() + axis.Y() * along
-                pz = loc.Z() + axis.Z() * along
+                a1, a2 = v1 * math.cos(alpha), v2 * math.cos(alpha)
+                include = _segment_has_material(
+                    solid,
+                    (loc.X() + axis.X() * a1, loc.Y() + axis.Y() * a1, loc.Z() + axis.Z() * a1),
+                    (loc.X() + axis.X() * a2, loc.Y() + axis.Y() * a2, loc.Z() + axis.Z() * a2),
+                )
             else:
                 return Unsupported(
                     f"face_{index} is a closed {_surface_name(kind)} surface "
                     "with no analytic self-span; a sampled span has no "
                     "guaranteed bound, so the wall cannot be certified"
                 )
-            if not inside(px, py, pz):
-                continue  # the enclosed axis is void: a bore, not a wall
+            if include is None:
+                include = True  # an unanswerable certificate stays in: lo only shrinks
+            if not include:
+                continue  # the enclosed line is certified void: a bore, not a wall
+            self_span_faces.add(index)
             if best is None or span < best:
-                best, witness, exact_witness = span, f"face_{index} self-span", True
+                best, witness = span, f"face_{index} self-span"
 
-        # -- adjacency by shared edges (IsSame-keyed via OCCT maps) --------
+        # -- adjacency by shared edges (IsSame-keyed via OCCT maps) ---------
         global_edges = TopTools_IndexedMapOfShape()
         TopExp.MapShapes_s(solid, TopAbs_EDGE, global_edges)
         edge_sets: list[set[int]] = []
@@ -835,12 +881,13 @@ class OcctBackend:
             BRepBndLib.Add_s(face.wrapped, box)
             boxes.append(box)
 
-        # -- the pair loop, AABB-pruned ------------------------------------
+        # -- the pair loop: every non-adjacent pair counts, AABB-pruned -----
         pair_seen = False
+        gap_limited = False
         for i in range(len(faces)):
             for j in range(i + 1, len(faces)):
                 if edge_sets[i] & edge_sets[j]:
-                    continue  # shared edge: a corner feature, not a wall
+                    continue  # shared edge: a feature, and a recorded escape
                 pair_seen = True
                 if best is not None and boxes[i].Distance(boxes[j]) >= best:
                     continue  # sound pruning: box distance <= true distance
@@ -854,61 +901,71 @@ class OcctBackend:
                 if best is not None and distance >= best:
                     continue
                 p1, p2 = extrema.PointOnShape1(1), extrema.PointOnShape2(1)
-                ax_, ay_, az_ = p1.X(), p1.Y(), p1.Z()
-                bx_, by_, bz_ = p2.X(), p2.Y(), p2.Z()
-                mid_in = inside((ax_ + bx_) / 2, (ay_ + by_) / 2, (az_ + bz_) / 2)
-                gap = not mid_in
-                if mid_in:
-                    ux, uy, uz = bx_ - ax_, by_ - ay_, bz_ - az_
-                    norm = math.sqrt(ux * ux + uy * uy + uz * uz)
-                    if norm > 1e-12:
-                        try:
-                            from build123d import Vector
-
-                            n1 = faces[i].normal_at(Vector(ax_, ay_, az_))
-                            n2 = faces[j].normal_at(Vector(bx_, by_, bz_))
-                            ux, uy, uz = ux / norm, uy / norm, uz / norm
-                            facing = (
-                                n1.X * ux + n1.Y * uy + n1.Z * uz > 0
-                                and n2.X * ux + n2.Y * uy + n2.Z * uz < 0
-                            )
-                            gap = facing  # normals facing each other: void between
-                        except Exception:  # noqa: BLE001 - unclassifiable stays in
-                            gap = False
-                if gap:
-                    continue
-                best, witness, exact_witness = (
-                    distance,
-                    f"face_{i}/face_{j}",
-                    False,
+                mid_in = point_inside(
+                    (p1.X() + p2.X()) / 2, (p1.Y() + p2.Y()) / 2, (p1.Z() + p2.Z()) / 2
                 )
+                best, witness = distance, f"face_{i}/face_{j}"
+                gap_limited = not mid_in
 
         if best is None:
             return {"vacuous": True, "pair_seen": pair_seen}
 
-        if exact_witness:
-            return {"lo": best, "hi": best, "witness": witness}
-
-        hi = self._min_wall_witnessed_span(a, faces, witness, best)
+        hi = self._min_wall_witnessed_span(a, faces, edge_sets, self_span_faces, witness, best)
         if hi is None:
             return Unsupported(
                 "no witnessed span could be measured, so the interval has no "
                 "upper end and the wall cannot be honestly bounded"
             )
-        return {"lo": best, "hi": max(hi, best), "witness": witness}
+        if hi < best - 1e-9 * max(1.0, best):
+            # The tripwire (PR #144, F3): a real crossing thinner than the
+            # certified lower bound means the analysis contradicts itself.
+            return Unsupported(
+                f"the analysis contradicts itself: a witnessed crossing of "
+                f"{hi:.6g} mm is thinner than the certified bound {best:.6g} mm "
+                "— the wall cannot be honestly bounded"
+            )
+        # Below the tripwire threshold an inversion is float noise; the
+        # interval is kept coherent. This is NOT the old clamp: a real
+        # contradiction has already refused above.
+        return {
+            "lo": best,
+            "hi": max(hi, best),
+            "witness": witness,
+            "gap_limited": gap_limited,
+        }
 
     def _min_wall_witnessed_span(
-        self, a: Any, faces: list[Any], witness: str, floor: float
+        self,
+        a: Any,
+        faces: list[Any],
+        edge_sets: list[set[int]],
+        self_span_faces: set[int],
+        witness: str,
+        floor: float,
     ) -> float | None:
-        """The smallest sampled inward-normal span on the realizing faces —
-        an ACHIEVED material crossing, hence an upper bound on the minimum.
-        A seam, so the sampling density is one place and testable."""
-        from build123d import Axis  # type: ignore[import-untyped]
+        """The smallest measurand-consistent witnessed crossing: an inward
+        normal ray from a realizing face whose FIRST exit lands on a
+        non-adjacent face, or crosses the same closed face diametrically.
+        Adjacent-face exits are outside the measurand (the drilled-web
+        escape) and are skipped, not silenced — a kept crossing below the
+        lower bound trips the caller's refusal."""
         from OCP.BRepAdaptor import BRepAdaptor_Surface  # type: ignore[attr-defined]
         from OCP.BRepGProp import BRepGProp_Face  # type: ignore[attr-defined]
-        from OCP.gp import gp_Pnt, gp_Vec  # type: ignore[attr-defined]
+        from OCP.gp import gp_Dir, gp_Lin, gp_Pnt, gp_Vec  # type: ignore[attr-defined]
+        from OCP.IntCurvesFace import IntCurvesFace_ShapeIntersector  # type: ignore[attr-defined]
+        from OCP.TopAbs import TopAbs_FACE  # type: ignore[attr-defined]
+        from OCP.TopExp import TopExp  # type: ignore[attr-defined]
+        from OCP.TopTools import TopTools_IndexedMapOfShape  # type: ignore[attr-defined]
 
-        indices = [int(part.split("_")[1]) for part in witness.split("/")]
+        face_map = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(a.wrapped, TopAbs_FACE, face_map)
+        intersector = IntCurvesFace_ShapeIntersector()
+        intersector.Load(a.wrapped, 1e-9)
+
+        indices = []
+        for token in witness.split("/"):
+            if token.startswith("face_"):
+                indices.append(int(token.split("_")[1].split()[0]))
         hi: float | None = None
         for index in indices:
             face = faces[index]
@@ -926,22 +983,25 @@ class OcctBackend:
                     length = vec.Magnitude()
                     if length < 1e-12:
                         continue
-                    direction = (-vec.X() / length, -vec.Y() / length, -vec.Z() / length)
-                    origin = (pnt.X(), pnt.Y(), pnt.Z())
-                    try:
-                        hits = a.find_intersection_points(Axis(origin=origin, direction=direction))
-                    except Exception:  # noqa: BLE001 - a failed ray is a missing witness, not a lie
+                    direction = gp_Dir(-vec.X() / length, -vec.Y() / length, -vec.Z() / length)
+                    line = gp_Lin(pnt, direction)
+                    intersector.Perform(line, 1e-6, 1e9)
+                    if not intersector.IsDone() or intersector.NbPnt() == 0:
                         continue
-                    for hit, _normal in hits:
-                        along = (
-                            (hit.X - origin[0]) * direction[0]
-                            + (hit.Y - origin[1]) * direction[1]
-                            + (hit.Z - origin[2]) * direction[2]
-                        )
-                        if along > 1e-6:
-                            if along >= floor - 1e-12 and (hi is None or along < hi):
-                                hi = along
-                            break
+                    nearest = min(
+                        range(1, intersector.NbPnt() + 1),
+                        key=lambda k: intersector.WParameter(k),
+                    )
+                    span = intersector.WParameter(nearest)
+                    exit_face = intersector.Face(nearest)
+                    exit_index = face_map.FindIndex(exit_face) - 1
+                    if exit_index == index:
+                        if index not in self_span_faces:
+                            continue  # same open face: the folded-sheet escape
+                    elif exit_index >= 0 and edge_sets[index] & edge_sets[exit_index]:
+                        continue  # adjacent exit: the drilled-web escape
+                    if hi is None or span < hi:
+                        hi = span
         return hi
 
     def blend_radii(self, a: Any) -> Measurement | Unsupported:

@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `p.min_wall(min=)` — every wall thick enough, guaranteed, OCCT tier
-  (#140): the kernel's exact face-pair minima bound the wall from below (no
-  sampling can sneak a thinner wall past it), a witnessed crossing bounds it
-  from above, and a straddling limit adjudicates `approximate` — the first
-  genuine exercise of the interval machinery, closing POST-V0's outstanding
-  obligation. Faces meeting at an edge are features, not walls (the wedge
-  policy, structural); gaps are excluded by a two-signal test; the mesh
+- `p.min_wall(min=)` — every wall thick enough within a declared measurand,
+  OCCT tier (#140): kernel-exact face-pair minima and certified diametric
+  self-spans bound the wall from below, a witnessed crossing bounds it from
+  above, a crossing thinner than the bound refuses the check as
+  self-contradictory, and a straddling limit adjudicates `approximate` —
+  the first genuine exercise of the interval machinery, closing POST-V0's
+  outstanding obligation. Gap-limited claims straddle honestly (never
+  falsely tight); edge-sharing webs and single-face folds are recorded
+  escapes, not silent green; the wedge policy is structural. The mesh
   tier's refusal stands with the research's executed evidence recorded.
   SPEC-contract 4.11.
 - `p.step_roundtrip(tol=)` — the part survives its own exchange format,
