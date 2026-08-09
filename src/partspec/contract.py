@@ -505,9 +505,10 @@ class Part:
         A self-intersecting BREP measures volume and topology plausibly and
         fails downstream — booleans, STEP consumers, slicers — the classic
         silently wrong part. Exact: the kernel analyses, nothing samples.
-        The recorded limit: a single surface intersecting ITSELF internally
-        (a spindle torus) has no pair to flag and passes; pairwise analysis
-        answers the pairwise question (SPEC-contract.md 4.9).
+        The recorded limit: a self-intersection lying within a single
+        ANALYTIC surface (a spindle torus) goes undetected and passes; a
+        self-overlapping swept face IS caught, as a pair-less fault
+        (SPEC-contract.md 4.9).
         """
         return self._add(
             CheckSpec(

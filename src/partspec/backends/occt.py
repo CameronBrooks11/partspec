@@ -545,10 +545,12 @@ class OcctBackend:
         the boundary says it must not is a fault. Exact because it is
         analysis, not sampling.
 
-        The recorded limit (SPEC-contract.md 4.9, executed): a SINGLE surface
-        that intersects itself internally — a spindle torus — has no pair to
-        flag and passes. Pairwise analysis answers the pairwise question; it
-        does not prove the surface embedding is injective.
+        The recorded limit (SPEC-contract.md 4.9, executed): a
+        self-intersection lying within a single ANALYTIC surface — the
+        spindle torus — goes undetected and passes. The kernel does test a
+        face against itself and catches a self-overlapping swept face (a
+        pair-less fault), so the escape is specifically the analytic case,
+        not single-surface faults in general (PR #142 review, F1).
         """
         return Measurement(not self._self_intersections(a), "bool", exact=True)
 
@@ -559,7 +561,9 @@ class OcctBackend:
         for kinds in pairs:
             counts[kinds] = counts.get(kinds, 0) + 1
         inventory = ", ".join(f"{n} {k}" for k, n in sorted(counts.items()))
-        return f"{len(pairs)} self-intersecting entity pair(s): {inventory}"
+        # "fault(s)", not "pair(s)": a face caught against ITSELF reports as
+        # a single entity (PR #142 review, F1).
+        return f"{len(pairs)} self-intersecting entity fault(s): {inventory}"
 
     def _self_intersections(self, a: Any) -> list[str]:
         """The faulty pairs as `type/type` strings (e.g. `edge/face`)."""
