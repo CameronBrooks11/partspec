@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.0] - 2026-08-08
+
+An agent can see the part it made (epic #2): renders on every engine, section
+cuts, a visual diff — plus the lint tier that reads the geometry.
+
 ### Added
 
 - `render` and `check --render` accept build123d and CadQuery parts (#18): the
@@ -33,6 +40,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OCCT tier booleans the shape, and the shared rasterizer draws both. The
   payload records the resolved plane, offset and cut-facet count; a plane
   that misses the part is refused with its span.
+- `partspec lint` tier 2 — the geometry rules, over OpenSCAD's constant-folded
+  `.csg` export via a hand-rolled stdlib reader (`csg.py`; sca2d is GPLv3 and
+  geometry-blind, FreeCAD's importer LGPL and welded to its document model):
+  `csg-coincident-face` (exact plane coincidence of cutter and minuend — zero
+  epsilon, the literals are folded) and `csg-difference-order` (analytic
+  upper-bound volumes, convention stated in the finding). Requires the engine;
+  a missing engine, failed export, unmodelled node (`hull()` and kin on a
+  rule's evaluation path) or string-carrying export produces per-rule
+  `unsupported` entries — a rule that could not run is an entry, never an
+  absence. Tier-2 findings carry line 0: the folded tree has no source lines
+  (#118, #125).
+
+### Changed
+
+- Lint payload schema 2: per-file `{file, digest, findings[, unsupported]}`
+  blocks — a clean file is a visible entry with the sha256 of the linted
+  bytes, and duplicate arguments are deduped. A breaking reshape of the
+  schema-1 payload that shipped in 0.5.0, versioned honestly (#120, #124).
+
+### Fixed
+
+- Module eviction covers every CLI exit path: contract-sibling imports are
+  recorded and evicted on failed resolves and on the error paths of `check`,
+  `measure` and `render` (record-in-finally), closing the remaining
+  cross-directory stale-module windows (#114, #124).
+- A stranded `cadquery-ocp-proxy` (proxy installed, no OCP — the observed
+  `uv pip` outcome at the time) is named as the environment state with a
+  plain-pip hint, instead of the circular "pip install partspec[occt]"
+  (#109, #124).
 
 ## [0.5.0] - 2026-08-08
 
@@ -452,7 +488,8 @@ callouts, and reports become comparable.
   `measure` and `render` carry the same engine provenance as `check`; the OpenSCAD method
   scratch moved out of the source tree.
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/CameronBrooks11/partspec/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/CameronBrooks11/partspec/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/CameronBrooks11/partspec/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/CameronBrooks11/partspec/compare/v0.2.0...v0.3.0

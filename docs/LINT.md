@@ -83,9 +83,11 @@ to depend on — sca2d is GPLv3 and geometry-blind, FreeCAD's importer is LGPL a
 welded to its document model — so the reader is hand-rolled, stdlib-only
 (`src/partspec/csg.py`), with FreeCAD's node inventory absorbed as the refusal
 checklist. These rules read `openscad`'s constant-folded `.csg` export, so they
-**require the engine** — and when it is missing, or the tree contains a node outside
-the modelled set (`hull`, `minkowski`, extrudes, imports…), the file block carries an
-`unsupported` entry naming the rule and the reason. **A rule that could not run is an
+**require the engine** — and when it is missing, or a rule's evaluation must cross a
+node outside the modelled set (`hull`, `minkowski`, extrudes, imports…), the file block
+carries an `unsupported` entry naming the rule and the reason. (A node the rules never
+needed to evaluate — a `hull` outside any `difference` — produces no entry: the rules
+ran, and ran vacuously.) **A rule that could not run is an
 entry, never an absence.**
 
 Tier-2 findings carry **line 0**: the tree is constant-folded, so no source line
