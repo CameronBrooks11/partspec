@@ -13,6 +13,7 @@ dependency, and the core package is deliberately stdlib-only.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -732,6 +733,14 @@ def _cmd_render(args: argparse.Namespace) -> int:
             )
             return EXIT_USAGE
 
+    # Before resolution (PR #131 review, F4): a failed resolve exits 64
+    # with no artifact, and the previous run's render.json must not sit
+    # there answering a later vdiff as if it were this run's. The images
+    # without it are unreachable through the vdiff loader. An unparseable
+    # target is the resolve path's message to give, hence the suppress.
+    with contextlib.suppress(TargetError, OSError):
+        (_out_dir(args.target, args.out) / "render.json").unlink(missing_ok=True)
+
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
         from .engines.pycad import invalidate_model_modules
@@ -1079,6 +1088,16 @@ def _cmd_vdiff(args: argparse.Namespace) -> int:
         # An unreadable or foreign image mid-diff: the ask was malformed,
         # nothing was compared — usage, never a fabricated outcome.
         print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except (KeyError, ValueError, AttributeError, TypeError) as exc:
+        # A parseable file that is not a well-formed render artifact (no
+        # part block, no engine) is unusable input — 64, never the
+        # catch-all's ERROR, mirroring `diff`'s boundary (PR #131, F2).
+        print(
+            f"partspec: these inputs are not well-formed render artifacts "
+            f"({type(exc).__name__}: {exc})",
+            file=sys.stderr,
+        )
         return EXIT_USAGE
     json.dump(doc, sys.stdout, indent=2)
     sys.stdout.write("\n")

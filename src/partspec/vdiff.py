@@ -108,7 +108,6 @@ def read_png(path: Path) -> Any:
     output is just the easy case. Interlaced or paletted PNGs are refused:
     nothing partspec compares produces them, and guessing would be worse.
     """
-    import numpy as np
 
     data = path.read_bytes()
     if data[:8] != b"\x89PNG\r\n\x1a\n":
@@ -120,6 +119,18 @@ def read_png(path: Path) -> Any:
             f"{colour}, interlace {interlace}) — nothing partspec renders produces this"
         )
     channels = 3 if colour == 2 else 4
+    try:
+        return _decode_idat(path, data, width, height, channels)
+    except (struct.error, zlib.error, IndexError, ValueError) as exc:
+        # A truncated or corrupt stream is unusable INPUT, not a partspec
+        # failure: it must surface as usage, never a traceback at exit 4
+        # (PR #131 review, F2).
+        raise VdiffUsageError(f"{path} is not a decodable PNG ({exc})") from None
+
+
+def _decode_idat(path: Path, data: bytes, width: int, height: int, channels: int) -> Any:
+    import numpy as np
+
     idat = b""
     pos = 8
     while pos < len(data):
@@ -161,11 +172,9 @@ def read_png(path: Path) -> Any:
     return pixels[:, :, :3].copy()
 
 
-def _bbox_delta(old: dict | None, new: dict | None) -> tuple[float, float]:
-    """(max component delta in mm, old diagonal in mm); (0, diag) when either
-    side has no recorded bbox — absence of the witness is stated, not scored."""
-    if not old or not new:
-        return 0.0, 1.0
+def _bbox_delta(old: dict, new: dict) -> tuple[float, float]:
+    """(max component delta in mm, old diagonal in mm). Callers handle an
+    absent witness before this runs — stated, never scored as 0.0 (F3)."""
     deltas = [abs(a - b) for key in ("min", "max") for a, b in zip(old[key], new[key], strict=True)]
     spans = [b - a for a, b in zip(old["min"], old["max"], strict=True)]
     diagonal = max(sum(s * s for s in spans) ** 0.5, 1.0)
@@ -250,34 +259,71 @@ def diff_renders(
             "image": str(out_png),
         }
 
-    delta_mm, diagonal = _bbox_delta(old.get("render_bbox"), new.get("render_bbox"))
     doc["views"] = views
-    doc["bbox_delta_mm"] = round(delta_mm, 6)
+    missing = [name for name, run in (("old", old), ("new", new)) if not run.get("render_bbox")]
+    if missing:
+        # The witness is absent (a pre-draft-12 artifact): scale was NOT
+        # checked, and that is stated, never scored as 0.0 (PR #131 review,
+        # F3). Pixel change still proves difference; pixel identity proves
+        # nothing an unwitnessed scale could not fake.
+        doc["bbox_delta_mm"] = None
+        doc["bbox_unavailable"] = (
+            f"{' and '.join(missing)} recorded no render_bbox — pure scale is "
+            "invisible to framed pixels and was not checked"
+        )
+        if worst > 0.0:
+            doc["magnitude"] = _visible(worst)
+            doc["outcome"] = "different"
+            return doc
+        doc["magnitude"] = 0.0
+        return refuse(
+            "every view is pixel-identical, but neither that nor this tool can "
+            "see pure scale without a recorded render_bbox — identity cannot "
+            "be asserted",
+            hint="re-render both runs with a partspec that records render_bbox",
+        )
+
+    delta_mm, diagonal = _bbox_delta(old["render_bbox"], new["render_bbox"])
+    doc["bbox_delta_mm"] = _visible(delta_mm)
     # The stated formula: worst view fraction, or the bbox delta over the old
     # diagonal — whichever is larger. Pure scale changes pixels not at all
     # (framing scales with the part), so the bbox term is what keeps a
-    # 20 vs 20.4 mm cube from diffing to zero.
-    doc["magnitude"] = round(max(worst, delta_mm / diagonal), 6)
-    if delta_mm > 1e-6 and worst == 0.0:
+    # 20 vs 20.4 mm cube from diffing to zero. The outcome derives from the
+    # UNROUNDED value: a delta that display-rounding flattens to 0.0 must
+    # still read as different, or the doc contradicts itself (PR #131, F1).
+    magnitude = max(worst, delta_mm / diagonal)
+    doc["magnitude"] = _visible(magnitude)
+    if delta_mm > 0.0 and worst == 0.0:
         doc["note"] = (
             "the images are pixel-identical but the bounding box moved: uniform "
             "scale is invisible to a framed render — `partspec measure` has the numbers"
         )
-    doc["outcome"] = "different" if doc["magnitude"] > 0.0 else "identical"
+    doc["outcome"] = "different" if magnitude > 0.0 else "identical"
     return doc
+
+
+def _visible(value: float) -> float:
+    """Display rounding that cannot flatten a real change to 0.0: six places
+    normally, full precision when rounding would erase a nonzero value."""
+    rounded = round(value, 6)
+    return value if value > 0.0 and rounded == 0.0 else rounded
 
 
 def summary_of(doc: dict[str, Any]) -> str:
     if doc["outcome"] == "indeterminate":
         return f"vdiff: indeterminate — {doc['refused']['reason']}"
     if doc["outcome"] == "identical":
+        # Reached only with the witness present and unmoved (F1/F3): both
+        # halves of the claim are verified facts by the time this prints.
         return "vdiff: identical — every view byte-equal, bbox unchanged"
     parts = [
         f"{view}: {entry['fraction']:.2%}"
         for view, entry in doc["views"].items()
         if entry["pixels_changed"]
     ]
-    if doc["bbox_delta_mm"] > 1e-6:
+    if doc.get("bbox_unavailable"):
+        parts.append("scale unchecked (no render_bbox)")
+    elif doc["bbox_delta_mm"] > 0.0:
         parts.append(f"bbox moved {doc['bbox_delta_mm']:g} mm")
     return f"vdiff: different (magnitude {doc['magnitude']:g}) — " + (
         "; ".join(parts) or "no per-view change"

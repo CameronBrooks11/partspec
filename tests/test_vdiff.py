@@ -170,6 +170,99 @@ def test_a_missing_image_is_refused_by_name(runs, tmp_path: Path, capsys):
     assert "front.png" in doc["refused"]["reason"]
 
 
+def test_a_sub_rounding_bbox_move_is_still_different(runs, tmp_path: Path, capsys):
+    """PR #131 review, F1: the outcome derived from the display-ROUNDED
+    magnitude while the note derived from the raw delta — a 5e-6 mm recorded
+    move produced exit 0 'identical', a nonzero bbox_delta_mm, and a note
+    asserting movement, in one document. The outcome now derives from the
+    unrounded value and rounding can never flatten a real change to 0.0."""
+    clone = tmp_path / "clone"
+    shutil.copytree(runs["cube20"], clone)
+    meta = json.loads((clone / "render.json").read_text())
+    meta["render_bbox"]["max"][0] += 5e-6
+    (clone / "render.json").write_text(json.dumps(meta))
+    code, doc = _vdiff(capsys, runs["cube20"], clone, tmp_path / "d")
+    assert code == 1
+    assert doc["outcome"] == "different"
+    assert doc["magnitude"] > 0.0
+    assert doc["bbox_delta_mm"] > 0.0
+    assert "note" in doc
+
+
+def test_a_corrupt_image_is_unusable_input_not_a_partspec_failure(runs, tmp_path: Path, capsys):
+    """PR #131 review, F2: a truncated PNG escaped as a zlib traceback at
+    exit 4 — 'this is a partspec failure' — when the input is what is
+    broken. Both corruption classes land at 64 with the reason."""
+    clone = tmp_path / "clone"
+    shutil.copytree(runs["base"], clone)
+    png = clone / "renders" / "top.png"
+    png.write_bytes(png.read_bytes()[:100])
+    assert main(["vdiff", str(runs["base"]), str(clone), "--out", str(tmp_path / "d")]) == 64
+    assert "not a decodable PNG" in capsys.readouterr().err
+
+    bare = tmp_path / "bare"
+    shutil.copytree(runs["base"], bare)
+    meta = json.loads((bare / "render.json").read_text())
+    del meta["part"]
+    (bare / "render.json").write_text(json.dumps(meta))
+    assert main(["vdiff", str(runs["base"]), str(bare), "--out", str(tmp_path / "d")]) == 64
+    assert "not well-formed render artifacts" in capsys.readouterr().err
+
+
+def test_an_absent_bbox_witness_is_stated_never_scored(runs, tmp_path: Path, capsys):
+    """PR #131 review, F3: a pre-draft-12 artifact carries no render_bbox,
+    and the 20 vs 20.4 scale case read 'identical — bbox unchanged' with a
+    fabricated bbox_delta_mm of 0.0. Absence now states itself: pixel change
+    still proves difference; pixel identity without the witness refuses."""
+
+    def strip(run: Path, name: str) -> Path:
+        clone = tmp_path / name
+        shutil.copytree(run, clone)
+        meta = json.loads((clone / "render.json").read_text())
+        del meta["render_bbox"]
+        (clone / "render.json").write_text(json.dumps(meta))
+        return clone
+
+    # The fail-open case: pixel-identical scale change, no witness → refuse.
+    code, doc = _vdiff(
+        capsys, strip(runs["cube20"], "a"), strip(runs["cube204"], "b"), tmp_path / "d1"
+    )
+    assert code == 2
+    assert doc["outcome"] == "indeterminate"
+    assert doc["bbox_delta_mm"] is None, "never a fabricated 0.0"
+    assert "render_bbox" in doc["bbox_unavailable"]
+    assert "cannot be asserted" in doc["refused"]["reason"]
+
+    # Pixel change is still proof, witness or no — with the gap stated.
+    code, doc = _vdiff(capsys, strip(runs["base"], "c"), strip(runs["moved"], "e"), tmp_path / "d2")
+    assert code == 1
+    assert doc["outcome"] == "different"
+    assert doc["bbox_delta_mm"] is None
+    assert "bbox_unavailable" in doc
+
+
+def test_a_failed_resolve_clears_the_stale_render_json(tmp_path: Path, capsys):
+    """PR #131 review, F4: a failed resolve exited before the post-resolve
+    unlink, leaving the previous run's render.json to answer a later vdiff
+    as if current. It is now cleared before resolution."""
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    out = tmp_path / "out"
+    assert main(["render", f"{module}:make", "--out", str(out)]) == 0
+    capsys.readouterr()
+    assert (out / "render.json").is_file()
+    module.write_text("import nosuchmod_xyz\n")
+    assert main(["render", f"{module}:make", "--out", str(out)]) in (4, 64)
+    capsys.readouterr()
+    assert not (out / "render.json").exists()
+
+
 # ---------------------------------------------------------------------------
 # read_png: the five filters, against hand-encoded rows
 # ---------------------------------------------------------------------------
