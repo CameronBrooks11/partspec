@@ -4,7 +4,7 @@ Verify CAD-as-code parts against declared engineering intent.
 
 > **Status: pre-alpha; v0.5.0 is on PyPI, and OCCT-tier renders have landed since.** It
 > runs end to end — `check`, `measure` and `render` across all three engines, `diff` on
-> the reports they produce — and is dogfooded on real
+> the reports and `vdiff` on the renders they produce — and is dogfooded on real
 > parts. The vocabulary covers real mechanical intent: keep-out/keep-in regions,
 > `hole_diameter`, `bolt_circle` and `fillet_radius` on the OCCT tier. The loop is built
 > to run unattended: every build is bounded (`--timeout`), `check` takes many targets in

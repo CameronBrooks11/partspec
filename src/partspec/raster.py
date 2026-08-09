@@ -39,7 +39,7 @@ from typing import Any
 
 import numpy as np
 
-from .backend import BuildError
+from .backend import BuildError, bbox_block
 from .engines.openscad import IMAGE_SIZE, VIEWS
 
 __all__ = [
@@ -186,13 +186,14 @@ def write_png(path: Path, img: Any) -> None:
 
 def render_views(
     shape: Any, out_dir: Path
-) -> tuple[dict[str, Path], dict[str, object]] | BuildError:
+) -> tuple[dict[str, Path], dict[str, object], dict[str, list[float]]] | BuildError:
     """The canonical views of an OCCT-tier shape, plus the tessellation record.
 
     Mirrors `openscad.render_views`: same view names, same framing rules, same
-    stale-artifact discipline. Returns the view map and a
+    stale-artifact discipline. Returns the view map, a
     ``{tolerance_mm, triangles}`` record — under D15 the tessellation is what
-    was shown, so its quality rides with the images.
+    was shown, so its quality rides with the images — and the framing bbox
+    (`bbox_block`), the scale witness a visual diff needs (#21).
     """
     try:
         vertices, faces = shape.tessellate(TESSELLATION_TOLERANCE_MM)
@@ -216,10 +217,11 @@ def render_views(
         png.unlink(missing_ok=True)  # same stale-artifact rule as the STL
         write_png(png, rasterize(points, faces, rot, center=center, half_height=half_height))
         renders[view] = png
-    return renders, {
-        "tolerance_mm": TESSELLATION_TOLERANCE_MM,
-        "triangles": len(faces),
-    }
+    return (
+        renders,
+        {"tolerance_mm": TESSELLATION_TOLERANCE_MM, "triangles": len(faces)},
+        bbox_block(lo, hi),
+    )
 
 
 def read_stl(path: Path) -> tuple[Any, Any]:

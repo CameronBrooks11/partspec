@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `render` payloads carry the report's identity prefix, and a render failure is
   a JSON artifact with `error`/`hint` at exit 4 instead of a bare stderr line
   (#103); the MCP `render` tool returns the whole payload as `rendered`.
+- `partspec vdiff old new` compares two runs' renders visually (#21):
+  per-view changed-pixel fractions with grey-plus-magenta diff images, a
+  reproducible scalar magnitude, and refusals for everything that would let
+  noise read as change — differing image sizes (never rescaled), engine
+  versions (7.68% renderer noise), part ids or view sets. Pure scale is
+  pixel-invisible by construction, so every render now records its framing
+  bbox (`render_bbox`) and the render verb leaves `render.json` on disk;
+  a bbox delta with identical pixels reads as change, referred to `measure`.
+  Exposed over MCP as `vdiff`.
 - `render --section xy|xz|yz[:offset]` cuts through a named plane and renders
   the cut with exposed material in a distinct colour, on both tiers (#19):
   OpenSCAD subtracts a half-space from its exported STL (kernel-capped), the
