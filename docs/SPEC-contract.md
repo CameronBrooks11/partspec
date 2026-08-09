@@ -113,7 +113,7 @@ error.
 revising when a check is added. **This document closes it at each release**: v0 shipped the
 set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5),
 `bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6;
-`draft_angle` (§4.8) opens the depth epic (#136).
+`draft_angle` (§4.8) and `self_intersection_free` (§4.9) are the depth epic's (#136).
 
 ### 4.1 Parameter phase
 
@@ -450,6 +450,44 @@ of per-face drafts, ascending, adjudicated by the generic per-component machiner
 `face_3=0 outside min=2.0`. `min=` is a number an author chose, so the kind is in
 `DIMENSIONAL_KINDS` and an unattributed bound draws the §6 warning; the pull axis is part
 of the claim's identity, so `direction` is a claim field the report diff compares.
+
+---
+
+### 4.9 `self_intersection_free` — the shape does not cross itself
+
+`p.self_intersection_free()`: no sub-shape pair intersects where the boundary says it must
+not. **OCCT tier only** — D14 accepted the mesh-side gap deliberately rather than pull in
+GPL libigl or heavyweight pymeshlab, and that decision stands; the mesh tier refuses with
+`requires: occt`.
+
+A self-intersecting BREP measures volume and topology plausibly and fails downstream —
+booleans, STEP consumers, slicers — the classic silently wrong part. The check is the
+kernel's own argument analysis (`BRepAlgoAPI_Check`, self-intersection mode): **exact**,
+because it is analysis, not sampling. The failure detail is an inventory of the faults by
+entity type (`8 self-intersecting entity fault(s): 2 edge/edge, 2 edge/face,
+4 vertex/edge`) — "fault(s)", not "pair(s)", because a face caught against ITSELF reports
+as a single entity.
+
+**The recorded limit, executed:** a self-intersection lying within a single ANALYTIC
+surface — the spindle torus, `Torus(6, 10)` — goes undetected and **passes**, alone, fused
+with a box, or inside a compound. The escape is specifically the analytic case: the kernel
+does test a face against itself, and a self-overlapping SWEPT face (adjacent helix coils,
+pitch smaller than the profile) is caught as a pair-less fault. Both directions are pinned
+by tests, so if the kernel's reach ever moves, the spec sentence moves with it.
+
+**Relationship to `is_valid`, executed in both directions:** neither subsumes the other —
+the overlapping helix is `is_valid` and self-intersecting; an open shell forced into a
+solid is invalid and self-intersection-free. `is_valid` is BRepCheck's well-formedness;
+this check is interference. Declare the one whose failure you mean.
+
+**Multi-solid parts:** a compound of two overlapping unfused solids **fails** — a
+multi-solid compound is one part, and its solids crossing is its own boundary
+contradicting itself, not D11 two-body clearance (which needs two parts and stays with
+assemblies). A part built as a compound of deliberately touching solids should be fused
+before it is measured.
+
+The quantity appears in `measure` (parameterless, like `watertight`), so an author sees it
+before deciding to claim it.
 
 ---
 

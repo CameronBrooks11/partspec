@@ -44,6 +44,7 @@ CAPABILITIES = frozenset(
         "bore_table",
         "blend_radii",
         "draft_angle",
+        "self_intersection_free",
     }
 )
 
@@ -535,6 +536,51 @@ class OcctBackend:
             exact=True,
             axes=tuple(f"face_{i}" for i, _ in drafts),
         )
+
+    def self_intersection_free(self, a: Any) -> Measurement:
+        """Whether the shape is free of pairwise self-intersection — exact.
+
+        The kernel's own argument analysis (`BRepAlgoAPI_Check` in
+        self-intersection mode): every sub-shape pair that intersects where
+        the boundary says it must not is a fault. Exact because it is
+        analysis, not sampling.
+
+        The recorded limit (SPEC-contract.md 4.9, executed): a
+        self-intersection lying within a single ANALYTIC surface — the
+        spindle torus — goes undetected and passes. The kernel does test a
+        face against itself and catches a self-overlapping swept face (a
+        pair-less fault), so the escape is specifically the analytic case,
+        not single-surface faults in general (PR #142 review, F1).
+        """
+        return Measurement(not self._self_intersections(a), "bool", exact=True)
+
+    def self_intersection_free_detail(self, a: Any) -> str:
+        """Name the intersecting entity pairs, for the failure detail."""
+        pairs = self._self_intersections(a)
+        counts: dict[str, int] = {}
+        for kinds in pairs:
+            counts[kinds] = counts.get(kinds, 0) + 1
+        inventory = ", ".join(f"{n} {k}" for k, n in sorted(counts.items()))
+        # "fault(s)", not "pair(s)": a face caught against ITSELF reports as
+        # a single entity (PR #142 review, F1).
+        return f"{len(pairs)} self-intersecting entity fault(s): {inventory}"
+
+    def _self_intersections(self, a: Any) -> list[str]:
+        """The faulty pairs as `type/type` strings (e.g. `edge/face`)."""
+        from OCP.BOPAlgo import BOPAlgo_CheckStatus  # type: ignore[attr-defined]
+        from OCP.BRepAlgoAPI import BRepAlgoAPI_Check  # type: ignore[attr-defined]
+
+        check = BRepAlgoAPI_Check(a.wrapped, False, True)  # SE off, SI on
+        pairs: list[str] = []
+        for result in check.Result():
+            if result.GetCheckStatus() != BOPAlgo_CheckStatus.BOPAlgo_SelfIntersect:
+                continue
+            kinds = "/".join(
+                str(shape.ShapeType()).rsplit("_", 1)[-1].lower()
+                for shape in result.GetFaultyShapes1()
+            )
+            pairs.append(kinds)
+        return pairs
 
     def blend_radii(self, a: Any) -> Measurement | Unsupported:
         """Radii of every partial-wrap cylindrical surface, sorted ascending.
