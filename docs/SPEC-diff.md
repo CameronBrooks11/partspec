@@ -66,9 +66,14 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
-- **`limit_changed`** — status unchanged but the *claim* moved: `limit`, `region`, `hole`
-  or `source` differ — the last is the quiet half of the weakening move: same number,
-  citation stripped, authority now the author's say-so. This is a contract edit visible between runs — the raw material of weakening
+- **`limit_changed`** — status unchanged but the *claim* moved: `kind`, `limit`, `region`,
+  `hole`, `source` or `direction` differ. (The name is historical — it covers every field
+  that makes a check the claim it is, which the code names `diff.CLAIM_FIELDS` and a test
+  holds in step with this list.) `source` is the quiet half of the weakening move: same
+  number, citation stripped, authority now the author's say-so. `kind` is the loud half
+  and was missing until the v0.7.0 sweep — swapping `genus` for `cavities` under one id
+  turns "no through-holes" into "one sealed void" and read as `identical`, exit 0.
+  This is a contract edit visible between runs — the raw material of weakening
   detection (#31 owns adjudicating *within* a run; `diff` only reports the change, both
   sides shown, and takes no view on direction).
 

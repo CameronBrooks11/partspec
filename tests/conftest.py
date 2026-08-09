@@ -9,6 +9,7 @@ run on.
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 
@@ -70,3 +71,35 @@ def pytest_configure(config: pytest.Config) -> None:
             f"{', '.join(missing)}{hint}. Every test that needs them would skip, "
             f"and a skip reads as success."
         )
+
+
+@pytest.fixture(autouse=True)
+def _evict_model_modules_between_tests():
+    """Undo, after every test, the `sys.modules` residue a model build leaves.
+
+    The CLI evicts after each run (`cli._invalidate_after`) because a stale
+    helper served to the next build is a fresh-looking wrong answer. A test
+    that calls `run()` or `target.resolve()` directly gets no such eviction,
+    and the residue is registered under a BARE name — `claims`, `model` — so
+    it answers for the next test that writes a file of the same name into its
+    own tmp dir.
+
+    That is not hypothetical. `test_differential`'s exemplar parity test left
+    `examples/bearing-block/claims.py` cached as `claims`, and under reverse
+    file order it broke five tests in `test_batch.py` — precisely the five
+    that exist to prove model modules do NOT cross directories. The suite's
+    guard against process-global module leakage was defeated by a
+    process-global module leak, and stayed green only because `test_batch`
+    happens to sort before `test_differential`.
+
+    Eviction uses the build registry rather than a directory sweep, for the
+    reason `pycad._LOADED_MODEL_MODULES` records: sweeping by path once
+    evicted the editable-installed partspec itself.
+    """
+    yield
+    from partspec.engines import pycad
+
+    for root, names in list(pycad._LOADED_MODEL_MODULES.items()):
+        for name in names:
+            sys.modules.pop(name, None)
+        pycad._LOADED_MODEL_MODULES.pop(root, None)

@@ -14,9 +14,25 @@ from typing import Any
 from .report import SCHEMA_VERSION
 from .status import _SEVERITY, Status, epsilon
 
-__all__ = ["DIFF_SCHEMA_VERSION", "DiffUsageError", "diff_reports", "exit_code_of", "summary_of"]
+__all__ = [
+    "CLAIM_FIELDS",
+    "DIFF_SCHEMA_VERSION",
+    "DiffUsageError",
+    "diff_reports",
+    "exit_code_of",
+    "summary_of",
+]
 
 DIFF_SCHEMA_VERSION = 1
+
+CLAIM_FIELDS = ("kind", "limit", "region", "hole", "source", "direction")
+"""The fields that make a check the claim it is.
+
+Public and named because SPEC-diff.md §3.2 enumerates them and a test now
+holds the two in step — the list drifted twice unnoticed (`direction` arrived
+with `draft_angle` and was never documented; `kind` was never compared at
+all, so a swapped check kind read as `identical`).
+"""
 
 _EXIT = {"identical": 0, "different": 1, "indeterminate": 2}
 
@@ -57,9 +73,13 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
     # same number, authority gone — is the quiet half of the weakening move,
     # and "no semantic differences" over it would be exactly the silence this
     # verb exists to refuse (#92).
-    claim_fields = [
-        f for f in ("limit", "region", "hole", "source", "direction") if old.get(f) != new.get(f)
-    ]
+    # `kind` is a claim field too. Swapping `genus` for `cavities` under one
+    # id turns "no through-holes" into "one sealed void" — a different
+    # question about the same part — and this verb read it as `identical`
+    # until the deslop audit swapped one and watched it exit 0.
+    # `expectation._claim_slug` already treated kind as claim-bearing and
+    # said so in its docstring; the two agree now.
+    claim_fields = [f for f in CLAIM_FIELDS if old.get(f) != new.get(f)]
     claim = (
         {
             "old": {f: old.get(f) for f in claim_fields},
@@ -117,7 +137,12 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
 def _closure_state(old_part: dict[str, Any], new_part: dict[str, Any]) -> str | None:
     old_closure, new_closure = old_part.get("source_closure"), new_part.get("source_closure")
     if old_closure is None and new_closure is None:
-        return None
+        # BOTH absent. SPEC-diff §2.3 names this case in the same breath as
+        # one-side-absent — "the ordinary v0.1.0 upgrade path" — and the rule
+        # is the same: with no closure on either side, `identical` would rest
+        # on `source_digest` alone, which is the overclaim SPEC-report §8.3
+        # reversed itself to prevent. Returning None let it through.
+        return "inconclusive"
     if not (old_closure and new_closure):
         # One run recorded a closure and the other did not — the ordinary
         # v0.1.0 upgrade path for every Python part, since its closure landed
@@ -186,7 +211,6 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
     closure = _closure_state(old_part, new_part)
     verdict_changed = old.get("verdict") != new.get("verdict")
     different = bool(removed or added or entries or verdict_changed)
-
     if indeterminate:
         outcome = "indeterminate"
     elif different:

@@ -34,6 +34,39 @@ def _scad_target(tmp_path: Path, name: str, body: str) -> str:
     return f"{module}:make"
 
 
+@pytest.mark.parametrize(
+    ("codes", "expected"),
+    [
+        ([1, 2], 1),
+        ([2, 1], 1),
+        ([3, 1], 3),
+        ([1, 3], 3),
+        ([3, 4], 4),
+        ([4, 3], 4),
+        ([0, 2], 2),
+        ([0, 1], 1),
+        ([2, 4], 4),
+        ([64, 4], 64),
+        ([130, 64, 4], 130),
+        ([0, 0], 0),
+    ],
+)
+def test_the_batch_exit_is_the_specs_precedence_pairwise(codes, expected):
+    """SPEC-report §6.2's order — error > empty > fail > incomplete > pass,
+    with interrupt and usage above all — held pairwise rather than sampled.
+
+    The deslop audit found only three of the ten ordered pairs covered, and
+    two mutants of `_EXIT_PRECEDENCE` survived the whole suite. One of them
+    swaps fail and incomplete, so a batch holding a genuinely FAILING part
+    beside an incomplete one exits 2 — the code AGENT-CONTRACT row 2 reads as
+    'do not edit geometry'. The tool would tell an agent to leave a disproven
+    design alone. `_batch_exit` is pure, so this costs nothing to hold.
+    """
+    from partspec.cli import _batch_exit
+
+    assert _batch_exit(codes) == expected
+
+
 def _report(target: str) -> dict:
     module, _, _ = target.rpartition(":")
     path = Path(module)

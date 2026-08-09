@@ -59,11 +59,23 @@ def test_field_order_is_fixed():
     ]
 
 
-def test_counts_are_self_consistent():
-    r = _report(checks=[_check(Status.PASS), _check(Status.PASS), _check(Status.UNSUPPORTED)])
-    counts = r.counts()
-    assert counts["total"] == len(r.checks)
-    assert sum(v for k, v in counts.items() if k != "total") == counts["total"]
+def test_counts_are_the_per_status_tally_not_merely_a_sum():
+    """The deslop audit's V1: this asserted only that the tally summed, so
+    `tally[c.status.value] += 1` -> `tally["pass"] += 1` survived the whole
+    725-test suite. The mutant produces a report whose counts block says
+    every check passed while the verdict says fail — a false tally inside the
+    artifact that IS the product contract, and `diff` reads only
+    `counts.total` (which stays honest), so the comparator misses it too.
+    The exact dict, or this test proves nothing."""
+    r = _report(checks=[_check(Status.PASS), _check(Status.FAIL), _check(Status.UNSUPPORTED)])
+    assert r.counts() == {
+        "total": 3,
+        "pass": 1,
+        "fail": 1,
+        "approximate": 0,
+        "unsupported": 1,
+        "skipped": 0,
+    }
 
 
 def test_deleted_fields_stay_deleted():

@@ -494,7 +494,7 @@ class OcctBackend:
     def solid_count(self, a: Any) -> Measurement:
         return Measurement(len(a.solids()), "count", exact=True)
 
-    def cavities(self, a: Any) -> Measurement:
+    def cavities(self, a: Any) -> Measurement | Unsupported:
         """Sealed internal voids.
 
         A solid is bounded by one outer shell plus one shell per enclosed void,
@@ -502,7 +502,23 @@ class OcctBackend:
         correctly — a block with a sealed cavity is 1 solid and 2 shells — and
         the quantity was simply never exposed. The mesh tier reaches the same
         two numbers from triangle orientation.
+
+        Gated on there being a solid at all, and every sibling on this tier
+        was already gated the same way — `volume` and `center_of_mass` on
+        `solids()`, `bbox` and `watertight` on `_empty`, `genus` on exactly
+        one solid. This one was added without the precondition, and an open
+        shell walked straight through it: no material anywhere, 1 shell minus
+        0 solids, and the tool certified `cavities = 1, exact` with
+        `verdict: pass` and exit 0. Two failures in one — the green-on-nothing
+        of SPEC-report §1.1, and a tier disagreement, since the mesh backend
+        answers 0 on the same shape.
         """
+        if not a.solids():
+            return Unsupported(
+                "this shape bounds no solid, so it encloses no sealed void — "
+                "there is nothing here for a cavity count to be about "
+                "(check solid_count first)"
+            )
         return Measurement(max(len(a.shells()) - len(a.solids()), 0), "count", exact=True)
 
     def genus(self, a: Any) -> Measurement | Unsupported:

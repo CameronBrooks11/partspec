@@ -168,13 +168,34 @@ def test_a_sealed_cavity_is_one_solid_with_one_void(backend: OcctBackend):
     """
     block = bd.Box(20, 20, 20) - bd.Box(10, 10, 10)
     assert backend.solid_count(block).value == 1
-    assert backend.cavities(block).value == 1
+    assert measured(backend.cavities(block)).value == 1
     assert measured(backend.genus(block)).value == 0
     assert measured(backend.volume(block)).value == pytest.approx(7000.0)
 
 
 def test_a_plain_solid_has_no_cavities(backend: OcctBackend):
-    assert backend.cavities(bd.Box(10, 10, 10)).value == 0
+    assert measured(backend.cavities(bd.Box(10, 10, 10))).value == 0
+
+
+def test_a_shape_with_no_material_has_no_cavity_count_to_give(backend: OcctBackend):
+    """The deslop audit's headline defect. `cavities` computed shells minus
+    solids with no precondition, so an OPEN shell — five faces, nothing
+    enclosed, no material anywhere — answered 1 - 0 = 1 and the tool
+    certified `cavities = 1, exact`, `verdict: pass`, exit 0.
+
+    Two failures in one. It is SPEC-report §1.1's green-on-nothing, on the
+    one primitive added without the precondition every sibling here already
+    had. And it is a tier disagreement: the mesh backend answers 0 on the
+    same shape, so one contract adjudicated two ways depending on the engine.
+    The whole suite passed with and without the gate, which is why this test
+    exists rather than just the fix.
+    """
+    shell = bd.Shell(bd.Box(10, 10, 10).faces()[1:])
+    assert measured(backend.solid_count(shell)).value == 0, "the fixture really has no solid"
+
+    outcome = backend.cavities(shell)
+    assert isinstance(outcome, Unsupported)
+    assert "bounds no solid" in outcome.reason
 
 
 def test_a_cut_that_consumes_the_part_does_not_build():

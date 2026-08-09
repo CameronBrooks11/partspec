@@ -8,11 +8,18 @@ The CLI tests run two genuine engine builds and diff the written artifacts.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
-from partspec.diff import DiffUsageError, diff_reports, exit_code_of, summary_of
+from partspec.diff import (
+    CLAIM_FIELDS,
+    DiffUsageError,
+    diff_reports,
+    exit_code_of,
+    summary_of,
+)
 from partspec.report import CheckResult, Report
 from partspec.status import Limit, Measurement, Status
 
@@ -219,7 +226,16 @@ def test_environment_changes_explain_without_being_differences():
 
 def test_a_cosmetic_contract_edit_is_recorded_but_not_a_difference():
     """The module-scoped digest over-fires deliberately (SPEC-report.md 7.1);
-    the semantic comparison must not inherit the over-firing."""
+    the semantic comparison must not inherit the over-firing.
+
+    The deslop audit proposed the opposite — routing a changed digest with no
+    check deltas to `indeterminate` — and this test is why it was not taken:
+    the digest moves when an unrelated docstring in the contract module
+    changes, so the rule would make routine edits exit 2 until someone piped
+    the verb through `|| true`. What the diff compares IS the contract's
+    observable content: every id, kind, claim field, status and measurement.
+    Recorded, not outcome-bearing, on purpose. SPEC-diff §3.2 now says so.
+    """
     old = _doc()
     new = _doc()
     new["part"]["contract_digest"] = "sha256:c2"
@@ -227,6 +243,57 @@ def test_a_cosmetic_contract_edit_is_recorded_but_not_a_difference():
     doc = _diff(old, new)
     assert doc["outcome"] == "identical"
     assert doc["contract"]["digest_changed"] is True
+
+
+def test_a_swapped_check_kind_is_a_different_claim():
+    """The deslop audit's silent-weakening find: `kind` was compared by
+    nothing, so under one id `genus` could become `cavities` — "this part has
+    no through-holes" turning into "this part has one sealed void" — and the
+    verb reported `identical`, exit 0.
+
+    `expectation._claim_slug` had covered kind as claim-bearing all along and
+    said so in its docstring, so the pin caught what the comparator could
+    not. The two agree now.
+    """
+    old = _doc()
+    new = _doc()
+    target = next(c for c in new["checks"] if c["id"] == "wall_gt_2")
+    target["kind"] = "envelope"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "different"
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert entry["claim"]["old"]["kind"] == "param_range"
+    assert entry["claim"]["new"]["kind"] == "envelope"
+
+
+def test_the_spec_lists_every_field_that_makes_a_claim_a_claim():
+    """SPEC-diff §3.2 enumerates the claim fields and the list drifted twice
+    unnoticed — `direction` arrived with `draft_angle` and was never
+    documented, and `kind` was never compared at all. Held in step now, in
+    the direction that matters: every field the code compares must be named
+    in the spec a reader trusts."""
+    spec = (Path(__file__).resolve().parents[1] / "docs" / "SPEC-diff.md").read_text()
+    bullet = re.search(r"^- \*\*`limit_changed`\*\*.*?(?=\n- |\n\n)", spec, re.S | re.M)
+    assert bullet, "SPEC-diff must carry a `limit_changed` bullet"
+    named = set(re.findall(r"`(\w+)`", bullet.group(0)))
+    assert set(CLAIM_FIELDS) <= named, f"undocumented claim fields: {set(CLAIM_FIELDS) - named}"
+
+
+def test_two_reports_with_no_closure_at_all_are_not_identical():
+    """SPEC-diff §2.3 names this case explicitly — "absent from either input,
+    which is the ordinary v0.1.0 upgrade path" — and the code returned early
+    when BOTH were absent, so the rule fired for one side and not for two.
+    `identical` then rested on `source_digest` alone, which is the overclaim
+    SPEC-report §8.3 reversed itself to prevent."""
+    old, new = _doc(), _doc()
+    for doc in (old, new):
+        doc["part"].pop("source_closure")
+
+    result = _diff(old, new)
+    assert result["outcome"] == "indeterminate"
+    assert result["source"]["closure"] == "inconclusive"
+    assert exit_code_of(result["outcome"]) == 2
 
 
 # --------------------------------------------------------------------------
