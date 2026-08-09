@@ -556,7 +556,7 @@ def _run_step_check(
     detail = None
     if status is Status.FAIL:
         failing = ", ".join(
-            f"{axis}={float(value):.3g} outside max={tol:.3g}"
+            f"{axis}={float(value):.6g} outside max={tol:.6g}"
             for axis, value in zip(("volume", "area"), measurement.value, strict=True)
             if components[axis] is Status.FAIL
         )

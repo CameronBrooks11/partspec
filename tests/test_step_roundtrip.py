@@ -183,6 +183,11 @@ def test_the_printers_are_restored_even_through_an_exception(monkeypatch):
     from OCP.Message import Message  # pyright: ignore[reportAttributeAccessIssue]
 
     before = len(list(Message.DefaultMessenger_s().Printers()))
+    # Self-blindness guard (the reviewer's exact mechanism): if an earlier
+    # test in this process leaked the printers away, before == 0 and the
+    # restore comparison below would pass vacuously — 0 == 0 hides the very
+    # regression this test exists to catch.
+    assert before > 0, "a previous test leaked the OCCT printers"
     OcctBackend().step_roundtrip(bd.Box(10, 10, 10))
     assert len(list(Message.DefaultMessenger_s().Printers())) == before
 
