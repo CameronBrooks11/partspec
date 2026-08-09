@@ -13,12 +13,14 @@ dependency, and the core package is deliberately stdlib-only.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
 import sys
 import traceback
 from pathlib import Path
+from typing import cast
 
 from .backend import DEFAULT_TIMEOUT_S, BuildError, effective_timeout
 from .contract import Part
@@ -176,6 +178,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="advisory findings about CAD source — never a verdict on the part",
     )
     lint.add_argument("sources", nargs="+", type=Path, metavar="source", help=".scad or .py")
+
+    vdiff = sub.add_parser(
+        "vdiff",
+        help="compare two runs' renders visually (exit 0 identical, 1 different, 2 indeterminate)",
+    )
+    vdiff.add_argument("old", type=Path, help="a render.json / report.json, or its directory")
+    vdiff.add_argument("new", type=Path, help="the later run's artifact or directory")
+    vdiff.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="directory for the per-view diff images (default: <new>/vdiff)",
+    )
 
     diff = sub.add_parser(
         "diff",
@@ -460,11 +475,12 @@ def _check_resolved(
         if isinstance(result, BuildError):
             render_error = result
         else:
-            views, tessellation, _section = result
+            views, meta = result
             # Relative to the report's own directory, POSIX-separated — the
             # same portability rule part.source follows (SPEC-report.md §8).
             report.renders = {v: p.relative_to(out).as_posix() for v, p in views.items()}
-            report.render_tessellation = tessellation
+            report.render_bbox = cast("dict | None", meta.get("render_bbox"))
+            report.render_tessellation = cast("dict | None", meta.get("render_tessellation"))
 
     path = report.write(out)
 
@@ -717,6 +733,14 @@ def _cmd_render(args: argparse.Namespace) -> int:
             )
             return EXIT_USAGE
 
+    # Before resolution (PR #131 review, F4): a failed resolve exits 64
+    # with no artifact, and the previous run's render.json must not sit
+    # there answering a later vdiff as if it were this run's. The images
+    # without it are unreachable through the vdiff loader. An unparseable
+    # target is the resolve path's message to give, hence the suppress.
+    with contextlib.suppress(TargetError, OSError):
+        (_out_dir(args.target, args.out) / "render.json").unlink(missing_ok=True)
+
     resolved = _resolve_or_report(args.target)
     if isinstance(resolved, int):
         from .engines.pycad import invalidate_model_modules
@@ -757,7 +781,7 @@ def _render_files(
     out: Path,
     timeout_s: float,
     section: tuple[str, float | None] | None = None,
-) -> tuple[dict[str, Path], dict[str, object] | None, dict[str, object] | None] | BuildError:
+) -> tuple[dict[str, Path], dict[str, object]] | BuildError:
     """The view files for either tier — one dispatcher, so the `render` verb
     and `check --render` cannot drift apart (#18).
 
@@ -767,7 +791,8 @@ def _render_files(
     A section (#19) is cut by the kernel that owns the geometry — OpenSCAD
     subtracts a half-space from its exported STL, the OCCT tier booleans the
     shape — and both are rasterized by the same code, cut faces distinct.
-    Returns (views, tessellation record | None, section record | None).
+    Returns (views, meta) where meta carries `render_bbox` always and
+    `render_tessellation` / `section` when they apply, in payload order.
     Raises `ContractError` when the engine has no backend, as `measure` would.
     """
     from .runner import _backend_for, _engine_source
@@ -780,8 +805,16 @@ def _render_files(
         )
         if isinstance(views, BuildError):
             return views
+        # The framing bbox rides with every render (#21): framing scales with
+        # the part, so two sizes render identical pixels and the bbox is the
+        # only witness. The STL is render_views's own export.
+        from .backend import bbox_block
+
+        stl = out / f"{_engine_source(part).path.stem}.stl"
+        bbox = openscad._stl_bbox(stl)
+        meta: dict[str, object] = {"render_bbox": bbox_block(*bbox)}
         if section is None:
-            return views, None, None
+            return views, meta
         plane, offset = section
         # The stale-artifact rule, hoisted (PR #130 review, F1): every
         # refusal below returns before the rasterizer's own unlink, and a
@@ -798,9 +831,6 @@ def _render_files(
             )
         from . import raster
 
-        # render_views just exported this — the deterministic path render() owns.
-        stl = out / f"{_engine_source(part).path.stem}.stl"
-        bbox = openscad._stl_bbox(stl)
         axis = raster.SECTION_VIEWS[plane][1]
         resolved = _resolve_offset(offset, bbox[0][axis], bbox[1][axis], plane)
         if isinstance(resolved, BuildError):
@@ -814,7 +844,8 @@ def _render_files(
         frame_points, _ = raster.read_stl(stl)
         png, cut_n = raster.render_section(points, faces, plane, resolved, frame_points, out)
         views[f"section_{plane}"] = png
-        return views, None, {"plane": plane, "offset_mm": resolved, "cut_triangles": cut_n}
+        meta["section"] = {"plane": plane, "offset_mm": resolved, "cut_triangles": cut_n}
+        return views, meta
 
     backend = _backend_for(part.source.engine)
     artifact = backend.build(_engine_source(part), out, timeout_s=timeout_s)
@@ -829,9 +860,10 @@ def _render_files(
     result = raster.render_views(artifact, out)
     if isinstance(result, BuildError):
         return result
-    views, tessellation = result
+    views, tessellation, render_bbox = result
+    meta = {"render_bbox": render_bbox, "render_tessellation": tessellation}
     if section is None:
-        return views, tessellation, None
+        return views, meta
 
     import numpy as np
 
@@ -868,7 +900,8 @@ def _render_files(
     points = np.array([(v.X, v.Y, v.Z) for v in vertices])
     png, cut_n = raster.render_section(points, faces, plane, resolved, frame_points, out)
     views[f"section_{plane}"] = png
-    return views, tessellation, {"plane": plane, "offset_mm": resolved, "cut_triangles": cut_n}
+    meta["section"] = {"plane": plane, "offset_mm": resolved, "cut_triangles": cut_n}
+    return views, meta
 
 
 def _resolve_offset(offset: float | None, lo: float, hi: float, plane: str) -> float | BuildError:
@@ -938,6 +971,9 @@ def _render_resolved(
     }
 
     out = _out_dir(args.target, args.out)
+    # The same stale-artifact rule as every render file: a failing run must
+    # not leave the previous run's payload to be read as this run's (#21).
+    (out / "render.json").unlink(missing_ok=True)
     result = _render_files(part, out, timeout_s, section)
     if isinstance(result, BuildError):
         # The failure is an artifact too (#47): this path used to print to
@@ -953,15 +989,19 @@ def _render_resolved(
             print(f"  hint: {result.hint}", file=sys.stderr)
         return exit_code(Verdict.ERROR)
 
-    views, tessellation, section_record = result
+    views, meta = result
     # `built=True`: a Python model's imports are only knowable once it has
     # run, and on this path it just did. No-op for OpenSCAD.
     payload["part"] = identity(part, target.path, built=True)
     payload["renders"] = {view: str(path) for view, path in views.items()}
-    if tessellation is not None:
-        payload["render_tessellation"] = tessellation
-    if section_record is not None:
-        payload["section"] = section_record
+    payload.update(meta)
+    # The payload, on disk beside the images (#21): stdout serves the
+    # invoker, but a later `vdiff` needs the engine version and framing
+    # bbox of a PAST run, and stdout is gone. Renders relativized to the
+    # file's own directory, the report's portability rule (§8 rule 4).
+    disk = dict(payload)
+    disk["renders"] = {v: p.relative_to(out).as_posix() for v, p in views.items()}
+    (out / "render.json").write_text(json.dumps(disk, indent=2, allow_nan=False) + "\n")
     print(json.dumps(payload, indent=2, allow_nan=False))
     return 0
 
@@ -1013,6 +1053,59 @@ def _summarise(report, path: Path) -> None:
             file=sys.stderr,
         )
     print(f"  {path}", file=sys.stderr)
+
+
+def _cmd_vdiff(args: argparse.Namespace) -> int:
+    """What changed in the part's appearance (#21) — the pair of `diff`'s
+    what-changed-in-the-claims. Same artifact-to-stdout, summary-to-stderr,
+    outcome-to-exit-code shape."""
+    from .vdiff import VdiffUsageError, diff_renders, exit_code_of, load_run, summary_of
+
+    # Inputs first, numpy second: loading and validating the artifacts is
+    # stdlib-only, so a numpy-less environment (the mcp-only install) still
+    # names a bad ask precisely instead of leading with its own limitation.
+    try:
+        old = load_run(args.old)
+        new = load_run(args.new)
+    except VdiffUsageError as exc:
+        print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    try:
+        import numpy  # noqa: F401
+    except ModuleNotFoundError:
+        print(
+            "partspec: vdiff compares pixels, which needs numpy — any partspec "
+            "engine extra brings it",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    out = args.out
+    if out is None:
+        base = args.new if args.new.is_dir() else args.new.parent
+        out = base / "vdiff"
+    try:
+        doc = diff_renders(old, new, out, tool_version=_version())
+    except VdiffUsageError as exc:
+        # An unreadable or foreign image mid-diff: the ask was malformed,
+        # nothing was compared — usage, never a fabricated outcome.
+        print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except (KeyError, ValueError, AttributeError, TypeError) as exc:
+        # A parseable file that is not a well-formed render artifact (no
+        # part block, no engine) is unusable input — 64, never the
+        # catch-all's ERROR, mirroring `diff`'s boundary (PR #131, F2).
+        print(
+            f"partspec: these inputs are not well-formed render artifacts "
+            f"({type(exc).__name__}: {exc})",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    json.dump(doc, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    print(summary_of(doc), file=sys.stderr)
+    return exit_code_of(doc["outcome"])
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
@@ -1092,6 +1185,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_lint(args)
         if args.command == "diff":
             return _cmd_diff(args)
+        if args.command == "vdiff":
+            return _cmd_vdiff(args)
     except KeyboardInterrupt:
         print("\npartspec: interrupted", file=sys.stderr)
         return 130

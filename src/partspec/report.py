@@ -167,6 +167,10 @@ class Report:
     absent otherwise — never an empty block, and never an empty-string path
     that reads as a file (SPEC-report.md §8.4). The images carry no verdict.
     """
+    render_bbox: dict[str, Any] | None = None
+    """The framing bbox (`{min, max}`, mm) when the run produced renders:
+    framing scales with the part, so two sizes render identical pixels and
+    the bbox is the scale witness a visual diff needs (#21)."""
     render_tessellation: dict[str, Any] | None = None
     """`{tolerance_mm, triangles}` when the renders came from a tessellation
     (the OCCT tier, #18) — under D15 the tessellation is what was shown, so
@@ -275,6 +279,8 @@ class Report:
         }
         if self.renders:
             doc["renders"] = self.renders
+            if self.render_bbox is not None:
+                doc["render_bbox"] = self.render_bbox
             if self.render_tessellation is not None:
                 doc["render_tessellation"] = self.render_tessellation
         doc |= {

@@ -43,6 +43,20 @@ set per invocation (`--timeout` / `PARTSPEC_TIMEOUT`), recorded in
 """
 
 
+def bbox_block(lo, hi) -> dict[str, list[float]]:
+    """The framing bbox as a payload block, shared by both render tiers.
+
+    Recorded beside the images because the framing derives from it: two runs
+    whose sizes differ uniformly render byte-identical pixels (the camera
+    scales with the part), so the bbox is the only scale witness a visual
+    diff has (#21). Stdlib on purpose — the OpenSCAD tier records it in
+    environments that have no numpy."""
+    return {
+        "min": [round(float(c), 6) for c in lo],
+        "max": [round(float(c), 6) for c in hi],
+    }
+
+
 def effective_timeout(timeout_s: float | None) -> float | None:
     """Resolve a requested budget to the one a backend enforces.
 

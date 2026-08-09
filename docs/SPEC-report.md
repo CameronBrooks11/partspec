@@ -1,7 +1,10 @@
 # SPEC — the `partspec` report
 
-**Status:** draft 11 · 2026-08-08 · `render --section` (#19): the payload may carry a
-`section_<plane>` view and a `section` block; draft 10 made `render` cover the OCCT tier
+**Status:** draft 12 · 2026-08-08 · the render verb leaves `render.json` on disk (its
+payload with `renders` relativized, §8 rule 4) and every render records `render_bbox`
+(`{min, max}` mm) — the framing scales with the part, so the bbox is the scale witness
+`vdiff` (#21) compares when the pixels cannot; draft 11 added `render --section` (#19):
+the payload may carry a `section_<plane>` view and a `section` block; draft 10 made `render` cover the OCCT tier
 (#18): the verb accepts every engine, its OCCT payloads and reports carry
 `render_tessellation`, and the Scope's engine-block subset is now the OpenSCAD case only;
 draft 9 extended the identity-prefix scope to `render` (#103);
@@ -825,6 +828,11 @@ sibling payload is the opposite by design — its failure artifact carries `rend
 beside an `error`, per the Scope above — because there the empty map sits next to the
 error that explains it, while in a report it would sit next to a verdict it has nothing
 to do with.)
+
+`render_bbox` MUST sit beside `renders` whenever they are present (#21): `{min, max}`
+in mm, the framing bbox. Two runs whose sizes differ uniformly render byte-identical
+pixels — the camera scales with the part — so this block is the only scale witness the
+images leave behind.
 
 When the images came from the OCCT tier's rasterizer (#18), `render_tessellation` —
 `{tolerance_mm, triangles}` — MUST sit beside `renders`: under D15 the tessellation is

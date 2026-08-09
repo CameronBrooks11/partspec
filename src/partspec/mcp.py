@@ -112,6 +112,19 @@ def _render(target: str, out: str | None, section: str | None = None) -> dict[st
     return result
 
 
+def _vdiff(old: str, new: str, out: str | None = None) -> dict[str, Any]:
+    args = ["vdiff", old, new]
+    if out is not None:
+        args += ["--out", out]
+    proc = _run_cli(args)
+    result: dict[str, Any] = {"exit_code": proc.returncode, "vdiff": None}
+    try:
+        result["vdiff"] = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        result["stderr"] = proc.stderr[-_STDERR_TAIL:]
+    return result
+
+
 def _measure(target: str) -> dict[str, Any]:
     proc = _run_cli(["measure", target])
     result: dict[str, Any] = {"exit_code": proc.returncode, "measured": None}
@@ -169,6 +182,20 @@ def build_server() -> MCPServer:
         substitutes for measurement.
         """
         return _render(target, out, section)
+
+    @server.tool()
+    def vdiff(old: str, new: str, out: str | None = None) -> dict[str, Any]:
+        """Compare two runs' renders of one part visually.
+
+        `old`/`new` are render.json / report.json paths (or the directories
+        holding them, i.e. a previous render's --out). Returns the vdiff
+        document: per-view changed-pixel fractions with diff images, the
+        bbox delta (pure scale is invisible to framed pixels — the bbox is
+        the witness), and a scalar `magnitude`. Exit 0 identical, 1
+        different, 2 indeterminate — a pair it cannot honestly compare
+        (different engine versions, sizes, parts) is refused, never scored.
+        """
+        return _vdiff(old, new, out)
 
     return server
 

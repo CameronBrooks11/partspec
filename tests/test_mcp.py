@@ -62,7 +62,7 @@ def test_the_server_lists_the_three_verbs_and_nothing_else():
     # "Nothing else" is the claim worth guarding: a listed tool that cannot
     # work is the tool-list version of silence reading as success. `render`
     # joined only once #17 gave it something honest to return.
-    assert _tool_names() == {"check", "measure", "render"}
+    assert _tool_names() == {"check", "measure", "render", "vdiff"}
 
 
 def test_the_entry_point_serves_over_stdio():
@@ -78,7 +78,7 @@ def test_the_entry_point_serves_over_stdio():
         async with Client(stdio_client(params)) as client:
             return await client.list_tools()
 
-    assert {tool.name for tool in anyio.run(go).tools} == {"check", "measure", "render"}
+    assert {tool.name for tool in anyio.run(go).tools} == {"check", "measure", "render", "vdiff"}
 
 
 def test_check_on_a_missing_contract_is_usage_plus_the_error_placeholder(tmp_path: Path):
@@ -111,6 +111,15 @@ def test_measure_on_a_missing_contract_reports_usage_and_no_numbers(tmp_path: Pa
     assert payload["exit_code"] == 64
     assert payload["measured"] is None
     assert "missing.py" in payload["stderr"]
+
+
+def test_vdiff_on_unusable_inputs_reports_usage_and_the_stderr(tmp_path: Path):
+    # The stderr tail is the ONLY evidence on the non-JSON path — the exact
+    # class PR #126's review caught on the render tool.
+    payload = _call("vdiff", {"old": str(tmp_path), "new": str(tmp_path)})
+    assert payload["exit_code"] == 64
+    assert payload["vdiff"] is None
+    assert "render.json" in payload["stderr"]
 
 
 def test_render_on_a_missing_contract_reports_usage_and_the_stderr(tmp_path: Path):

@@ -131,3 +131,31 @@ carries the reconciliation.
 - **No visual diff.** Renders are evidence attached to a report (#21 consumes them).
 - **No multi-report timelines.** Two inputs, one comparison. A trend over N runs is a
   consumer loop over N−1 diffs.
+
+---
+
+## Appendix: the visual diff (`partspec vdiff`, #21)
+
+`vdiff` is the pair of this document's diff: that one says what changed in the claims,
+this one what changed in the part's appearance. It consumes two on-disk render artifacts
+(`render.json` from the `render` verb, or a report carrying `renders`) and emits its own
+document (`vdiff_schema_version: 1`) with the same outcome vocabulary — `identical`
+(exit 0) / `different` (exit 1) / `indeterminate` (exit 2).
+
+Keys: `inputs` (file, part id and engine block per side), `views` (per view:
+`pixels_changed`, `fraction`, `image` — the diff image, the new run faded to grey with
+changed pixels in magenta), `bbox_delta_mm`, `magnitude`, and on refusal `refused
+{reason[, hint]}`.
+
+Rules, all MUST:
+
+- **No silent rescaling.** Differing image sizes are refused.
+- **No cross-version scoring.** A pair rendered by different engine kinds or versions is
+  refused: 7.68% of pixels differ across OpenSCAD versions for identical geometry (the
+  recorded audit measurement), and scoring renderer noise as change is the tool lying.
+- **No cross-part pairing.** Different part ids, and differing view sets, are refused.
+- **Scale cannot hide.** The framing scales with the part, so a uniform size change is
+  pixel-invisible; `render_bbox` is compared alongside, and a bbox delta with identical
+  pixels is `different` with a `note` referring the numbers to `measure`.
+- **The scalar is reproducible.** `magnitude = max(worst view fraction,
+  bbox_delta_mm / old bbox diagonal)` — 0.0 exactly when nothing changed.

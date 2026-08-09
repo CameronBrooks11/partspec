@@ -252,7 +252,7 @@ def test_render_views_writes_the_views_and_records_the_tessellation(tmp_path: Pa
     bd = pytest.importorskip("build123d", reason="occt extra not installed")
     result = render_views(bd.Box(20, 10, 5), tmp_path)
     assert not isinstance(result, BuildError)
-    views, tessellation = result
+    views, tessellation, bbox = result
     assert set(views) == {"iso", "front", "top", "right"}
     for path in views.values():
         assert path.stat().st_size > 0
@@ -262,6 +262,9 @@ def test_render_views_writes_the_views_and_records_the_tessellation(tmp_path: Pa
         "tolerance_mm": TESSELLATION_TOLERANCE_MM,
         "triangles": 12,
     }
+    # The scale witness (#21): framing scales with the part, so the bbox is
+    # the only record a visual diff can compare sizes through.
+    assert bbox == {"min": [-10.0, -5.0, -2.5], "max": [10.0, 5.0, 2.5]}
 
 
 def test_the_production_framing_constants_bind(tmp_path: Path):
@@ -274,7 +277,7 @@ def test_the_production_framing_constants_bind(tmp_path: Path):
     bd = pytest.importorskip("build123d", reason="occt extra not installed")
     result = render_views(bd.Box(20, 20, 20), tmp_path)
     assert not isinstance(result, BuildError)
-    views, _ = result
+    views, _, _ = result
     data = views["front"].read_bytes()
     width, height = struct.unpack(">II", data[16:24])
     idat = b""

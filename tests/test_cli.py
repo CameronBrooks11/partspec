@@ -637,6 +637,55 @@ def test_the_scad_tier_keeps_the_same_half(tmp_path: Path, capsys):
         assert "display" in payload["error"]
 
 
+def test_render_leaves_its_payload_on_disk_for_a_later_vdiff(tmp_path: Path, capsys):
+    """#21: stdout serves the invoker, but a visual diff needs the engine
+    version and framing bbox of a PAST run. render.json mirrors the payload
+    with renders relativized to its own directory (the report's portability
+    rule), and the bbox rides with every render — the only scale witness a
+    framed image leaves."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    out = tmp_path / "out"
+    assert main(["render", f"{module}:make", "--out", str(out)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    disk = json.loads((out / "render.json").read_text())
+    assert payload["render_bbox"] == {"min": [-10.0, -5.0, -3.0], "max": [10.0, 5.0, 3.0]}
+    # Same document, save for the paths: relative on disk, absolute on stdout.
+    assert disk["renders"] == {v: f"renders/{v}.png" for v in ("iso", "front", "top", "right")}
+    assert {k: v for k, v in disk.items() if k != "renders"} == {
+        k: v for k, v in payload.items() if k != "renders"
+    }
+
+    # The stale-artifact rule: a failing run clears the previous payload.
+    (tmp_path / "m.py").write_text("broken\n")
+    assert main(["render", f"{module}:make", "--out", str(out)]) == 4
+    capsys.readouterr()
+    assert not (out / "render.json").exists()
+
+
+@needs_openscad
+def test_check_render_records_the_bbox_in_the_report(tmp_path: Path):
+    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    out = tmp_path / "out"
+    code = main(["check", target, "--quiet", "--render", "--out", str(out)])
+    report = json.loads((out / "report.json").read_text())
+    if code == 0:
+        span = [
+            b - a
+            for a, b in zip(report["render_bbox"]["min"], report["render_bbox"]["max"], strict=True)
+        ]
+        assert span == pytest.approx([30.0, 20.0, 10.0]), "the block's real extents"
+    else:
+        assert "render_bbox" not in report, "no images, no framing record"
+
+
 def test_a_failing_section_leaves_no_stale_image(tmp_path: Path, capsys):
     """PR #130 review, F1: a refused section returned before the rasterizer's
     unlink, leaving the previous run's section_xy.png to be read as this
