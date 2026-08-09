@@ -470,7 +470,14 @@ def _check_resolved(
     )
 
     render_error = None
-    if args.render and report.error is None:
+    # Renders depict the run's OWN successful build, or nothing (PR #133
+    # review, F1/F2): the old `report.error is None` gate let a failing
+    # build be rebuilt just for pictures, and a parameter-blocked run —
+    # whose report says the build was never evaluated — build anyway and
+    # ship images of it. `builds` passing is the one signal that is true
+    # on both tiers.
+    built_ok = any(c.id == "builds" and c.status is Status.PASS for c in report.checks)
+    if args.render and report.error is None and built_ok:
         from .backend import BuildError
 
         result = _render_files(part, out, timeout_s, prebuilt=built[0] if built else None)

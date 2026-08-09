@@ -68,6 +68,19 @@ def test_an_empty_compound_is_a_build_error_not_an_assert(tmp_path):
     assert "no geometry" in doc["error"]
 
 
+def test_a_none_handle_is_named_not_misdescribed():
+    """PR #133 review, F4: a wrapper whose .wrapped is None (CadQuery can
+    produce one) must get the no-geometry message, not the misleading
+    'not a build123d or CadQuery shape'."""
+
+    class _Hollow:
+        wrapped = None
+
+    result = adopt(_Hollow())
+    assert isinstance(result, BuildError)
+    assert "no underlying handle" in result.message
+
+
 def test_cadquery_shape_is_adopted_losslessly():
     """The whole basis for 'two backends, not three': a CadQuery result is a
     handle rewrap away from a build123d one, with no conversion."""
