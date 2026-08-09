@@ -20,7 +20,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from .backend import DEFAULT_TIMEOUT_S, BuildError, effective_timeout
 from .contract import Part
@@ -458,6 +458,7 @@ def _check_resolved(
     out: Path,
     expected_claims: dict[str, str] | None,
 ) -> int:
+    built: list[object] = []
     report = run(
         part,
         out_dir=out,
@@ -465,13 +466,14 @@ def _check_resolved(
         contract_path=target.path,
         timeout_s=timeout_s,
         expected_claims=expected_claims,
+        artifact_out=built,
     )
 
     render_error = None
     if args.render and report.error is None:
         from .backend import BuildError
 
-        result = _render_files(part, out, timeout_s)
+        result = _render_files(part, out, timeout_s, prebuilt=built[0] if built else None)
         if isinstance(result, BuildError):
             render_error = result
         else:
@@ -781,6 +783,7 @@ def _render_files(
     out: Path,
     timeout_s: float,
     section: tuple[str, float | None] | None = None,
+    prebuilt: Any | None = None,
 ) -> tuple[dict[str, Path], dict[str, object]] | BuildError:
     """The view files for either tier — one dispatcher, so the `render` verb
     and `check --render` cannot drift apart (#18).
@@ -848,7 +851,15 @@ def _render_files(
         return views, meta
 
     backend = _backend_for(part.source.engine)
-    artifact = backend.build(_engine_source(part), out, timeout_s=timeout_s)
+    # `check --render` hands over the artifact its run just built (#129):
+    # rebuilding a model the process holds in memory doubled side effects
+    # and let a nondeterministic model's renders silently disagree with the
+    # geometry the report measured.
+    artifact = (
+        prebuilt
+        if prebuilt is not None
+        else backend.build(_engine_source(part), out, timeout_s=timeout_s)
+    )
     if isinstance(artifact, BuildError):
         return artifact
     # Imported only after the build delivered a shape: raster pulls in numpy,
