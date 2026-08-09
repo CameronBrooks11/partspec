@@ -394,15 +394,54 @@ def test_the_antipodal_maps_are_diametric():
     assert raw["lo"] == raw["hi"] == pytest.approx(12.0, abs=1e-9), "a machined flat stays exact"
 
 
-def test_the_smallest_certified_span_wins():
-    """A ball on a shaft carries two certifiable spans, 4 and 12. The upper
-    end must be the smaller one — the search is ordered by span and stops at
-    the first certificate, so an unordered search would report [4, 12] and
-    lose the exactness it just proved."""
-    raw = _raw(bd.Sphere(6) + bd.Cylinder(2, 40))
-    assert isinstance(raw, dict)
-    assert raw["lo"] == pytest.approx(4.0, abs=1e-9)
-    assert raw["hi"] == pytest.approx(4.0, abs=1e-9), "the shaft's 4, not the ball's 12"
+def _closed_analytic_candidates(shape):
+    """The (span, chords) candidates `_min_wall_raw` builds, for unit-level
+    tests of the certificate itself."""
+    import math
+
+    from OCP.BRepAdaptor import BRepAdaptor_Surface  # pyright: ignore[reportAttributeAccessIssue]
+
+    from partspec.backends.occt import _diametric_chords
+
+    out = []
+    for face in shape.faces():
+        surf = BRepAdaptor_Surface(face.wrapped)
+        if not (surf.IsUClosed() or surf.IsVClosed()):
+            continue
+        chords = _diametric_chords(surf, surf.GetType())
+        out.append((math.dist(*chords[0]), chords))
+    return out
+
+
+def test_the_certificate_is_tested_where_the_ray_witness_cannot_mask_it():
+    """Two properties of the certificate are invisible end to end, because
+    for cylinders the ray witness independently reaches the same number and
+    quietly supplies the answer: the search's ORDER, and its spread along the
+    face. Both are asserted at the unit level instead, where nothing else can
+    answer for them.
+
+    Order: a ball on a shaft certifies both 12 and 4; fed largest-first, the
+    search must still return the smaller, or the interval it just proved
+    exact would open to [4, 12].
+
+    Spread: the cross-drilled rod's mid-height chords cross the hole and
+    cannot certify (`None` above), so a certificate sampled only at the
+    middle would find nothing on the very geometry PR #144 (F1) was about.
+    The offsets certify 4.0."""
+    from partspec.backends.occt import _certified_self_span
+
+    ball_on_shaft = bd.Sphere(6) + bd.Cylinder(2, 40)
+    candidates = _closed_analytic_candidates(ball_on_shaft)
+    assert len(candidates) >= 2, "the fixture must offer two certifiable spans"
+    largest_first = sorted(candidates, key=lambda item: -item[0])
+    assert _certified_self_span(ball_on_shaft.wrapped, largest_first) == pytest.approx(4.0)
+
+    rod = bd.Cylinder(2, 40) - bd.Rot(90, 0, 0) * bd.Cylinder(1, 10)
+    rod_candidates = [c for c in _closed_analytic_candidates(rod) if c[0] == pytest.approx(4.0)]
+    assert rod_candidates, "the rod's own diametric span must be a candidate"
+    mid_only = [(span, chords[:2]) for span, chords in rod_candidates]
+    assert _certified_self_span(rod.wrapped, mid_only) is None, "the hole blocks the middle"
+    assert _certified_self_span(rod.wrapped, rod_candidates) == pytest.approx(4.0, abs=1e-9)
 
 
 def test_an_unanswerable_certificate_keeps_the_span(monkeypatch):
