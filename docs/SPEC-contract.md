@@ -596,7 +596,9 @@ surprised by it.
   understood as structural, not sampling noise.
 
 **Gaps are not walls, but they bound them.** The U-channel (walls 3.0, gap 1.0) reports
-`lo = 1.0, gap-limited`: conclusive pass for `min ≤ 1`, honest `approximate` above — the
+`lo = 1.0, gap-limited`: conclusive pass for `min ≤ 1`, honest `approximate` above. The
+same applies BETWEEN solids of a multi-solid part: inter-body clearance caps the bound,
+so a compound can never conclusively pass a limit above its narrowest inter-body gap — the
 referral for tighter gap claims is `keep_out`/clearance modeling, and a future certified
 material-side separation could restore tightness without touching soundness. A part where
 EVERY face pair shares an edge (a tetrahedron) has no walls and FAILS like
