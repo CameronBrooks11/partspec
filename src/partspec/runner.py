@@ -361,6 +361,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         return _run_fillet_check(spec, backend, artifact, common)
     if spec.kind == "draft_angle":
         return _run_draft_check(spec, backend, artifact, common)
+    if spec.kind == "step_roundtrip":
+        return _run_step_check(spec, backend, artifact, common)
 
     outcome = getattr(backend, primitive_name)(artifact)
     if isinstance(outcome, Unsupported):
@@ -499,6 +501,51 @@ def _run_fillet_check(
         detail = _failing_axes(outcome, spec.limit, components)
     return CheckResult(
         **common, status=status, measurement=outcome, components=components, detail=detail
+    )
+
+
+def _run_step_check(
+    spec: CheckSpec, backend: Any, artifact: Any, common: dict[str, Any]
+) -> CheckResult:
+    """Adjudicate the exchange round-trip. Two gates, deliberately separate:
+    topology drift fails at ANY tolerance (a count that changed is a
+    different part), and only then are the exact relative deltas held to the
+    author's tol. The writer schema rides on the check — it changes the
+    artifact (the F13 lesson)."""
+    assert spec.limit is not None
+    outcome = backend.step_roundtrip(artifact)
+    if isinstance(outcome, Unsupported):
+        return CheckResult(
+            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
+        )
+
+    common["step"] = {"schema": outcome["schema"]}
+    measurement = Measurement(
+        (outcome["volume_rel"], outcome["area_rel"]),
+        "rel",
+        exact=True,
+        axes=("volume", "area"),
+    )
+    drifted = [
+        f"{name} {before} -> {after}"
+        for name in ("solids", "faces", "edges")
+        for before, after in [outcome[name]]
+        if before != after
+    ]
+    if drifted:
+        return CheckResult(
+            **common,
+            status=Status.FAIL,
+            measurement=measurement,
+            detail="the round-trip changed topology: " + ", ".join(drifted),
+        )
+    status = adjudicate(measurement, spec.limit)
+    components = _components_of(measurement, spec.limit)
+    detail = None
+    if status is Status.FAIL and components is not None:
+        detail = _failing_axes(measurement, spec.limit, components)
+    return CheckResult(
+        **common, status=status, measurement=measurement, components=components, detail=detail
     )
 
 
