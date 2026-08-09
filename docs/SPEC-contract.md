@@ -112,7 +112,8 @@ error.
 `SPEC-report.md` §7.1 declares `kind` an open vocabulary so the report format never needs
 revising when a check is added. **This document closes it at each release**: v0 shipped the
 set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5),
-`bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6.
+`bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6;
+`draft_angle` (§4.8) opens the depth epic (#136).
 
 ### 4.1 Parameter phase
 
@@ -401,6 +402,54 @@ on an unfilleted part does not declare the check.
 The measurement is the full vector of blend radii, ascending, adjudicated by the generic
 per-component machinery — so `components` (SPEC-report.md §7.1) names exactly which blend
 broke which bound, and the failure detail reads `blend_1=1.5 outside min=2.0`.
+
+---
+
+### 4.8 `draft_angle` — every face releases from the tool
+
+`p.draft_angle(min=, direction=(0, 0, 1))`: every face's draft is at least `min`, for a
+mold pulled along `direction`. **OCCT tier only.** `min=` is the release claim — no wall
+closer to vertical than the tool can eject.
+
+**There is deliberately no `max=`.** Under the two-half convention every closed solid has
+a face square to the pull (a cap, at 90°), so an every-face maximum is unsatisfiable by
+construction — and the first draft of this check adjudicated `max` against each face's
+MINIMUM draft, letting a face that violated the bound almost everywhere pass silently
+(PR #141 review, F1: an executed silent pass). A bound that cannot be held to every face
+is refused at the vocabulary level rather than quietly held to fewer.
+
+**Draft is measured per face against a two-half parting axis**: the angle between the face
+and the pull line, `asin(|n · d|)` — 0° for a vertical wall, 90° for a face square to the
+pull. The two-half convention (the absolute value) is deliberate: a face releases with
+whichever mold half it faces, so tops and bottoms measure 90° and pass a `min` naturally —
+no exclusion rule exists to game, and the measure is orientation-independent, killing the
+reversed-face bug class outright. The declared direction is normalised at declaration and
+recorded in the check (`checks[].direction`), because a draft claim without its axis is not
+reproducible.
+
+**Exact, or refused — never sampled.** Planes answer directly; cylinders and cones at any
+orientation answer in closed form (the face's normal dotted with the pull is a sinusoid in
+the wrap parameter; its extreme over the face's wrap interval is at an endpoint, a crest,
+or a zero crossing, all enumerable). A face outside those families — sphere, torus,
+freeform — refuses the WHOLE check with the face and surface type named: a sampled minimum
+has no guaranteed lower bound (more samples can only find a smaller draft, the same
+one-sidedness that keeps `min_wall` out — POST-V0 §5), and a verdict that skipped a face
+would be silence reading as success. This also means the check does not carry the
+`approximate` obligation POST-V0 §4 records; that debt moves to the first check with a
+genuinely bounded interval.
+
+**What per-face normals cannot see is a recorded gap, not a claim**: a feature-level
+undercut — material elsewhere blocking release along an otherwise-drafted path — is
+invisible to surface interrogation. `draft_angle` proves wall-release geometry; it does not
+prove moldability.
+
+`min` must be in (0, 90]: the measure is non-negative by construction, so `min=0` would
+pass every face vacuously and is refused at declaration. The measurement is the full vector
+of per-face drafts, ascending, adjudicated by the generic per-component machinery — so
+`components` names exactly which face broke which bound, and the failure detail reads
+`face_3=0 outside min=2.0`. `min=` is a number an author chose, so the kind is in
+`DIMENSIONAL_KINDS` and an unattributed bound draws the §6 warning; the pull axis is part
+of the claim's identity, so `direction` is a claim field the report diff compares.
 
 ---
 

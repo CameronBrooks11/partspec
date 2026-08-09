@@ -57,7 +57,9 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
     # same number, authority gone — is the quiet half of the weakening move,
     # and "no semantic differences" over it would be exactly the silence this
     # verb exists to refuse (#92).
-    claim_fields = [f for f in ("limit", "region", "hole", "source") if old.get(f) != new.get(f)]
+    claim_fields = [
+        f for f in ("limit", "region", "hole", "source", "direction") if old.get(f) != new.get(f)
+    ]
     claim = (
         {
             "old": {f: old.get(f) for f in claim_fields},

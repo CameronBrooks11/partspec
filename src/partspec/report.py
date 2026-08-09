@@ -105,6 +105,10 @@ class CheckResult:
     """Provenance of referenced bounds: field -> {"standard", "subject",
     "field"} — the report states not just what was claimed but on whose
     authority (SPEC-contract.md 10). Absent for bare literals. Additive."""
+    direction: list[float] | None = None
+    """The declared pull axis of a `draft_angle` check (normalised), on the
+    same what-was-claimed principle as `region` and `hole`. Additive per
+    SPEC-report.md 7.1."""
     detail: str | None = None
     requires: str | None = None
     part_refs: tuple[str, ...] = ()
@@ -127,6 +131,8 @@ class CheckResult:
             out["operands"] = self.operands or {}
         if self.region is not None:
             out["region"] = self.region
+        if self.direction is not None:
+            out["direction"] = self.direction
         if self.hole is not None:
             out["hole"] = self.hole
         if self.source is not None:

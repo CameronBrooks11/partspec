@@ -47,6 +47,7 @@ GEOMETRY_KINDS: dict[str, str] = {
     "hole_diameter": "bores",
     "bolt_circle": "bore_table",
     "fillet_radius": "blend_radii",
+    "draft_angle": "draft_angle",
 }
 """The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
@@ -63,7 +64,16 @@ composed in the runner from `region_solid` and `intersect_volume` rather than
 being one primitive call (SPEC-contract.md 4.4)."""
 
 DIMENSIONAL_KINDS = frozenset(
-    {"param_range", "envelope", "volume", "area", "hole_diameter", "bolt_circle", "fillet_radius"}
+    {
+        "param_range",
+        "envelope",
+        "volume",
+        "area",
+        "hole_diameter",
+        "bolt_circle",
+        "fillet_radius",
+        "draft_angle",
+    }
 )
 """The kinds whose limits are numbers an author chose — and so the kinds that
 are trivially circularizable: a bound recomputed from the model's own constants
@@ -158,6 +168,9 @@ class CheckSpec:
     """Provenance of any Referenced values among this check's bounds:
     `{field: {"standard", "subject", "field"}}` (SPEC-contract.md 10). Absent
     when every input was a bare literal."""
+    direction: tuple[float, float, float] | None = None
+    """The pull axis for `draft_angle` only, normalised at declaration. Not a
+    `Limit`: it is what the claim is measured AGAINST, not a bound on it."""
 
 
 class Part:
@@ -480,6 +493,71 @@ class Part:
                 phase=GEOMETRY,
                 limit=Limit(min=min, max=max),
                 source=source_map(min=min, max=max),
+            )
+        )
+
+    def draft_angle(
+        self,
+        *,
+        min: float,
+        direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+        id: str | None = None,
+    ) -> Part:
+        """Every face's draft is within these bounds, for a mold pulled along
+        `direction`. **OCCT tier only.** `min=` is the release claim — no wall
+        closer to vertical than the tool can eject (SPEC-contract.md 4.8).
+
+        Draft is measured per face against a two-half parting axis: the angle
+        between the face and the pull line, `asin(|n . d|)` — 0 deg for a
+        vertical wall, 90 deg for a face square to the pull. The two-half
+        convention makes it orientation-independent: a face releases with
+        whichever mold half it faces, so tops and bottoms measure 90 and pass
+        a min naturally, with no exclusion rule to game. What per-face normals
+        cannot see — a feature-level undercut, material blocking release — is
+        a recorded gap, not a claim (SPEC-contract.md 4.8).
+
+        Exact on planes, cylinders and cones at any orientation (the extreme
+        over a face's wrap is closed-form). A face outside those families
+        refuses the whole check rather than passing the subset: a claim about
+        every face that skipped one would be silence reading as success.
+
+        There is deliberately no `max=`: under the two-half convention every
+        closed solid has a face square to the pull (a cap, at 90 degrees), so
+        an every-face maximum is unsatisfiable by construction — and a bound
+        adjudicated against anything less than every face would be a silent
+        subset pass (PR #141 review, F1).
+        """
+        if (
+            not isinstance(min, int | float)
+            or isinstance(min, bool)
+            or not math.isfinite(min)
+            or min <= 0
+            or min > 90
+        ):
+            raise ContractError(
+                f"draft_angle min must be in (0, 90] degrees (got {min!r}); "
+                "a min of 0 would pass every face vacuously — the measure is "
+                "non-negative by construction"
+            )
+        try:
+            dx, dy, dz = (float(c) for c in direction)
+        except (TypeError, ValueError):
+            raise ContractError(
+                f"draft_angle direction must be a 3-vector of numbers (got {direction!r})"
+            ) from None
+        norm = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if not math.isfinite(norm) or norm == 0.0:
+            raise ContractError(
+                f"draft_angle direction must be a nonzero finite 3-vector (got {direction!r})"
+            )
+        return self._add(
+            CheckSpec(
+                id=id or "draft_angle",
+                kind="draft_angle",
+                phase=GEOMETRY,
+                limit=Limit(min=min),
+                source=source_map(min=min),
+                direction=(dx / norm, dy / norm, dz / norm),
             )
         )
 
