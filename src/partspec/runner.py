@@ -364,6 +364,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         return _run_draft_check(spec, backend, artifact, common)
     if spec.kind == "step_roundtrip":
         return _run_step_check(spec, backend, artifact, common)
+    if spec.kind == "min_wall":
+        return _run_min_wall_check(spec, backend, artifact, common)
 
     outcome = getattr(backend, primitive_name)(artifact)
     if isinstance(outcome, Unsupported):
@@ -503,6 +505,55 @@ def _run_fillet_check(
     return CheckResult(
         **common, status=status, measurement=outcome, components=components, detail=detail
     )
+
+
+def _run_min_wall_check(
+    spec: CheckSpec, backend: Any, artifact: Any, common: dict[str, Any]
+) -> CheckResult:
+    """Adjudicate the guaranteed wall interval (#140). The vacuous case — a
+    part where every face pair meets at an edge — FAILS like fillet's empty
+    set: "every wall is thick enough" over zero walls is the vacuous green
+    this tool refuses, and an author with a corner-only part simply does not
+    declare the check."""
+    from .backends.occt import _min_wall_measurement
+
+    assert spec.limit is not None
+    raw = backend._min_wall_raw(artifact)
+    if isinstance(raw, Unsupported):
+        return CheckResult(
+            **common, status=Status.UNSUPPORTED, detail=raw.reason, requires=raw.requires
+        )
+    if raw.get("vacuous"):
+        return CheckResult(
+            **common,
+            status=Status.FAIL,
+            detail="no wall spans exist: every face pair meets at an edge, and "
+            "corner features are not walls — a claim about every wall needs at "
+            "least one, and passing over an empty set would be vacuous green",
+        )
+    measurement = _min_wall_measurement(raw)
+    status = adjudicate(measurement, spec.limit)
+    detail = None
+    if status is not Status.PASS:
+        thinnest = f"thinnest span {raw['lo']:.6g} mm at {raw['witness']}"
+        if status is Status.APPROXIMATE:
+            detail = (
+                f"{thinnest}; the guaranteed interval "
+                f"[{raw['lo']:.6g}, {raw['hi']:.6g}] straddles the limit — "
+                "the tool does not know, and will not guess"
+            )
+        else:
+            detail = thinnest
+        if raw.get("gap_limited"):
+            # On FAIL too (PR #144 re-review, R2): the number named is a
+            # void distance, and saying so only on the approximate branch
+            # left the fail detail implying a proven thin wall.
+            detail += (
+                " (the bound is limited by a gap-like pair — a nearby "
+                "void, not a proven thin wall; PR #144 review, F2: "
+                "excluding such pairs once hid a real wall)"
+            )
+    return CheckResult(**common, status=status, measurement=measurement, detail=detail)
 
 
 def _run_step_check(

@@ -113,8 +113,8 @@ error.
 revising when a check is added. **This document closes it at each release**: v0 shipped the
 set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5),
 `bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6;
-`draft_angle` (§4.8), `self_intersection_free` (§4.9) and `step_roundtrip` (§4.10) are
-the depth epic's (#136).
+`draft_angle` (§4.8), `self_intersection_free` (§4.9), `step_roundtrip` (§4.10) and
+`min_wall` (§4.11) are the depth epic's (#136).
 
 ### 4.1 Parameter phase
 
@@ -528,6 +528,93 @@ The writer schema (`AP214IS` on the current toolchain) is recorded on the check
 happens in a scratch directory: the check is about survivability, not producing an
 export. `tol` is a fidelity tolerance with a calibrated default, not a design dimension,
 so the kind is deliberately NOT in `DIMENSIONAL_KINDS` and draws no attribution warning.
+
+---
+
+### 4.11 `min_wall` — every wall thick enough, within a declared measurand
+
+`p.min_wall(min=)`: every wall of the part is at least `min` mm. **OCCT tier only.** The
+first check whose measurement is a genuine interval, and therefore the first to exercise
+§3.1's `approximate` adjudication — the debt POST-V0 §4 carried since `hole_diameter`
+landed exact.
+
+**The measurand, stated precisely** (the first draft claimed an unconditional
+impossibility of false passes; PR #144's review falsified that by execution, twice, and
+this section now says exactly what is measured): *the minimum span between non-adjacent
+boundary faces through material, plus the certified diametric spans of closed analytic
+faces.* Within that measurand the interval is guaranteed; outside it, unmeasured — and
+the outside is recorded below, not denied.
+
+**The bound.** `lo` is the minimum over ALL non-adjacent face pairs of the kernel-exact
+distance (`BRepExtrema_DistShapeShape`). Gap-classified pairs are **retained** — any wall
+between two faces is at least their pair distance, so keeping the gap value is always
+sound, and PR #144 (F2) demonstrated that excluding such a pair once took a real 3 mm
+wall with it into a `verdict: pass` on a `min=10` claim. The cost is honesty, not
+tightness games: a claim limited by a nearby gap adjudicates `approximate` with the gap
+named (`the bound is limited by a gap-like pair — a nearby void, not a proven thin
+wall`), never a falsely tight pass. A closed analytic face (cylinder / sphere / torus /
+frustum) contributes its diametric span unless an **exact boolean** — the axis edge or
+tube circle common'd with the solid — certifies the enclosed line entirely void; PR #144
+(F1) showed a single probe point is not a certificate (a cross-drilled rod's 4 mm
+diameter was discarded because the probe landed in the hole, and the tool certified
+19 mm, exact). A cone apex is the wedge-in-the-round and is skipped as a feature.
+
+`hi` is the smallest measurand-consistent witnessed crossing: an inward normal ray whose
+first exit lands on a non-adjacent face, or crosses the same closed face diametrically.
+**A witnessed crossing below `lo` refuses the whole check** ("the analysis contradicts
+itself") — PR #144 (F3) found the first draft clamping exactly that counter-evidence
+away, the thesis violation in one line. `[lo, hi]` collapses to exact on
+parallel-analytic walls (uniform shells, tubes, sphere shells, the hidden thin spot, the
+cross-drilled rod's diameter: hand-computed truth to 1e-9); a straddling limit
+adjudicates `approximate` — the tool does not know, and will not guess.
+
+**The wedge policy is structural, not a threshold.** Faces meeting at a shared edge are a
+modeling feature — a wedge, a corner — never a wall; a 5.71° taper does not fail as a
+sliver, and the moment the tip is truncated into an actual sliver the faces stop sharing
+the edge and it is measured exactly (the 0.05 mm truncation fixture). cad-khana's
+`min_wall_alignment` scalar was reconstructed and **falsified by execution** — a shallow
+taper measures alignment 0.995, slab-indistinguishable — so the structural rule replaces
+it. Consequences an author must know: a solid cone is vacuous (apex skipped, all faces
+adjacent) and FAILS with the empty-set detail; and **filleting a knife edge flips it from
+feature to wall** — the fillet band no longer shares an edge with both flanks, so the
+real material behind it (0.6 mm for an r=0.3 fillet on a thin wedge) is measured and may
+fail where the sharp edge passed. That is the material's truth, stated so nobody is
+surprised by it.
+
+**Recorded escapes — what the measurand does not cover:**
+
+- **Edge-sharing webs.** Material bounded by faces that share an edge — the web beside a
+  drilled cross-hole, a boss root — is outside the measurand: the shared-edge span tends
+  to zero at the rim (the same geometry as a wedge tip), so pair analysis cannot bound it
+  without failing every drilled part. The cross-drilled rod reads its diametric 4.0 mm,
+  NOT its ~1 mm web, and a test pins this boundary as executed fact.
+- **Single-face folds.** A wall whose two sides are one open non-analytic face (a folded
+  sheet modeled as a single spline face) has no pair and no analytic self-span.
+- **Structural approximation on stepped bores.** A counterbore's radial ledge pair is
+  wall-classified at ~the ledge width, so counterbored parts straddle limits between the
+  ledge and the true wall — the false-alarm direction, recorded so the `approximate` is
+  understood as structural, not sampling noise.
+
+**Gaps are not walls, but they bound them.** The U-channel (walls 3.0, gap 1.0) reports
+`lo = 1.0, gap-limited`: conclusive pass for `min ≤ 1`, honest `approximate` above. The
+same applies BETWEEN solids of a multi-solid part: inter-body clearance caps the bound,
+so a compound can never conclusively pass a limit above its narrowest inter-body gap — the
+referral for tighter gap claims is `keep_out`/clearance modeling, and a future certified
+material-side separation could restore tightness without touching soundness. A part where
+EVERY face pair shares an edge (a tetrahedron) has no walls and FAILS like
+`fillet_radius`'s empty set: vacuous green, refused. Closed non-analytic periodic faces
+and kernel-unresolvable pairs refuse the whole check by name.
+
+**The mesh tier's refusal stands, with executed evidence** (#140's research, four
+candidates run against fixtures with hand-computed walls): ray sampling is one-sided and
+silent (1.75 reported on a true 0.8 wall at n=100, converging from above with no
+completion signal; coarse tessellation makes it 13x); BREP inward-offset feasibility
+certifies the wrong quantity (max inscribed depth — a false "walls ≥ 1.5" certificate on
+a true 1.1 wall) and crashes or returns negative-volume "successes" on hollow shells;
+voxel occupancy adds unsafe-direction gap fusion; morphological opening gives a real
+bracket but only above a corner-shed noise floor, which is a threshold, not a bound.
+POST-V0 §5's ship condition — "a different method on the BREP tier" — is met, within the
+measurand stated above.
 
 ---
 

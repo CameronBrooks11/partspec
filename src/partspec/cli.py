@@ -601,6 +601,7 @@ def _measure_resolved(
         "is_valid",
         "watertight",
         "self_intersection_free",
+        "min_wall",
         "solid_count",
         "cavities",
         "genus",
@@ -620,6 +621,11 @@ def _measure_resolved(
             "unit": result.unit,
             "exactness": "exact" if result.exact else "approximate",
         }
+        if result.bounds is not None:
+            # The interval is the honesty (PR #144 review, F6): an
+            # approximate value without its bounds reads more certain than
+            # it is, in the verb whose job is showing the numbers.
+            entry["bounds"] = list(result.bounds)
         if result.axes:
             entry["axes"] = list(result.axes)
         measurements[name] = entry
