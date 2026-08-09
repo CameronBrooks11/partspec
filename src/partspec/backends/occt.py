@@ -615,28 +615,18 @@ class OcctBackend:
         """
         import tempfile
 
-        from OCP.IFSelect import IFSelect_ReturnStatus  # type: ignore[attr-defined]
-        from OCP.Interface import Interface_Static  # type: ignore[attr-defined]
-        from OCP.STEPControl import (
-            STEPControl_Reader,  # pyright: ignore[reportAttributeAccessIssue]
-            STEPControl_StepModelType,  # pyright: ignore[reportAttributeAccessIssue]
-            STEPControl_Writer,  # pyright: ignore[reportAttributeAccessIssue]
-        )
-
         from ..engines.pycad import adopt
 
         with _quiet_occt(), tempfile.TemporaryDirectory() as scratch:
             path = str(Path(scratch) / "part.step")
-            writer = STEPControl_Writer()
-            writer.Transfer(a.wrapped, STEPControl_StepModelType.STEPControl_AsIs)
-            if writer.Write(path) != IFSelect_ReturnStatus.IFSelect_RetDone:
+            schema = self._write_step(a, path)
+            if schema is None:
                 return Unsupported(
                     "the STEP writer could not serialise this shape; nothing "
                     "was compared, so nothing may be said about survivability"
                 )
-            schema = str(Interface_Static.CVal_s("write.step.schema"))
-            reader = STEPControl_Reader()
-            if reader.ReadFile(path) != IFSelect_ReturnStatus.IFSelect_RetDone:
+            raw = self._read_step(path)
+            if raw is None:
                 # The writer accepted it and the reader will not: that IS
                 # degradation, total — but with nothing to measure, the
                 # honest report is the refusal naming the asymmetry.
@@ -644,8 +634,7 @@ class OcctBackend:
                     "the STEP reader could not read back what the writer "
                     "wrote — the exchange failed whole"
                 )
-            reader.TransferRoots()
-            back = adopt(reader.OneShape())
+            back = adopt(raw)
         if isinstance(back, BuildError):
             return Unsupported(f"the round-tripped shape did not survive adoption: {back.message}")
 
@@ -659,6 +648,35 @@ class OcctBackend:
             "edges": (len(a.edges()), len(back.edges())),
             "solids": (len(a.solids()), len(back.solids())),
         }
+
+    def _write_step(self, a: Any, path: str) -> str | None:
+        """Write the shape to `path`; the writer schema on success, None on
+        refusal. A seam, so the refusal branch is testable (PR #143, F3)."""
+        from OCP.IFSelect import IFSelect_ReturnStatus  # type: ignore[attr-defined]
+        from OCP.Interface import Interface_Static  # type: ignore[attr-defined]
+        from OCP.STEPControl import (
+            STEPControl_StepModelType,  # pyright: ignore[reportAttributeAccessIssue]
+            STEPControl_Writer,  # pyright: ignore[reportAttributeAccessIssue]
+        )
+
+        writer = STEPControl_Writer()
+        writer.Transfer(a.wrapped, STEPControl_StepModelType.STEPControl_AsIs)
+        if writer.Write(path) != IFSelect_ReturnStatus.IFSelect_RetDone:
+            return None
+        return str(Interface_Static.CVal_s("write.step.schema"))
+
+    def _read_step(self, path: str) -> Any | None:
+        """Read a STEP file back; the raw shape, or None on refusal."""
+        from OCP.IFSelect import IFSelect_ReturnStatus  # type: ignore[attr-defined]
+        from OCP.STEPControl import (
+            STEPControl_Reader,  # pyright: ignore[reportAttributeAccessIssue]
+        )
+
+        reader = STEPControl_Reader()
+        if reader.ReadFile(path) != IFSelect_ReturnStatus.IFSelect_RetDone:
+            return None
+        reader.TransferRoots()
+        return reader.OneShape()
 
     def blend_radii(self, a: Any) -> Measurement | Unsupported:
         """Radii of every partial-wrap cylindrical surface, sorted ascending.

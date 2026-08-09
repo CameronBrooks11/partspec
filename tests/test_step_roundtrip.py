@@ -2,8 +2,9 @@
 
 The degrader is executed, not assumed: an open shell forced into a solid
 loses its entire volume through STEP (the reader's healing drops the
-ill-formed solid) — while every healthy construction family round-trips at
-~1e-14 relative, five orders under the default tolerance.
+ill-formed solid). Healthy families mostly round-trip below 4e-13; the
+worst healthy citizen is the thread family at ~1.9e-8, which is what
+calibrates the 1e-6 default (PR #143 review, F1).
 """
 
 from __future__ import annotations
@@ -105,7 +106,7 @@ class _StubBackend:
 
 
 def test_the_tolerance_gate_bites_and_names_the_axis():
-    spec = _spec()  # default 1e-9
+    spec = _spec()  # default 1e-6
     result = _run_geometry_check(spec, _StubBackend(1e-3), None, "subject")
     assert result.status is Status.FAIL
     assert result.detail is not None and "volume" in result.detail
@@ -113,6 +114,85 @@ def test_the_tolerance_gate_bites_and_names_the_axis():
 
     relaxed = _spec(tol=1e-2)
     assert _run_geometry_check(relaxed, _StubBackend(1e-3), None, "subject").status is Status.PASS
+
+
+def test_the_tol_is_never_epsilon_widened():
+    """PR #143 review, F2: the shared adjudication epsilon (an absolute 1e-6
+    floor built for mm-scale STL round-trips) silently swallowed any tighter
+    tol on this unitless delta — the report recorded limit max=1e-9 while
+    enforcing ~1e-6, and the reviewer's 1.87e-8 drift PASSED a 1e-9
+    contract. Plain membership now: the tol IS the tolerance."""
+    tight = _spec(tol=1e-9)
+    result = _run_geometry_check(tight, _StubBackend(1.87e-8), None, "subject")
+    assert result.status is Status.FAIL, "the reviewer's exact repro must fail a 1e-9 claim"
+
+    at_limit = _spec(tol=1e-6)
+    assert (
+        _run_geometry_check(at_limit, _StubBackend(2e-6), None, "subject").status is Status.FAIL
+    ), "2e-6 over a 1e-6 tol passed under the old epsilon widening"
+    assert _run_geometry_check(at_limit, _StubBackend(5e-7), None, "subject").status is Status.PASS
+
+
+def test_a_threaded_rod_calibrates_the_default():
+    """PR #143 review, F1: the thread family is the worst healthy citizen —
+    a fused helical sweep round-trips near 1.9e-8, far over the old 1e-9
+    default and comfortably under the recalibrated 1e-6. Both halves are
+    pinned so the calibration story stays executed fact."""
+    helix = bd.Helix(2, 10, 5)
+    thread = bd.sweep(
+        bd.Plane(origin=helix @ 0, z_dir=helix % 0) * bd.Circle(0.8), helix
+    ) + bd.Cylinder(4.8, 10, align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN))
+    outcome = OcctBackend().step_roundtrip(thread)
+    assert not isinstance(outcome, Unsupported)
+    assert outcome["volume_rel"] < 1e-6, "healthy threads must pass the default"
+    assert outcome["volume_rel"] > 1e-10, (
+        "the thread family is why the default is 1e-6, not 1e-9; if exchange "
+        "fidelity improved this much, recalibrate the spec downward"
+    )
+
+
+def test_every_refusal_branch_is_a_named_unsupported(monkeypatch):
+    """PR #143 review, F3: all three refusal branches were unreachable in
+    tests — a silent writer failure would have read as a perfect round trip.
+    Each seam is forced and must refuse by name."""
+    backend = OcctBackend()
+    box = bd.Box(10, 10, 10)
+
+    monkeypatch.setattr(OcctBackend, "_write_step", lambda self, a, path: None)
+    outcome = backend.step_roundtrip(box)
+    assert isinstance(outcome, Unsupported) and "writer" in outcome.reason
+    monkeypatch.undo()
+
+    monkeypatch.setattr(OcctBackend, "_read_step", lambda self, path: None)
+    outcome = backend.step_roundtrip(box)
+    assert isinstance(outcome, Unsupported) and "reader" in outcome.reason
+    monkeypatch.undo()
+
+    from partspec.backend import BuildError
+    from partspec.engines import pycad
+
+    monkeypatch.setattr(pycad, "adopt", lambda raw: BuildError("adoption refused"))
+    outcome = backend.step_roundtrip(box)
+    assert isinstance(outcome, Unsupported) and "adoption refused" in outcome.reason
+
+
+def test_the_printers_are_restored_even_through_an_exception(monkeypatch):
+    """PR #143 review, F4: a dropped restore would permanently mute OCCT
+    diagnostics process-wide — invisible to CI, and this repo ships a
+    long-lived MCP server."""
+    from OCP.Message import Message  # pyright: ignore[reportAttributeAccessIssue]
+
+    before = len(list(Message.DefaultMessenger_s().Printers()))
+    OcctBackend().step_roundtrip(bd.Box(10, 10, 10))
+    assert len(list(Message.DefaultMessenger_s().Printers())) == before
+
+    def explode(self, path):
+        raise RuntimeError("mid-roundtrip failure")
+
+    monkeypatch.setattr(OcctBackend, "_read_step", explode)
+    with pytest.raises(RuntimeError):
+        OcctBackend().step_roundtrip(bd.Box(10, 10, 10))
+    assert len(list(Message.DefaultMessenger_s().Printers())) == before
 
 
 def test_the_declaration_validates_tol():

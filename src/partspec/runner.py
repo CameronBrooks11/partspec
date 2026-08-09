@@ -35,6 +35,7 @@ from .status import (
     adjudicate_components,
     component_limit,
     epsilon,
+    worst,
 )
 
 __all__ = ["identity", "run"]
@@ -539,11 +540,27 @@ def _run_step_check(
             measurement=measurement,
             detail="the round-trip changed topology: " + ", ".join(drifted),
         )
-    status = adjudicate(measurement, spec.limit)
-    components = _components_of(measurement, spec.limit)
+    # Plain membership, deliberately NOT `adjudicate`: the author's tol IS
+    # the tolerance (the hole_diameter principle), and the shared comparison
+    # epsilon — an absolute 1e-6 floor designed for mm-scale STL round-trips
+    # — silently swallowed any tighter tol on this unitless relative delta,
+    # so the report recorded a limit three orders stricter than what was
+    # enforced (PR #143 review, F2).
+    tol = spec.limit.max
+    assert isinstance(tol, float)
+    components = {
+        axis: (Status.PASS if float(value) <= tol else Status.FAIL)
+        for axis, value in zip(("volume", "area"), measurement.value, strict=True)
+    }
+    status = worst(list(components.values()))
     detail = None
-    if status is Status.FAIL and components is not None:
-        detail = _failing_axes(measurement, spec.limit, components)
+    if status is Status.FAIL:
+        failing = ", ".join(
+            f"{axis}={float(value):.3g} outside max={tol:.3g}"
+            for axis, value in zip(("volume", "area"), measurement.value, strict=True)
+            if components[axis] is Status.FAIL
+        )
+        detail = failing
     return CheckResult(
         **common, status=status, measurement=measurement, components=components, detail=detail
     )

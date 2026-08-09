@@ -494,7 +494,7 @@ before deciding to claim it.
 
 ### 4.10 `step_roundtrip` — the part survives its own exchange format
 
-`p.step_roundtrip(tol=1e-9)`: written to STEP and read back, the part's volume and area
+`p.step_roundtrip(tol=1e-6)`: written to STEP and read back, the part's volume and area
 change by at most `tol` (relative) and its topology counts do not change at all. **OCCT
 tier only** — STEP is a BREP format; a mesh has no BREP identity to preserve, and the mesh
 tier refuses with `requires: occt`.
@@ -502,18 +502,26 @@ tier refuses with `requires: occt`.
 STEP is how a part leaves for manufacturing; a shape that degrades through its own
 exchange ships a different part than the one verified. **Two gates, deliberately
 separate**: topology drift (solids, faces, edges) fails at ANY tolerance — a count that
-changed is a different part — and only then are the relative deltas held to `tol`. The
-deltas are **exact**: both sides are the kernel's own exact quantities, so the comparison
-is a computed number, not an estimate. (Consequence: this check does not carry POST-V0
+changed is a different part — and only then are the relative deltas held to `tol` by **plain membership — the tol IS
+the tolerance, never epsilon-widened**. The shared comparison epsilon (§3.3's absolute
+1e-6 floor, built for mm-scale STL round-trips) would silently swallow any tighter tol on
+this unitless delta, recording a limit stricter than what was enforced (PR #143 review,
+F2 — an executed incoherent artifact). The deltas themselves are **exact**: both sides
+are the kernel's own exact quantities, so the comparison is a computed number, not an
+estimate. (Consequence: this check does not carry POST-V0
 §4's `approximate` obligation either; after this slice that debt rests entirely on
 `min_wall`, #140, and if that slice ends in a recorded refusal the obligation stays
 outstanding and recorded.)
 
-**The default `tol` is calibrated, not chosen**: healthy construction families (booleans,
-fillets, lofts, helical sweeps) round-trip at ≤ ~5e-14 relative; real degradation — an
-ill-formed open shell forced into a solid, which the reader's healing silently drops —
-loses its ENTIRE volume (`volume_rel = 1.0`, solids 1 → 0, the executed degrader in the
-test suite). 1e-9 sits five orders above the noise and nine below the failure.
+**The default `tol` is calibrated, not chosen** — and recalibrated by execution: most
+healthy families (booleans, fillets, lofts, text, 100-hole grids, 1e-3 to 1e6 mm scales)
+round-trip below ~4e-13 relative, but the THREAD family — a helical sweep fused to a
+cylinder, the canonical threaded rod — measures ~1.9e-8 (PR #143 review, F1). Real
+degradation — an ill-formed open shell forced into a solid, which the reader's healing
+silently drops — loses its ENTIRE volume (`volume_rel = 1.0`, solids 1 → 0, the executed
+degrader in the test suite). 1e-6 sits ~50x above the worst healthy citizen and six
+orders below the failure; both halves are pinned by the threaded-rod test, so if
+exchange fidelity moves, the calibration moves with it.
 
 The writer schema (`AP214IS` on the current toolchain) is recorded on the check
 (`checks[].step.schema`) because it changes the artifact — the F13 lesson. The exchange
