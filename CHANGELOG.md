@@ -11,13 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `p.min_wall(min=)` — every wall thick enough within a declared measurand,
   OCCT tier (#140): kernel-exact face-pair minima and certified diametric
-  self-spans bound the wall from below, a witnessed crossing bounds it from
-  above, a crossing thinner than the bound refuses the check as
+  self-spans bound the wall from below; a witnessed crossing bounds it from
+  above — an inward normal ray, or a diametric chord certified material end
+  to end by exact boolean, which is what makes every closed analytic family
+  exact and answers a frustum whose every normal exits through an adjacent
+  cap (#145). A crossing thinner than the bound refuses the check as
   self-contradictory, and a straddling limit adjudicates `approximate` —
   the first genuine exercise of the interval machinery, closing POST-V0's
   outstanding obligation. Gap-limited claims straddle honestly (never
-  falsely tight); edge-sharing webs and single-face folds are recorded
-  escapes, not silent green; the wedge policy is structural. The mesh
+  falsely tight); edge-sharing webs, single-face folds and step/counterbore
+  ledges are recorded escapes with fixtures, not silent green; the wedge
+  policy is structural. The mesh
   tier's refusal stands with the research's executed evidence recorded.
   SPEC-contract 4.11.
 - `p.step_roundtrip(tol=)` — the part survives its own exchange format,

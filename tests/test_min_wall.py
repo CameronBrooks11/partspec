@@ -302,6 +302,97 @@ def test_the_drilled_web_escape_is_documented_behavior():
 
 
 # ---------------------------------------------------------------------------
+# issue #145: the certified chord, and the ledge the measurand cannot tighten
+# ---------------------------------------------------------------------------
+
+
+def test_a_frustum_is_exact_again_through_its_certified_chord():
+    """#145 item 2: the narrow rim of a frustum is where its thinnest span
+    lives, and a fixed 6x6 ray grid never samples it — the interval read
+    [4, 6.88] on a part whose wall is exactly 4. The chord certificate
+    reaches it: a diametric chord at the rim, certified material end to end,
+    is an ACHIEVED span, so the upper end collapses onto the lower one.
+
+    The consequence is a conclusive verdict where there was an honest shrug,
+    and it moves toward FAIL, never toward PASS — a claim below lo passes on
+    lo alone, so a tighter hi can only turn approximate into fail."""
+    frustum = bd.Cone(8, 2, 20)
+    raw = _raw(frustum)
+    assert isinstance(raw, dict)
+    assert raw["lo"] == pytest.approx(4.0, abs=1e-9)
+    assert raw["hi"] == pytest.approx(4.0, abs=1e-9), "the rim chord caps the interval"
+
+    result = _run_geometry_check(_spec(min=5.0), OcctBackend(), frustum, "subject")
+    assert result.status is Status.FAIL, "5 mm is refuted by a certified 4 mm crossing"
+    assert _run_geometry_check(_spec(min=3.0), OcctBackend(), frustum, "subject").status is (
+        Status.PASS
+    )
+
+
+def test_a_short_frustum_no_longer_refuses_outright():
+    """#145 item 2, the sibling the fixture hunt turned up: on a 45-degree
+    frustum every inward normal exits through an ADJACENT cap, so the ray
+    witness found nothing and the whole check refused ('no witnessed span
+    could be measured') on an entirely ordinary part. The certified chord is
+    the witness the rays could not be."""
+    raw = _raw(bd.Cone(8, 2, 6))
+    assert isinstance(raw, dict), "an ordinary frustum must not refuse"
+    assert raw["lo"] == raw["hi"] == pytest.approx(4.0, abs=1e-9)
+
+
+def test_the_chord_certificate_is_the_whole_chord_or_nothing():
+    """The certificate's teeth: a chord crossing a bore is NOT material end
+    to end and must not certify, or the achieved-span argument collapses into
+    the point-probe fallacy PR #144 (F1) killed. Same rod, two chords: the
+    one through the cross-hole declines, the one clear of it certifies."""
+    from partspec.backends.occt import _chord_span
+
+    rod = bd.Cylinder(2, 40) - bd.Rot(90, 0, 0) * bd.Cylinder(1, 10)
+    through_the_hole = ((-2.0, 0.0, 0.0), (2.0, 0.0, 0.0))
+    clear_of_the_hole = ((-2.0, 0.0, 12.0), (2.0, 0.0, 12.0))
+    assert _chord_span(rod.wrapped, *through_the_hole) is None, "the void breaks the chord"
+    assert _chord_span(rod.wrapped, *clear_of_the_hole) == pytest.approx(4.0, abs=1e-9)
+
+
+def test_an_unanswerable_certificate_keeps_the_span(monkeypatch):
+    """#145 item 3: the kernel-failure fallback (`include=None -> True`) had
+    no fixture — `BRepAlgoAPI_Common` failing on a segment is not
+    constructible — so the mutant that flips it to False survived the suite.
+    The seam is forced instead: an unanswerable certificate must KEEP the
+    span, because keeping one can only lower lo (safe), while dropping one
+    raised a cross-drilled rod's wall to 19 mm (PR #144, F1)."""
+    from partspec.backends import occt
+
+    monkeypatch.setattr(occt, "_segment_has_material", lambda *args: None)
+    raw = _raw(bd.Cylinder(2, 40))
+    assert isinstance(raw, dict)
+    assert raw["lo"] == pytest.approx(4.0, abs=1e-9), (
+        "dropping an unanswerable span leaves the 40 mm cap pair as the bound"
+    )
+
+
+def test_a_stepped_ledge_bounds_from_the_ledge_and_says_so():
+    """#145 item 1: a 1.5 mm ledge on a slab whose every wall is 2.0 reads
+    lo = 1.5. That is not a bug in the bound — the ledge IS a 1.5 mm span
+    between two non-adjacent faces through material, so the measurand
+    contains it — it is the planar sibling of the counterbore ledge recorded
+    in SPEC 4.11. The interval still brackets the truth and the claim
+    adjudicates approximate rather than passing on a number the tool cannot
+    prove. Pinned so the looseness stays visible and cannot drift into
+    silence."""
+    slab = bd.Box(30, 20, 2) + bd.Pos(0, 0, 2) * bd.Box(27, 20, 2)
+    raw = _raw(slab)
+    assert isinstance(raw, dict)
+    assert raw["lo"] == pytest.approx(1.5, abs=1e-9), "the ledge width, not the 2.0 wall"
+    assert raw["hi"] >= 2.0 - 1e-9, "the interval still contains the true wall"
+
+    backend = OcctBackend()
+    straddle = _run_geometry_check(_spec(min=2.0), backend, slab, "subject")
+    assert straddle.status is Status.APPROXIMATE, "never a pass on the unproven 2.0"
+    assert _run_geometry_check(_spec(min=1.0), backend, slab, "subject").status is Status.PASS
+
+
+# ---------------------------------------------------------------------------
 # refusals and the vacuous set
 # ---------------------------------------------------------------------------
 

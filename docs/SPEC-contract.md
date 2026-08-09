@@ -559,14 +559,27 @@ tube circle common'd with the solid — certifies the enclosed line entirely voi
 diameter was discarded because the probe landed in the hole, and the tool certified
 19 mm, exact). A cone apex is the wedge-in-the-round and is skipped as a feature.
 
-`hi` is the smallest measurand-consistent witnessed crossing: an inward normal ray whose
-first exit lands on a non-adjacent face, or crosses the same closed face diametrically.
+`hi` is the smallest measurand-consistent witnessed crossing, from either of two
+witnesses. An inward normal ray whose first exit lands on a non-adjacent face, or crosses
+the same closed face diametrically — sampled on a parameter grid, which is why it is a
+witness and not a bound. Or a **certified chord**: a diametric chord of a closed analytic
+face whose exact boolean common with the solid has the chord's own LENGTH, proving the
+span is material end to end and therefore *achieved*, not merely bounded. The chord
+witness closes issue #145's two loosenings: it reaches the narrow rim of a frustum, where
+the ray grid never samples (an interval of `[4, 6.88]` on a part whose wall is exactly
+4.0), and it answers a 45° frustum whose every inward normal exits through an adjacent
+cap, which used to refuse the whole check for want of any witness at all. Its teeth are
+that the whole chord must be material: a chord crossing a bore does not certify, so the
+achieved-span argument never degrades into the probe-point fallacy of F1. Tightening `hi`
+is safe by construction — a limit at or below `lo` passes on `lo` alone, so a smaller
+`hi` can only turn an `approximate` into a `fail`, and only on evidence.
+
 **A witnessed crossing below `lo` refuses the whole check** ("the analysis contradicts
 itself") — PR #144 (F3) found the first draft clamping exactly that counter-evidence
 away, the thesis violation in one line. `[lo, hi]` collapses to exact on
 parallel-analytic walls (uniform shells, tubes, sphere shells, the hidden thin spot, the
-cross-drilled rod's diameter: hand-computed truth to 1e-9); a straddling limit
-adjudicates `approximate` — the tool does not know, and will not guess.
+cross-drilled rod's diameter, every closed analytic family: hand-computed truth to 1e-9);
+a straddling limit adjudicates `approximate` — the tool does not know, and will not guess.
 
 **The wedge policy is structural, not a threshold.** Faces meeting at a shared edge are a
 modeling feature — a wedge, a corner — never a wall; a 5.71° taper does not fail as a
@@ -590,10 +603,15 @@ surprised by it.
   NOT its ~1 mm web, and a test pins this boundary as executed fact.
 - **Single-face folds.** A wall whose two sides are one open non-analytic face (a folded
   sheet modeled as a single spline face) has no pair and no analytic self-span.
-- **Structural approximation on stepped bores.** A counterbore's radial ledge pair is
-  wall-classified at ~the ledge width, so counterbored parts straddle limits between the
-  ledge and the true wall — the false-alarm direction, recorded so the `approximate` is
-  understood as structural, not sampling noise.
+- **Ledges bound like gaps.** A counterbore's radial ledge pair is wall-classified at ~the
+  ledge width, and its planar sibling does the same: a 1.5 mm step on a slab whose every
+  wall is 2.0 reports `lo = 1.5`. Neither is a defect in the bound — the ledge genuinely
+  IS a 1.5 mm span between two non-adjacent faces through material, so the measurand
+  contains it — but it means stepped parts straddle limits between the ledge and the true
+  wall. The false-alarm direction, recorded (and pinned by a fixture) so the `approximate`
+  is understood as structural, not sampling noise. The interval's *width* on such parts is
+  loose for a second reason worth knowing: the ray witness samples only the faces that
+  realized `lo`, so a stepped slab's upper end can be the full part width.
 
 **Gaps are not walls, but they bound them.** The U-channel (walls 3.0, gap 1.0) reports
 `lo = 1.0, gap-limited`: conclusive pass for `min ≤ 1`, honest `approximate` above. The
