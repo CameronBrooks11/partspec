@@ -476,7 +476,7 @@ def _check_resolved(
     # whose report says the build was never evaluated — build anyway and
     # ship images of it. `builds` passing is the one signal that is true
     # on both tiers.
-    built_ok = any(c.id == "builds" and c.status is Status.PASS for c in report.checks)
+    built_ok = any(c.kind == "builds" and c.status is Status.PASS for c in report.checks)
     if args.render and report.error is None and built_ok:
         from .backend import BuildError
 
