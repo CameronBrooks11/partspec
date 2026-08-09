@@ -138,12 +138,14 @@ def _part() -> Part:
 
 
 def test_the_declaration_validates_its_inputs():
-    with pytest.raises(ContractError, match="claims nothing"):
-        _part().draft_angle()
     with pytest.raises(ContractError, match="in \\(0, 90\\]"):
         _part().draft_angle(min=0)
     with pytest.raises(ContractError, match="in \\(0, 90\\]"):
-        _part().draft_angle(max=120)
+        _part().draft_angle(min=91)
+    with pytest.raises(ContractError, match="in \\(0, 90\\]"):
+        _part().draft_angle(min=True)
+    with pytest.raises(TypeError):
+        _part().draft_angle(max=45)  # type: ignore[call-arg] — no max, by design (F1)
     with pytest.raises(ContractError, match="nonzero"):
         _part().draft_angle(min=2, direction=(0, 0, 0))
     with pytest.raises(ContractError, match="3-vector"):
@@ -240,10 +242,72 @@ def test_the_mesh_tier_refuses_with_the_tier_named(tmp_path):
 
 
 def test_adjudication_uses_the_component_machinery():
-    """A max bound bites the tops: the same vector, different failing axes."""
-    spec, outcome = _check(bd.Cone(8, 5, 6), max=45.0)
+    spec, outcome = _check(bd.Cone(8, 5, 6), min=30.0)
     from partspec.status import adjudicate
 
     assert not isinstance(outcome, Unsupported)
     assert spec.limit is not None
-    assert adjudicate(outcome, spec.limit) is Status.FAIL, "the 90-degree caps break max=45"
+    assert adjudicate(outcome, spec.limit) is Status.FAIL, "26.57 < 30 on the cone wall"
+
+
+def test_a_generically_rotated_cylinder_wall_still_finds_its_tangent():
+    """PR #141 review, F4: every earlier curved-face assertion sat at an
+    axis-aligned orientation where the wrap seam coincides with the tangent,
+    so swapping the wrap interval's ends survived the suite while reporting
+    10.96 where the truth is 0. A generic rotation has no such alignment."""
+    shape = bd.Rot(37, 22, 10) * bd.Cylinder(4, 9)
+    spec, outcome = _check(shape, min=1.0)
+    assert not isinstance(outcome, Unsupported)
+    assert min(outcome.value) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_the_diff_verb_sees_a_rotated_pull_axis(tmp_path):
+    """PR #141 review, F2: rotating the pull axis is a claim change the
+    semantic diff must name — a draft claim without its axis is not
+    reproducible, so the axis is part of the claim's identity."""
+    from partspec.cli import main
+
+    model = "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
+    (tmp_path / "m.py").write_text(model)
+    for name, direction in (("a", "(0, 0, 1)"), ("b", "(1, 0, 0)")):
+        (tmp_path / f"spec_{name}.py").write_text(
+            "from partspec import Part, build123d\n\n\ndef make():\n"
+            "    p = Part('subject', build123d('m.py'))\n"
+            f"    p.draft_angle(min=1.0, direction={direction})\n"
+            "    return p\n"
+        )
+        main(
+            [
+                "check",
+                f"{tmp_path / f'spec_{name}.py'}:make",
+                "--quiet",
+                "--out",
+                str(tmp_path / name),
+            ]
+        )
+    code = main(["diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")])
+    assert code == 1, "a rotated pull axis is a difference, not silence"
+
+
+def test_an_unattributed_draft_min_draws_the_warning(tmp_path):
+    """PR #141 review, F3: min= is a number an author chose — exactly the
+    circularizable class the attribution warning exists for — and the check
+    was missing from DIMENSIONAL_KINDS, so a draft-only contract drew no
+    warning."""
+    import json
+
+    from partspec.cli import main
+
+    model = "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
+    (tmp_path / "m.py").write_text(model)
+    (tmp_path / "spec.py").write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    p = Part('subject', build123d('m.py'))\n"
+        "    p.draft_angle(min=2.0)\n"
+        "    return p\n"
+    )
+    out = tmp_path / "out"
+    main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)])
+    report = json.loads((out / "report.json").read_text())
+    assert report["attribution"]["dimensional"] == 1
+    assert report["attribution"]["attributed"] == 0

@@ -64,7 +64,16 @@ composed in the runner from `region_solid` and `intersect_volume` rather than
 being one primitive call (SPEC-contract.md 4.4)."""
 
 DIMENSIONAL_KINDS = frozenset(
-    {"param_range", "envelope", "volume", "area", "hole_diameter", "bolt_circle", "fillet_radius"}
+    {
+        "param_range",
+        "envelope",
+        "volume",
+        "area",
+        "hole_diameter",
+        "bolt_circle",
+        "fillet_radius",
+        "draft_angle",
+    }
 )
 """The kinds whose limits are numbers an author chose — and so the kinds that
 are trivially circularizable: a bound recomputed from the model's own constants
@@ -490,8 +499,7 @@ class Part:
     def draft_angle(
         self,
         *,
-        min: float | None = None,
-        max: float | None = None,
+        min: float,
         direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
         id: str | None = None,
     ) -> Part:
@@ -512,23 +520,25 @@ class Part:
         over a face's wrap is closed-form). A face outside those families
         refuses the whole check rather than passing the subset: a claim about
         every face that skipped one would be silence reading as success.
+
+        There is deliberately no `max=`: under the two-half convention every
+        closed solid has a face square to the pull (a cap, at 90 degrees), so
+        an every-face maximum is unsatisfiable by construction — and a bound
+        adjudicated against anything less than every face would be a silent
+        subset pass (PR #141 review, F1).
         """
-        if min is None and max is None:
+        if (
+            not isinstance(min, int | float)
+            or isinstance(min, bool)
+            or not math.isfinite(min)
+            or min <= 0
+            or min > 90
+        ):
             raise ContractError(
-                "draft_angle() must bound min, max or both; a check that claims nothing cannot pass"
+                f"draft_angle min must be in (0, 90] degrees (got {min!r}); "
+                "a min of 0 would pass every face vacuously — the measure is "
+                "non-negative by construction"
             )
-        for name, value, hi_cap in (("min", min, 90.0), ("max", max, 90.0)):
-            if value is not None and (
-                not isinstance(value, int | float)
-                or not math.isfinite(value)
-                or value <= 0
-                or value > hi_cap
-            ):
-                raise ContractError(
-                    f"draft_angle {name} must be in (0, 90] degrees (got {value!r}); "
-                    "a min of 0 would pass every face vacuously — the measure is "
-                    "non-negative by construction"
-                )
         try:
             dx, dy, dz = (float(c) for c in direction)
         except (TypeError, ValueError):
@@ -545,8 +555,8 @@ class Part:
                 id=id or "draft_angle",
                 kind="draft_angle",
                 phase=GEOMETRY,
-                limit=Limit(min=min, max=max),
-                source=source_map(min=min, max=max),
+                limit=Limit(min=min),
+                source=source_map(min=min),
                 direction=(dx / norm, dy / norm, dz / norm),
             )
         )

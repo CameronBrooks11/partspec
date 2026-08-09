@@ -9,8 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `p.draft_angle(min=, max=, direction=)` — every face's draft within bounds
-  for a declared pull axis, OCCT tier (#137). Exact on planes, cylinders and
+- `p.draft_angle(min=, direction=)` — every face's draft at least `min`
+  for a declared pull axis, OCCT tier (#137). Deliberately no `max=`: an
+  every-face maximum is unsatisfiable under the two-half convention (caps
+  measure 90), and a bound held to fewer faces would pass silently. Exact on planes, cylinders and
   cones at any orientation (closed-form wrap extremes, no sampling); a
   freeform face refuses the whole check with the face named, never a subset
   pass. The two-half parting convention makes tops measure 90 and pass a min

@@ -407,9 +407,16 @@ broke which bound, and the failure detail reads `blend_1=1.5 outside min=2.0`.
 
 ### 4.8 `draft_angle` — every face releases from the tool
 
-`p.draft_angle(min=, max=, direction=(0, 0, 1))`: every face's draft is within the bounds,
-for a mold pulled along `direction`. **OCCT tier only.** `min=` is the release claim — no
-wall closer to vertical than the tool can eject.
+`p.draft_angle(min=, direction=(0, 0, 1))`: every face's draft is at least `min`, for a
+mold pulled along `direction`. **OCCT tier only.** `min=` is the release claim — no wall
+closer to vertical than the tool can eject.
+
+**There is deliberately no `max=`.** Under the two-half convention every closed solid has
+a face square to the pull (a cap, at 90°), so an every-face maximum is unsatisfiable by
+construction — and the first draft of this check adjudicated `max` against each face's
+MINIMUM draft, letting a face that violated the bound almost everywhere pass silently
+(PR #141 review, F1: an executed silent pass). A bound that cannot be held to every face
+is refused at the vocabulary level rather than quietly held to fewer.
 
 **Draft is measured per face against a two-half parting axis**: the angle between the face
 and the pull line, `asin(|n · d|)` — 0° for a vertical wall, 90° for a face square to the
@@ -440,7 +447,9 @@ prove moldability.
 pass every face vacuously and is refused at declaration. The measurement is the full vector
 of per-face drafts, ascending, adjudicated by the generic per-component machinery — so
 `components` names exactly which face broke which bound, and the failure detail reads
-`face_3=0 outside min=2.0`.
+`face_3=0 outside min=2.0`. `min=` is a number an author chose, so the kind is in
+`DIMENSIONAL_KINDS` and an unattributed bound draws the §6 warning; the pull axis is part
+of the claim's identity, so `direction` is a claim field the report diff compares.
 
 ---
 

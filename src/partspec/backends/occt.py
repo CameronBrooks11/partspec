@@ -156,8 +156,11 @@ def _min_draft_deg(a_coef: float, b_coef: float, c_coef: float, u1: float, u2: f
 def _surface_name(kind: Any) -> str:
     """A human name for a GeomAbs surface type enum, without importing the
     whole enum table: the repr carries the name."""
-    text = str(kind)
-    return text.rsplit("_", 1)[-1].rsplit(".", 1)[-1].lower()
+    text = str(kind).rsplit("_", 1)[-1].rsplit(".", 1)[-1].lower()
+    # "bsplinesurface surface" and "surfaceofextrusion surface" read doubled;
+    # strip the noun the caller adds (PR #141 review, F5).
+    text = text.removeprefix("surfaceof").removesuffix("surface")
+    return text or "unknown"
 
 
 class OcctBackend:
