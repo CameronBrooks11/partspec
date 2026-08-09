@@ -152,6 +152,17 @@ def test_declaration_order_is_preserved():
     assert [c.id for c in p.checks] == ["watertight", "a_gt_0", "solid_count"]
 
 
+def test_the_builds_id_is_reserved(tmp_path):
+    """#134: the runner emits its own `builds` check; a contract shadowing
+    the id put two same-id checks in one report and let a passing parameter
+    check impersonate a failed build to check --render's gate."""
+    p = _part(w=5.0)
+    with pytest.raises(ContractError, match="reserved for the runner"):
+        p.requires("w > 0", id="builds")
+    with pytest.raises(ContractError, match="reserved for the runner"):
+        p.watertight(id="builds")
+
+
 def test_duplicate_ids_are_refused():
     """Ids are the join key a report diff relies on."""
     p = _part()

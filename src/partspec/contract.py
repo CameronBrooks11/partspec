@@ -530,6 +530,16 @@ class Part:
     # -- internals ---------------------------------------------------------
 
     def _add(self, spec: CheckSpec) -> Part:
+        if spec.id == "builds":
+            # The runner emits its own `builds` check for every run; a
+            # contract shadowing the id would put two same-id checks in one
+            # report (ambiguous for any consumer keying by id) and once let
+            # a passing parameter check impersonate a failed build to the
+            # render gate (#134).
+            raise ContractError(
+                "the check id 'builds' is reserved for the runner's own build "
+                "check; pass a different id="
+            )
         clash = next((e for e in self.checks if e.id == spec.id), None)
         if clash is not None:
             # A residual collision (e.g. a shared 60-char prefix surviving
