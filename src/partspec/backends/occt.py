@@ -14,6 +14,7 @@ Spec: SPEC-backend.md section 4.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,7 @@ CAPABILITIES = frozenset(
         "bores",
         "bore_table",
         "blend_radii",
+        "draft_angle",
     }
 )
 
@@ -115,6 +117,47 @@ def _empty(a: Any) -> bool:
     """No sub-shapes at all — an empty compound, not merely a shape without
     faces. A Wire or an Edge has vertices and is honestly measurable."""
     return not a.vertices()
+
+
+def _min_draft_deg(a_coef: float, b_coef: float, c_coef: float, u1: float, u2: float) -> float:
+    """min over u in [u1, u2] of asin(|a cos u + b sin u + c|), in degrees.
+
+    The normal of a cylinder or cone dotted with the pull direction is exactly
+    this sinusoid in the surface's angular parameter; its extreme over the
+    face's wrap interval is at an endpoint, a crest (u = phi + k*pi), or a zero
+    crossing (where the |.| bottoms out at 0). All candidates are enumerated,
+    so the minimum is exact — no sampling.
+    """
+    radius = math.hypot(a_coef, b_coef)
+    phi = math.atan2(b_coef, a_coef)
+
+    candidates = [u1, u2]
+
+    def add_periodic(base: float) -> None:
+        k = math.floor((u1 - base) / math.tau)
+        u = base + k * math.tau
+        while u <= u2 + 1e-12:
+            if u >= u1 - 1e-12:
+                candidates.append(min(max(u, u1), u2))
+            u += math.tau
+
+    add_periodic(phi)  # crest
+    add_periodic(phi + math.pi)  # trough
+    if radius > 0.0 and abs(c_coef) <= radius:
+        # |A cos u + B sin u + C| reaches 0 where cos(u - phi) = -C/R.
+        offset = math.acos(max(-1.0, min(1.0, -c_coef / radius)))
+        add_periodic(phi + offset)
+        add_periodic(phi - offset)
+
+    best = min(abs(radius * math.cos(u - phi) + c_coef) for u in candidates)
+    return math.degrees(math.asin(min(1.0, best)))
+
+
+def _surface_name(kind: Any) -> str:
+    """A human name for a GeomAbs surface type enum, without importing the
+    whole enum table: the repr carries the name."""
+    text = str(kind)
+    return text.rsplit("_", 1)[-1].rsplit(".", 1)[-1].lower()
 
 
 class OcctBackend:
@@ -410,6 +453,85 @@ class OcctBackend:
                     }
                 )
         return clusters
+
+    def draft_angle(
+        self, a: Any, direction: tuple[float, float, float]
+    ) -> Measurement | Unsupported:
+        """Per-face draft against a two-half parting axis, ascending, exact.
+
+        Draft of a face at a point is the angle between the face and the pull
+        line: `asin(|n . d|)` — 0 for a vertical wall, 90 for a face square to
+        the pull. The reported value per face is the MINIMUM over the face,
+        which for planes is constant and for cylinders and cones is the
+        closed-form extreme of `|A cos u + B sin u + C|` over the face's wrap
+        interval — no sampling, so `exact=True` is the truth, not a hope.
+
+        Any face outside those three families refuses the WHOLE check: a
+        sampled minimum has no guaranteed lower bound (more samples can only
+        find a smaller draft — the min_wall one-sidedness, POST-V0 section 5),
+        and passing the analytic subset would be silence reading as success
+        on the faces that were skipped.
+        """
+        from OCP.BRepAdaptor import BRepAdaptor_Surface  # type: ignore[attr-defined]
+        from OCP.GeomAbs import GeomAbs_SurfaceType  # type: ignore[attr-defined]
+
+        dx, dy, dz = direction  # normalised at declaration
+
+        def dot(vec: Any) -> float:
+            return vec.X() * dx + vec.Y() * dy + vec.Z() * dz
+
+        drafts: list[tuple[int, float]] = []
+        for index, face in enumerate(a.faces()):
+            surf = BRepAdaptor_Surface(face.wrapped)
+            kind = surf.GetType()
+            if kind == GeomAbs_SurfaceType.GeomAbs_Plane:
+                c = abs(dot(surf.Plane().Axis().Direction()))
+                drafts.append((index, math.degrees(math.asin(min(1.0, c)))))
+            elif kind == GeomAbs_SurfaceType.GeomAbs_Cylinder:
+                pos = surf.Cylinder().Position()
+                drafts.append(
+                    (
+                        index,
+                        _min_draft_deg(
+                            dot(pos.XDirection()),
+                            dot(pos.YDirection()),
+                            0.0,
+                            surf.FirstUParameter(),
+                            surf.LastUParameter(),
+                        ),
+                    )
+                )
+            elif kind == GeomAbs_SurfaceType.GeomAbs_Cone:
+                cone = surf.Cone()
+                pos = cone.Position()
+                ca, sa = math.cos(cone.SemiAngle()), math.sin(cone.SemiAngle())
+                drafts.append(
+                    (
+                        index,
+                        _min_draft_deg(
+                            ca * dot(pos.XDirection()),
+                            ca * dot(pos.YDirection()),
+                            -sa * dot(pos.Direction()),
+                            surf.FirstUParameter(),
+                            surf.LastUParameter(),
+                        ),
+                    )
+                )
+            else:
+                return Unsupported(
+                    f"face_{index} is a {_surface_name(kind)} surface; draft needs "
+                    "the normal field's extreme, which this backend derives in "
+                    "closed form only for planes, cylinders and cones — a sampled "
+                    "minimum would have no guaranteed bound, and a verdict that "
+                    "skipped this face would be silence reading as success"
+                )
+        drafts.sort(key=lambda entry: entry[1])
+        return Measurement(
+            tuple(value for _, value in drafts),
+            "deg",
+            exact=True,
+            axes=tuple(f"face_{i}" for i, _ in drafts),
+        )
 
     def blend_radii(self, a: Any) -> Measurement | Unsupported:
         """Radii of every partial-wrap cylindrical surface, sorted ascending.

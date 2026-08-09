@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `p.draft_angle(min=, max=, direction=)` — every face's draft within bounds
+  for a declared pull axis, OCCT tier (#137). Exact on planes, cylinders and
+  cones at any orientation (closed-form wrap extremes, no sampling); a
+  freeform face refuses the whole check with the face named, never a subset
+  pass. The two-half parting convention makes tops measure 90 and pass a min
+  naturally, and the pull axis is recorded in the check
+  (`checks[].direction`). SPEC-contract 4.8.
 
 ## [0.6.0] - 2026-08-08
 

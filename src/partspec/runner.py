@@ -336,6 +336,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         common["hole"] = dict(spec.hole)
     if spec.source is not None:
         common["source"] = dict(spec.source)
+    if spec.direction is not None:
+        common["direction"] = [round(c, 9) for c in spec.direction]
 
     # Capability is static and consulted first, so an unanswerable check costs
     # nothing to report. `requires` names the tier that would answer; for the
@@ -357,6 +359,8 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         return _run_bolt_circle_check(spec, backend, artifact, common)
     if spec.kind == "fillet_radius":
         return _run_fillet_check(spec, backend, artifact, common)
+    if spec.kind == "draft_angle":
+        return _run_draft_check(spec, backend, artifact, common)
 
     outcome = getattr(backend, primitive_name)(artifact)
     if isinstance(outcome, Unsupported):
@@ -487,6 +491,28 @@ def _run_fillet_check(
             "spherical blends are not yet detected — SPEC-contract.md 4.7); a claim "
             "about every blend needs at least one, and passing over an empty set "
             "would be vacuous green",
+        )
+    status = adjudicate(outcome, spec.limit)
+    components = _components_of(outcome, spec.limit)
+    detail = None
+    if status is Status.FAIL and components is not None:
+        detail = _failing_axes(outcome, spec.limit, components)
+    return CheckResult(
+        **common, status=status, measurement=outcome, components=components, detail=detail
+    )
+
+
+def _run_draft_check(
+    spec: CheckSpec, backend: Any, artifact: Any, common: dict[str, Any]
+) -> CheckResult:
+    """Adjudicate every face's draft against the bounds. No bespoke empty-set
+    rule: a solid has faces or it was refused at adoption, and every face gets
+    a value (tops measure 90), so there is no vacuous subset to pass."""
+    assert spec.limit is not None and spec.direction is not None
+    outcome = backend.draft_angle(artifact, spec.direction)
+    if isinstance(outcome, Unsupported):
+        return CheckResult(
+            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
         )
     status = adjudicate(outcome, spec.limit)
     components = _components_of(outcome, spec.limit)

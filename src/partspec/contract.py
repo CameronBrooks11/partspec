@@ -47,6 +47,7 @@ GEOMETRY_KINDS: dict[str, str] = {
     "hole_diameter": "bores",
     "bolt_circle": "bore_table",
     "fillet_radius": "blend_radii",
+    "draft_angle": "draft_angle",
 }
 """The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
@@ -158,6 +159,9 @@ class CheckSpec:
     """Provenance of any Referenced values among this check's bounds:
     `{field: {"standard", "subject", "field"}}` (SPEC-contract.md 10). Absent
     when every input was a bare literal."""
+    direction: tuple[float, float, float] | None = None
+    """The pull axis for `draft_angle` only, normalised at declaration. Not a
+    `Limit`: it is what the claim is measured AGAINST, not a bound on it."""
 
 
 class Part:
@@ -480,6 +484,70 @@ class Part:
                 phase=GEOMETRY,
                 limit=Limit(min=min, max=max),
                 source=source_map(min=min, max=max),
+            )
+        )
+
+    def draft_angle(
+        self,
+        *,
+        min: float | None = None,
+        max: float | None = None,
+        direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+        id: str | None = None,
+    ) -> Part:
+        """Every face's draft is within these bounds, for a mold pulled along
+        `direction`. **OCCT tier only.** `min=` is the release claim — no wall
+        closer to vertical than the tool can eject (SPEC-contract.md 4.8).
+
+        Draft is measured per face against a two-half parting axis: the angle
+        between the face and the pull line, `asin(|n . d|)` — 0 deg for a
+        vertical wall, 90 deg for a face square to the pull. The two-half
+        convention makes it orientation-independent: a face releases with
+        whichever mold half it faces, so tops and bottoms measure 90 and pass
+        a min naturally, with no exclusion rule to game. What per-face normals
+        cannot see — a feature-level undercut, material blocking release — is
+        a recorded gap, not a claim (SPEC-contract.md 4.8).
+
+        Exact on planes, cylinders and cones at any orientation (the extreme
+        over a face's wrap is closed-form). A face outside those families
+        refuses the whole check rather than passing the subset: a claim about
+        every face that skipped one would be silence reading as success.
+        """
+        if min is None and max is None:
+            raise ContractError(
+                "draft_angle() must bound min, max or both; a check that claims nothing cannot pass"
+            )
+        for name, value, hi_cap in (("min", min, 90.0), ("max", max, 90.0)):
+            if value is not None and (
+                not isinstance(value, int | float)
+                or not math.isfinite(value)
+                or value <= 0
+                or value > hi_cap
+            ):
+                raise ContractError(
+                    f"draft_angle {name} must be in (0, 90] degrees (got {value!r}); "
+                    "a min of 0 would pass every face vacuously — the measure is "
+                    "non-negative by construction"
+                )
+        try:
+            dx, dy, dz = (float(c) for c in direction)
+        except (TypeError, ValueError):
+            raise ContractError(
+                f"draft_angle direction must be a 3-vector of numbers (got {direction!r})"
+            ) from None
+        norm = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if not math.isfinite(norm) or norm == 0.0:
+            raise ContractError(
+                f"draft_angle direction must be a nonzero finite 3-vector (got {direction!r})"
+            )
+        return self._add(
+            CheckSpec(
+                id=id or "draft_angle",
+                kind="draft_angle",
+                phase=GEOMETRY,
+                limit=Limit(min=min, max=max),
+                source=source_map(min=min, max=max),
+                direction=(dx / norm, dy / norm, dz / norm),
             )
         )
 

@@ -229,7 +229,13 @@ def test_the_tier_specific_kinds_are_exactly_the_declared_ones():
     from partspec.backends.mesh import CAPABILITIES as MESH
     from partspec.backends.occt import CAPABILITIES as OCCT
 
-    occt_only = {"topology", "hole_diameter", "bolt_circle", "fillet_radius"}
+    occt_only = {
+        "topology",
+        "hole_diameter",
+        "bolt_circle",
+        "fillet_radius",
+        "draft_angle",
+    }
     for kind in occt_only:
         assert GEOMETRY_KINDS[kind] in OCCT
         assert GEOMETRY_KINDS[kind] not in MESH
