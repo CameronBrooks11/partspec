@@ -354,6 +354,57 @@ def test_the_chord_certificate_is_the_whole_chord_or_nothing():
     assert _chord_span(rod.wrapped, *clear_of_the_hole) == pytest.approx(4.0, abs=1e-9)
 
 
+def test_the_antipodal_maps_are_diametric():
+    """The chord machinery rests on one fact per family — that the antipodal
+    parameter map really does land on the far side — and the map differs for
+    each: `(u+pi, v)` for cylinder and cone, `(u+pi, -v)` for sphere,
+    `(u, v+pi)` for torus. Executed here rather than reasoned about, because
+    a map that is merely close would certify a SHORTER chord, and a certified
+    chord shorter than lo does not read as a small error: it trips the
+    contradiction refusal. The flatted bead is the fixture that makes the
+    sphere's `-v` bite — a full sphere's mid-parameter is the equator, where
+    v and -v coincide and a wrong map hides."""
+    import math
+
+    from OCP.BRepAdaptor import BRepAdaptor_Surface  # pyright: ignore[reportAttributeAccessIssue]
+
+    from partspec.backends.occt import _diametric_chords
+
+    flatted = bd.Sphere(6) - bd.Pos(0, 0, 10) * bd.Box(20, 20, 10)  # a flat at z=5
+    families = [
+        (bd.Cylinder(2, 40), 4.0),
+        (bd.Sphere(6), 12.0),
+        (flatted, 12.0),
+        (bd.Torus(10, 2), 4.0),
+        (bd.Cone(8, 2, 20), 4.0),
+    ]
+    for shape, span in families:
+        seen = False
+        for face in shape.faces():
+            surf = BRepAdaptor_Surface(face.wrapped)
+            if not (surf.IsUClosed() or surf.IsVClosed()):
+                continue
+            for p1, p2 in _diametric_chords(surf, surf.GetType()):
+                assert math.dist(p1, p2) == pytest.approx(span, abs=1e-9)
+                seen = True
+        assert seen, "the fixture must actually have a closed analytic face"
+
+    raw = _raw(flatted)
+    assert isinstance(raw, dict)
+    assert raw["lo"] == raw["hi"] == pytest.approx(12.0, abs=1e-9), "a machined flat stays exact"
+
+
+def test_the_smallest_certified_span_wins():
+    """A ball on a shaft carries two certifiable spans, 4 and 12. The upper
+    end must be the smaller one — the search is ordered by span and stops at
+    the first certificate, so an unordered search would report [4, 12] and
+    lose the exactness it just proved."""
+    raw = _raw(bd.Sphere(6) + bd.Cylinder(2, 40))
+    assert isinstance(raw, dict)
+    assert raw["lo"] == pytest.approx(4.0, abs=1e-9)
+    assert raw["hi"] == pytest.approx(4.0, abs=1e-9), "the shaft's 4, not the ball's 12"
+
+
 def test_an_unanswerable_certificate_keeps_the_span(monkeypatch):
     """#145 item 3: the kernel-failure fallback (`include=None -> True`) had
     no fixture — `BRepAlgoAPI_Common` failing on a segment is not
