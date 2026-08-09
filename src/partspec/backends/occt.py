@@ -239,12 +239,13 @@ def _chord_span(
 
     length = math.dist(p1, p2)
     if length <= 1e-9:
-        # Redundant on this toolchain — `BRepBuilderAPI_MakeEdge` raises
-        # StdFail_NotDone on identical points and the handler below returns
-        # None anyway — and kept because the failure it prevents is silent:
-        # a kernel that returned a degenerate edge instead would compare
-        # mass 0 against length 0, certify a span of zero, and refuse the
-        # check as self-contradictory. Recorded as deliberate, not tested.
+        # Load-bearing, and only for separations the kernel accepts:
+        # `BRepBuilderAPI_MakeEdge` raises StdFail_NotDone on IDENTICAL
+        # points, but at 1e-12 apart it builds a perfectly good edge that
+        # measures 0.0 long. Without this gate that edge would compare mass
+        # 0.0 against length 1e-12, pass the comparison, and certify a span
+        # nothing was shown material along — a boolean that proves nothing,
+        # read as proof (PR #146 review, round 2).
         return None
     try:
         edge = BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge()

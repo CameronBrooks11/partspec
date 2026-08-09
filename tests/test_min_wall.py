@@ -588,6 +588,36 @@ def test_the_fillet_flip_now_fails_conclusively():
     assert result.measurement.bounds[1] == 2.0
 
 
+def test_a_fillet_span_caps_the_interval_but_is_never_the_answer():
+    """SPEC 4.11's new closure, executed (PR #146 review, round 2, Q1): a
+    fillet band is a closed analytic face, so its tube diameter can cap the
+    upper end — but it can never become the reported minimum. The band's two
+    flanks are non-adjacent, and their pair distance is 2r*cos(theta/2) for
+    a dihedral theta, strictly below the 2r span, so lo always sits under it
+    and the interval cannot collapse there. Convex and both taper senses."""
+    import math
+
+    from partspec.backends.occt import _min_wall_measurement
+
+    cases = [
+        (bd.Cylinder(10, 20), 1.0, math.pi / 2),
+        (bd.Cylinder(10, 20), 3.0, math.pi / 2),
+        (bd.Cone(8, 2, 20), 0.5, None),
+        (bd.Cone(2, 8, 20), 0.5, None),
+    ]
+    for base, radius, dihedral in cases:
+        shape = bd.fillet(base.edges().filter_by(bd.GeomType.CIRCLE)[0], radius)
+        raw = _raw(shape)
+        assert isinstance(raw, dict), f"r={radius}"
+        span = 2 * radius
+        assert raw["hi"] == pytest.approx(span, abs=1e-9), "the fillet span caps the interval"
+        assert raw["lo"] < span - 1e-9, "and lo always sits below it"
+        if dihedral is not None:
+            assert raw["lo"] == pytest.approx(span * math.cos(dihedral / 2), abs=1e-9)
+        measurement = _min_wall_measurement(raw)
+        assert not measurement.exact, "so the interval never collapses onto the fillet"
+
+
 def test_the_certificate_declines_a_chord_that_is_nearly_material(monkeypatch):
     """PR #146 review, MINOR 4/N2: the 1e-7 comparison was unpinned — a
     tolerance of 10% changed nothing in the whole suite. A chord that is 95%

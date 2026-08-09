@@ -588,7 +588,21 @@ What the certificate does **not** prove is that the chord runs between two point
 face. On a v-trimmed periodic face — a fillet band is a quarter-tube — the antipodal
 parameter lands off the face, inside the solid, and the chord certifies anyway. The span
 is still that face's own declared diametric span, so the bound holds; the fixture is in
-the suite so the boundary stays visible rather than being assumed away.
+the suite so the boundary stays visible rather than being assumed away. A fillet span can
+therefore cap the interval, but it **cannot become the reported number**: a convex
+full-revolution fillet's two flanks are non-adjacent, and their pair distance is
+`2r·cos(θ/2)` for a dihedral θ, strictly below the `2r` span, so `lo` always sits under it
+and the interval cannot collapse there. Executed across convex, concave, acute and obtuse
+fillets on cylinders and frustums: `exact` never once landed on a fillet span.
+
+Two consequences of that asymmetry are worth stating, because both invite a "fix" that
+would be worse. Admitting a non-wall member (a fillet's tube diameter, a gap distance)
+only ever pushes the reported minimum DOWN, toward `fail` — false safety comes from
+members *removed*, which is what the recorded escapes below are. And restricting the
+certificate to chords whose ends both lie on the face, applied consistently, would have to
+restrict `lo`'s self-span set the same way — **removing** members and RAISING `lo`, which
+is the false-pass direction. The looseness is deliberate; the symmetric tightening is not
+available.
 
 **A witnessed RAY crossing below `lo` refuses the whole check** ("the analysis contradicts
 itself") — PR #144 (F3) found the first draft clamping exactly that counter-evidence
