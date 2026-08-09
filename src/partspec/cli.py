@@ -1059,6 +1059,18 @@ def _cmd_vdiff(args: argparse.Namespace) -> int:
     """What changed in the part's appearance (#21) — the pair of `diff`'s
     what-changed-in-the-claims. Same artifact-to-stdout, summary-to-stderr,
     outcome-to-exit-code shape."""
+    from .vdiff import VdiffUsageError, diff_renders, exit_code_of, load_run, summary_of
+
+    # Inputs first, numpy second: loading and validating the artifacts is
+    # stdlib-only, so a numpy-less environment (the mcp-only install) still
+    # names a bad ask precisely instead of leading with its own limitation.
+    try:
+        old = load_run(args.old)
+        new = load_run(args.new)
+    except VdiffUsageError as exc:
+        print(f"partspec: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
     try:
         import numpy  # noqa: F401
     except ModuleNotFoundError:
@@ -1067,15 +1079,6 @@ def _cmd_vdiff(args: argparse.Namespace) -> int:
             "engine extra brings it",
             file=sys.stderr,
         )
-        return EXIT_USAGE
-
-    from .vdiff import VdiffUsageError, diff_renders, exit_code_of, load_run, summary_of
-
-    try:
-        old = load_run(args.old)
-        new = load_run(args.new)
-    except VdiffUsageError as exc:
-        print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
     out = args.out
