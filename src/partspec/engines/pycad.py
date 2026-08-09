@@ -283,7 +283,23 @@ def adopt(obj: Any) -> Any | BuildError:
         except Exception as exc:  # noqa: BLE001 - engine-specific failure surfaces as a build error
             return BuildError(f"could not reduce CadQuery result: {exc}")
 
-    raw = getattr(obj, "wrapped", obj)
+    try:
+        raw = getattr(obj, "wrapped", obj)
+    except AssertionError:
+        # build123d's `.wrapped` property asserts on a shape holding no
+        # underlying TopoDS handle — `Compound()` with no children. The
+        # assert is the library's; the empty shape is the model's. Same
+        # answer as every other empty result: an artifact naming it, never
+        # a traceback with empty stdout (#128).
+        return BuildError(
+            "model returned a shape containing no geometry (an empty "
+            f"{type(obj).__name__} with no underlying handle)"
+        )
+    if raw is None:
+        return BuildError(
+            "model returned a shape containing no geometry (an empty "
+            f"{type(obj).__name__} with no underlying handle)"
+        )
     if not isinstance(raw, TopoDS_Shape):
         return BuildError(
             f"model returned {type(obj).__name__}, which is not a build123d or CadQuery shape"

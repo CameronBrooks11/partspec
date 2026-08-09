@@ -739,6 +739,97 @@ def test_a_section_works_on_the_openscad_tier_too(tmp_path: Path, capsys):
         assert "display" in payload["error"]
 
 
+def test_check_render_builds_the_model_exactly_once(tmp_path: Path):
+    """#129: check --render rebuilt the model its run had just built —
+    doubling side effects, doubling --timeout exposure, and letting a
+    nondeterministic model's renders silently disagree with the measured
+    geometry. The run now hands its artifact to the render step."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from pathlib import Path\n\nfrom build123d import Box\n\n"
+        "COUNTER = Path(__file__).parent / 'builds.txt'\n\n\n"
+        "def make_part():\n"
+        "    n = int(COUNTER.read_text()) if COUNTER.exists() else 0\n"
+        "    COUNTER.write_text(str(n + 1))\n"
+        "    return Box(20, 10, 6)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    p = Part('subject', build123d('m.py'))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    out = tmp_path / "out"
+    assert main(["check", f"{module}:make", "--render", "--quiet", "--out", str(out)]) == 0
+    assert (tmp_path / "builds.txt").read_text() == "1", "one run, one build"
+    report = json.loads((out / "report.json").read_text())
+    assert set(report["renders"]) == {"iso", "front", "top", "right"}
+
+
+def test_check_render_never_rebuilds_a_failing_build_for_pictures(tmp_path: Path):
+    """PR #133 review, F1: a model-origin build failure left artifact_out
+    empty while report.error stayed None, so the render branch rebuilt the
+    model — twice the side effects, and exit 4 where plain check says 1.
+    Renders depict the run's own successful build, or nothing."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from pathlib import Path\n\nfrom build123d import Box\n\n"
+        "COUNTER = Path(__file__).parent / 'builds.txt'\n\n\n"
+        "def make_part():\n"
+        "    n = int(COUNTER.read_text()) if COUNTER.exists() else 0\n"
+        "    COUNTER.write_text(str(n + 1))\n"
+        "    return Box(2, 2, 2) - Box(8, 8, 8)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    p = Part('subject', build123d('m.py'))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    out = tmp_path / "out"
+    code = main(["check", f"{module}:make", "--render", "--quiet", "--out", str(out)])
+    assert (tmp_path / "builds.txt").read_text() == "1", (
+        "a failed build is not retried for pictures"
+    )
+    report = json.loads((out / "report.json").read_text())
+    assert "renders" not in report
+    # The exit is the report's own, not a render-failure 4 layered on top.
+    (tmp_path / "builds.txt").unlink()
+    assert main(["check", f"{module}:make", "--quiet", "--out", str(tmp_path / "o2")]) == code
+
+
+def test_check_render_does_not_build_past_a_parameter_blocker(tmp_path: Path):
+    """PR #133 review, F2: a failing `requires` check skips the build — and
+    --render used to build anyway, shipping images of a build the report
+    says was never evaluated. The artifact must not contradict itself."""
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    (tmp_path / "m.py").write_text(
+        "from pathlib import Path\n\nfrom build123d import Box\n\n"
+        "COUNTER = Path(__file__).parent / 'builds.txt'\n\n\n"
+        "def make_part(w=5):\n"
+        "    n = int(COUNTER.read_text()) if COUNTER.exists() else 0\n"
+        "    COUNTER.write_text(str(n + 1))\n"
+        "    return Box(w, 2, 2)\n"
+    )
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    p = Part('subject', build123d('m.py', w=5))\n"
+        "    p.requires('w > 10')\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    out = tmp_path / "out"
+    assert main(["check", f"{module}:make", "--render", "--quiet", "--out", str(out)]) == 1
+    assert not (tmp_path / "builds.txt").exists(), (
+        "rejected inputs are never built, even for pictures"
+    )
+    report = json.loads((out / "report.json").read_text())
+    assert "renders" not in report
+
+
 def test_the_two_python_engines_render_comparable_images(tmp_path: Path):
     """#18's differential arm: the same nominal box through build123d and
     CadQuery must produce near-identical images — same tessellator, same

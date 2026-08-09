@@ -50,6 +50,7 @@ def run(
     contract_path: Path | None = None,
     timeout_s: float | None = None,
     expected_claims: dict[str, str] | None = None,
+    artifact_out: list[Any] | None = None,
 ) -> Report:
     """Evaluate every declared check and return the report.
 
@@ -101,7 +102,9 @@ def run(
             return report
 
     try:
-        _evaluate(part, report, out_dir, contract_path, timeout_s=timeout_s)
+        _evaluate(
+            part, report, out_dir, contract_path, timeout_s=timeout_s, artifact_out=artifact_out
+        )
     except ContractError as exc:
         # A malformed question has no answer: every declared check is reported
         # as skipped rather than failed, and the verdict is error.
@@ -133,6 +136,7 @@ def _evaluate(
     contract_path: Path | None = None,
     *,
     timeout_s: float | None = None,
+    artifact_out: list[Any] | None = None,
 ) -> None:
     parameter_specs = [s for s in part.checks if s.phase != GEOMETRY]
     geometry_specs = [s for s in part.checks if s.phase == GEOMETRY]
@@ -197,6 +201,12 @@ def _evaluate(
             id="builds", kind="builds", phase=GEOMETRY, status=Status.PASS, part_refs=(part.id,)
         )
     )
+    if artifact_out is not None:
+        # The built artifact, for the caller that asked (#129): check
+        # --render used to rebuild the model it had in memory moments
+        # earlier, doubling side effects and letting a nondeterministic
+        # model's renders silently disagree with its measured geometry.
+        artifact_out.append(artifact)
     report.geometry = backend.provenance(artifact)
     results.extend(_run_geometry_check(spec, backend, artifact, part.id) for spec in geometry_specs)
     report.checks = results

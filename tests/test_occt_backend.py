@@ -35,6 +35,52 @@ def test_build123d_shape_is_adopted():
     assert adopted.volume == pytest.approx(6000.0)
 
 
+def test_an_empty_compound_is_a_build_error_not_an_assert(tmp_path):
+    """#128: build123d's `.wrapped` asserts on `Compound()` with no children,
+    and the AssertionError escaped adopt as a traceback with empty stdout —
+    for measure and render alike, both of which promise an identity artifact
+    on any failure after the target resolves."""
+    result = adopt(bd.Compound())
+    assert isinstance(result, BuildError)
+    assert "no geometry" in result.message
+
+    # Through the verb: the artifact, never the shrug (the #47/#103 shape).
+    import json
+
+    from partspec.cli import main
+
+    (tmp_path / "m.py").write_text(
+        "from build123d import Compound\n\n\ndef make_part():\n    return Compound()\n"
+    )
+    (tmp_path / "spec.py").write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        "    return Part('subject', build123d('m.py'))\n"
+    )
+    import contextlib
+    import io
+
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = main(["measure", f"{tmp_path / 'spec.py'}:make"])
+    assert code == 4
+    doc = json.loads(out.getvalue())
+    assert doc["part"]["id"] == "subject"
+    assert "no geometry" in doc["error"]
+
+
+def test_a_none_handle_is_named_not_misdescribed():
+    """PR #133 review, F4: a wrapper whose .wrapped is None (CadQuery can
+    produce one) must get the no-geometry message, not the misleading
+    'not a build123d or CadQuery shape'."""
+
+    class _Hollow:
+        wrapped = None
+
+    result = adopt(_Hollow())
+    assert isinstance(result, BuildError)
+    assert "no underlying handle" in result.message
+
+
 def test_cadquery_shape_is_adopted_losslessly():
     """The whole basis for 'two backends, not three': a CadQuery result is a
     handle rewrap away from a build123d one, with no conversion."""
