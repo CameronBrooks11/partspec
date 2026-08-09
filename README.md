@@ -2,9 +2,10 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.5.0 is on PyPI, and OCCT-tier renders have landed since.** It
-> runs end to end — `check`, `measure` and `render` across all three engines, `diff` on
-> the reports and `vdiff` on the renders they produce — and is dogfooded on real
+> **Status: pre-alpha; v0.6.0 is on PyPI.** It
+> runs end to end — `check`, `measure` and `render` across all three engines (with
+> `--section` cuts on both tiers), `diff` on the reports and `vdiff` on
+> the renders they produce — and is dogfooded on real
 > parts. The vocabulary covers real mechanical intent: keep-out/keep-in regions,
 > `hole_diameter`, `bolt_circle` and `fillet_radius` on the OCCT tier. The loop is built
 > to run unattended: every build is bounded (`--timeout`), `check` takes many targets in
@@ -107,8 +108,8 @@ authoring session owns making the part; `partspec` proves the result against int
 model does not contain, and persists the proof — that boundary is
 [D18](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md). The `mcp`
 extra puts the gate in the agent's tool list: `check` returns the same report the CLI
-writes, `measure` and `render` the same output as their verbs, every call a fresh stateless
-evaluation. And the loop is measured, not assumed: in the seeded-defect eval suite
+writes, `measure`, `render` and `vdiff` the same output as their verbs, every call a
+fresh stateless evaluation. And the loop is measured, not assumed: in the seeded-defect eval suite
 ([`evals/`](https://github.com/CameronBrooks11/partspec/tree/main/evals)), an agent shown
 only the report — no shell, no hints, contract frozen — repaired all five defect classes in
 a single edit each, without once weakening its contract. The rules of that loop — bounded
@@ -179,7 +180,7 @@ uv run partspec check examples/spacer/spec.py:spacer
 
 Engines are optional extras — `mesh`, `occt`, `cadquery` — so `uv sync --extra mesh` is
 enough for OpenSCAD-only work. The `mcp` extra adds `partspec-mcp`, a stdio MCP server
-exposing `check`, `measure` and `render` as stateless tools: each call runs the CLI in a
+exposing `check`, `measure`, `render` and `vdiff` as stateless tools: each call runs the CLI in a
 fresh subprocess and returns its artifact, per the boundary in [D18](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md). The `openscad` binary itself is a system dependency;
 `PARTSPEC_OPENSCAD` pins which one is used, and the version is recorded in every report
 because it changes the artifact.
@@ -199,11 +200,12 @@ metadata, so a `pip` install has no override in scope. If you skip the second li
 tells you so: the clobber is reported as an environment fault with that command as the hint,
 not as a failing part.
 
-**Installing the engines with `uv pip` does not work**: build123d's `cadquery-ocp-proxy`
-selects the real OCP wheel with an install-time hook that uv's installer never runs, so
-`uv pip install 'partspec[occt]'` leaves no `OCP` module at all (#109). Use plain `pip`
-for the engines, or a locked project (`uv sync`) the way this repo does; partspec names
-the state in its error if you hit it.
+**Installing the engines with `uv pip` has stranded OCP**: build123d's
+`cadquery-ocp-proxy` historically selected the real OCP wheel with an install-time hook
+that uv's installer never runs, leaving no `OCP` module (#109; observed against the
+v0.4.0 wheel; current proxy releases have been seen resolving correctly). If you hit the
+stranded state, partspec names it in its error — plain `pip`, or a locked project
+(`uv sync`) the way this repo does, always works.
 
 ## Documentation
 
