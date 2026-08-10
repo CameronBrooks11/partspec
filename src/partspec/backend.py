@@ -164,8 +164,10 @@ class GeometryBackend(Protocol):
 
     No count in this sentence, deliberately: it read "sixteen" while the block
     held seventeen and the backends implemented twenty-two, and a number in a
-    docstring is a claim that rots. A test holds this block equal to
-    SPEC-backend's.
+    docstring is a claim that rots. SPEC-backend §3 does not hold a second copy
+    of this block to be compared against — it is generated from this class by
+    `scripts/gen_docs.py`, so there is nothing to disagree with. This docstring
+    is stripped on the way in; the spec carries its own prose.
     """
 
     kind: str  # Tier.MESH | Tier.OCCT
@@ -285,8 +287,9 @@ class GeometryBackend(Protocol):
     #     CAPABILITIES for a day while this Protocol said nothing about them,
     #     and nothing noticed because nothing in src/ or tests/ ever does
     #     `isinstance(x, GeometryBackend)`. A structural type that lags the
-    #     structures it types is decoration; the spec's block and this one are
-    #     now held equal by a test. ---
+    #     structures it types is decoration. SPEC-backend §3 no longer holds a
+    #     second copy of this block to be compared against — it is generated
+    #     from this class, so there is nothing left to disagree. ---
 
     def draft_angle(
         self, a: Any, direction: tuple[float, float, float]

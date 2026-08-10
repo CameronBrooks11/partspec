@@ -147,17 +147,22 @@ the check's status is the worst across components in the order
 `mm` is the only length unit in v0, matching every engine in scope. `unit` is nonetheless
 REQUIRED on every measurement, because it distinguishes quantities a bare number cannot:
 
-| unit | for |
+<!-- BEGIN GENERATED: unit-table -->
+| unit | emitted by |
 |---|---|
-| `mm` · `mm2` · `mm3` | length, area, volume |
-| `deg` | angles (`draft_angle`) |
-| `count` | dimensionless integer counts |
-| `bool` | a predicate answered as a measurement (`watertight`, `self_intersection_free`) |
-| `rel` | a unitless relative quantity (`step_roundtrip`'s volume and area drift) |
+| `mm` | `envelope`, `hole_diameter`, `bolt_circle`, `fillet_radius`, `min_wall` |
+| `mm2` | `area` |
+| `mm3` | `volume`, `keep_out`, `keep_in` |
+| `deg` | `draft_angle` |
+| `count` | `solid_count`, `genus`, `cavities`, `topology` |
+| `bool` | `watertight`, `self_intersection_free` |
+| `rel` | `step_roundtrip` |
+<!-- END GENERATED: unit-table -->
 
 `bool` and `rel` were absent from this table while the tool emitted both. §5's remark that
 `unit: "bool"` disappears was scoped to `requires` predicates, which carry no measurement
-at all, and got over-generalised into a claim about the vocabulary.
+at all, and got over-generalised into a claim about the vocabulary. The table is generated
+from `contract.MEASURANDS` now, so a new check emitting a new unit brings its own row.
 
 Values are never scaled. There is no `part.units` field: a single legal value is not
 information, and every measurement carries its own unit anyway.

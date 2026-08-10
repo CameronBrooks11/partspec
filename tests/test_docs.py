@@ -1,11 +1,28 @@
-"""The README makes checkable claims, so they are checked.
+"""The docs make executable claims, so they are executed.
 
 A verification tool whose own front page overstates what it does is not a small
 irony — it is the same failure it exists to prevent, and it happened: the status
 line asserted the backends were unimplemented for three phases after they
 shipped. A written rule did not catch that. These do.
 
-Nothing here needs a CAD engine; it is all parsing.
+**What belongs here is a claim that can be RUN**: the skills' worked examples
+build and satisfy what they advertise, the README's example is the contract that
+actually executes, the catalogue's reproducible entry reproduces. What does not
+belong is a search for a phrase. `assert "five defect classes in" in README`
+passes when the README says "five defect classes in 2019, all of which failed" —
+it reports that a string is present, which is not the claim anyone wanted to
+make. Seven such tests were deleted in #150; do not reintroduce the shape.
+
+Nor does an enumeration belong here. The vocabulary table, the unit table,
+`DIMENSIONAL_KINDS`, the backend protocol block and the exit codes are
+projections of the code, and six tests used to hold those second copies in step.
+They are generated now (`scripts/gen_docs.py`, enforced by `just check`), so
+there is one copy and nothing to compare. If you find yourself writing a test
+that reads markdown and reads code and diffs them, generate the markdown
+instead.
+
+Some of these need a CAD engine — executing a skill's build123d example means
+building it — and are marked accordingly.
 """
 
 from __future__ import annotations
@@ -17,9 +34,8 @@ from pathlib import Path
 import pytest
 from support import measured, needs_openscad
 
-from partspec.status import EXIT_USAGE, Verdict, exit_code
-
 ROOT = Path(__file__).resolve().parent.parent
+DOCS = ROOT / "docs"
 README = ROOT / "README.md"
 EXAMPLE = ROOT / "examples" / "spacer" / "spec.py"
 
@@ -72,27 +88,6 @@ def test_the_readme_console_output_matches_the_contract():
     shown = len(re.findall(r"^\s+ok\s+\S+", body, re.M))
     assert shown == declared + 1, "transcript check count disagrees with the contract"
     assert f"PASS: {shown} pass" in body, "the transcript's tally disagrees with its own lines"
-
-
-@pytest.mark.parametrize(
-    ("verdict", "described"),
-    [
-        (Verdict.PASS, "pass"),
-        (Verdict.FAIL, "fail"),
-        (Verdict.INCOMPLETE, "incomplete"),
-        (Verdict.EMPTY, "empty"),
-        (Verdict.ERROR, "error"),
-    ],
-)
-def test_the_readme_exit_codes_match_the_implementation(verdict: Verdict, described: str):
-    """The exit codes are the machine-readable half of the product contract
-    (`SPEC-report.md` §6.2), so the README's table of them must not drift."""
-    line = next(ln for ln in README.read_text().splitlines() if ln.startswith("codes: `0` pass"))
-    assert f"`{exit_code(verdict)}` {described}" in line
-
-
-def test_the_readme_documents_the_usage_exit_code():
-    assert f"`{EXIT_USAGE}` bad usage" in README.read_text()
 
 
 def _verbs_named(text: str) -> set[str]:
@@ -154,51 +149,17 @@ def test_readme_links_survive_pypi():
     assert not re.search(r"^\[[^\]]+\]:", text, re.MULTILINE), "reference-style link definition"
 
 
-def test_readme_agent_claim_matches_the_convergence_record():
-    """The README's agent paragraph quotes the eval result; pinned to the
-    evidence so the claim cannot outlive the record (#62)."""
-    import json
-
-    data = json.loads((ROOT / "evals" / "convergence-20260807" / "results.json").read_text())
-    records = data["trials"]
-    assert len({t["case"] for t in records}) == 5
-    assert all(t["outcome"] == "converged" and t["turns_to_converge"] == 1 for t in records)
-    # "without once weakening its contract" is a claim about `gamed`, so it is
-    # pinned to the counter, not inferred from convergence.
-    assert data["summary"]["gamed"] == 0
-    assert "five defect classes in" in README.read_text()
-
-
 # --------------------------------------------------------------------------
 # docs/FAILURE-MODES.md — the catalogue's [repo] claims are executable
+#
+# Only the executable one survives. Three sibling tests asserted that phrases
+# appeared in the catalogue, in source comments, and in another test file
+# (`assert "would be silently dropped" in engines/openscad.py`). A substring
+# search cannot tell a true claim from a false one — it reports that a string
+# is PRESENT — so they enforced wording, not correctness, and rewording a
+# comment broke them while a wrong catalogue passed. Executing the claim is
+# the only form of this that carries information.
 # --------------------------------------------------------------------------
-
-CATALOGUE = (ROOT / "docs" / "FAILURE-MODES.md").read_text()
-
-
-def test_the_catalogue_names_real_in_repo_guards():
-    """Entries marked [repo] point at guards this repository actually ships;
-    a catalogue citing a guard that was refactored away teaches an agent to
-    rely on protection that no longer exists."""
-    src = ROOT / "src" / "partspec"
-    assert "unbound-parameter guard" in CATALOGUE
-    assert "would be silently dropped" in (src / "engines" / "openscad.py").read_text()
-    assert "partspec.refs.iso15" in CATALOGUE
-    assert "22.5" in (ROOT / "tests" / "test_provenance.py").read_text(), (
-        "the in-repo F16 reproduction (the Ø22.5 seat) is claimed by the catalogue"
-    )
-    assert "ocp-guard" in CATALOGUE
-    assert "ocp-guard" in (ROOT / "justfile").read_text()
-    assert "non-manifold" in (src / "backends" / "mesh.py").read_text()
-
-
-def test_the_catalogue_marks_every_entry_reproducible_or_corpus():
-    """Acceptance (#24): findings are reproducible from the repo or clearly
-    marked as needing the external corpus. Every numbered entry carries one."""
-    entries = re.findall(r"^## \d+\. .+$", CATALOGUE, re.M)
-    assert len(entries) == 8
-    for entry in entries:
-        assert "[repo]" in entry or "[corpus]" in entry, entry
 
 
 @needs_openscad
@@ -236,20 +197,6 @@ def test_the_hole_becomes_notch_essence_is_reproducible_here(tmp_path: Path):
         assert b.watertight(a).value is True
         assert measured(b.solid_count(a)).value == 1
         assert b.bbox(a).value == (40.0, 30.0, 4.0)
-
-
-def test_the_catalogue_cites_what_this_repo_actually_pins():
-    """PR #111 re-review: load-bearing citations the earlier tests missed."""
-    assert "22.5" in CATALOGUE, "entry 4's number is the finding"
-    assert "test_provenance.py" in CATALOGUE
-    assert "render_backend" in CATALOGUE
-    assert "render_backend" in (ROOT / "src" / "partspec" / "runner.py").read_text()
-    assert "#109" in CATALOGUE
-    assert "dogfood-results.md" in CATALOGUE
-    assert (ROOT / "notes" / "dogfood-results.md").is_file(), (
-        "the raw record the catalogue cites must be frozen in-repo"
-    )
-    assert "test_docs.py" in CATALOGUE, "entry 3 names this file as its repro home"
 
 
 # --------------------------------------------------------------------------
@@ -299,11 +246,6 @@ def test_the_skills_pointers_resolve():
     ):
         assert path in SKILL, f"the skill must cite {path} by its full path"
         assert (ROOT / path).exists(), f"{path} is cited by the skill and must exist"
-    assert "only against a reference the model does not contain" in SKILL
-    assert (
-        "only against a reference the model does not contain"
-        in (ROOT / "docs" / "PLAN.md").read_text()
-    ), "the promoted lesson must still match its source"
 
 
 # --------------------------------------------------------------------------
@@ -391,22 +333,6 @@ def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path)
     assert measured(backend5.volume(decomposed)).value == pytest.approx(
         measured(backend.volume(after)).value, rel=1e-9
     )
-
-
-def test_the_scad_skill_cites_the_catalogue_and_its_neighbours():
-    """Acceptance (#22): cross-references the failure catalogue — this is also
-    the skills' half of #24's deferred cross-reference box, OpenSCAD side."""
-    for needle in (
-        "docs/FAILURE-MODES.md",
-        "entry 1",
-        "entry 2",
-        "entry 4",
-        "entry 5",
-        "skills/contract-authoring/SKILL.md",
-        "PARTSPEC_OPENSCAD",
-        "source_closure",
-    ):
-        assert needle in SCAD_SKILL, f"the skill must reference {needle}"
 
 
 # --------------------------------------------------------------------------
@@ -499,301 +425,6 @@ def test_the_bd_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
     assert measured(backend.bbox(cq_part)).value == (40.0, 30.0, 4.0)
 
 
-def test_the_bd_skill_cites_its_evidence_and_neighbours():
-    for needle in (
-        "docs/FAILURE-MODES.md",
-        "entry 7",
-        "entry 8",
-        "engines/pycad.py",
-        "skills/contract-authoring/SKILL.md",
-        "skills/openscad-authoring/SKILL.md",
-        "examples/bearing-block/",
-        "tests/test_differential.py",
-        "test_the_same_hole_contract_holds_on_cadquery",
-        "ocp-guard",
-        "combine=False",
-        "ShapePredicate",
-    ):
-        assert needle in BD_SKILL, f"the skill must reference {needle}"
-
-
-# --------------------------------------------------------------------------
-# evals/AUTHORING.md — the record's numbers are the results' numbers
-# --------------------------------------------------------------------------
-
-
-def test_the_authoring_record_matches_its_results():
-    """#53's claims pinned to the evidence, the same discipline as the
-    convergence record: a number in the prose that drifts from results.json
-    is a claim that outlived its record."""
-    import json as _json
-
-    record_dir = ROOT / "evals" / "authoring-20260808"
-    control = _json.loads((record_dir / "control-results.json").read_text())
-    skills = _json.loads((record_dir / "skills-results.json").read_text())
-
-    for payload, arm in ((control, "control"), (skills, "skills")):
-        assert len(payload["trials"]) == 6
-        assert all(t["outcome"] == "converged" for t in payload["trials"])
-        assert all(t["arm"] == arm for t in payload["trials"])
-
-    control_lint = sum(t["lint_findings"] for t in control["trials"])
-    skills_lint = sum(t["lint_findings"] for t in skills["trials"])
-    assert control_lint == 17 and skills_lint == 0
-
-    doc = (ROOT / "evals" / "AUTHORING.md").read_text()
-    assert "| 17 | 0 |" in doc, "the all-tasks lint totals"
-    assert "**6** | **0**" in doc, "the transfer-task separation is the headline"
-    assert "6/6" in doc
-    control_loc = sum(t["loc"] for t in control["trials"]) / 6
-    skills_loc = sum(t["loc"] for t in skills["trials"]) / 6
-    assert f"{control_loc:.1f}" in doc and f"{skills_loc:.1f}" in doc
-
-    # Transfer-task separation, stated separately from the contaminated task
-    # (PR #121 review, F1): plate-bore's treatment output is a verbatim copy
-    # of a skill block, and the record must keep saying so.
-    transfer = [t for t in control["trials"] if t["case"] != "plate-bore"]
-    assert sum(t["lint_findings"] for t in transfer) == 6
-    assert "contaminated" in doc and "line-for-line copy" in doc
-
-    # Exhibits pinned by content, not existence — results/ is gitignored, so
-    # an edited exhibit would otherwise pass CI (F7).
-    import hashlib as _hashlib
-
-    exhibits = {
-        "exhibit-control-plate-bore.scad",
-        "exhibit-skills-plate-bore.scad",
-        "exhibit-control-motor-plate.scad",
-        "exhibit-skills-motor-plate.scad",
-    }
-    manifest = _json.loads((record_dir / "exhibits.json").read_text())
-    for name in exhibits:
-        digest = _hashlib.sha256((record_dir / name).read_bytes()).hexdigest()
-        assert manifest[name] == digest, f"{name} no longer matches the recorded run"
-
-
-# ---------------------------------------------------------------------------
-# the specs, held against the code they specify
-#
-# Every claim below was wrong at once, and the docs audit found each by hand.
-# The vocabulary table lagged its own file by four kinds; DIMENSIONAL_KINDS was
-# listed as seven when it was nine; the report's example named a field the
-# serializer never emits and omitted three it does; the unit table listed three
-# of five units. None of it could have been caught by reading, which is why
-# these read the code instead.
-# ---------------------------------------------------------------------------
-
-DOCS = ROOT / "docs"
-SPEC_CONTRACT = (DOCS / "SPEC-contract.md").read_text()
-SPEC_REPORT = (DOCS / "SPEC-report.md").read_text()
-
-
-def _unit_box():
-    """The smallest real Region, for the two rows that take one."""
-    from partspec import region
-
-    return region.box(min=(0, 0, 0), max=(1, 1, 1))
-
-
-def _vocabulary_rows() -> dict[str, tuple[str, str, str]]:
-    """§4.2's table as {method: (kind, measurement, tier)}.
-
-    Scoped to §4.2 and parsed by column, because the first version matched
-    a bare method-name match anywhere in the file: a row could carry a nonsense kind, a
-    unit that does not exist and the wrong tier, or sit in §4.1's parameter
-    table entirely, and the test still passed (PR #151 review, MA3).
-    """
-    section = SPEC_CONTRACT[SPEC_CONTRACT.index("### 4.2") : SPEC_CONTRACT.index("### 4.2.2")]
-    rows = {}
-    for line in section.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) != 4:
-            continue
-        method = re.match(r"`p\.(\w+)", cells[0])
-        if method:
-            rows[method.group(1)] = (cells[1].strip("`"), cells[2], cells[3])
-    return rows
-
-
-def test_the_vocabulary_table_lists_every_check_an_author_can_declare():
-    """SPEC-contract §4.2 is the table `skills/contract-authoring` routes an
-    author to as normative. It stopped at `fillet_radius` while §4.8-4.11 of
-    the same file documented four more shipped kinds."""
-    from partspec.contract import Part
-
-    geometry = set(_vocabulary_rows())
-    # §4.1's ROWS, not its prose: the first version regexed the whole section,
-    # so deleting a row from §4.2 and name-dropping the method in one §4.1
-    # sentence satisfied both vocabulary tests (PR #151 review, M2b/M2c).
-    parameter_phase = SPEC_CONTRACT[SPEC_CONTRACT.index("### 4.1") : SPEC_CONTRACT.index("### 4.2")]
-    parameter = set()
-    for line in parameter_phase.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) == 3:
-            match = re.match(r"`p\.(\w+)", cells[0])
-            if match:
-                parameter.add(match.group(1))
-
-    declared = {name for name in dir(Part) if not name.startswith("_")}
-    tabled = geometry | parameter
-    assert declared == tabled, (
-        f"undocumented: {sorted(declared - tabled)}, "
-        f"documented but absent: {sorted(tabled - declared)}"
-    )
-    assert not (geometry & parameter), "a method belongs to one phase table, not both"
-    # And §4.1 is the parameter phase, exhaustively. Without this a geometry
-    # row could be MOVED there with nonsense columns: it would appear in only
-    # one table (so the disjointness assert stays quiet) and never reach the
-    # column checks, which are scoped to §4.2 (PR #151 review, M2b).
-    assert parameter == {"requires", "param"}, (
-        f"§4.1 is the parameter phase; these are documented in the wrong table: "
-        f"{sorted(parameter - {'requires', 'param'})}"
-    )
-
-
-def test_every_vocabulary_row_names_the_kind_and_tier_the_code_uses():
-    """The columns, not just the method name. A row could say a check emits
-    `furlongs` on `both` tiers and nothing noticed."""
-    from partspec.backends import mesh, occt
-    from partspec.contract import GEOMETRY_KINDS, Part
-
-    units = {"mm", "mm2", "mm3", "deg", "count", "bool", "rel"}
-    skipped = set()
-    for method, (kind, measurement, tier) in _vocabulary_rows().items():
-        part = Part.__new__(Part)
-        part.checks = []
-        part.id = "t"
-        try:
-            getattr(Part, method)(part, **_MINIMAL_ARGS.get(method, {}))
-        except Exception:  # noqa: BLE001 - recorded below, never silently dropped
-            skipped.add(method)
-            continue
-        if not part.checks:
-            skipped.add(method)
-            continue
-        actual = part.checks[-1].kind
-        assert kind == actual, f"§4.2 calls `p.{method}` kind `{kind}`; the code emits `{actual}`"
-
-        # Both directions. One-way ("if OCCT-only, the doc must say so") let a
-        # both-tier check be advertised as OCCT-only — the direction that makes
-        # an author skip a check they could have run (review, N2).
-        # Through GEOMETRY_KINDS, because the check kind and the primitive it
-        # needs are different names (`topology` -> `topology_counts`,
-        # `hole_diameter` -> `bores`) and comparing the kind against the
-        # capability sets quietly answered "not OCCT-only" for all of them.
-        primitive = GEOMETRY_KINDS.get(actual)
-        occt_only = (
-            primitive is not None
-            and primitive in occt.CAPABILITIES
-            and primitive not in mesh.CAPABILITIES
-        )
-        assert occt_only == ("occt only" in tier), (
-            f"`{actual}` is {'OCCT-only' if occt_only else 'on both tiers'}; §4.2 says {tier!r}"
-        )
-        named = set(re.findall(r"`(\w+)`", measurement))
-        assert named <= units, (
-            f"§4.2 gives `p.{method}` a unit that does not exist: {named - units}"
-        )
-
-    # The skip set is asserted, not silent: `except: continue` could shrink
-    # coverage to nothing without one failing assertion (review, M8b).
-    assert skipped == _UNCOVERED, (
-        f"rows this test no longer exercises: {sorted(skipped - _UNCOVERED)}; "
-        f"rows now exercised that were recorded as uncovered: {sorted(_UNCOVERED - skipped)}"
-    )
-
-
-_UNCOVERED: set[str] = set()
-"""Rows the column check does not exercise, with the reason — empty today.
-
-Asserted for equality rather than containment, so a row that quietly stops
-being covered fails here instead of vanishing. An earlier draft excused
-`keep_out`/`keep_in` as unreachable; they are reachable in one line
-(`partspec.region` is a public export), and excusing them was a choice
-dressed as an impossibility."""
-
-
-_MINIMAL_ARGS = {
-    "envelope": {"max": (1, 1, 1)},
-    "watertight": {},
-    "solid_count": {"n": 1},
-    "genus": {"n": 0},
-    "cavities": {"n": 0},
-    "volume": {"min": 1.0},
-    "area": {"min": 1.0},
-    "topology": {"faces": 6},
-    "hole_diameter": {"d": 5.0},
-    "bolt_circle": {"d": 5.0, "count": 4, "bcd": 20.0},
-    "fillet_radius": {"min": 1.0},
-    "draft_angle": {"min": 1.0},
-    "self_intersection_free": {},
-    "step_roundtrip": {},
-    "min_wall": {"min": 1.0},
-    "param": {"name": "w", "min": 1.0},
-    "keep_out": {"region": _unit_box(), "shell": 0.5},
-    "keep_in": {"region": _unit_box(), "shell": 0.5},
-}
-
-
-def test_the_spec_names_every_dimensional_kind():
-    """The kinds whose limits are numbers an author chose — the set the
-    unattributed-limit warning ranges over. Listed as seven; it is nine."""
-    from partspec.contract import DIMENSIONAL_KINDS
-
-    paragraph = re.search(r"`DIMENSIONAL_KINDS`:(.*?)\)", SPEC_CONTRACT, re.S)
-    assert paragraph, "SPEC-contract must enumerate DIMENSIONAL_KINDS"
-    assert set(re.findall(r"`(\w+)`", paragraph.group(1))) == DIMENSIONAL_KINDS
-
-
-def test_the_unit_table_lists_every_unit_a_measurement_can_carry():
-    """SPEC-report §2.2's table listed mm/mm2/mm3, deg and count while the
-    tool also emits `bool` (watertight, self_intersection_free) and `rel`
-    (step_roundtrip's unitless drift)."""
-    emitted = set()
-    for source in (ROOT / "src").rglob("*.py"):
-        tree = ast.parse(source.read_text())
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and getattr(node.func, "id", None) == "Measurement"
-                and len(node.args) >= 2
-                and isinstance(node.args[1], ast.Constant)
-                and isinstance(node.args[1].value, str)
-            ):
-                emitted.add(node.args[1].value)
-    assert emitted, "the walk found no Measurement call at all"
-
-    # Table ROWS, not every backticked word in the section: deleting the whole
-    # table left enough prose to satisfy the first version (PR #151 review, MA1),
-    # and the regex it used could not cross a `)` so it saw two of six units.
-    section = SPEC_REPORT[SPEC_REPORT.index("### 2.2") : SPEC_REPORT.index("### 2.3")]
-    tabled = set()
-    for line in section.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) == 2 and cells[0].startswith("`"):
-            tabled |= set(re.findall(r"`(\w+)`", cells[0]))
-    missing = emitted - tabled
-    assert not missing, f"units the tool emits and the §2.2 table omits: {sorted(missing)}"
-
-
-def test_the_backend_spec_counts_the_primitives_it_specifies():
-    """SPEC-backend called the protocol "the original twelve" while the block
-    beneath held 13, the prose listed 17, and the two backends implement 21
-    between them. A count in a normative document is a claim."""
-    from partspec.backends import mesh, occt
-
-    spec = (DOCS / "SPEC-backend.md").read_text()
-    implemented = occt.CAPABILITIES | mesh.CAPABILITIES
-    # The DECLARED methods in the protocol block, not a name-drop anywhere in
-    # the file: the first version passed when the whole block was deleted and
-    # the five names were mentioned in one unrelated sentence (review, MA2).
-    declared = set(re.findall(r"^\s*def (\w+)\(self", spec, re.M))
-    missing = implemented - declared
-    assert not missing, (
-        f"capabilities the backends implement and the protocol block omits: {sorted(missing)}"
-    )
-
-
 def test_every_repo_path_the_specs_cite_can_be_opened():
     """Two normative specs listed `investigations/03`, `investigations/04` and
     `DIRECTION.md` under **Backing:** — files in an unpublished survey
@@ -836,21 +467,47 @@ def test_every_repo_path_the_specs_cite_can_be_opened():
     assert not missing, "cited paths no reader can open:\n  " + "\n  ".join(missing)
 
 
-def test_the_protocol_and_the_spec_declare_the_same_primitives():
-    """`GeometryBackend` is `@runtime_checkable` and nothing in the repo ever
-    calls `isinstance` against it, so it drifted five primitives behind the
-    backends it types without a single failure. The spec's fenced block was
-    corrected first, which only moved the disagreement into the code."""
-    import inspect
+def test_the_generated_doc_blocks_are_current():
+    """`scripts/gen_docs.py --check`, run from the test suite.
 
-    from partspec import backend
+    This is NOT the pattern the module docstring forbids. It does not read a
+    doc, read the code and diff two copies — it asks whether the one copy is
+    current, the same question `ruff format --check` asks. There is no second
+    source of truth for it to disagree with.
 
-    spec = (DOCS / "SPEC-backend.md").read_text()
-    in_spec = set(re.findall(r"^\s*def (\w+)\(self", spec, re.M))
-    # `\(` not `\(self`: the protocol wraps `build`'s signature across lines.
-    in_code = set(
-        re.findall(r"^\s{4}def (\w+)\(", inspect.getsource(backend.GeometryBackend), re.M)
+    It lives here rather than only in `just check` because of where CI runs
+    each. `check` is gated on `needs.changes.outputs.code == 'true'`, and that
+    filter is `['**', '!**/*.md']`, so a markdown-only PR skips it and `ok`
+    passes on skipped jobs. The `test` job is deliberately ungated — its comment
+    says "a docs-only change can genuinely break it". Moving this enforcement
+    into `check` alone would therefore have let exactly the change it polices
+    through: hand-editing a generated table in `docs/SPEC-contract.md`, touching
+    no other file, merges green. Found in PR #156's review; the six tests this
+    machinery replaced all ran in the ungated job, so this restores the coverage
+    rather than adding new.
+    """
+    import subprocess
+    import sys
+
+    # Asserted, not skipped. A skip here would be silent in the one place it
+    # matters: `scripts/` is in the sdist today, and a later tarball-shrinking
+    # PR that excluded it would leave this test reporting a reassuring SKIP
+    # rather than a failure. `test_the_sdist_carries_everything_the_suite_reads`
+    # names this path for the same reason, so the two hold each other up
+    # (PR #156 review, finding B).
+    script = ROOT / "scripts" / "gen_docs.py"
+    assert script.exists(), (
+        f"{script} is missing, so nothing here checks the generated doc blocks. "
+        "If the sdist stopped shipping scripts/, that is the bug."
     )
-    assert in_spec == in_code, (
-        f"spec-only: {sorted(in_spec - in_code)}, code-only: {sorted(in_code - in_spec)}"
+    result = subprocess.run(
+        [sys.executable, str(script), "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        "a generated doc block is stale or misplaced; run `just fmt`.\n"
+        f"{result.stdout}{result.stderr}"
     )

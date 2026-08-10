@@ -46,6 +46,13 @@ jobs:
   check:
     name: Check
     needs: [changes]
+    # Gated: a markdown-only PR yields `code == false`, this is skipped, and
+    # `ok` passes on skipped jobs. So anything that must hold for a DOCS-ONLY
+    # change cannot live only here. `just check` runs `gen_docs.py --check`,
+    # which polices hand-edits to generated doc blocks — exactly a docs-only
+    # change — so `tests/test_docs.py::test_the_generated_doc_blocks_are_current`
+    # runs it again from the ungated `test` job. Found in PR #156's review,
+    # after this slice moved six checks out of `test` and into here.
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15

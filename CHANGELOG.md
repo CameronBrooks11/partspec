@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The sdist no longer ships `notes/` or `evals/` (#150). They were carried
+  because tests read them — an inverted dependency that put 310 KB of archived
+  agent transcripts in front of every PyPI consumer so a test could assert a
+  phrase appeared in prose. Those tests are deleted rather than skip-guarded, so
+  nothing reads those trees and the question does not arise. The tarball loses
+  105 KiB, 20% of its size. `tests/`, `docs/`, `examples/`, `skills/` and
+  `.github/` still ship, and the suite still passes from an unpacked sdist.
+- The mechanical enumerations in the specs are **generated** from the code
+  (`scripts/gen_docs.py`, run by `just fmt`, gated by `just check`): the §4.1/§4.2
+  vocabulary tables, SPEC-report §2.2's unit table, `DIMENSIONAL_KINDS`,
+  SPEC-backend §3's protocol block and the README's exit codes. Six tests used to
+  hold those second copies in step and report drift after it happened; there is
+  one copy now. Consequence for readers: §4.2 gains the `id=` parameter it never
+  documented on any of its eighteen rows, and §2.2's unit column now names the
+  kinds that emit each unit. Prose is untouched and stays normative.
+
 ### Added
 
 - `p.min_wall(min=)` — every wall thick enough within a declared measurand,

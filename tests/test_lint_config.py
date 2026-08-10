@@ -221,10 +221,51 @@ def test_ruf002_is_enforced_and_only_the_multiplication_sign_is_allowed():
     assert not others, "a confusable that is not × appeared:\n" + "\n".join(others)
 
 
-def test_the_pt018_count_is_what_the_comment_says():
-    """86 is the one number left in the block, and it is load-bearing: it is the
-    argument for the ignore. Derived rather than remembered."""
-    assert _count("PT018") == 86
+def test_pt018_is_ignored_for_a_reason_that_still_holds():
+    """The argument for ignoring `PT018` is that it is systemic — too many sites
+    to review, an unsafe autofix on every one, and a rule about failure-message
+    quality rather than correctness. Only the first half is checkable.
+
+    This asserted `== 86` and said "derived rather than remembered", which it was
+    not: 86 was remembered, in two places (here and `pyproject.toml`'s comment),
+    and deleting seven tests in #150 moved it to 83 and failed a lint test for a
+    reason that had nothing to do with linting. The block six lines above the
+    figure already said the durable claim "is not a count of them but the pair of
+    properties the test asserts"; this is that lesson applied to the one tally
+    left behind.
+
+    A floor, not a tally. It needs no maintenance as the tree grows and fails
+    only if the premise collapses — if PT018 ever drops to a handful, the ignore
+    should be reconsidered rather than silently kept, and that is the event
+    worth failing on.
+    """
+    findings = _findings("PT018")
+    assert len(findings) >= 50, (
+        f"PT018 is down to {len(findings)} sites; the ignore was justified by the "
+        "rule being systemic, so re-examine whether it is still earned"
+    )
+    # Both trees. The comment claimed "in tests" until it was measured and found
+    # to include `src/partspec/runner.py`; scope is the part that was wrong.
+    roots = {f.split("/", 1)[0] for f in findings}
+    assert {"tests", "src"} <= roots, f"PT018 no longer spans both trees: {sorted(roots)}"
+
+    # And the prose stays unquantified, the same guard `ARG` already carries and
+    # for the same reason: that paragraph's numbers were found wrong once, and
+    # so were this one's. Without this the figures simply come back.
+    ignore_prose = PYPROJECT.read_text()
+    start = ignore_prose.index("# `PT018` only:")
+    # Searched FROM `start`, not from position 0. Searching the whole file found
+    # the first `ignore =` anywhere in it; today that is the one below this
+    # paragraph, but any earlier table gaining an `ignore =` key would put the
+    # end before the start, and Python answers a reversed slice with `''` rather
+    # than an error. `re.search` on `''` is None, so the assertion would pass for
+    # every possible input and the counts could quietly come back — a guard that
+    # cannot fail, which is the thing this file exists to refuse (PR #156 review).
+    paragraph = ignore_prose[start : ignore_prose.index("ignore =", start)]
+    assert paragraph.strip(), "the PT018 paragraph came back empty; the guard would be vacuous"
+    assert not re.search(r"PT018.{0,120}\b\d+\b", paragraph, re.S), (
+        "the PT018 rationale must not carry a hand-maintained count"
+    )
 
 
 def test_both_ruff_pins_name_one_version():

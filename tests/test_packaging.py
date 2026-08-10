@@ -224,6 +224,13 @@ def test_the_sdist_carries_everything_the_suite_reads(sdist_names: set[str]):
     the sdist — two of them tests added by the same commit — which is the
     same failure this slice exists to fix, committed while fixing it.
 
+    `evals/` and `notes/` are off this list as of #150, and the route matters:
+    not skip-guarded, but no longer read at all. The tests that read them
+    asserted phrases were present in prose, which cannot tell a true claim
+    from a false one, so they were deleted rather than made conditional. A
+    path leaves this list when nothing reads it — never because reading it
+    became inconvenient.
+
     These are the repo paths the suite actually reads, found by grepping the
     tests for their own fixtures.
     """
@@ -233,10 +240,15 @@ def test_the_sdist_carries_everything_the_suite_reads(sdist_names: set[str]):
         "docs/FAILURE-MODES.md",
         "examples/bearing-block/claims.py",
         "skills/contract-authoring/SKILL.md",
-        "evals/CONVERGENCE.md",
-        "notes/dogfood-results.md",
         ".github/workflows/release.yml",
         "scripts/assert_tag_on_main.sh",
+        # Read by `test_the_generated_doc_blocks_are_current`, which runs it as
+        # a subprocess. Listed because that test's own guard is a `skip` when
+        # the script is missing: without this row, a later PR excluding
+        # `scripts/` from the sdist would break nothing visibly — the packaging
+        # test would not require the path and the docs test would skip with a
+        # reassuring message (PR #156 review, finding B).
+        "scripts/gen_docs.py",
         "src/partspec/py.typed",
     ]
     missing = [path for path in required if path not in sdist_names]
@@ -283,6 +295,17 @@ def test_the_sdist_leaves_out_what_a_consumer_cannot_use(sdist_names: set[str]):
     in the tarball. Only the delta and the share hold still."""
     assert "uv.lock" not in sdist_names
     assert "CLAUDE.md" not in sdist_names
+
+    # Repo archaeology, dropped in #150. Asserted by PREFIX, not by naming the
+    # two files the old required-list happened to mention: the exclusion is
+    # "this tree does not ship", and a check that only knew `notes/dogfood-
+    # results.md` would pass while the other 300 KB of transcripts rode along.
+    archaeology = sorted(n for n in sdist_names if n.startswith(("notes/", "evals/")))
+    assert not archaeology, (
+        "the sdist carries repo archaeology a consumer cannot use: "
+        f"{archaeology[:5]}{'...' if len(archaeology) > 5 else ''}"
+    )
+
     assert "pyproject.toml" in sdist_names, "and the things a build needs are still there"
     assert "README.md" in sdist_names
 
