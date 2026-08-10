@@ -23,8 +23,8 @@ Verify CAD-as-code parts against declared engineering intent.
 > showing what the guidance changes.
 > [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is still withheld and why.
 > Expect the Python API to move: the stable surface is the report schema plus the exit
-> codes. `partspec.run()` is internal — it is still in `__all__` for now, which is the
-> export's mistake rather than this sentence's, and it is being removed.
+> codes. `partspec.run()` is internal: it is importable, and it is not in `__all__`, and
+> its signature may change without a major bump.
 
 ## What it is for
 

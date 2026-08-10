@@ -75,7 +75,7 @@ def test_topology_drift_fails_at_any_tolerance():
     """The two gates are separate: a count that changed is a different part
     at ANY tol, so even tol=1.0 must fail the forced solid."""
     spec = _spec(tol=1.0)
-    result = _run_geometry_check(spec, OcctBackend(), _forced_open_solid(), "subject")
+    result = _run_geometry_check(spec, OcctBackend(), _forced_open_solid())
     assert result.status is Status.FAIL
     assert result.detail is not None and "solids 1 -> 0" in result.detail
     assert result.step is not None
@@ -107,13 +107,13 @@ class _StubBackend:
 
 def test_the_tolerance_gate_bites_and_names_the_axis():
     spec = _spec()  # default 1e-6
-    result = _run_geometry_check(spec, _StubBackend(1e-3), None, "subject")
+    result = _run_geometry_check(spec, _StubBackend(1e-3), None)
     assert result.status is Status.FAIL
     assert result.detail is not None and "volume" in result.detail
     assert result.components == {"volume": Status.FAIL, "area": Status.PASS}
 
     relaxed = _spec(tol=1e-2)
-    assert _run_geometry_check(relaxed, _StubBackend(1e-3), None, "subject").status is Status.PASS
+    assert _run_geometry_check(relaxed, _StubBackend(1e-3), None).status is Status.PASS
 
 
 def test_the_tol_is_never_epsilon_widened():
@@ -123,14 +123,14 @@ def test_the_tol_is_never_epsilon_widened():
     enforcing ~1e-6, and the reviewer's 1.87e-8 drift PASSED a 1e-9
     contract. Plain membership now: the tol IS the tolerance."""
     tight = _spec(tol=1e-9)
-    result = _run_geometry_check(tight, _StubBackend(1.87e-8), None, "subject")
+    result = _run_geometry_check(tight, _StubBackend(1.87e-8), None)
     assert result.status is Status.FAIL, "the reviewer's exact repro must fail a 1e-9 claim"
 
     at_limit = _spec(tol=1e-6)
-    assert (
-        _run_geometry_check(at_limit, _StubBackend(2e-6), None, "subject").status is Status.FAIL
-    ), "2e-6 over a 1e-6 tol passed under the old epsilon widening"
-    assert _run_geometry_check(at_limit, _StubBackend(5e-7), None, "subject").status is Status.PASS
+    assert _run_geometry_check(at_limit, _StubBackend(2e-6), None).status is Status.FAIL, (
+        "2e-6 over a 1e-6 tol passed under the old epsilon widening"
+    )
+    assert _run_geometry_check(at_limit, _StubBackend(5e-7), None).status is Status.PASS
 
 
 def test_a_threaded_rod_calibrates_the_default():

@@ -36,9 +36,6 @@ Own types, so no engine type appears in the check layer.
 class Vec3:   x: float; y: float; z: float
 
 @dataclass(frozen=True)
-class BBox:   lo: Vec3; hi: Vec3          # .size -> Vec3
-
-@dataclass(frozen=True)
 class Measured:                            # what every primitive returns
     value: float | tuple[float, ...]
     exact: bool
@@ -76,8 +73,9 @@ class GeometryBackend(Protocol):
 
     # --- the primitives. "The original twelve" was the survey's set (investigation
     #     03 §2) and the count has been wrong in this file ever since: the block
-    #     below has always held thirteen, and the two backends now implement 22
-    #     capabilities between them. The survey's dozen is a historical note, not
+    #     below has always held thirteen, and the two backends implement 21
+    #     capabilities between them (22 until v0.7.0 undeclared the mesh tier's
+    #     `raycast`, which it could not honour). The survey's dozen is a historical note, not
     #     an inventory. ---
     def bbox(self, a) -> Measured: ...
     def volume(self, a) -> Measured: ...
@@ -121,9 +119,13 @@ among the deferred — it shipped (#140) and implements its own ray casting inli
 `IntCurvesFace_ShapeIntersector` rather than going through `raycast`, so the stated reason
 for keeping `raycast` unimplemented no longer holds; what remains deferred is `clearance` /
 `interference`, with assemblies. And the mesh backend does *not* implement `raycast`
-cheaply: it declares the capability and raises `ModuleNotFoundError` for want of `rtree`,
-which is a declared capability that cannot be honoured — the one thing §3.2 says
-capabilities exist to prevent. `intersect_volume` gained its first caller with `keep_out` /
+cheaply, contrary to what this paragraph said through v0.6: `trimesh`'s default ray path
+indexes through `rtree`, which the `mesh` extra does not carry, so the primitive raised
+`ModuleNotFoundError` while `CAPABILITIES` advertised it — a declared capability that
+cannot be honoured, the one thing §3.2 says capabilities exist to prevent. Resolved in
+v0.7.0: the mesh tier no longer declares `raycast`, and the method returns `Unsupported`
+rather than raising when the index is absent. Undeclared-and-works-when-available is
+honest; declared-and-raising was not. `intersect_volume` gained its first caller with `keep_out` /
 `keep_in`; its empty case is normative — **disjoint inputs MUST
 return a `0.0` measurement, not raise**, because the conforming case of a `keep_out` is
 exactly two disjoint shapes (build123d's `&` returns `None` there, and the naive

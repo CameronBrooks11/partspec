@@ -56,11 +56,18 @@ GEOMETRY_KINDS: dict[str, str] = {
 it. `builds` is absent because it is implicit and has no primitive — it is
 whether the engine produced anything at all.
 
-`topology` and `hole_diameter` are the entries whose primitives are **not** on
-both tiers — the checks that make the tier difference visible to a contract
-author rather than merely documented. `topology` was v0's single deliberate
-member of that class; `hole_diameter` is the first of the BREP dimensions it
-existed to pave the way for.
+These entries have primitives that are **not** on both tiers — the checks that
+make the tier difference visible to a contract author rather than merely
+documented: `topology`, `hole_diameter`, `bolt_circle`, `fillet_radius`,
+`draft_angle`, `self_intersection_free`, `step_roundtrip` and `min_wall`.
+`topology` was v0's single deliberate member of that class, and `hole_diameter`
+the first of the BREP dimensions it existed to pave the way for; the depth epic
+(#136) added the rest.
+
+Deliberately no count in that sentence. It read "topology and hole_diameter are
+the entries" long after there were eight, and a test holds the LIST against the
+capability sets — a numeral beside the list it counts is a second thing to
+forget, which is how the first version rotted.
 
 `keep_out` / `keep_in` map to the primitive that gates them; their evaluation is
 composed in the runner from `region_solid` and `intersect_volume` rather than

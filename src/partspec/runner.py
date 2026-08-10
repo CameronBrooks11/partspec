@@ -25,7 +25,7 @@ from typing import Any
 from . import expr as expr_mod
 from .backend import BuildError, Unsupported
 from .contract import GEOMETRY, GEOMETRY_KINDS, CheckSpec, Part
-from .report import CheckResult, Report
+from .report import CheckResult, Report, tool_version
 from .status import (
     ContractError,
     Limit,
@@ -39,8 +39,6 @@ from .status import (
 )
 
 __all__ = ["identity", "run"]
-
-_TOOL_VERSION_FALLBACK = "0.0.0+unknown"
 
 
 def run(
@@ -72,7 +70,7 @@ def run(
     report = Report(
         part_id=part.id,
         contract=ident["contract"],
-        tool_version=_tool_version(),
+        tool_version=tool_version(),
         contract_digest=ident.get("contract_digest"),
         source=ident.get("source"),
         source_digest=ident.get("source_digest"),
@@ -182,7 +180,6 @@ def _evaluate(
                 phase=GEOMETRY,
                 status=Status.FAIL,
                 detail=artifact.message,
-                part_refs=(part.id,),
             )
         )
         results.extend(
@@ -197,11 +194,7 @@ def _evaluate(
     if part.source.engine != "openscad":
         report.source_closure = _python_closure(part.source, contract_path)
 
-    results.append(
-        CheckResult(
-            id="builds", kind="builds", phase=GEOMETRY, status=Status.PASS, part_refs=(part.id,)
-        )
-    )
+    results.append(CheckResult(id="builds", kind="builds", phase=GEOMETRY, status=Status.PASS))
     if artifact_out is not None:
         # The built artifact, for the caller that asked (#129): check
         # --render used to rebuild the model it had in memory moments
@@ -209,7 +202,7 @@ def _evaluate(
         # model's renders silently disagree with its measured geometry.
         artifact_out.append(artifact)
     report.geometry = backend.provenance(artifact)
-    results.extend(_run_geometry_check(spec, backend, artifact, part.id) for spec in geometry_specs)
+    results.extend(_run_geometry_check(spec, backend, artifact) for spec in geometry_specs)
     report.checks = results
 
 
@@ -317,7 +310,24 @@ def _run_parameter_check(spec: CheckSpec, params: dict[str, Any]) -> CheckResult
     raise ContractError(f"unknown parameter check kind: {spec.kind!r}")
 
 
-def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: str) -> CheckResult:
+def _refused(common: dict[str, Any], outcome: Unsupported) -> CheckResult:
+    """The check result a backend refusal becomes.
+
+    One function because it was written out eight times, and every copy has
+    to remember `requires=` — the field that tells an author WHICH tier would
+    answer, which is the entire point of refusing by name rather than
+    failing. Eight places to forget it is eight chances to turn an
+    actionable refusal into a dead end.
+    """
+    return CheckResult(
+        **common,
+        status=Status.UNSUPPORTED,
+        detail=outcome.reason,
+        requires=outcome.requires,
+    )
+
+
+def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any) -> CheckResult:
     primitive_name = GEOMETRY_KINDS.get(spec.kind)
     if primitive_name is None:
         raise ContractError(f"unknown geometry check kind: {spec.kind!r}")
@@ -327,7 +337,6 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
         "kind": spec.kind,
         "phase": spec.phase,
         "limit": spec.limit,
-        "part_refs": (part_id,),
     }
     if spec.region is not None:
         # Attached before any early return: a refusal must still state what was
@@ -369,9 +378,7 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any, part_id: s
 
     outcome = getattr(backend, primitive_name)(artifact)
     if isinstance(outcome, Unsupported):
-        return CheckResult(
-            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
-        )
+        return _refused(common, outcome)
 
     assert spec.limit is not None
     status = adjudicate(outcome, spec.limit)
@@ -436,9 +443,7 @@ def _run_hole_check(
     assert spec.limit is not None and spec.hole is not None
     outcome = backend.bores(artifact)
     if isinstance(outcome, Unsupported):
-        return CheckResult(
-            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
-        )
+        return _refused(common, outcome)
 
     all_bores = tuple(float(x) for x in outcome.value)
     lo, hi = spec.limit.min, spec.limit.max
@@ -485,9 +490,7 @@ def _run_fillet_check(
     assert spec.limit is not None
     outcome = backend.blend_radii(artifact)
     if isinstance(outcome, Unsupported):
-        return CheckResult(
-            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
-        )
+        return _refused(common, outcome)
     if not outcome.value:
         return CheckResult(
             **common,
@@ -520,9 +523,7 @@ def _run_min_wall_check(
     assert spec.limit is not None
     raw = backend._min_wall_raw(artifact)
     if isinstance(raw, Unsupported):
-        return CheckResult(
-            **common, status=Status.UNSUPPORTED, detail=raw.reason, requires=raw.requires
-        )
+        return _refused(common, raw)
     if raw.get("vacuous"):
         return CheckResult(
             **common,
@@ -567,9 +568,7 @@ def _run_step_check(
     assert spec.limit is not None
     outcome = backend.step_roundtrip(artifact)
     if isinstance(outcome, Unsupported):
-        return CheckResult(
-            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
-        )
+        return _refused(common, outcome)
 
     common["step"] = {"schema": outcome["schema"]}
     measurement = Measurement(
@@ -626,9 +625,7 @@ def _run_draft_check(
     assert spec.limit is not None and spec.direction is not None
     outcome = backend.draft_angle(artifact, spec.direction)
     if isinstance(outcome, Unsupported):
-        return CheckResult(
-            **common, status=Status.UNSUPPORTED, detail=outcome.reason, requires=outcome.requires
-        )
+        return _refused(common, outcome)
     status = adjudicate(outcome, spec.limit)
     components = _components_of(outcome, spec.limit)
     detail = None
@@ -659,9 +656,7 @@ def _run_bolt_circle_check(
     assert spec.limit is not None and spec.hole is not None
     table = backend.bore_table(artifact)
     if isinstance(table, Unsupported):
-        return CheckResult(
-            **common, status=Status.UNSUPPORTED, detail=table.reason, requires=table.requires
-        )
+        return _refused(common, table)
 
     d, count, bcd = spec.hole["d"], int(spec.hole["count"]), spec.hole["bcd"]
     lo, hi = spec.limit.min, spec.limit.max
@@ -872,12 +867,7 @@ def _run_region_check(
     ):
         outcome = backend.intersect_volume(a, b)
         if isinstance(outcome, Unsupported):
-            return CheckResult(
-                **common,
-                status=Status.UNSUPPORTED,
-                detail=outcome.reason,
-                requires=outcome.requires,
-            )
+            return _refused(common, outcome)
         volumes.append(float(outcome.value))
     in_region, in_outer, region_volume, outer_volume = volumes
     in_shell = max(0.0, in_outer - in_region)
@@ -1132,12 +1122,3 @@ def _closure(source: Any) -> dict[str, Any] | None:
         # fields above for a guarantee it never made.
         out["partial"] = True
     return out
-
-
-def _tool_version() -> str:
-    from importlib.metadata import PackageNotFoundError, version
-
-    try:
-        return version("partspec")
-    except PackageNotFoundError:
-        return _TOOL_VERSION_FALLBACK

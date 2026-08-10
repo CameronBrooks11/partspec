@@ -22,9 +22,11 @@ from typing import Any
 from .status import Limit, Measurement, Status, Verdict, exit_code, verdict_of
 
 __all__ = [
-    "SCHEMA_VERSION",
     "CheckResult",
     "Report",
+    "SCHEMA_VERSION",
+    "TOOL_VERSION_FALLBACK",
+    "tool_version",
     "write_placeholder",
 ]
 
@@ -115,9 +117,6 @@ class CheckResult:
     SPEC-report.md 7.1."""
     detail: str | None = None
     requires: str | None = None
-    part_refs: tuple[str, ...] = ()
-    """Parts this check read. Always the single part in v0; recorded anyway so
-    assemblies can qualify claims up a tree later without a schema change."""
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -401,7 +400,7 @@ def write_placeholder(
     payload = Report(
         part_id=part_id,
         contract=contract,
-        tool_version=_tool_version(),
+        tool_version=tool_version(),
         argv=argv,
         error="run did not complete: no result was written for this run",
         hint="the contract failed to resolve, or the process died before finishing "
@@ -410,10 +409,21 @@ def write_placeholder(
     return _write_json(directory / REPORT_FILENAME, payload)
 
 
-def _tool_version() -> str:
+TOOL_VERSION_FALLBACK = "0.0.0+unknown"
+"""What the tool calls itself when it is not installed — a source tree.
+
+Public and single because it was written three times, in three modules, with
+the fallback spelled two ways and the function named two ways, and the string
+reaches the artifact as `tool.version`. Two copies drifting is a provenance
+defect: a report would claim a version the run did not have.
+"""
+
+
+def tool_version() -> str:
+    """The installed version of partspec, for the artifact's provenance."""
     from importlib.metadata import PackageNotFoundError, version
 
     try:
         return version("partspec")
     except PackageNotFoundError:  # running from a source tree without an install
-        return "0.0.0+unknown"
+        return TOOL_VERSION_FALLBACK

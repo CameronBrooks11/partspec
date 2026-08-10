@@ -322,7 +322,8 @@ def test_a_topology_contract_is_answered_on_this_tier(tmp_path):
     tiers — the check means the same thing on both, and says so where it cannot
     be evaluated rather than inventing an answer.
     """
-    from partspec import Part, Status, Verdict, build123d, run
+    from partspec import Part, Status, Verdict, build123d
+    from partspec.runner import run
 
     model = tmp_path / "m.py"
     model.write_text("import build123d as bd\ndef make_part():\n    return bd.Box(10, 20, 30)\n")
@@ -339,7 +340,8 @@ def test_a_topology_contract_is_answered_on_this_tier(tmp_path):
 
 
 def test_a_wrong_topology_claim_fails(tmp_path):
-    from partspec import Part, Status, build123d, run
+    from partspec import Part, Status, build123d
+    from partspec.runner import run
 
     model = tmp_path / "m.py"
     model.write_text("import build123d as bd\ndef make_part():\n    return bd.Box(10, 20, 30)\n")

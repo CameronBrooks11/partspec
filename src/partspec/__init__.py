@@ -9,11 +9,17 @@ than a convention someone has to remember (SPEC-contract.md 1.1).
 from __future__ import annotations
 
 from . import refs, region
-from .backend import BBox, BuildError, GeometryBackend, Tier, Unsupported, Vec3
+from .backend import BuildError, GeometryBackend, Tier, Unsupported, Vec3
 from .contract import CheckSpec, Part, Source, build123d, cadquery, openscad
 from .provenance import Referenced
 from .report import CheckResult, Report, write_placeholder
-from .runner import run
+
+# Re-exported for the callers that already import it, but deliberately NOT in
+# `__all__`: the stable surface is the report schema and the exit codes, and
+# README has called `run()` internal since v0.1 while `__all__` said otherwise.
+# The `as run` form is the explicit-re-export convention, so this is a decision
+# rather than an import ruff would flag as unused.
+from .runner import run as run
 from .status import (
     ContractError,
     Limit,
@@ -27,7 +33,6 @@ from .status import (
 )
 
 __all__ = [
-    "BBox",
     "BuildError",
     "CheckResult",
     "CheckSpec",
@@ -52,7 +57,6 @@ __all__ = [
     "openscad",
     "refs",
     "region",
-    "run",
     "verdict_of",
     "write_placeholder",
 ]

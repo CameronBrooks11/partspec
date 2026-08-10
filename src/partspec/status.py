@@ -26,6 +26,7 @@ from typing import Any
 __all__ = [
     "BOUND_EPSILON_ABS",
     "BOUND_EPSILON_REL",
+    "COMPARISON_EXITS",
     "ContractError",
     "Limit",
     "Measurement",
@@ -33,6 +34,7 @@ __all__ = [
     "Verdict",
     "adjudicate",
     "adjudicate_components",
+    "comparison_exit_code",
     "component_limit",
     "epsilon",
     "exit_code",
@@ -110,6 +112,19 @@ _EXIT: dict[Verdict, int] = {
 EXIT_USAGE = 64
 """Unresolvable target or bad arguments (EX_USAGE). Writes no report, and so never
 participates in batch aggregation."""
+
+
+COMPARISON_EXITS = {"identical": 0, "different": 1, "indeterminate": 2}
+"""Exit code per comparison outcome, for `diff` and `vdiff` alike.
+
+Here rather than in either verb because it is a contract (SPEC-diff §2), and
+it was written out twice — byte-identical — in two modules that must agree.
+Two copies of an exit-code policy is the shape of a future disagreement.
+"""
+
+
+def comparison_exit_code(outcome: str) -> int:
+    return COMPARISON_EXITS[outcome]
 
 
 def exit_code(verdict: Verdict) -> int:

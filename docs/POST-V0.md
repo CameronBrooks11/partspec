@@ -23,7 +23,8 @@ goes to part-level depth of intent. This section is the design basis for when th
 
 **The design constraints v0 must honour to keep this cheap** (all adopted at no cost, per
 `SPEC-contract.md` §9): `checks[].id` is a free-form string so dotted paths fit; every check
-records `part_refs` even though v0 always has one part; and `skipped` already means
+would record `part_refs` (carried in v0, never serialised, removed in v0.7.0 — additive
+re-introduction is what §7.1 is for); and `skipped` already means
 *"absence is a legitimate run state, not an input error"*, which is exactly what a
 standalone sub-assembly run needs.
 

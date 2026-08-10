@@ -23,7 +23,6 @@ from .status import Measurement
 
 __all__ = [
     "DEFAULT_TIMEOUT_S",
-    "BBox",
     "BuildError",
     "GeometryBackend",
     "Tier",
@@ -86,16 +85,6 @@ class Vec3:
 
     def as_tuple(self) -> tuple[float, float, float]:
         return (self.x, self.y, self.z)
-
-
-@dataclass(frozen=True, slots=True)
-class BBox:
-    lo: Vec3
-    hi: Vec3
-
-    @property
-    def size(self) -> Vec3:
-        return Vec3(self.hi.x - self.lo.x, self.hi.y - self.lo.y, self.hi.z - self.lo.z)
 
 
 class Tier:
@@ -239,10 +228,14 @@ class GeometryBackend(Protocol):
     def topology_counts(self, a: Any) -> Measurement | Unsupported: ...
     def triangles(self, a: Any) -> Any: ...
 
-    # Present because they are part of the twelve and the mesh backend
-    # implements them cheaply. No v0 check calls them — they serve clearance,
-    # interference and min_wall, all post-v0 — but specifying them now means the
-    # protocol does not change when those land.
+    # Present because they are part of the survey's twelve. `intersect_volume`
+    # has a caller — the shipped `keep_out` / `keep_in` compose from it and
+    # `region_solid` (SPEC-contract 4.4), and its empty case is normative.
+    # `min_distance` and `raycast` have none: they serve clearance and
+    # interference, which wait on assemblies, and specifying them now means
+    # the protocol does not change when those land. The mesh tier does NOT
+    # implement `raycast` cheaply — it needs a spatial index the `mesh` extra
+    # does not carry, so on that install it refuses rather than answering.
     def min_distance(self, a: Any, b: Any) -> Measurement | Unsupported: ...
     def intersect_volume(self, a: Any, b: Any) -> Measurement | Unsupported: ...
     def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> list[Vec3] | Unsupported: ...

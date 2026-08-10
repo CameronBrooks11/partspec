@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from support import measured, needs_openscad, openscad_supports_backend_flag, refused
 
-from partspec.backend import BuildError, Tier, Unsupported
+from partspec.backend import BuildError, Tier, Unsupported, Vec3
 from partspec.backends.mesh import MeshBackend
 from partspec.engines import openscad
 from partspec.engines.openscad import OpenSCADSource, scad_literal
@@ -1057,3 +1057,26 @@ def test_a_stale_artifact_in_an_unwritable_out_dir_refuses_by_name(tmp_path: Pat
     assert isinstance(result, BuildError)
     assert result.origin == "environment"
     assert str(out) in result.message
+
+
+def test_the_mesh_tier_does_not_declare_a_capability_it_cannot_honour():
+    """`raycast` was in `CAPABILITIES` while `trimesh`'s default ray path
+    indexes through `rtree`, which the `mesh` extra does not carry — so the
+    primitive raised `ModuleNotFoundError` on the smallest install that
+    declares it. SPEC-backend §3.2 exists to prevent exactly that, and
+    nothing in the suite referenced `raycast` at all, so re-declaring it
+    would have restored the defect with every test green.
+
+    The method stays: undeclared-and-works-when-available is honest.
+    """
+    from partspec.backends.mesh import CAPABILITIES
+
+    assert "raycast" not in CAPABILITIES
+
+    trimesh = pytest.importorskip("trimesh", reason="mesh extra not installed")
+    box = trimesh.creation.box(extents=(2.0, 2.0, 2.0))
+    outcome = MeshBackend().raycast(box, Vec3(0.0, 0.0, -5.0), Vec3(0.0, 0.0, 1.0))
+    # Either it answers (rtree present) or it refuses by name. Never raises.
+    assert isinstance(outcome, list | Unsupported)
+    if isinstance(outcome, Unsupported):
+        assert "ray engine is unavailable" in outcome.reason
