@@ -76,7 +76,9 @@ build-backend = "hatchling.build"
 # errored out. Re-check with:
 #   uv build --sdist -o /tmp/sd && tar -xzf /tmp/sd/*.tar.gz -C /tmp/sd
 #   cd /tmp/sd/partspec-*/ && python -m pytest -q
-# Currently 771 passed, 11 skipped, 0 failed.
+# The claim is ZERO FAILURES. The pass/skip tally is deliberately not written
+# down: it moves on every added test, which is the same reason the byte count
+# came out of `.pre-commit-config.yaml` in this commit's own diff.
 #
 # The wheel needs no such list: it was already exactly the package.
 [tool.hatch.build.targets.sdist]

@@ -110,14 +110,20 @@ def test_the_tree_is_clean_under_the_declared_rules():
     printed every finding in a bundled Python 3.10 stdlib: tens of thousands of
     lines, of which the FIRST named the cause. So nothing was buried under the
     noise; the noise was the problem. Ten lines is enough to see whether the
-    paths are yours, and ruff's own trailing count is kept because it says how
-    bad it is.
+    paths are yours, and ruff's own total is kept because it says how bad it is.
+
+    The total is found by prefix, not taken as `lines[-1]`. Ruff's concise output
+    ends with the count only when nothing is fixable; with fixes available — the
+    normal case for an accidentally-imported stdlib — the last line is
+    "[*] N fixable with the --fix option", and an earlier draft of this printed
+    that instead of the count, in exactly the scenario the paragraph above cites.
     """
     result = _ruff()
     lines = result.stdout.splitlines()
     shown = "\n".join(lines[:10])
     if len(lines) > 10:
-        shown += f"\n... and {len(lines) - 10} more lines\n{lines[-1]}"
+        total = next((line for line in reversed(lines) if line.startswith("Found ")), lines[-1])
+        shown += f"\n... and {len(lines) - 10} more lines\n{total}"
     assert result.returncode == 0, f"the configured rule set must pass on this tree:\n{shown}"
 
 
