@@ -235,6 +235,15 @@ def render_protocol_block() -> str:
 
 
 def render_exit_codes() -> str:
+    """A COMPLETE sentence, standing alone between blank lines.
+
+    An HTML comment at the start of a line opens a block-level HTML element in
+    CommonMark, which interrupts an open paragraph. The first version of this
+    block sat mid-sentence ("Exit" / marker / "codes: ..." / marker / "(`130`
+    ...)"), which renders as three paragraphs on GitHub and on PyPI — where this
+    file is the package's front page. A generated block has to be a whole block
+    of prose, not a fragment of one.
+    """
     described = {
         Verdict.PASS: "pass",
         Verdict.FAIL: "fail",
@@ -243,7 +252,7 @@ def render_exit_codes() -> str:
         Verdict.ERROR: "error",
     }
     codes = ", ".join(f"`{exit_code(v)}` {name}" for v, name in described.items())
-    return f"codes: {codes}, `{EXIT_USAGE}` bad usage"
+    return f"Exit codes: {codes}, `{EXIT_USAGE}` bad usage."
 
 
 BLOCKS: dict[str, tuple[Path, object]] = {
@@ -275,6 +284,34 @@ def _apply(text: str, name: str, body: str) -> str:
     return text[:start] + begin + "\n" + body + "\n" + text[stop:]
 
 
+def _assert_blocks_are_isolated(path: Path, text: str) -> None:
+    """A marker must sit on its own line with blank lines around the block.
+
+    In CommonMark an HTML comment at the start of a line opens a block-level
+    HTML element, which **interrupts an open paragraph**. A marker pair dropped
+    mid-sentence therefore splits one paragraph into three when rendered — and
+    the first version of the exit-codes block did exactly that in `README.md`,
+    which is the package's front page on PyPI. It looked fine in the diff and
+    fine to `--check`, because both compare source text.
+
+    Checked rather than remembered, for the reason the whole script exists.
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("<!-- BEGIN GENERATED") and i > 0 and lines[i - 1].strip():
+            raise SystemExit(
+                f"{path.name}:{i + 1}: a generated block opens mid-paragraph, which "
+                f"renders as a paragraph break.\nPut a blank line before it.\n"
+                f"  preceding line: {lines[i - 1]!r}"
+            )
+        if line.startswith("<!-- END GENERATED") and i + 1 < len(lines) and lines[i + 1].strip():
+            raise SystemExit(
+                f"{path.name}:{i + 1}: prose resumes immediately after a generated "
+                f"block, which renders as a paragraph break.\nPut a blank line after it.\n"
+                f"  following line: {lines[i + 1]!r}"
+            )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -288,6 +325,12 @@ def main() -> int:
     for name, (path, render) in BLOCKS.items():
         text = wanted.get(path, path.read_text())
         wanted[path] = _apply(text, name, render())  # type: ignore[operator]
+
+    # Before writing or comparing: the placement check runs in both modes, so a
+    # marker moved mid-paragraph by hand fails the gate rather than waiting to
+    # be noticed on the rendered page.
+    for path, text in wanted.items():
+        _assert_blocks_are_isolated(path, text)
 
     stale = [path for path, text in wanted.items() if path.read_text() != text]
     if args.check:
