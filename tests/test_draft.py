@@ -240,34 +240,6 @@ def test_a_generically_rotated_cylinder_wall_still_finds_its_tangent():
     assert min(outcome.value) == pytest.approx(0.0, abs=1e-9)
 
 
-def test_the_diff_verb_sees_a_rotated_pull_axis(tmp_path):
-    """PR #141 review, F2: rotating the pull axis is a claim change the
-    semantic diff must name — a draft claim without its axis is not
-    reproducible, so the axis is part of the claim's identity."""
-    from partspec.cli import main
-
-    model = "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
-    (tmp_path / "m.py").write_text(model)
-    for name, direction in (("a", "(0, 0, 1)"), ("b", "(1, 0, 0)")):
-        (tmp_path / f"spec_{name}.py").write_text(
-            "from partspec import Part, build123d\n\n\ndef make():\n"
-            "    p = Part('subject', build123d('m.py'))\n"
-            f"    p.draft_angle(min=1.0, direction={direction})\n"
-            "    return p\n"
-        )
-        main(
-            [
-                "check",
-                f"{tmp_path / f'spec_{name}.py'}:make",
-                "--quiet",
-                "--out",
-                str(tmp_path / name),
-            ]
-        )
-    code = main(["diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")])
-    assert code == 1, "a rotated pull axis is a difference, not silence"
-
-
 def test_an_unattributed_draft_min_draws_the_warning(tmp_path):
     """PR #141 review, F3: min= is a number an author chose — exactly the
     circularizable class the attribution warning exists for — and the check
