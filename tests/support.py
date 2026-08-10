@@ -136,7 +136,7 @@ def sew_into_solid(faces):
         BRepBuilderAPI_MakeSolid,  # pyright: ignore[reportAttributeAccessIssue]
         BRepBuilderAPI_Sewing,  # pyright: ignore[reportAttributeAccessIssue]
     )
-    from OCP.TopoDS import TopoDS  # pyright: ignore[reportAttributeAccessIssue]
+    from OCP.TopoDS import TopoDS
 
     sew = BRepBuilderAPI_Sewing()
     for face in faces:

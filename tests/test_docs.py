@@ -806,6 +806,15 @@ def test_every_repo_path_the_specs_cite_can_be_opened():
     """
     import subprocess
 
+    # `git ls-files` needs a checkout. Without this guard the test ERRORS in an
+    # unpacked sdist (`CalledProcessError`, exit 128) — and `pyproject.toml`'s
+    # sdist `exclude` list argues that `tests/` ships "because a downstream
+    # packager runs the suite from an sdist, and that claim only holds if the
+    # suite actually passes there". It did not, from #151 until now. Same guard
+    # `test_packaging.py` and `test_lint_config.py` use. Part of #150.
+    if not (ROOT / ".git").exists():
+        pytest.skip("asks what this checkout TRACKS; an unpacked sdist has no git")
+
     tracked = set(
         subprocess.run(
             ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
@@ -813,7 +822,7 @@ def test_every_repo_path_the_specs_cite_can_be_opened():
     )
     pattern = re.compile(r"`((?:docs|notes|src|tests|examples|skills|evals|scripts)/[\w./-]+)`")
     missing = []
-    for doc in sorted(DOCS.glob("*.md")) + [README]:
+    for doc in [*sorted(DOCS.glob("*.md")), README]:
         for cited in pattern.findall(doc.read_text()):
             # Tracked, not merely present. `notes/upstream/` is a gitignored
             # vendored clone: DECISIONS cited a path inside it, the file existed

@@ -133,10 +133,10 @@ def rasterize(
     for i in range(len(tri)):
         if area[i] == 0.0 or lengths[i] == 0.0:
             continue  # edge-on or degenerate: no pixels, and nothing to shade
-        x0 = max(int(math.floor(min(ax[i], bx[i], cx[i]))), 0)
-        x1 = min(int(math.ceil(max(ax[i], bx[i], cx[i]))), width - 1)
-        y0 = max(int(math.floor(min(ay[i], by[i], cy[i]))), 0)
-        y1 = min(int(math.ceil(max(ay[i], by[i], cy[i]))), height - 1)
+        x0 = max(math.floor(min(ax[i], bx[i], cx[i])), 0)
+        x1 = min(math.ceil(max(ax[i], bx[i], cx[i])), width - 1)
+        y0 = max(math.floor(min(ay[i], by[i], cy[i])), 0)
+        y1 = min(math.ceil(max(ay[i], by[i], cy[i])), height - 1)
         if x1 < x0 or y1 < y0:
             continue
         px, py = np.meshgrid(np.arange(x0, x1 + 1) + 0.5, np.arange(y0, y1 + 1) + 0.5)

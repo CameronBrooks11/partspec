@@ -243,10 +243,44 @@ def test_the_sdist_carries_everything_the_suite_reads(sdist_names: set[str]):
     assert not missing, f"the suite reads these and the sdist does not carry them: {missing}"
 
 
+def test_no_test_shells_out_to_git_without_a_checkout_guard():
+    """The invariant behind the claim above, since nothing enforces the claim.
+
+    `tests/` ships so a downstream packager can run the suite, and
+    `pyproject.toml` argues that only holds if the suite passes from an sdist —
+    which has no `.git`. It did not hold from #151 until PR #155:
+    `test_docs.py` called `git ls-files` with `check=True` and errored out with
+    exit 128 there. Rebuilding an sdist to catch the next one would double CI, so
+    this asserts the property that actually breaks instead: a test that runs git
+    must also know it might not be in a checkout.
+
+    Textual on purpose — it is a lint over test sources, not a behaviour — and
+    scoped to `["git"` because that is how every current caller spells it. A
+    caller that builds its argv some other way slips past; the point is to catch
+    the copy-paste shape that has now caused this once, not to be a type system.
+    """
+    offenders = []
+    for path in sorted((REPO / "tests").glob("test_*.py")):
+        text = path.read_text()
+        if '["git"' in text and '".git"' not in text:
+            offenders.append(path.name)
+    assert not offenders, (
+        "these shell out to git with no `(ROOT / '.git').exists()` guard, so they "
+        f"error rather than skip in an unpacked sdist: {offenders}"
+    )
+
+
 def test_the_sdist_leaves_out_what_a_consumer_cannot_use(sdist_names: set[str]):
-    """`uv.lock` alone was 27% of the sdist — half a megabyte pinning this
-    repo's dev environment, which says nothing about the package's own
-    requirements."""
+    """`uv.lock` pins this repo's dev environment, which says nothing about the
+    package's own requirements, so a consumer cannot use it.
+
+    Excluding it saves ~160 KiB, ~23% of the tarball — measured by building both
+    ways. This docstring said "27% ... half a megabyte" until PR #155's review
+    found the same two figures already corrected in `pyproject.toml` and not
+    here, in the test that actually enforces the exclusion. The absolute sizes
+    are deliberately absent: four measurements taken while editing this PR's own
+    prose gave four different answers, because every line added to the repo lands
+    in the tarball. Only the delta and the share hold still."""
     assert "uv.lock" not in sdist_names
     assert "CLAUDE.md" not in sdist_names
     assert "pyproject.toml" in sdist_names, "and the things a build needs are still there"

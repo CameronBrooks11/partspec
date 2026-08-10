@@ -275,16 +275,14 @@ def test_the_exempt_boundary_behaves(tmp_path: Path):
 
 
 def test_an_unreadable_file_is_unlintable_not_a_crash(tmp_path: Path, capsys):
-    import os
-
     scad = tmp_path / "m.scad"
     scad.write_text("cube([3, 3, 3]);\n")
-    os.chmod(scad, 0)
+    scad.chmod(0)
     try:
         assert main(["lint", str(scad)]) == 64
         assert "cannot read" in capsys.readouterr().err
     finally:
-        os.chmod(scad, 0o644)
+        scad.chmod(0o644)
 
 
 def test_multiline_call_arguments_are_not_top_level_variables(tmp_path: Path):

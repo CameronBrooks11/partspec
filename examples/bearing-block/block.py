@@ -17,4 +17,6 @@ def block(bore_d: float = 22.0, wall: float = 8.0, depth: float = 12.0) -> Part:
         * Rotation(-90, 0, 0)
         * Cylinder(bore_d / 2, depth + 2, align=(Align.CENTER, Align.CENTER, Align.MIN))
     )
-    return body - bore
+    # build123d types `-` as returning Compound; at runtime it returns Part,
+    # which is what this annotation promises and what the contract receives.
+    return body - bore  # pyright: ignore[reportReturnType]

@@ -22,10 +22,10 @@ from typing import Any
 from .status import Limit, Measurement, Status, Verdict, exit_code, verdict_of
 
 __all__ = [
-    "CheckResult",
-    "Report",
     "SCHEMA_VERSION",
     "TOOL_VERSION_FALLBACK",
+    "CheckResult",
+    "Report",
     "tool_version",
     "write_placeholder",
 ]
@@ -369,7 +369,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> Path:
             fh.write("\n")
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
+        Path(tmp).replace(path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise

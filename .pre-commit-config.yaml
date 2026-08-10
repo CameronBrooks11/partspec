@@ -12,10 +12,36 @@ repos:
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-added-large-files
+        # `uv.lock` is committed deliberately and lands between the two limits
+        # that matter: over the hook's 500 KB default, under this 1024. (It
+        # reports whole KB, `math.ceil(st_size / 1024)`; the exact byte count is
+        # left out because it moves on every dependency bump and nothing here
+        # would recheck it.) THIS ARGUMENT is what lets it through: nothing
+        # else does. Two earlier drafts of this comment credited the hook's
+        # `--diff-filter=A` filtering instead — true of the hook, irrelevant
+        # here, since 1024 admits the lock whether it is added or modified.
+        # Verified by running the hook against the real file at both limits:
+        # 1024 passes, 500 fails.
+        args: [--maxkb=1024]
 
+  # Pinned to the SAME ruff the gate runs. These hooks are mutating
+  # (`--fix`, `ruff-format`), so a version split means `git commit` can write a
+  # diff `just check` then rejects — two answers to one question, which is the
+  # drift `just setup`'s comment says this project already got burned by once.
+  # 0.11.12 and 0.16.1 happened to agree on this tree; that was luck, not a
+  # property.
+  #
+  # This said "the SAME ruff" while the dev group pinned `ruff==0.16.*`, which
+  # admits any patch release — so the two could not diverge by more than a
+  # patch, but "the same" was not what was pinned. The argument for exactness is
+  # not a claim about ruff's release practice (which I have not verified) but the
+  # absence of any guarantee that two different builds format identically,
+  # against a cost that is already documented above. Both are exact now, and
+  # `test_lint_config.py::test_both_ruff_pins_name_one_version` holds them
+  # equal, so bumping one alone fails the gate instead of drifting quietly.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.12
+    rev: v0.16.1
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       - id: ruff-format

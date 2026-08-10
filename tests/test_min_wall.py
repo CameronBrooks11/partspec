@@ -373,7 +373,7 @@ def test_the_antipodal_maps_are_diametric():
         (bd.Cone(8, 2, 20), 4.0),
     ]
     for shape, span in families:
-        seen = False  # noqa: SIM113
+        seen = False
         for face in shape.faces():
             surf = BRepAdaptor_Surface(face.wrapped)
             if not (surf.IsUClosed() or surf.IsVClosed()):
@@ -627,7 +627,7 @@ def test_an_unanswerable_chord_is_never_a_certificate(monkeypatch):
     fixture can reach must be forced at the seam rather than accepted as
     untestable — and the new function had two such branches. Both are forced
     here: a kernel that reports failure, and a kernel that raises."""
-    import OCP.BRepAlgoAPI  # pyright: ignore[reportMissingImports]
+    import OCP.BRepAlgoAPI
 
     from partspec.backends.occt import _chord_span
 

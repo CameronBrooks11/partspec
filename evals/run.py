@@ -368,7 +368,7 @@ def main() -> int:
             print(f"-- {cfg['id']} trial {n}/{args.trials}", flush=True)
             try:
                 t = run_trial(d, cfg, n, args.agent, args.partspec, out_dir, args.arm)
-            except Exception as exc:  # a harness fault is data, not a crash
+            except Exception as exc:  # noqa: BLE001 - a harness fault is data, not a crash
                 t = Trial(
                     case=cfg["id"], trial=n, outcome="error", note=f"{type(exc).__name__}: {exc}"
                 )

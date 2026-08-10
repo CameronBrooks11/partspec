@@ -51,9 +51,15 @@ Documentation = "https://github.com/CameronBrooks11/partspec/tree/main/docs"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# The sdist shipped everything not gitignored, and `uv.lock` alone was 27% of
-# it — half a megabyte a consumer cannot use, since it pins this repo's dev
-# environment and not the package's requirements.
+# The sdist shipped everything not gitignored, including `uv.lock` — which
+# pins this repo's dev environment, not the package's requirements, so a
+# consumer cannot use it. Building both ways, it costs ~160 KiB — about 23% of
+# the shipped tarball. NOT "half a megabyte", as this comment claimed: the lock
+# is 511 KiB on disk and gzip does most of the work on a file that repetitive,
+# so the number to quote is the one measured on the artifact that ships. No
+# absolute tarball sizes here on purpose: four measurements during this PR gave
+# four different answers, because every line of prose added to the repo lands in
+# the tarball. The delta and the share do not move.
 #
 # What is NOT excluded is the more considered half. `tests/` ships because a
 # downstream packager runs the suite from an sdist, and that claim only holds
@@ -62,7 +68,17 @@ build-backend = "hatchling.build"
 # The first draft of this list cut the last three and broke five tests in the
 # sdist, which is the same failure this slice exists to fix: a promise made
 # in prose and enforced by nothing. `test_the_sdist_carries_everything_the
-# _suite_reads` enforces it now.
+# _suite_reads` enforces the file list.
+#
+# The stronger claim — that the suite PASSES there — is not enforced by anything
+# (running it would double CI), so it is checked by hand and was false from #151
+# until PR #155: `test_docs.py` called `git ls-files` with no checkout guard and
+# errored out. Re-check with:
+#   uv build --sdist -o /tmp/sd && tar -xzf /tmp/sd/*.tar.gz -C /tmp/sd
+#   cd /tmp/sd/partspec-*/ && python -m pytest -q
+# The claim is ZERO FAILURES. The pass/skip tally is deliberately not written
+# down: it moves on every added test, which is the same reason the byte count
+# came out of `.pre-commit-config.yaml` in this commit's own diff.
 #
 # The wheel needs no such list: it was already exactly the package.
 [tool.hatch.build.targets.sdist]
@@ -70,9 +86,6 @@ exclude = [
   "uv.lock",
   "CLAUDE.md",
   ".pre-commit-config.yaml",
-  ".markdownlint.jsonc",
-  ".prettierrc",
-  ".prettierignore",
   ".editorconfig",
 ]
 
@@ -100,7 +113,7 @@ override-dependencies = ["cadquery-ocp-novtk ; sys_platform == 'never'"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    "ruff>=0.11",
+    "ruff==0.16.1",  # EXACT, and equal to .pre-commit-config.yaml — see the note there
     "pyright>=1.1",
 ]
 
@@ -118,12 +131,71 @@ extend-exclude = ["*.md", "notes"]
 force-exclude = true
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+# The rule set and the reasoning behind it, with `tests/test_lint_config.py`
+# re-deriving each claim below from ruff itself. PR #155's review found this
+# block asserting things written from memory — two counts wrong (`noqa: BLE001`
+# "ten", really eleven then and thirteen now; unused-argument findings "41 in
+# tests", really 37) and one rule retired on a false premise (RUF002, below).
+# Two other numbers it checked were right, so the defect was not "every number":
+# it was that nothing distinguished the wrong ones from the right ones until
+# someone re-ran ruff.
+#
+# `C4` costs zero outright: nothing in the tree trips it. `S102`, `S307` and
+# `BLE` cost zero only in the sense that matters least — `ruff check` is silent
+# because `# noqa` comments already sat there. Run `--ignore-noqa` and they find
+# real code: three of the five `S102`/`S307` sites are where this tool executes
+# user-supplied CAD-as-code (`engines/pycad.py`, `target.py`, `expr.py`) and two
+# are `tests/test_docs.py` executing documentation snippets, while the `BLE001`
+# ones are this project's blind excepts. Those annotations
+# suppressed rules nobody had enabled — a hazard stamped "reviewed and waived"
+# with no reviewer — and adopting the rules is what made them live.
+#
+# So the durable claim is not a count of them but the pair of properties the
+# test asserts: honoring `noqa`, each rule finds nothing (the tree is clean);
+# ignoring `noqa`, each finds something (the waivers cover real sites, and
+# `RUF100` proves none has gone inert).
+#
+# `ARG` is deliberately NOT adopted: an unused fixture argument is the normal
+# shape of a pytest test, most of its findings are there, and the real ones were
+# found by walking the AST instead.
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "PT", "RUF", "BLE", "S102", "S307"]
+
+# `PT018` only: 86 composite `assert a and b`, which the test re-derives — 81 in
+# `tests/` and 5 in `src/partspec/runner.py`, so "in tests" was not quite the
+# whole set — an unsafe autofix across every one, and a rule that affects
+# failure-message quality rather than correctness.
+#
+# `RUF002` is deliberately NOT ignored, though an earlier draft of this comment
+# claimed it had to be "because this repo writes em-dashes on purpose". Em-dashes
+# are never flagged by RUF001-003; every finding, then and now, is the
+# MULTIPLICATION SIGN in prose like "3 × 4". Allowing that one confusable keeps
+# the rule enforced at zero cost, where the blanket ignore would have retired it
+# on a false premise. The test asserts both halves: zero findings with `×`
+# allowed, and `×` as the only reason there would be any without it.
+ignore = ["PT018"]
+allowed-confusables = ["×"]
 
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["src", "tests"]
+# The pyright equivalent of ruff's RUF100. Without it a `# pyright: ignore` that
+# suppresses nothing passes silently — which is the decorative-waiver shape this
+# slice removed from the ruff side, so leaving it on the type-checker side would
+# have been inconsistent. Turning it on surfaced five stale ignores.
+#
+# It has a cost on the `just setup-mesh` path, where OCP is absent: the
+# `reportAttributeAccessIssue` ignores that remain in `tests/support.py` become
+# "unnecessary" there, so `just typecheck` fails for that reason ON TOP of the
+# unresolved OCP imports it already reported. CI installs `--all-extras` and is
+# unaffected, and `just setup-mesh` already warns that `just check` may differ —
+# but the light path now fails harder, which is a deliberate trade, not an
+# oversight.
+reportUnnecessaryTypeIgnoreComment = "error"
+include = ["src", "tests", "examples", "evals", "scripts"]
+# `examples/` in particular: it is user-facing teaching material, and an example
+# that would not type-check is a worse lesson than one that would. `evals/` and
+# `scripts/` were linted by ruff and never type-checked; both were already
+# clean, so including them costs nothing and stops the drift.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

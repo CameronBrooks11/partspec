@@ -65,4 +65,10 @@ def bracket(
     body = _plate(width, height, thickness) + _base(width, depth, thickness)
     for drill in _motor_holes(thickness, motor_centre_z):
         body -= drill
-    return body
+    # Here the union, not the cut, is what widens the type: pyright infers
+    # `Compound | Wire` for `body` (verified with `reveal_type`), because
+    # build123d's `+` admits a wire result. Runtime yields a `Part`, which is
+    # what the annotation promises and what the contract measures. The sibling
+    # suppression in `bearing-block/block.py` is a narrower case — a bare `-`,
+    # typed plain `Compound` — so the two are not the same waiver.
+    return body  # pyright: ignore[reportReturnType]

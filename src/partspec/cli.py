@@ -702,7 +702,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
-    total = sum(len(f["findings"]) for f in files)  # type: ignore[arg-type]
+    total = sum(len(f["findings"]) for f in files)
     payload = {
         "schema_version": LINT_SCHEMA_VERSION,
         "tool": {"name": "partspec-lint", "version": tool_version()},

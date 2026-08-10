@@ -24,11 +24,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
-    "Finding",
     "LINT_SCHEMA_VERSION",
-    "LintError",
     "RULES",
     "TIER2_RULES",
+    "Finding",
+    "LintError",
     "lint_path",
     "lint_scad_tier2",
 ]
