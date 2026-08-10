@@ -7,13 +7,30 @@
 # This workflow verifies the *artifact* — it builds, its metadata is valid, the
 # wheel installs cold and answers `--version`. Correctness of the code is the
 # `ok` gate's job, which every commit on main has already passed (main requires
-# a PR with `ok` green and linear history). Tags are expected to point at main.
+# a PR with `ok` green and linear history).
+#
+# That reasoning only holds if the tag is ON main, and this workflow used to
+# say so in prose and enforce nothing — `git tag v9.9.9 <any-commit> && git
+# push --tags` would have published code that never passed `ok`, since no
+# tests run here by design. The ancestry check below is what makes the
+# paragraph above true.
 
 name: Release
 
 on:
   push:
     tags: ["v*"]
+
+permissions:
+  contents: read
+
+# One release at a time, across ALL tags — not per-tag. `release-${{ github.ref }}`
+# would put v0.7.0 and v0.8.0 in different groups and run them concurrently,
+# which is the race this is here to prevent; it would only serialise re-runs
+# of the same tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -22,7 +39,29 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: `merge-base --is-ancestor` needs to see main.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
+
+      # The gate this workflow's whole safety argument rests on. Everything
+      # below verifies the artifact; nothing verifies the code, because the
+      # code is supposed to have passed `ok` on main already. A tag pointing
+      # anywhere else publishes something that never did.
+      #
+      # In a script so it can be tested — an inline gate is only ever grepped,
+      # and dropping one `!` would leave it green and inert.
+      #
+      # No `git fetch` first, deliberately. actions/checkout at fetch-depth: 0
+      # already creates refs/remotes/origin/*, so a fetch here is redundant —
+      # and worse than redundant twice over: under `bash -e` a transient
+      # network failure would false-BLOCK a real release, and creating
+      # origin/main shallow would replace the gate's precise "cannot resolve
+      # origin/main, the release job needs fetch-depth: 0" with a misleading
+      # "not on origin/main". Without it the guard is the single source of
+      # truth about why a release stopped.
+      - name: Assert the tag is on main
+        run: scripts/assert_tag_on_main.sh "$GITHUB_SHA" origin/main
 
       # A tag that disagrees with pyproject would publish a version whose name
       # lies about its content. Fail here, before anything is built.
@@ -70,4 +109,9 @@ jobs:
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      # SHA-pinned, not `@release/v1`. This is the one action in the repo that
+      # holds the OIDC identity for PyPI, and a branch ref is mutable — its
+      # contents can change under us between one release and the next. The
+      # pin below is v1.14.2, which is what `release/v1` pointed at when it
+      # was written; bump it deliberately, with the version in the comment.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
