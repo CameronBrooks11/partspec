@@ -7,19 +7,14 @@ from an untracked workspace (the audit revision's sharpening of #25).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import needs_openscad, report_of
 
 from partspec.cli import main
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
-
-
-def _report(out: Path) -> dict:
-    return json.loads((out / "report.json").read_text())
 
 
 def test_the_bracket_carries_the_standards_citation(tmp_path: Path):
@@ -27,7 +22,7 @@ def test_the_bracket_carries_the_standards_citation(tmp_path: Path):
     target = f"{EXAMPLES / 'stepper-bracket' / 'spec.py'}:stepper_bracket"
     assert main(["check", target, "--quiet", "--out", str(tmp_path)]) == 0
 
-    report = _report(tmp_path)
+    report = report_of(tmp_path)
     assert report["attribution"]["attributed"] >= 1, "the mount claims are cited"
     bolt = next(c for c in report["checks"] if c["id"] == "nema17:bolt_circle")
     assert bolt["status"] == "pass"
@@ -40,7 +35,7 @@ def test_the_bearing_family_follows_the_standard(tmp_path: Path):
     targets = [f"{spec}:seat_608", f"{spec}:seat_6000", f"{spec}:seat_6200"]
     assert main(["check", *targets, "--quiet", "--out", str(tmp_path)]) == 0
 
-    report = _report(tmp_path / "spec_py-seat_608")
+    report = report_of(tmp_path / "spec_py-seat_608")
     seat = next(c for c in report["checks"] if c["id"] == "iso15:608:seat")
     assert seat["status"] == "pass"
     assert seat["source"]["d"]["standard"] == "ISO 15"
@@ -54,7 +49,7 @@ def test_the_scad_leg_warns_about_its_unattributed_envelope(tmp_path: Path, caps
     target = f"{EXAMPLES / 'bearing-block' / 'spec_scad.py'}:seat_608"
     assert main(["check", target, "--out", str(tmp_path)]) == 0
     assert "is unattributed:" in capsys.readouterr().err
-    assert _report(tmp_path)["attribution"] == {"dimensional": 1, "attributed": 0}
+    assert report_of(tmp_path)["attribution"] == {"dimensional": 1, "attributed": 0}
 
 
 @needs_openscad
@@ -63,7 +58,7 @@ def test_the_enclosure_family_is_green_and_the_contradiction_is_not(tmp_path: Pa
     ok = [f"{spec}:small", f"{spec}:deep", f"{spec}:thickwall"]
     assert main(["check", *ok, "--quiet", "--out", str(tmp_path / "ok")]) == 0
 
-    report = _report(tmp_path / "ok" / "spec-small")
+    report = report_of(tmp_path / "ok" / "spec-small")
     genus = next(c for c in report["checks"] if c["kind"] == "genus")
     assert genus["status"] == "pass" and genus["measurement"]["value"] == 0
     cavities = next(c for c in report["checks"] if c["kind"] == "cavities")
@@ -73,7 +68,7 @@ def test_the_enclosure_family_is_green_and_the_contradiction_is_not(tmp_path: Pa
 
     code = main(["check", f"{spec}:contradictory", "--quiet", "--out", str(tmp_path / "bad")])
     assert code == 1, "the impossible member fails in the parameter phase"
-    bad = _report(tmp_path / "bad")
+    bad = report_of(tmp_path / "bad")
     failing = next(c for c in bad["checks"] if c["status"] == "fail")
     assert failing["phase"] == "parameter"
     assert failing["operands"], "the report names the values that contradicted"

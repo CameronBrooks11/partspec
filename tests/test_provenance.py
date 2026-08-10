@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
-from support import needs_mesh, needs_openscad
+from support import needs_build123d, needs_mesh, needs_openscad
 
 from partspec import Part, Referenced, openscad
 from partspec.provenance import source_map
@@ -163,10 +163,6 @@ def test_source_serialises_between_hole_and_detail():
 # end to end — F16, the finding this table exists for
 # --------------------------------------------------------------------------
 
-needs_build123d = pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
-    reason="occt extra not installed",
-)
 
 _SEAT_MODEL = (
     "from build123d import Box, Cylinder, Location, Align\n\n\n"
@@ -307,13 +303,8 @@ _BRACKET_MODEL = (
     "    return part\n"
 )
 
-needs_build123d_frag = pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
-    reason="occt extra not installed",
-)
 
-
-@needs_build123d_frag
+@needs_build123d
 def test_a_conforming_bracket_passes_the_mount_fragment(tmp_path: Path):
     from partspec import build123d
     from partspec.refs import nema17
@@ -333,7 +324,7 @@ def test_a_conforming_bracket_passes_the_mount_fragment(tmp_path: Path):
     assert circle.measurement.value == pytest.approx(43.8406, abs=1e-3)
 
 
-@needs_build123d_frag
+@needs_build123d
 def test_a_hole_off_pattern_fails_with_the_standard_named(tmp_path: Path):
     """#93 acceptance: one hole 1 mm off — the failing check's id and source
     name the standard, so the agent knows whose number it missed."""

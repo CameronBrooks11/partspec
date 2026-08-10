@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 
 import pytest
-from support import check_of, needs_mesh, needs_openscad, scad_target
+from support import check_of, needs_mesh, needs_openscad, report_of, scad_target
 
 from partspec.contract import ContractError, Part
 from partspec.status import Status
@@ -245,7 +245,6 @@ def test_an_unattributed_draft_min_draws_the_warning(tmp_path):
     circularizable class the attribution warning exists for — and the check
     was missing from DIMENSIONAL_KINDS, so a draft-only contract drew no
     warning."""
-    import json
 
     from partspec.cli import main
 
@@ -259,6 +258,6 @@ def test_an_unattributed_draft_min_draws_the_warning(tmp_path):
     )
     out = tmp_path / "out"
     main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)])
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert report["attribution"]["dimensional"] == 1
     assert report["attribution"]["attributed"] == 0

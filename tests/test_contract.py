@@ -13,8 +13,6 @@ from partspec.expr import evaluate, operands_of
 from partspec.status import ContractError
 from partspec.target import Target, TargetError, resolve
 
-FIXTURES = Path(__file__).parent / "fixtures"
-
 
 def _part(**params) -> Part:
     return Part("p", openscad("x.scad", **params))

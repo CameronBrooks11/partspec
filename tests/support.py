@@ -16,6 +16,7 @@ from partspec.status import Measurement
 
 __all__ = [
     "FIXTURES",
+    "OPENSCAD",
     "check_of",
     "decode_png",
     "forced_open_solid",
@@ -25,6 +26,7 @@ __all__ = [
     "needs_openscad",
     "openscad_supports_backend_flag",
     "refused",
+    "report_of",
     "scad_target",
     "sew_into_solid",
 ]
@@ -104,18 +106,50 @@ def scad_target(
     return f"{spec}:make"
 
 
+def report_of(out: Path) -> dict:
+    """The `report.json` written under `out`, parsed.
+
+    This read appeared 38 times across eight files (#153): 27 spelled
+    `json.loads((out / "report.json").read_text())` verbatim, 11 the same shape
+    over a different directory. The path is the tool's own convention —
+    `SPEC-report.md` §5.5 derives it from the target — so every one of those
+    sites carried a second copy of a fact the tool owns.
+
+    Named for what it returns rather than what it does, and kept next to
+    `check_of` so the pair reads as "the whole document" / "one check of it".
+
+    The missing-file assertion is the reason this is worth a helper rather than
+    an alias: `read_text()` on an absent report raises `FileNotFoundError`,
+    which says the file is missing but not that the run failed to write one —
+    and a report is written even when the run fails, so its absence is the
+    finding.
+
+    That message names the WRITER, not `partspec check`. Four call sites in
+    `test_report.py` drive `Report.write()` / `write_placeholder()` directly and
+    never invoke the CLI, so a message blaming `check --out` would point a
+    reader — plausibly a downstream packager running the shipped suite from an
+    sdist, with no repo to read — at a command the failing test never ran.
+    """
+    path = out / "report.json"
+    if not path.is_file():
+        present = sorted(p.name for p in out.iterdir()) if out.is_dir() else "no such directory"
+        raise AssertionError(
+            f"no report at {path}; the writer produces one even when the run "
+            f"fails (SPEC-report.md 5.5). Present: {present}"
+        )
+    return json.loads(path.read_text())
+
+
 def check_of(out: Path, kind: str) -> dict:
     """The one check of `kind` from the report written under `out`.
 
-    Replaces the eight report reads that selected a check by kind through a
-    `next(c for c in ... if c["kind"] == ...)` generator. Thirty-eight
-    hand-written reads remain; they want the whole document, and #153 tracks
-    whichever are worth a helper.
+    Replaces the report reads that selected a check by kind through a
+    `next(c for c in ... if c["kind"] == ...)` generator.
 
     Raises rather than returning None: an absent check is a test bug, and
     `StopIteration` inside a generator expression reads as a confusing error.
     """
-    doc = json.loads((out / "report.json").read_text())
+    doc = report_of(out)
     matching = [c for c in doc["checks"] if c["kind"] == kind]
     assert matching, (
         f"no {kind!r} check in the report; kinds present: {[c['kind'] for c in doc['checks']]}"

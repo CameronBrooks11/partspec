@@ -398,8 +398,6 @@ from support import needs_build123d, needs_openscad  # noqa: E402
 
 pytest.importorskip("trimesh", reason="mesh extra not installed")
 
-FIXTURES = Path(__file__).parent / "fixtures"
-
 
 def _run_cli(*argv: str) -> tuple[int, str, str]:
     import io
