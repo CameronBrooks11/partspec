@@ -394,7 +394,7 @@ def test_two_reports_with_no_closure_at_all_are_not_identical():
 # end to end, on real runs
 # --------------------------------------------------------------------------
 
-from support import needs_openscad  # noqa: E402
+from support import needs_build123d, needs_openscad  # noqa: E402
 
 pytest.importorskip("trimesh", reason="mesh extra not installed")
 
@@ -709,3 +709,75 @@ def test_cli_malformed_reports_and_usage_typos_exit_64_not_a_verdict(tmp_path: P
     with pytest.raises(SystemExit) as excinfo:
         _run_cli("diff", str(good))  # forgotten second argument
     assert excinfo.value.code == 64
+
+
+# --------------------------------------------------------------------------
+# tests that live here because their subject is the DIFF
+#
+# Both were written beside the slice whose fixture they borrowed (#153): the
+# citation one in `test_provenance.py`, the pull-axis one in `test_draft.py`.
+# Each asserts a property of the comparator — that stripping authority is
+# visible, that a rotated axis is a claim change — so this is where a reader
+# looking for "what does diff notice?" will look for them.
+# --------------------------------------------------------------------------
+
+_A_CITATION = {"standard": "TEST", "subject": "x", "field": "f"}
+
+
+def test_stripping_a_citation_is_diff_visible():
+    """The quiet half of the weakening move: same number, authority gone.
+    'No semantic differences' over it would be exactly the silence the diff
+    verb exists to refuse (#92's design constraint, missed on first cut)."""
+    from partspec.diff import diff_reports
+    from partspec.report import CheckResult, Report
+    from partspec.status import Limit, Status
+
+    def doc(source):
+        r = Report(part_id="p", contract="c", tool_version="t", contract_digest="sha256:x")
+        r.checks = [
+            CheckResult(
+                id="envelope",
+                kind="envelope",
+                phase="geometry",
+                status=Status.PASS,
+                limit=Limit(max=(50.0, 50.0, 7.0)),
+                source=source,
+            )
+        ]
+        return r.to_json()
+
+    diff = diff_reports(doc({"max.2": _A_CITATION}), doc(None), tool_version="t")
+    assert diff["outcome"] == "different"
+    entry = diff["checks"][0]
+    assert entry["change"] == "limit_changed"
+    assert entry["claim"]["old"]["source"] == {"max.2": _A_CITATION}
+    assert entry["claim"]["new"]["source"] is None
+
+
+@needs_build123d
+def test_the_diff_verb_sees_a_rotated_pull_axis(tmp_path):
+    """PR #141 review, F2: rotating the pull axis is a claim change the
+    semantic diff must name — a draft claim without its axis is not
+    reproducible, so the axis is part of the claim's identity."""
+    from partspec.cli import main
+
+    model = "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
+    (tmp_path / "m.py").write_text(model)
+    for name, direction in (("a", "(0, 0, 1)"), ("b", "(1, 0, 0)")):
+        (tmp_path / f"spec_{name}.py").write_text(
+            "from partspec import Part, build123d\n\n\ndef make():\n"
+            "    p = Part('subject', build123d('m.py'))\n"
+            f"    p.draft_angle(min=1.0, direction={direction})\n"
+            "    return p\n"
+        )
+        main(
+            [
+                "check",
+                f"{tmp_path / f'spec_{name}.py'}:make",
+                "--quiet",
+                "--out",
+                str(tmp_path / name),
+            ]
+        )
+    code = main(["diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")])
+    assert code == 1, "a rotated pull axis is a difference, not silence"

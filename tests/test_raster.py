@@ -17,6 +17,8 @@ import pytest
 
 np = pytest.importorskip("numpy", reason="occt extra not installed")
 
+from support import decode_png  # noqa: E402
+
 from partspec.backend import BuildError  # noqa: E402
 from partspec.raster import (  # noqa: E402
     TESSELLATION_TOLERANCE_MM,
@@ -225,6 +227,12 @@ def test_the_png_is_a_png_and_the_pixels_round_trip(tmp_path: Path):
     img[..., 2] = 255
     path = tmp_path / "t.png"
     write_png(path, img)
+    # Decoded by hand, NOT through `support.decode_png` (#153). This is the
+    # test that establishes the writer contract that helper depends on — it
+    # asserts filter 0 on every row because `write_png` promises it. Verifying
+    # that promise with a decoder that assumes it would let the two drift
+    # together and catch nothing. The other two sites in this file are the
+    # ordinary case and do use the helper.
     data = path.read_bytes()
     assert data[:8] == b"\x89PNG\r\n\x1a\n"
     width, height = struct.unpack(">II", data[16:24])
@@ -278,19 +286,8 @@ def test_the_production_framing_constants_bind(tmp_path: Path):
     result = render_views(bd.Box(20, 20, 20), tmp_path)
     assert not isinstance(result, BuildError)
     views, _, _ = result
-    data = views["front"].read_bytes()
-    width, height = struct.unpack(">II", data[16:24])
-    idat = b""
-    pos = 8
-    while pos < len(data):
-        length, kind = struct.unpack(">I4s", data[pos : pos + 8])
-        if kind == b"IDAT":
-            idat += data[pos + 8 : pos + 8 + length]
-        pos += 12 + length
-    raw = zlib.decompress(idat)
-    img = (
-        np.frombuffer(raw, np.uint8).reshape(height, width * 3 + 1)[:, 1:].reshape(height, width, 3)
-    )
+    width, height, rgb = decode_png(views["front"])
+    img = np.frombuffer(rgb, np.uint8).reshape(height, width, 3)
     mask = np.abs(img.astype(int) - img[0, 0].astype(int)).sum(axis=2) > 40
     ys, xs = np.nonzero(mask)
     assert abs((xs.max() - xs.min() + 1) - 528) <= 2
@@ -311,19 +308,9 @@ def test_render_views_refuses_an_empty_shape(tmp_path: Path):
 
 
 def _decode(path: Path):
-    data = path.read_bytes()
-    width, height = struct.unpack(">II", data[16:24])
-    idat = b""
-    pos = 8
-    while pos < len(data):
-        length, kind = struct.unpack(">I4s", data[pos : pos + 8])
-        if kind == b"IDAT":
-            idat += data[pos + 8 : pos + 8 + length]
-        pos += 12 + length
-    raw = zlib.decompress(idat)
-    return (
-        np.frombuffer(raw, np.uint8).reshape(height, width * 3 + 1)[:, 1:].reshape(height, width, 3)
-    )
+    """`support.decode_png` as an (h, w, 3) array, which is what this file wants."""
+    width, height, rgb = decode_png(path)
+    return np.frombuffer(rgb, np.uint8).reshape(height, width, 3)
 
 
 def test_read_stl_round_trips_a_hand_written_facet(tmp_path: Path):
