@@ -573,12 +573,34 @@ def test_the_id_uniqueness_guard_names_every_repeated_id():
     assert "wall_gt_2" in str(exc.value) and "fits" in str(exc.value)
 
 
-def test_an_honest_report_is_not_caught_by_the_uniqueness_guard():
-    """The guard must not fire on the ordinary case — two checks of one KIND
-    under distinct ids, which `p.volume(min=).volume(max=, id=)` produces and
-    `test_duplicate_kinds_are_fine_with_explicit_ids` declares legal."""
-    doc = _diff(_doc(), _doc())
-    assert doc["outcome"] == "identical"
+def test_two_checks_of_one_kind_under_distinct_ids_are_not_caught():
+    """The ordinary legal case the guard must not fire on.
+
+    `p.volume(min=).volume(max=, id="volume_ceiling")` is legal — declared so by
+    `test_duplicate_kinds_are_fine_with_explicit_ids` — so a guard keying on
+    anything but the id, or deduping over-broadly, must fail here.
+
+    The first version of this test asserted `_diff(_doc(), _doc())` is
+    `identical` while claiming in its docstring to cover exactly the above.
+    `_doc()` carries four checks with four DISTINCT kinds, so it constructed no
+    such pair, duplicated four existing tests, and passed with the guard
+    deleted — a test whose docstring was a claim about itself that nothing
+    executed, which is the shape #150 spent a whole slice removing (PR #157
+    review). It now builds the pair.
+    """
+    doc = _doc()
+    ceiling = dict(doc["checks"][3])  # the `envelope` check, a real vector kind
+    assert ceiling["kind"] == "envelope", "fixture changed; pick another kind to duplicate"
+    ceiling["id"] = "envelope_ceiling"
+    doc["checks"] = [*doc["checks"], ceiling]
+    doc["counts"]["total"] = len(doc["checks"])
+
+    kinds = [c["kind"] for c in doc["checks"]]
+    assert kinds.count("envelope") == 2, "the pair this test exists for"
+    assert len({c["id"] for c in doc["checks"]}) == len(doc["checks"]), "ids stay distinct"
+
+    result = _diff(doc, doc)
+    assert result["outcome"] == "identical"
 
 
 def test_cli_malformed_reports_and_usage_typos_exit_64_not_a_verdict(tmp_path: Path):
@@ -597,6 +619,32 @@ def test_cli_malformed_reports_and_usage_typos_exit_64_not_a_verdict(tmp_path: P
     array = tmp_path / "array.json"
     array.write_text("[]")
     assert _run_cli("diff", str(good), str(array))[0] == 64
+
+    # Aliased ids, end to end. Every other test of the uniqueness guard asserts
+    # `DiffUsageError`; SPEC-diff's table claims exit 64, and until this line
+    # nothing checked that the exception reaches the process exit code as one
+    # (PR #157 review).
+    aliased = _doc()
+    twin = dict(aliased["checks"][0])
+    twin["kind"] = "genus"
+    aliased["checks"] = [aliased["checks"][0], twin, *aliased["checks"][1:]]
+    aliased["counts"]["total"] = len(aliased["checks"])
+    dupes = tmp_path / "dupes.json"
+    dupes.write_text(json.dumps(aliased))
+    code, _, err = _run_cli("diff", str(good), str(dupes))
+    assert code == 64
+    assert "wall_gt_2" in err, "the exit code must arrive with the id that caused it"
+
+    # A check with no id at all is a DIFFERENT defect and must say so, rather
+    # than be reported as `None` appearing twice.
+    idless = _doc()
+    for check in idless["checks"][:2]:
+        check.pop("id")
+    missing = tmp_path / "idless.json"
+    missing.write_text(json.dumps(idless))
+    code, _, err = _run_cli("diff", str(good), str(missing))
+    assert code == 64
+    assert "no `id`" in err, f"a missing id must be diagnosed as missing, got: {err}"
 
     with pytest.raises(SystemExit) as excinfo:
         _run_cli("diff", str(good))  # forgotten second argument

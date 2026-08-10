@@ -42,16 +42,6 @@ Rules:
 
 1. Two reports with different `part.id` MUST be refused with exit `64`: `diff` compares two
    runs of one part, and comparing strangers is a usage error, not a finding.
-1a. **Check ids MUST be unique within each input**, refused with exit `64` (#148). The
-   comparator joins on `id`, so a report carrying two checks under one id does not merely
-   lose a check — the second silently replaces the first and two unrelated claims are
-   compared as one. Measured before the guard existed: a `genus` check aliased onto a
-   `param_range` check reported `limit_changed` from `{"kind": "param_range"}` to
-   `{"kind": "genus"}` at exit `1`, with the displaced claim absent from the output
-   entirely. `counts.total` does not catch it — such a report carries exactly the number
-   of checks it claims. `Part._add` refuses an id clash at authoring time, so `partspec`
-   cannot emit one; this rule binds `diff` because the report schema is the product
-   surface (D5) and the comparator must not assume it produced its own input.
 2. A report whose `verdict` is `"error"` compares nothing — its checks are all `skipped` and
    its run did not complete. Either input erroring MUST make the outcome `indeterminate`.
 3. **The partial-closure rule** (§8.3): when no differences are found but the inputs' source
@@ -61,6 +51,17 @@ Rules:
    stated — claiming `identical` there is the silence-as-success mistake at the provenance
    layer. Found differences are real regardless of closure partiality, so this rule only
    ever blocks the `identical` claim, never the `different` one.
+4. **Check ids MUST be unique within each input**, refused with exit `64` (#148). The
+   comparator joins on `id`, so a report carrying two checks under one id does not merely
+   lose a check — the second silently replaces the first and two unrelated claims are
+   compared as one. Measured before the guard existed: a `genus` check aliased onto a
+   `param_range` check reported `limit_changed` from `{"kind": "param_range"}` to
+   `{"kind": "genus"}` at exit `1`, with the displaced claim absent from the output
+   entirely. `counts.total` does not catch it — such a report carries exactly the number
+   of checks it claims. A check carrying no `id` at all is a missing REQUIRED field and is
+   refused as that, not as a repeated `null`. `Part._add` refuses an id clash at authoring
+   time, so `partspec` cannot emit one; this rule binds `diff` because the report schema is
+   the product surface (D5) and the comparator must not assume it produced its own input.
 
 ## 3. What is compared
 

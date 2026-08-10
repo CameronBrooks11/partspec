@@ -213,14 +213,31 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"carries {len(report.get('checks', []))} checks"
             )
 
+        ids = [c.get("id") for c in report.get("checks", []) if isinstance(c, dict)]
+
+        # A check with no id is a MISSING FIELD, not a collision, and saying so
+        # matters: mapping it to None first made two id-less checks report as
+        # "None appears more than once", which is a confident diagnosis of the
+        # wrong defect. Before this guard the join raised `KeyError: 'id'` and
+        # the CLI rendered "not well-formed reports", which was less precise but
+        # not misleading (PR #157 review).
+        absent = sum(1 for i in ids if i is None)
+        if absent:
+            raise DiffUsageError(
+                f"the {label} report has {absent} check(s) with no `id`. "
+                f"`checks[].id` is REQUIRED and is the key this comparison joins on "
+                f"(SPEC-report.md 7.1)"
+            )
+
         # Ids must be unique, for the same reason and in the same class (#148).
         # The comparator joins on id, so a report carrying two checks under one
         # id does not merely lose information — it produces a CONFIDENT WRONG
-        # answer. Observed before this guard, comparing a two-check report
-        # against one where a `genus` check had aliased onto a `volume` one:
-        # the volume claim vanished from the analysis entirely and the survivor
-        # was reported as `limit_changed` from `{"kind": "volume"}` to
-        # `{"kind": "genus"}` — two unrelated claims diffed as one, exit 1.
+        # answer. Measured before this guard, on the input
+        # `test_a_report_with_two_checks_under_one_id_is_corrupt_input` builds:
+        # the displaced `param_range` claim vanished from the analysis entirely
+        # and the survivor was reported as `limit_changed` from
+        # `{"kind": "param_range"}` to `{"kind": "genus"}` — two unrelated
+        # claims diffed as one, exit 1.
         #
         # `counts.total` cannot catch this: both reports carried the number of
         # checks they said they did. Uniqueness is a separate invariant.
@@ -230,14 +247,20 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         # report schema is the stable product surface (D5), `diff` consumes
         # whatever is handed to it, and a guarantee that holds only for reports
         # we produced is not one the comparator may assume.
-        ids = [c.get("id") for c in report.get("checks", []) if isinstance(c, dict)]
-        duplicated = sorted({i for i in ids if ids.count(i) > 1}, key=lambda i: (i is None, i))
+        #
+        # Counted by `repr`, not by the ids themselves: this function's contract
+        # is that unusable input raises DiffUsageError, and a hand-written report
+        # can carry an unhashable id (a list) or ids of mixed type, both of which
+        # made the set comprehension or the sort raise TypeError straight out of
+        # the guard — losing the message that names the offender.
+        keys = [repr(i) for i in ids]
+        duplicated = sorted({k for k in keys if keys.count(k) > 1})
         if duplicated:
             raise DiffUsageError(
                 f"the {label} report is corrupt: check ids must be unique because the "
                 f"comparison joins on them, and these appear more than once: "
-                f"{duplicated}. Two different claims under one id are compared as if "
-                f"they were the same claim."
+                f"{', '.join(duplicated)}. Two different claims under one id are "
+                f"compared as if they were the same claim."
             )
     old_part, new_part = old.get("part", {}), new.get("part", {})
     if old_part.get("id") != new_part.get("id"):
