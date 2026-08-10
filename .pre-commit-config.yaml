@@ -12,9 +12,11 @@ repos:
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-added-large-files
-        # `uv.lock` is committed deliberately and the hook rounds it up to
-        # 512 KB (`math.ceil(st_size / 1024)` over 523747 bytes), past the
-        # default 500 KB limit. THIS ARGUMENT is what lets it through: nothing
+        # `uv.lock` is committed deliberately and lands between the two limits
+        # that matter: over the hook's 500 KB default, under this 1024. (It
+        # reports whole KB, `math.ceil(st_size / 1024)`; the exact byte count is
+        # left out because it moves on every dependency bump and nothing here
+        # would recheck it.) THIS ARGUMENT is what lets it through: nothing
         # else does. Two earlier drafts of this comment credited the hook's
         # `--diff-filter=A` filtering instead — true of the hook, irrelevant
         # here, since 1024 admits the lock whether it is added or modified.

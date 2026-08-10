@@ -1,10 +1,17 @@
 """The lint configuration's own prose, held to what ruff actually reports.
 
 `pyproject.toml`'s `[tool.ruff.lint]` block explains what adopting each rule
-cost and why two things are handled specially. PR #155's review found four of
-those numbers wrong — eleven `BLE001` annotations called ten, 37 test findings
-called 41, and a whole rule disabled "because this repo writes em-dashes" when
-every finding was a multiplication sign. All four were written from memory.
+cost and why two things are handled specially. PR #155's review found two of
+those counts wrong — `BLE001` annotations called ten, really eleven then and
+thirteen now; unused-argument findings called "41 in tests", really 37 — plus a
+rule disabled "because this repo writes em-dashes" when every finding was a
+multiplication sign. Two other numbers it checked were right (`RUF002`'s six, and
+55 unused arguments in total), which is the actual defect: nothing distinguished
+the wrong ones from the right ones without re-running ruff.
+
+This said "four of those numbers ... all four" while `pyproject.toml` already
+said two — one file corrected, its neighbour not, which is the same miss the
+review caught in `test_packaging.py`'s docstring one round earlier.
 
 So they are derived here. This is the repo's own thesis pointed at its own
 configuration: a number in prose beside the data it describes is a claim, and a
@@ -57,8 +64,11 @@ def _ruff(*args: str) -> subprocess.CompletedProcess:
     # selector, an unparseable config). Without this, every "assert the count is
     # zero" test below passes on an empty stdout from a crashed ruff — silence
     # reading as success, in the file written to refuse exactly that. Found by
-    # PR #155's review, which broke the config deliberately: five tests failed
-    # and two passed, both of the form "the tool found nothing".
+    # PR #155's review, which broke the config deliberately: five failed and
+    # THREE passed — two of the three of the form "the tool found nothing", the
+    # third (`test_both_ruff_pins_name_one_version`) reading only files and so
+    # rightly indifferent to whether ruff runs. This said "two passed", which
+    # does not sum to eight.
     assert result.returncode in (0, 1), (
         f"ruff could not run (exit {result.returncode}); "
         f"a zero count below would be meaningless:\n{result.stderr.strip()}"
@@ -96,15 +106,18 @@ def test_the_tree_is_clean_under_the_declared_rules():
     """The premise everything else rests on.
 
     Truncated on failure. When CI extracted an OpenSCAD AppImage into the
-    checkout, this assertion was correct — the tree really was not clean — but
-    it printed every finding in a bundled Python 3.10 stdlib and buried the one
-    line naming the cause. Ten is enough to see whether the findings are yours.
+    checkout, this assertion was correct — the tree really was not clean — but it
+    printed every finding in a bundled Python 3.10 stdlib: tens of thousands of
+    lines, of which the FIRST named the cause. So nothing was buried under the
+    noise; the noise was the problem. Ten lines is enough to see whether the
+    paths are yours, and ruff's own trailing count is kept because it says how
+    bad it is.
     """
     result = _ruff()
     lines = result.stdout.splitlines()
     shown = "\n".join(lines[:10])
     if len(lines) > 10:
-        shown += f"\n... and {len(lines) - 10} more lines"
+        shown += f"\n... and {len(lines) - 10} more lines\n{lines[-1]}"
     assert result.returncode == 0, f"the configured rule set must pass on this tree:\n{shown}"
 
 

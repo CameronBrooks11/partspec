@@ -251,9 +251,9 @@ def test_the_sdist_leaves_out_what_a_consumer_cannot_use(sdist_names: set[str]):
     ways. This docstring said "27% ... half a megabyte" until PR #155's review
     found the same two figures already corrected in `pyproject.toml` and not
     here, in the test that actually enforces the exclusion. The absolute sizes
-    are deliberately absent: they moved 529 → 531.0 → 531.4 KiB across three
-    measurements taken while editing this very PR's prose, so only the delta and
-    the share are stable enough to write down."""
+    is deliberately absent: four measurements taken while editing this PR's own
+    prose gave four different answers, because every line added to the repo lands
+    in the tarball. Only the delta and the share hold still."""
     assert "uv.lock" not in sdist_names
     assert "CLAUDE.md" not in sdist_names
     assert "pyproject.toml" in sdist_names, "and the things a build needs are still there"
