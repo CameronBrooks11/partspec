@@ -71,9 +71,15 @@ build-backend = "hatchling.build"
 # for one reason: tests read them. That is an inverted dependency — the test
 # tail wagging the artifact — and the tests doing the reading were asserting
 # that phrases appeared in prose, which cannot distinguish a true claim from a
-# false one. They are deleted, not skip-guarded, so nothing reads those trees
-# and the question of shipping them does not arise. Repo archaeology is not
-# part of the distribution.
+# false one. They are deleted, not skip-guarded. Repo archaeology is not part
+# of the distribution.
+#
+# Precisely: nothing reads them AS FIXTURES any more. `test_lint_config.py`
+# still globs `evals/**/*.py`, and `ruff` lints both trees — but that whole
+# module is `skipif`-ed without a `.git`, because it asks what this checkout
+# lints to, which an unpacked sdist cannot answer. So the sdist needs neither
+# tree. Stated exactly rather than as "nothing reads them", because this
+# comment is what the next person editing the list will trust (PR #156 review).
 #
 # The stronger claim — that the suite PASSES there — is not enforced by anything
 # (running it would double CI), so it is checked by hand and was false from #151

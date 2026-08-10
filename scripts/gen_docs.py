@@ -26,9 +26,10 @@ are a projection of the code by definition and carry no judgement: which methods
 exist, which kind each emits, which tier answers it. The arguments around them
 stay hand-written and stay normative.
 
-Usage:
-    scripts/gen_docs.py            # rewrite the blocks in place
-    scripts/gen_docs.py --check    # exit 1 if any block is stale (CI)
+Usage (via uv, as `just fmt` and `scripts/check_ocp.py` are invoked — the
+shebang is decorative, this file is not committed executable):
+    uv run python scripts/gen_docs.py            # rewrite the blocks in place
+    uv run python scripts/gen_docs.py --check    # exit 1 if a block is stale
 """
 
 from __future__ import annotations
@@ -125,17 +126,32 @@ def _measurement_cell(kind: str) -> str:
     return f"{cell} ({m.note})" if m.note else cell
 
 
+# Primitives a kind needs BEYOND the one `GEOMETRY_KINDS` records. The region
+# checks are evaluated in the runner from `region_solid` AND `intersect_volume`
+# (SPEC-contract §4.4), and only the first is in that map — so a tier derived
+# from it alone would answer for half the work. Both are on both tiers today,
+# so this changes no cell; it means the answer stays right if that stops being
+# true, in the direction that matters (a table saying "both" for a check the
+# mesh runner refuses tells an author to write a check that cannot pass).
+_ALSO_NEEDS: dict[str, tuple[str, ...]] = {
+    "keep_out": ("intersect_volume",),
+    "keep_in": ("intersect_volume",),
+}
+
+
 def _tier_cell(kind: str) -> str:
     """Derived from the capability sets, never asserted.
 
-    A kind whose primitive only OCCT declares is OCCT-only; the runner refuses
-    it on the mesh tier. `keep_out`/`keep_in` compose two primitives, and both
-    are on both tiers.
+    A kind is OCCT-only if ANY primitive it needs is one only OCCT declares —
+    the runner refuses the whole check on the mesh tier in that case.
+
+    Indexed, not `.get`: every caller passes a `GEOMETRY_KINDS` key, so a
+    missing one is a bug worth raising rather than a cell quietly reading
+    "both". The earlier `.get(...) or "both"` was a branch nothing could reach
+    that also claimed, wrongly, to be how the region checks were handled.
     """
-    primitive = contract.GEOMETRY_KINDS.get(kind)
-    if primitive is None:
-        return "both"
-    occt_only = primitive in occt.CAPABILITIES and primitive not in mesh.CAPABILITIES
+    needed = (contract.GEOMETRY_KINDS[kind], *_ALSO_NEEDS.get(kind, ()))
+    occt_only = any(p in occt.CAPABILITIES and p not in mesh.CAPABILITIES for p in needed)
     return "**occt only**" if occt_only else "both"
 
 
@@ -337,7 +353,10 @@ def main() -> int:
         if stale:
             names = ", ".join(p.relative_to(ROOT).as_posix() for p in stale)
             print(f"generated blocks are out of date in: {names}", file=sys.stderr)
-            print("run `just fmt` (or scripts/gen_docs.py) and commit the result", file=sys.stderr)
+            print(
+                "run `just fmt` (or `uv run python scripts/gen_docs.py`) and commit the result",
+                file=sys.stderr,
+            )
             return 1
         return 0
 

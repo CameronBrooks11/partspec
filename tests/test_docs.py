@@ -465,3 +465,41 @@ def test_every_repo_path_the_specs_cite_can_be_opened():
                 continue
             missing.append(f"{doc.name} -> {cited}")
     assert not missing, "cited paths no reader can open:\n  " + "\n  ".join(missing)
+
+
+def test_the_generated_doc_blocks_are_current():
+    """`scripts/gen_docs.py --check`, run from the test suite.
+
+    This is NOT the pattern the module docstring forbids. It does not read a
+    doc, read the code and diff two copies — it asks whether the one copy is
+    current, the same question `ruff format --check` asks. There is no second
+    source of truth for it to disagree with.
+
+    It lives here rather than only in `just check` because of where CI runs
+    each. `check` is gated on `needs.changes.outputs.code == 'true'`, and that
+    filter is `['**', '!**/*.md']`, so a markdown-only PR skips it and `ok`
+    passes on skipped jobs. The `test` job is deliberately ungated — its comment
+    says "a docs-only change can genuinely break it". Moving this enforcement
+    into `check` alone would therefore have let exactly the change it polices
+    through: hand-editing a generated table in `docs/SPEC-contract.md`, touching
+    no other file, merges green. Found in PR #156's review; the six tests this
+    machinery replaced all ran in the ungated job, so this restores the coverage
+    rather than adding new.
+    """
+    import subprocess
+    import sys
+
+    script = ROOT / "scripts" / "gen_docs.py"
+    if not script.exists():
+        pytest.skip("gen_docs.py is not present in this tree")
+    result = subprocess.run(
+        [sys.executable, str(script), "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        "a generated doc block is stale or misplaced; run `just fmt`.\n"
+        f"{result.stdout}{result.stderr}"
+    )

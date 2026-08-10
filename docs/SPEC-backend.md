@@ -173,8 +173,9 @@ class GeometryBackend(Protocol):
     #     CAPABILITIES for a day while this Protocol said nothing about them,
     #     and nothing noticed because nothing in src/ or tests/ ever does
     #     `isinstance(x, GeometryBackend)`. A structural type that lags the
-    #     structures it types is decoration; the spec's block and this one are
-    #     now held equal by a test. ---
+    #     structures it types is decoration. SPEC-backend §3 no longer holds a
+    #     second copy of this block to be compared against — it is generated
+    #     from this class, so there is nothing left to disagree. ---
 
     def draft_angle(
         self, a: Any, direction: tuple[float, float, float]

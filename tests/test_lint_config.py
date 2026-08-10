@@ -253,7 +253,16 @@ def test_pt018_is_ignored_for_a_reason_that_still_holds():
     # for the same reason: that paragraph's numbers were found wrong once, and
     # so were this one's. Without this the figures simply come back.
     ignore_prose = PYPROJECT.read_text()
-    paragraph = ignore_prose[ignore_prose.index("# `PT018` only:") : ignore_prose.index("ignore =")]
+    start = ignore_prose.index("# `PT018` only:")
+    # Searched FROM `start`, not from position 0. Searching the whole file found
+    # the first `ignore =` anywhere in it; today that is the one below this
+    # paragraph, but any earlier table gaining an `ignore =` key would put the
+    # end before the start, and Python answers a reversed slice with `''` rather
+    # than an error. `re.search` on `''` is None, so the assertion would pass for
+    # every possible input and the counts could quietly come back — a guard that
+    # cannot fail, which is the thing this file exists to refuse (PR #156 review).
+    paragraph = ignore_prose[start : ignore_prose.index("ignore =", start)]
+    assert paragraph.strip(), "the PT018 paragraph came back empty; the guard would be vacuous"
     assert not re.search(r"PT018.{0,120}\b\d+\b", paragraph, re.S), (
         "the PT018 rationale must not carry a hand-maintained count"
     )
