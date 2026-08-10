@@ -74,6 +74,27 @@ composed in the runner from `region_solid` and `intersect_volume` rather than
 being one primitive call (SPEC-contract.md 4.4)."""
 
 
+EXTRA_PRIMITIVES: dict[str, tuple[str, ...]] = {
+    "keep_out": ("intersect_volume",),
+    "keep_in": ("intersect_volume",),
+}
+"""Primitives a kind needs BEYOND the one `GEOMETRY_KINDS` records.
+
+The region checks are composed in the runner from `region_solid` AND
+`intersect_volume` (SPEC-contract.md 4.4), and only the first is in that map, so
+anything deriving a tier from `GEOMETRY_KINDS` alone answers for half the work.
+Both are on both tiers today, so nothing reads differently — this exists so the
+answer stays right if that stops being true, in the direction that matters: a
+table promising `both` for a check the mesh runner refuses tells an author to
+write a check that cannot pass.
+
+Held against the runner by `test_the_extra_primitives_match_what_the_runner_calls`
+rather than maintained by hand. It was a hand-maintained third copy of a fact
+already stated in `runner.py` and in §4.4 when PR #156's review found it, which
+is the same shape as the `MEASURANDS` unit column one entry down — and that one
+is pinned, so this one is too."""
+
+
 @dataclass(frozen=True, slots=True)
 class Measurand:
     """How a kind's measurement is shaped: scalar or vector, in what unit, and

@@ -489,9 +489,17 @@ def test_the_generated_doc_blocks_are_current():
     import subprocess
     import sys
 
+    # Asserted, not skipped. A skip here would be silent in the one place it
+    # matters: `scripts/` is in the sdist today, and a later tarball-shrinking
+    # PR that excluded it would leave this test reporting a reassuring SKIP
+    # rather than a failure. `test_the_sdist_carries_everything_the_suite_reads`
+    # names this path for the same reason, so the two hold each other up
+    # (PR #156 review, finding B).
     script = ROOT / "scripts" / "gen_docs.py"
-    if not script.exists():
-        pytest.skip("gen_docs.py is not present in this tree")
+    assert script.exists(), (
+        f"{script} is missing, so nothing here checks the generated doc blocks. "
+        "If the sdist stopped shipping scripts/, that is the bug."
+    )
     result = subprocess.run(
         [sys.executable, str(script), "--check"],
         cwd=ROOT,

@@ -603,3 +603,61 @@ def test_the_declared_units_are_exactly_the_units_the_tool_emits():
         f"declared and never emitted: {sorted(declared - emitted)}; "
         f"emitted and undeclared: {sorted(emitted - declared)}"
     )
+
+
+def test_the_extra_primitives_match_what_the_runner_calls():
+    """`EXTRA_PRIMITIVES` is derived from the runner, not remembered.
+
+    A kind's tier is computed from every primitive it needs. `GEOMETRY_KINDS`
+    records one per kind, and the region checks are composed in the runner from
+    two — so `EXTRA_PRIMITIVES` carries the remainder. That started as a third
+    hand-written copy of a fact already in `runner.py` and in SPEC-contract §4.4,
+    with nothing holding it to either (PR #156 review, finding C). The failure it
+    invites is silent: a later composed check lands with a `GEOMETRY_KINDS` entry
+    and no `EXTRA_PRIMITIVES` entry, and §4.2's tier cell answers from half the
+    work while every test stays green.
+
+    So the map is checked against the handlers. For each `_run_<x>_check` in the
+    runner, the declared primitives it calls must be exactly the ones the two
+    maps promise for the kinds it serves.
+    """
+    import ast
+
+    from partspec.backends import mesh, occt
+    from partspec.contract import EXTRA_PRIMITIVES, GEOMETRY_KINDS
+
+    primitives = occt.CAPABILITIES | mesh.CAPABILITIES
+    runner = ast.parse((SRC / "partspec" / "runner.py").read_text())
+
+    called: dict[str, set[str]] = {}
+    for node in ast.walk(runner):
+        if not (isinstance(node, ast.FunctionDef) and node.name.startswith("_run_")):
+            continue
+        for call in ast.walk(node):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)):
+                continue
+            if call.func.attr in primitives:
+                called.setdefault(node.name, set()).add(call.func.attr)
+    assert called, "the walk found no primitive call in any runner handler"
+
+    # Every kind whose handler reaches past its recorded primitive must say so.
+    recorded = {k: {GEOMETRY_KINDS[k], *EXTRA_PRIMITIVES.get(k, ())} for k in GEOMETRY_KINDS}
+    for handler, used in called.items():
+        owners = [k for k, need in recorded.items() if GEOMETRY_KINDS[k] in used]
+        if not owners:
+            continue
+        for kind in owners:
+            missing = used - recorded[kind]
+            assert not missing, (
+                f"`{handler}` calls {sorted(missing)} for `{kind}`, which neither "
+                f"GEOMETRY_KINDS nor EXTRA_PRIMITIVES records — so §4.2's tier cell "
+                f"for `{kind}` is computed from less than the check actually needs"
+            )
+
+    # And no entry survives that the runner stopped needing.
+    for kind, extra in EXTRA_PRIMITIVES.items():
+        anywhere = {p for used in called.values() for p in used}
+        stale = set(extra) - anywhere
+        assert not stale, (
+            f"EXTRA_PRIMITIVES[{kind!r}] names {sorted(stale)}, which no handler calls"
+        )

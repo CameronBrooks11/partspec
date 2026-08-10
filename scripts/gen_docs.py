@@ -126,19 +126,6 @@ def _measurement_cell(kind: str) -> str:
     return f"{cell} ({m.note})" if m.note else cell
 
 
-# Primitives a kind needs BEYOND the one `GEOMETRY_KINDS` records. The region
-# checks are evaluated in the runner from `region_solid` AND `intersect_volume`
-# (SPEC-contract §4.4), and only the first is in that map — so a tier derived
-# from it alone would answer for half the work. Both are on both tiers today,
-# so this changes no cell; it means the answer stays right if that stops being
-# true, in the direction that matters (a table saying "both" for a check the
-# mesh runner refuses tells an author to write a check that cannot pass).
-_ALSO_NEEDS: dict[str, tuple[str, ...]] = {
-    "keep_out": ("intersect_volume",),
-    "keep_in": ("intersect_volume",),
-}
-
-
 def _tier_cell(kind: str) -> str:
     """Derived from the capability sets, never asserted.
 
@@ -150,7 +137,10 @@ def _tier_cell(kind: str) -> str:
     "both". The earlier `.get(...) or "both"` was a branch nothing could reach
     that also claimed, wrongly, to be how the region checks were handled.
     """
-    needed = (contract.GEOMETRY_KINDS[kind], *_ALSO_NEEDS.get(kind, ()))
+    # `EXTRA_PRIMITIVES` lives in contract.py, beside the map it corrects, and
+    # is pinned to the runner by a test — not held here, where nothing would
+    # check it (PR #156 review, finding C).
+    needed = (contract.GEOMETRY_KINDS[kind], *contract.EXTRA_PRIMITIVES.get(kind, ()))
     occt_only = any(p in occt.CAPABILITIES and p not in mesh.CAPABILITIES for p in needed)
     return "**occt only**" if occt_only else "both"
 
@@ -311,16 +301,37 @@ def _assert_blocks_are_isolated(path: Path, text: str) -> None:
     fine to `--check`, because both compare source text.
 
     Checked rather than remembered, for the reason the whole script exists.
+
+    Matched on the STRIPPED line, and indentation is itself rejected. The first
+    version anchored on `line.startswith(...)` at column 0 while `_apply` locates
+    markers with `text.find()`, which is indentation-blind — so two leading
+    spaces slipped a mid-paragraph marker past the guard and still generated
+    into place (CommonMark HTML block start condition 2 allows up to three
+    spaces, so it interrupts the paragraph exactly the same). Four or more is
+    worse: the marker becomes an indented code block and the generated table
+    renders as literal text. A generated block has no reason to be indented, so
+    the guard refuses any leading whitespace rather than trying to model which
+    widths are harmful (PR #156 review, finding A).
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
-        if line.startswith("<!-- BEGIN GENERATED") and i > 0 and lines[i - 1].strip():
+        stripped = line.lstrip()
+        if stripped.startswith(("<!-- BEGIN GENERATED", "<!-- END GENERATED")) and line != stripped:
+            raise SystemExit(
+                f"{path.name}:{i + 1}: a generated marker is indented, which changes how "
+                f"the block renders. Put it at column 0.\n  line: {line!r}"
+            )
+        if stripped.startswith("<!-- BEGIN GENERATED") and i > 0 and lines[i - 1].strip():
             raise SystemExit(
                 f"{path.name}:{i + 1}: a generated block opens mid-paragraph, which "
                 f"renders as a paragraph break.\nPut a blank line before it.\n"
                 f"  preceding line: {lines[i - 1]!r}"
             )
-        if line.startswith("<!-- END GENERATED") and i + 1 < len(lines) and lines[i + 1].strip():
+        if (
+            stripped.startswith("<!-- END GENERATED")
+            and i + 1 < len(lines)
+            and lines[i + 1].strip()
+        ):
             raise SystemExit(
                 f"{path.name}:{i + 1}: prose resumes immediately after a generated "
                 f"block, which renders as a paragraph break.\nPut a blank line after it.\n"

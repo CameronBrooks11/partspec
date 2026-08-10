@@ -242,6 +242,13 @@ def test_the_sdist_carries_everything_the_suite_reads(sdist_names: set[str]):
         "skills/contract-authoring/SKILL.md",
         ".github/workflows/release.yml",
         "scripts/assert_tag_on_main.sh",
+        # Read by `test_the_generated_doc_blocks_are_current`, which runs it as
+        # a subprocess. Listed because that test's own guard is a `skip` when
+        # the script is missing: without this row, a later PR excluding
+        # `scripts/` from the sdist would break nothing visibly — the packaging
+        # test would not require the path and the docs test would skip with a
+        # reassuring message (PR #156 review, finding B).
+        "scripts/gen_docs.py",
         "src/partspec/py.typed",
     ]
     missing = [path for path in required if path not in sdist_names]
