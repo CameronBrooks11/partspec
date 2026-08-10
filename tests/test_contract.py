@@ -184,7 +184,22 @@ def test_a_non_string_check_id_is_refused_where_it_is_written():
         with pytest.raises(ContractError, match="not a string"):
             _part(wall=2.0).param("wall", min=1.0, id=bad)
 
-    # `None` is NOT in that list: it is the default and means "derive the id",
+    # The guard reaches only TRUTHY non-strings, because `id or <derived>` in
+    # every caller short-circuits first. That is not a hole — the derived id is
+    # always a string, so no out-of-spec report can result — but it is a
+    # fall-through worth documenting rather than leaving for someone to
+    # rediscover: an explicit `id=0` is silently ignored and replaced, with no
+    # diagnostic. Recorded here so moving the type check into the defaulting,
+    # where `""` and `None` would need distinguishing, fails this line first
+    # (PR #157 review).
+    falsy_values: list[Any] = [0, 0.0, False, [], (), ""]
+    for falsy in falsy_values:
+        derived = _part(wall=2.0).param("wall", min=1.0, id=falsy)
+        assert derived.checks[0].id == "param:wall", (
+            f"id={falsy!r} no longer falls through to the derived id"
+        )
+
+    # `None` is NOT in the refused list: it is the default and means "derive the id",
     # so it never reaches `_add` as an id. Asserted rather than left implicit,
     # because a guard written as `if not isinstance(spec.id, str)` placed before
     # the defaulting would refuse every ordinary check, and this is the line

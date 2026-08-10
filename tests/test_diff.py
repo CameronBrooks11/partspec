@@ -621,7 +621,11 @@ def test_a_null_checks_field_does_not_crash_the_guard():
     empty = _doc()
     empty["checks"] = None
     empty["counts"]["total"] = 0
-    assert _diff(empty, empty)["outcome"] in {"identical", "indeterminate"}
+    # `== "identical"`, not `in {...}`: an assertion that passes whichever way
+    # the code goes answers nothing, which is the shape a93df3a went through the
+    # whole suite to remove. The fixture carries a complete `source_closure`, so
+    # the partial-closure rule does not fire and the answer is determinate.
+    assert _diff(empty, empty)["outcome"] == "identical"
 
     lying = _doc()
     lying["checks"] = None  # while counts.total still claims 4
