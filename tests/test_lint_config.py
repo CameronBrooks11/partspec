@@ -27,22 +27,43 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
 
+# The docstring above promised a skip "outside a checkout" that this guard did
+# not implement, and `test_both_ruff_pins_name_one_version` reads
+# `.pre-commit-config.yaml` — which the sdist `exclude` list drops on purpose.
+# `tests/` ships so a downstream packager can run the suite, so a packager with
+# ruff on PATH got a hard FileNotFoundError. The two requirements genuinely
+# conflict (either this skips outside a checkout, or the sdist ships a file it
+# deliberately excludes), and skipping is the right side: these tests ask what
+# THIS tree lints to, which an unpacked sdist cannot answer. Same idiom as
+# `test_packaging.py`'s `(REPO / ".git").exists()`. Related: #150.
 pytestmark = pytest.mark.skipif(
-    shutil.which("ruff") is None and not (ROOT / ".venv" / "bin" / "ruff").exists(),
-    reason="needs the ruff binary; this test asks what this tree lints to",
+    (shutil.which("ruff") is None and not (ROOT / ".venv" / "bin" / "ruff").exists())
+    or not (ROOT / ".git").exists(),
+    reason="asks what this checkout lints to; needs a checkout and the ruff binary",
 )
 
 
 def _ruff(*args: str) -> subprocess.CompletedProcess:
     binary = ROOT / ".venv" / "bin" / "ruff"
     exe = str(binary) if binary.exists() else "ruff"
-    return subprocess.run(
+    result = subprocess.run(
         [exe, "check", "--output-format", "concise", *args, "."],
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=False,
     )
+    # 0 = clean, 1 = findings, anything else = ruff could not run (a bad
+    # selector, an unparseable config). Without this, every "assert the count is
+    # zero" test below passes on an empty stdout from a crashed ruff — silence
+    # reading as success, in the file written to refuse exactly that. Found by
+    # PR #155's review, which broke the config deliberately: five tests failed
+    # and two passed, both of the form "the tool found nothing".
+    assert result.returncode in (0, 1), (
+        f"ruff could not run (exit {result.returncode}); "
+        f"a zero count below would be meaningless:\n{result.stderr.strip()}"
+    )
+    return result
 
 
 def _findings(rule: str, *extra: str) -> list[str]:
@@ -72,11 +93,19 @@ def _comment_block() -> str:
 
 
 def test_the_tree_is_clean_under_the_declared_rules():
-    """The premise everything else rests on."""
+    """The premise everything else rests on.
+
+    Truncated on failure. When CI extracted an OpenSCAD AppImage into the
+    checkout, this assertion was correct — the tree really was not clean — but
+    it printed every finding in a bundled Python 3.10 stdlib and buried the one
+    line naming the cause. Ten is enough to see whether the findings are yours.
+    """
     result = _ruff()
-    assert result.returncode == 0, (
-        f"the configured rule set must pass on this tree:\n{result.stdout}"
-    )
+    lines = result.stdout.splitlines()
+    shown = "\n".join(lines[:10])
+    if len(lines) > 10:
+        shown += f"\n... and {len(lines) - 10} more lines"
+    assert result.returncode == 0, f"the configured rule set must pass on this tree:\n{shown}"
 
 
 def test_c4_costs_zero_outright():
@@ -101,9 +130,14 @@ def test_the_suppressed_rules_are_clean_but_not_vacuous():
     for rule in ("S102", "S307", "BLE"):
         # Membership FIRST. Everything below measures with `--extend-select`,
         # which re-enables the rule whether or not the config selects it — so
-        # without this line, deleting `"BLE"` from `select` (which is precisely
-        # how these annotations went inert the first time) left the test green.
-        # Verified: that mutation survived until this assertion existed.
+        # without this line, deleting `"BLE"` from `select` left the test green.
+        # Verified: that mutation survived until this assertion existed. It is
+        # not the only guard — `ruff check .` then reports thirteen unused-noqa
+        # findings, "non-enabled: BLE001", and `just lint` fails, so an inert
+        # annotation cannot pass unnoticed. This test names the cause instead of
+        # leaving thirteen symptoms. (Wrapped to keep the RUF100 spelling off the
+        # start of a line: written the obvious way, this comment WAS a blanket
+        # directive, and RUF100 flagged its own explanation.)
         assert rule in select, f"{rule} is no longer selected — its noqa comments are inert"
         assert _count(rule) == 0, f"{rule} is not clean as configured"
         raw = _findings(rule, "--ignore-noqa")
@@ -126,8 +160,13 @@ def test_every_suppression_the_slice_made_live_is_still_live():
 
     # And the annotations exist at all: if they were all deleted, RUF100 would
     # also be silent, and the rules would be enforcing nothing in particular.
+    # rglob over all three roots: `tests` was globbed non-recursively and
+    # `evals` was omitted entirely, though one `noqa: BLE001` lives in
+    # `evals/run.py`. The assertion read stronger than it was.
     sources = "".join(
-        path.read_text() for path in [*(ROOT / "src").rglob("*.py"), *(ROOT / "tests").glob("*.py")]
+        path.read_text()
+        for root in ("src", "tests", "evals")
+        for path in (ROOT / root).rglob("*.py")
     )
     assert "# noqa: BLE001" in sources
     assert "# noqa: S102" in sources or "# noqa: S307" in sources
@@ -153,7 +192,12 @@ def test_ruf002_is_enforced_and_only_the_multiplication_sign_is_allowed():
         "--config", "lint.allowed-confusables = []", "--select", "RUF001,RUF002,RUF003"
     )
     hits = [line for line in unallowed.stdout.splitlines() if "RUF00" in line]
-    assert hits, "no confusables at all — the allowance is describing nothing"
+    # Excluding this file: five of the findings are this test's own prose ABOUT
+    # `×`, so `assert hits` was partly self-satisfying — it would hold even if
+    # every × elsewhere were gone, which is when the allowance stops describing
+    # anything.
+    elsewhere = [line for line in hits if not line.startswith("tests/test_lint_config.py")]
+    assert elsewhere, "the only confusables left are this test's own prose about them"
     others = [line for line in hits if "MULTIPLICATION SIGN" not in line]
     assert not others, "a confusable that is not × appeared:\n" + "\n".join(others)
 
@@ -167,9 +211,9 @@ def test_the_pt018_count_is_what_the_comment_says():
 def test_both_ruff_pins_name_one_version():
     """`.pre-commit-config.yaml` says it pins "the SAME ruff the gate runs".
     It did not: the dev group pinned `ruff==0.16.*`, so the two could differ by
-    any patch release — and ruff changes formatter output in patch releases,
-    which is exactly the `git commit` writes / `just check` rejects split the
-    comment exists to prevent. Both are exact now; this holds them equal so
+    any patch release. Nothing guarantees two builds format identically, and the
+    cost of being wrong is the `git commit` writes / `just check` rejects split
+    the comment exists to prevent. Both are exact now; this holds them equal so
     bumping one alone fails instead of drifting quietly.
 
     Parsed with a regex rather than yaml: the config is not otherwise read by
@@ -177,7 +221,11 @@ def test_both_ruff_pins_name_one_version():
     """
     dev = tomllib.loads(PYPROJECT.read_text())["dependency-groups"]["dev"]
     pinned = [d for d in dev if d.startswith("ruff")]
-    assert pinned == ["ruff==0.16.1"] or len(pinned) == 1, pinned
+    # One entry, exactly. This read `== ["ruff==0.16.1"] or len(pinned) == 1`,
+    # which no realistic tree can fail — and did not fail when the pin was
+    # loosened to `0.16.*`; line 2 below caught that. A disjunction whose second
+    # arm is always true is not an assertion.
+    assert len(pinned) == 1, f"expected one ruff pin in the dev group, got {pinned}"
     gate = pinned[0].removeprefix("ruff==")
     assert "*" not in gate, f"the gate's ruff pin must be exact, not {pinned[0]!r}"
 
@@ -193,6 +241,17 @@ def test_arg_is_declined_and_the_comment_does_not_quantify_it():
     are rather than from a number nothing rechecks."""
     assert "ARG" not in _lint_config()["select"]
     assert _count("ARG") > 0, "if ARG became free, revisit the decision"
-    assert not re.search(r"ARG.{0,80}\b\d+\b", _comment_block(), re.S), (
+    # Presence first. The regex below forbids a digit near "ARG", which deleting
+    # the whole paragraph also satisfies — verified: removing all three lines
+    # left this test green until this assertion existed.
+    paragraphs = [
+        para for para in _comment_block().split("#\n") if "is deliberately NOT adopted" in para
+    ]
+    assert len(paragraphs) == 1, "the ARG decision must still be explained, not merely dropped"
+    # Scoped to that paragraph, not the whole block, which also records the
+    # counts the review found WRONG ("41 in tests, really 37"). Citing a
+    # retracted number is the opposite of maintaining one by hand; what must
+    # stay unquantified is the live rationale.
+    assert not re.search(r"ARG.{0,80}\b\d+\b", paragraphs[0], re.S), (
         "the ARG rationale must not carry a hand-maintained count"
     )

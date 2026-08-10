@@ -53,11 +53,13 @@ build-backend = "hatchling.build"
 
 # The sdist shipped everything not gitignored, including `uv.lock` — which
 # pins this repo's dev environment, not the package's requirements, so a
-# consumer cannot use it. Building both ways: 529 KB excluded, 689 KB included,
-# so it costs 160 KB (23% of the shipped tarball). NOT "half a megabyte", as
-# this comment claimed: the lock is 511 KB on disk and gzip does most of the
-# work on a file that repetitive. The number to quote is the one measured on
-# the artifact that ships.
+# consumer cannot use it. Building both ways, it costs ~160 KiB — about 23% of
+# the shipped tarball. NOT "half a megabyte", as this comment claimed: the lock
+# is 511 KiB on disk and gzip does most of the work on a file that repetitive,
+# so the number to quote is the one measured on the artifact that ships. No
+# absolute tarball sizes here on purpose: they read 529, then 531.0, then 531.4
+# KiB across three measurements during this PR, because every line of prose
+# added to the repo moves them. The delta and the share do not move.
 #
 # What is NOT excluded is the more considered half. `tests/` ships because a
 # downstream packager runs the suite from an sdist, and that claim only holds
@@ -120,18 +122,21 @@ force-exclude = true
 
 [tool.ruff.lint]
 # The rule set and the reasoning behind it, with `tests/test_lint_config.py`
-# re-deriving each claim below from ruff itself. PR #155's review found four
-# numbers here wrong, all written from memory — the same failure this repo
-# refuses everywhere else. (Not "every number is re-derived", which is what this
-# comment first claimed while `86` and `six` sat in it unasserted. The test now
-# covers each surviving one, and the ones it cannot make durable were rewritten
-# as properties instead.)
+# re-deriving each claim below from ruff itself. PR #155's review found this
+# block asserting things written from memory — two counts wrong (`noqa: BLE001`
+# "ten", really eleven then and thirteen now; unused-argument findings "41 in
+# tests", really 37) and one rule retired on a false premise (RUF002, below).
+# Two other numbers it checked were right, so the defect was not "every number":
+# it was that nothing distinguished the wrong ones from the right ones until
+# someone re-ran ruff.
 #
 # `C4` costs zero outright: nothing in the tree trips it. `S102`, `S307` and
 # `BLE` cost zero only in the sense that matters least — `ruff check` is silent
 # because `# noqa` comments already sat there. Run `--ignore-noqa` and they find
-# real code: the `S102`/`S307` sites are where this tool executes user-supplied
-# CAD-as-code, and the `BLE001` ones are its blind excepts. Those annotations
+# real code: three of the five `S102`/`S307` sites are where this tool executes
+# user-supplied CAD-as-code (`engines/pycad.py`, `target.py`, `expr.py`) and two
+# are `tests/test_docs.py` executing documentation snippets, while the `BLE001`
+# ones are this project's blind excepts. Those annotations
 # suppressed rules nobody had enabled — a hazard stamped "reviewed and waived"
 # with no reviewer — and adopting the rules is what made them live.
 #
@@ -145,8 +150,9 @@ force-exclude = true
 # found by walking the AST instead.
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "PT", "RUF", "BLE", "S102", "S307"]
 
-# `PT018` only: composite `assert a and b` in tests — 86 of them, which the
-# test re-derives — an unsafe autofix across every one, and a rule that affects
+# `PT018` only: 86 composite `assert a and b`, which the test re-derives — 81 in
+# `tests/` and 5 in `src/partspec/runner.py`, so "in tests" was not quite the
+# whole set — an unsafe autofix across every one, and a rule that affects
 # failure-message quality rather than correctness.
 #
 # `RUF002` is deliberately NOT ignored, though an earlier draft of this comment
@@ -166,6 +172,14 @@ typeCheckingMode = "standard"
 # suppresses nothing passes silently — which is the decorative-waiver shape this
 # slice removed from the ruff side, so leaving it on the type-checker side would
 # have been inconsistent. Turning it on surfaced five stale ignores.
+#
+# It has a cost on the `just setup-mesh` path, where OCP is absent: the
+# `reportAttributeAccessIssue` ignores that remain in `tests/support.py` become
+# "unnecessary" there, so `just typecheck` fails for that reason ON TOP of the
+# unresolved OCP imports it already reported. CI installs `--all-extras` and is
+# unaffected, and `just setup-mesh` already warns that `just check` may differ —
+# but the light path now fails harder, which is a deliberate trade, not an
+# oversight.
 reportUnnecessaryTypeIgnoreComment = "error"
 include = ["src", "tests", "examples", "evals", "scripts"]
 # `examples/` in particular: it is user-facing teaching material, and an example

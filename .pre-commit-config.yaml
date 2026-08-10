@@ -12,13 +12,14 @@ repos:
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-added-large-files
-        # `uv.lock` is 511.5 KB, over the default 500 KB limit, and committed
-        # deliberately. It passes today only because the hook filters to
-        # genuinely new paths (`git diff --staged --diff-filter=A`), and
-        # `uv.lock` is already tracked — modifying it is never checked. Cloning
-        # stages nothing, so a fresh clone is not the hazard; the commit that
-        # first ADDED the lock was, and a re-add after deleting and
-        # regenerating it would be again.
+        # `uv.lock` is committed deliberately and the hook rounds it up to
+        # 512 KB (`math.ceil(st_size / 1024)` over 523747 bytes), past the
+        # default 500 KB limit. THIS ARGUMENT is what lets it through: nothing
+        # else does. Two earlier drafts of this comment credited the hook's
+        # `--diff-filter=A` filtering instead — true of the hook, irrelevant
+        # here, since 1024 admits the lock whether it is added or modified.
+        # Verified by running the hook against the real file at both limits:
+        # 1024 passes, 500 fails.
         args: [--maxkb=1024]
 
   # Pinned to the SAME ruff the gate runs. These hooks are mutating
@@ -30,8 +31,10 @@ repos:
   #
   # This said "the SAME ruff" while the dev group pinned `ruff==0.16.*`, which
   # admits any patch release — so the two could not diverge by more than a
-  # patch, but "the same" was not what was pinned, and ruff ships formatter
-  # changes in patch releases. Both are exact now, and
+  # patch, but "the same" was not what was pinned. The argument for exactness is
+  # not a claim about ruff's release practice (which I have not verified) but the
+  # absence of any guarantee that two different builds format identically,
+  # against a cost that is already documented above. Both are exact now, and
   # `test_lint_config.py::test_both_ruff_pins_name_one_version` holds them
   # equal, so bumping one alone fails the gate instead of drifting quietly.
   - repo: https://github.com/astral-sh/ruff-pre-commit

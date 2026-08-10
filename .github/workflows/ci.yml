@@ -120,10 +120,19 @@ jobs:
             libegl1 libgl1 libopengl0 libgbm1 libwayland-client0 \
             libfontconfig1 libharfbuzz0b libgmp10
           url="https://files.openscad.org/snapshots/OpenSCAD-${{ matrix.openscad }}-x86_64.AppImage"
+          # Downloaded and extracted OUTSIDE the checkout, because
+          # `--appimage-extract` writes `squashfs-root/` into the CWD and that
+          # is not build residue a repo can ignore: the AppImage bundles a whole
+          # Python 3.10 stdlib, unignored, inside a tree every tool then walks.
+          # `tests/test_lint_config.py` found it by running `ruff check .` and
+          # reporting B011 findings from the AppImage's own `distutils`,
+          # `doctest` and `threading` — on THIS leg only, which is why the apt
+          # leg stayed green and the snapshot leg did not.
+          cd "$RUNNER_TEMP"
           curl -fsSL --retry 3 -o openscad.AppImage "$url"
           chmod +x openscad.AppImage
           ./openscad.AppImage --appimage-extract >/dev/null
-          echo "PARTSPEC_OPENSCAD=$PWD/squashfs-root/AppRun" >> "$GITHUB_ENV"
+          echo "PARTSPEC_OPENSCAD=$RUNNER_TEMP/squashfs-root/AppRun" >> "$GITHUB_ENV"
 
       # Without this the matrix can silently collapse to one version — apt
       # bumps its package and both legs quietly test the same engine while

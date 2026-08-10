@@ -244,9 +244,16 @@ def test_the_sdist_carries_everything_the_suite_reads(sdist_names: set[str]):
 
 
 def test_the_sdist_leaves_out_what_a_consumer_cannot_use(sdist_names: set[str]):
-    """`uv.lock` alone was 27% of the sdist — half a megabyte pinning this
-    repo's dev environment, which says nothing about the package's own
-    requirements."""
+    """`uv.lock` pins this repo's dev environment, which says nothing about the
+    package's own requirements, so a consumer cannot use it.
+
+    Excluding it saves ~160 KiB, ~23% of the tarball — measured by building both
+    ways. This docstring said "27% ... half a megabyte" until PR #155's review
+    found the same two figures already corrected in `pyproject.toml` and not
+    here, in the test that actually enforces the exclusion. The absolute sizes
+    are deliberately absent: they moved 529 → 531.0 → 531.4 KiB across three
+    measurements taken while editing this very PR's prose, so only the delta and
+    the share are stable enough to write down."""
     assert "uv.lock" not in sdist_names
     assert "CLAUDE.md" not in sdist_names
     assert "pyproject.toml" in sdist_names, "and the things a build needs are still there"
