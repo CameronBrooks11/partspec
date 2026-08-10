@@ -18,11 +18,6 @@ pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BLOCK = FIXTURES / "block_with_hole.scad"
-PLATE = FIXTURES / "parametric_plate.scad"
-
-
-def _status(report, check_id: str) -> Status:
-    return next(c.status for c in report.checks if c.id == check_id)
 
 
 # --------------------------------------------------------------------------
@@ -123,37 +118,3 @@ def test_fillet_radius_is_refused_on_the_mesh_tier(tmp_path: Path):
     assert check.status is Status.UNSUPPORTED
     assert check.requires == "occt"
     assert report.verdict is Verdict.INCOMPLETE
-
-
-def test_a_declared_primitive_that_refuses_still_names_the_tier():
-    """`_refused` exists to guarantee `requires=` reaches the report, and PR
-    #152's review proved that guarantee was untested: deleting the field from
-    the helper passed all 770 tests.
-
-    The reason is structural. Every `requires`-bearing refusal in the shipped
-    backends belongs to a primitive that tier does not declare, so the
-    capability gate intercepts first and sets `requires` itself — the helper's
-    path is only reached when a backend DECLARES a primitive and then refuses
-    per-call, which no shipped backend does today. A stub does, so the field
-    the helper exists for is finally exercised.
-    """
-    from partspec.backend import Unsupported
-    from partspec.contract import Part, build123d
-    from partspec.runner import _run_geometry_check
-
-    class _RefusesWhatItDeclares:
-        kind = "stub"
-
-        def capabilities(self):
-            return frozenset({"volume"})
-
-        def volume(self, a):
-            return Unsupported("this stub cannot integrate", requires="occt")
-
-    part = Part("subject", build123d("m.py"))
-    part.volume(min=1.0)
-    result = _run_geometry_check(part.checks[0], _RefusesWhatItDeclares(), None)
-
-    assert result.status is Status.UNSUPPORTED
-    assert result.detail == "this stub cannot integrate"
-    assert result.requires == "occt", "the tier that would answer must survive into the report"

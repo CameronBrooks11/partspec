@@ -1,8 +1,12 @@
 """End-to-end: `hole_diameter` and `bolt_circle`.
 
-Split out of `test_runner.py` (#153). The two bore checks share `_BoreWorld`,
-the canned-table stub that lets the circle search be attacked at speed, and
-`_FLANGE_MODEL`; `hole_diameter` brings `_HOLE_MODEL`.
+Split out of `test_runner.py` (#153). Grouped by subject — both are BREP bore
+measurements on the OCCT tier — and NOT because they share machinery: they
+share none. `hole_diameter` uses `_HOLE_MODEL`; `bolt_circle` uses
+`_FLANGE_MODEL` and `_BoreWorld`, the canned-table stub that lets the circle
+search be attacked at speed. An earlier version of this docstring claimed the
+two shared `_BoreWorld` and `_FLANGE_MODEL`, which is false and was the file's
+stated reason for existing (PR #158 review).
 """
 
 from __future__ import annotations
@@ -18,11 +22,6 @@ pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BLOCK = FIXTURES / "block_with_hole.scad"
-PLATE = FIXTURES / "parametric_plate.scad"
-
-
-def _status(report, check_id: str) -> Status:
-    return next(c.status for c in report.checks if c.id == check_id)
 
 
 # --------------------------------------------------------------------------

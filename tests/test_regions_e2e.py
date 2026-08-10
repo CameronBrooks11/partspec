@@ -26,10 +26,6 @@ BLOCK = FIXTURES / "block_with_hole.scad"
 PLATE = FIXTURES / "parametric_plate.scad"
 
 
-def _status(report, check_id: str) -> Status:
-    return next(c.status for c in report.checks if c.id == check_id)
-
-
 # --------------------------------------------------------------------------
 # keep_out / keep_in — the paired region-and-shell adjudication (#49)
 # --------------------------------------------------------------------------
@@ -374,39 +370,3 @@ def test_region_clauses_appear_as_components():
         shell=2.0,
     )
     assert nothing_around.components == {"region": Status.PASS, "shell": Status.FAIL}
-
-
-def test_components_respect_the_same_epsilon_the_status_does():
-    """The headline invariant, tested at the boundary where it can break: the
-    binary-STL float32 round-trip that `epsilon()` exists for. A recompute of
-    components with a naive comparison would fail x here while the folded
-    status passes — a report contradicting its own attribution."""
-    from partspec import Limit, adjudicate
-    from partspec.runner import _components_of
-
-    m = Measurement((120.30000305, 80.69999695, 40.09999847), "mm", axes=("x", "y", "z"))
-    limit = Limit(max=(120.3, 80.7, 40.1))
-    assert adjudicate(m, limit) is Status.PASS
-    assert _components_of(m, limit) == {"x": Status.PASS, "y": Status.PASS, "z": Status.PASS}
-
-
-def test_an_approximate_axis_is_never_claimed_outside_its_bound():
-    """'outside' is a conclusive claim. An axis whose error band straddles the
-    limit is APPROXIMATE — the tool does not know — and the detail must stay
-    silent about it rather than rounding indeterminate into violated. No
-    backend emits vector bounds today; this pins the path before one does."""
-    from partspec import Limit
-    from partspec.runner import _components_of, _failing_axes
-
-    m = Measurement(
-        (5.0, 2.01),
-        "mm",
-        exact=False,
-        bounds=((4.9, 5.1), (1.96, 2.06)),
-        axes=("a", "b"),
-    )
-    limit = Limit(min=(6.0, 2.0))
-    components = _components_of(m, limit)
-    assert components == {"a": Status.FAIL, "b": Status.APPROXIMATE}
-    assert components is not None
-    assert _failing_axes(m, limit, components) == "a=5 outside min=6.0"

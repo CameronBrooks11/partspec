@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from support import needs_openscad
 
-from partspec import Part, Status, Verdict, openscad, run
+from partspec import Measurement, Part, Status, Verdict, openscad, run
 from partspec.runner import _run_parameter_check
 
 pytest.importorskip("trimesh", reason="mesh extra not installed")
@@ -530,3 +530,86 @@ def test_a_pinned_render_backend_reaches_the_report(tmp_path: Path):
     p.watertight()
     report = run(p, out_dir=tmp_path / "out")
     assert report.engine["render_backend"] == "CGAL"
+
+
+# --------------------------------------------------------------------------
+# runner internals, exercised directly
+#
+# Three tests that the #153 split first filed by the banner they sat under
+# rather than by their subject (PR #158 review). None of them runs an engine
+# or touches the check they were shelved beside: the first drives
+# `_run_geometry_check` with a stub, the other two call `_components_of` and
+# `_failing_axes` on hand-built measurements. A reader looking for the
+# attribution helpers' unit tests would not have found them in a regions file,
+# and a reader filtering `_e2e` for end-to-end coverage would have over-counted.
+# --------------------------------------------------------------------------
+
+
+def test_a_declared_primitive_that_refuses_still_names_the_tier():
+    """`_refused` exists to guarantee `requires=` reaches the report, and PR
+    #152's review proved that guarantee was untested: deleting the field from
+    the helper passed all 770 tests.
+
+    The reason is structural. Every `requires`-bearing refusal in the shipped
+    backends belongs to a primitive that tier does not declare, so the
+    capability gate intercepts first and sets `requires` itself — the helper's
+    path is only reached when a backend DECLARES a primitive and then refuses
+    per-call, which no shipped backend does today. A stub does, so the field
+    the helper exists for is finally exercised.
+    """
+    from partspec.backend import Unsupported
+    from partspec.contract import Part, build123d
+    from partspec.runner import _run_geometry_check
+
+    class _RefusesWhatItDeclares:
+        kind = "stub"
+
+        def capabilities(self):
+            return frozenset({"volume"})
+
+        def volume(self, a):
+            return Unsupported("this stub cannot integrate", requires="occt")
+
+    part = Part("subject", build123d("m.py"))
+    part.volume(min=1.0)
+    result = _run_geometry_check(part.checks[0], _RefusesWhatItDeclares(), None)
+
+    assert result.status is Status.UNSUPPORTED
+    assert result.detail == "this stub cannot integrate"
+    assert result.requires == "occt", "the tier that would answer must survive into the report"
+
+
+def test_components_respect_the_same_epsilon_the_status_does():
+    """The headline invariant, tested at the boundary where it can break: the
+    binary-STL float32 round-trip that `epsilon()` exists for. A recompute of
+    components with a naive comparison would fail x here while the folded
+    status passes — a report contradicting its own attribution."""
+    from partspec import Limit, adjudicate
+    from partspec.runner import _components_of
+
+    m = Measurement((120.30000305, 80.69999695, 40.09999847), "mm", axes=("x", "y", "z"))
+    limit = Limit(max=(120.3, 80.7, 40.1))
+    assert adjudicate(m, limit) is Status.PASS
+    assert _components_of(m, limit) == {"x": Status.PASS, "y": Status.PASS, "z": Status.PASS}
+
+
+def test_an_approximate_axis_is_never_claimed_outside_its_bound():
+    """'outside' is a conclusive claim. An axis whose error band straddles the
+    limit is APPROXIMATE — the tool does not know — and the detail must stay
+    silent about it rather than rounding indeterminate into violated. No
+    backend emits vector bounds today; this pins the path before one does."""
+    from partspec import Limit
+    from partspec.runner import _components_of, _failing_axes
+
+    m = Measurement(
+        (5.0, 2.01),
+        "mm",
+        exact=False,
+        bounds=((4.9, 5.1), (1.96, 2.06)),
+        axes=("a", "b"),
+    )
+    limit = Limit(min=(6.0, 2.0))
+    components = _components_of(m, limit)
+    assert components == {"a": Status.FAIL, "b": Status.APPROXIMATE}
+    assert components is not None
+    assert _failing_axes(m, limit, components) == "a=5 outside min=6.0"
