@@ -63,9 +63,10 @@ Rules:
    REQUIRED field and is refused as that rather than as a repeated `null`, and an `id` that
    is not a string is refused as a type error — §7.1 types it as a string, and comparing
    ids any other way lets `1` and `1.0` pass a uniqueness check and then collapse onto one
-   another in the join. `Part._add` refuses an id clash at authoring
-   time, so `partspec` cannot emit one; this rule binds `diff` because the report schema is
-   the product surface (D5) and the comparator must not assume it produced its own input.
+   another in the join. `Part._add` refuses both the clash and the non-string id at
+   authoring time, so `partspec` emits neither; this rule binds `diff` because the report
+   schema is the product surface (D5) and the comparator must not assume it produced its
+   own input.
 
 ## 3. What is compared
 

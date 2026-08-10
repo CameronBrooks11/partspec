@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `id`, and an `id` that is not a string (§7.1 types it as one — comparing ids
   any other way lets `1` and `1.0` pass a uniqueness check and then collapse
   onto one another in the join).
+- `Part._add` refuses a check `id=` that is not a string. `CheckResult.id: str`
+  was an annotation, not an enforcement, so `p.param("wall", min=2.0, id=3)`
+  was accepted and `check` wrote `"id": 3` — which the new `diff` guard would
+  then refuse at exit 64, blaming the artifact for a contract error made two
+  commands earlier. **Behaviour change**: a contract passing a non-string `id=`
+  now raises `ContractError` (verdict `error`, exit 4) where it previously ran.
+  `id=None` is untouched — it is the default and means "derive the id".
 
 ### Changed
 

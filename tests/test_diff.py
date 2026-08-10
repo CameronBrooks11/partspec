@@ -609,6 +609,26 @@ def test_a_checks_entry_that_is_not_an_object_is_refused():
         _diff(_doc(), bad)
 
 
+def test_a_null_checks_field_does_not_crash_the_guard():
+    """`"checks": null` is a shape a hand-written report can take, and the
+    fallback has to be spelled the same way everywhere.
+
+    `report.get("checks", [])` returns `None` when the key EXISTS with a null
+    value, so the counts check raised `TypeError: object of type 'NoneType' has
+    no len()` before reaching any guard, and the join raised again further down.
+    Bound once now, above the first reader (PR #157 review).
+    """
+    empty = _doc()
+    empty["checks"] = None
+    empty["counts"]["total"] = 0
+    assert _diff(empty, empty)["outcome"] in {"identical", "indeterminate"}
+
+    lying = _doc()
+    lying["checks"] = None  # while counts.total still claims 4
+    with pytest.raises(DiffUsageError, match=r"counts\.total"):
+        _diff(lying, lying)
+
+
 def test_two_checks_of_one_kind_under_distinct_ids_are_not_caught():
     """The ordinary legal case the guard must not fire on.
 

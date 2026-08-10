@@ -203,27 +203,37 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"this diff understands report schema {SCHEMA_VERSION} and must not "
                 f"best-effort parse anything else (SPEC-report.md 7.1)"
             )
+        # `or []` so a literal `"checks": null` reaches the branches below
+        # rather than raising `TypeError: object of type 'NoneType' has no
+        # len()` out of the counts check. Bound once, above the first reader,
+        # because two readers spelling the fallback differently is how the
+        # first one ended up not having it.
+        #
+        # Named `raw_checks`, not `entries`: this function rebinds `entries`
+        # further down to the diff's own output list, and one name for two
+        # meanings in one scope is a trap for the next edit (PR #157 review).
+        raw_checks = report.get("checks") or []
+
         total = report.get("counts", {}).get("total")
-        if total is not None and total != len(report.get("checks", [])):
+        if total is not None and total != len(raw_checks):
             # counts.total is redundant by construction in an honest report;
             # an input that violates its own invariant is corrupt, and no
             # claim over corrupt input is earned.
             raise DiffUsageError(
                 f"the {label} report is corrupt: counts.total is {total} but it "
-                f"carries {len(report.get('checks', []))} checks"
+                f"carries {len(raw_checks)} checks"
             )
 
         # Everything below is ONE precondition on the join at the bottom of this
         # function: `{c["id"]: c}` must be keyable, and must key each check to
         # itself. Split into branches only so the message names the actual defect.
-        entries = report.get("checks", [])
-        if not_objects := [c for c in entries if not isinstance(c, dict)]:
+        if not_objects := [c for c in raw_checks if not isinstance(c, dict)]:
             raise DiffUsageError(
                 f"the {label} report has {len(not_objects)} entr(y/ies) in `checks` that "
                 f"are not objects (first: {not_objects[0]!r}); every check is an object "
                 f"with an `id` (SPEC-report.md 7.1)"
             )
-        ids = [c.get("id") for c in entries]
+        ids = [c.get("id") for c in raw_checks]
 
         # A check with no id is a MISSING FIELD, not a collision, and saying so
         # matters: mapping it to None first made two id-less checks report as
@@ -239,8 +249,14 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"(SPEC-report.md 7.1)"
             )
 
-        # And the id must be a STRING, which SPEC-report §7.1 types it as and
-        # `CheckResult.id` declares, so nothing legitimate is refused here.
+        # And the id must be a STRING, which SPEC-report §7.1 types it as.
+        #
+        # `CheckResult.id: str` is an annotation, not an enforcement, so that
+        # alone did not make this safe to assume: `p.param("wall", min=2.0,
+        # id=3)` was accepted by authoring and `check` wrote `"id": 3`, which
+        # this branch would then have refused at 64 — blaming the artifact for a
+        # contract error. `Part._add` now refuses a non-string id where it is
+        # written, so nothing partspec emits reaches here (PR #157 review).
         #
         # This replaces a `repr`-keyed uniqueness count, which was a fix for
         # mixed-type and unhashable ids that reopened the very hole this guard
@@ -313,8 +329,12 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 }
             )
 
-    old_checks = {c["id"]: c for c in old.get("checks", [])}
-    new_checks = {c["id"]: c for c in new.get("checks", [])}
+    # `or []` matching the validation loop's fallback: `"checks": null` is a
+    # real shape a hand-written report can take, and spelling the fallback two
+    # ways is how the counts check ended up raising TypeError past a guard that
+    # had already handled it.
+    old_checks = {c["id"]: c for c in old.get("checks") or []}
+    new_checks = {c["id"]: c for c in new.get("checks") or []}
     removed = [check_id for check_id in old_checks if check_id not in new_checks]
     added = [check_id for check_id in new_checks if check_id not in old_checks]
     entries = [
