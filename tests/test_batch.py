@@ -7,12 +7,11 @@ owns, POST-V0 §8: `sys.modules` must not serve a later build a stale helper.
 
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import needs_openscad, report_of
 
 from partspec.cli import main
 from partspec.status import Verdict, exit_code
@@ -70,7 +69,7 @@ def test_the_batch_exit_is_the_specs_precedence_pairwise(codes, expected):
 def _report(target: str) -> dict:
     module, _, _ = target.rpartition(":")
     path = Path(module)
-    return json.loads((path.parent / "outputs" / f"{path.stem}-make" / "report.json").read_text())
+    return report_of(path.parent / "outputs" / f"{path.stem}-make")
 
 
 # --------------------------------------------------------------------------
@@ -142,8 +141,8 @@ def test_explicit_out_gets_a_subdirectory_per_part(tmp_path: Path):
     bad = _scad_target(tmp_path, "bad", "    p.envelope(max=(1, 1, 1))\n")
     out = tmp_path / "reports"
     main(["check", good, bad, "--quiet", "--out", str(out)])
-    assert json.loads((out / "good-make" / "report.json").read_text())["verdict"] == "pass"
-    assert json.loads((out / "bad-make" / "report.json").read_text())["verdict"] == "fail"
+    assert report_of(out / "good-make")["verdict"] == "pass"
+    assert report_of(out / "bad-make")["verdict"] == "fail"
 
 
 def test_colliding_slugs_under_one_out_dir_are_refused(tmp_path: Path, capsys):
@@ -202,7 +201,7 @@ def _py_target(d: Path, size: float) -> str:
 
 
 def _measured_volume(out: Path) -> float:
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     (check,) = [c for c in report["checks"] if c["kind"] == "volume"]
     return check["measurement"]["value"]
 
@@ -288,7 +287,7 @@ def test_an_interrupt_leaves_no_stale_pass_behind_it(tmp_path: Path):
     interrupting = tmp_path / "interrupting.py"
     interrupting.write_text("def make():\n    raise KeyboardInterrupt\n")
     assert main(["check", f"{interrupting}:make", calm, "--quiet"]) == 130
-    report = json.loads((tmp_path / "calm" / "outputs" / "spec-make" / "report.json").read_text())
+    report = report_of(tmp_path / "calm" / "outputs" / "spec-make")
     assert report["verdict"] == "error", "the never-reached target's artifact says the run died"
 
 
@@ -419,7 +418,7 @@ def test_a_contracts_shared_claims_module_does_not_cross_directories(tmp_path: P
     assert main(["check", *targets, "--quiet"]) == 0
 
     def kinds(d: Path) -> set[str]:
-        report = json.loads((d / "outputs" / "spec-make" / "report.json").read_text())
+        report = report_of(d / "outputs" / "spec-make")
         return {c["kind"] for c in report["checks"]} - {"builds"}
 
     assert kinds(tmp_path / "a") == {"watertight"}
@@ -451,7 +450,7 @@ def test_a_contract_that_raises_after_its_sibling_import_does_not_poison_the_nex
     # An import-time raise is an unresolvable target: usage, exit 64.
     assert main(["check", f"{a / 'spec.py'}:make", "--quiet"]) == 64
     assert main(["check", f"{b / 'spec.py'}:make", "--quiet"]) == 0
-    report = json.loads((b / "outputs" / "spec-make" / "report.json").read_text())
+    report = report_of(b / "outputs" / "spec-make")
     kinds = {c["kind"] for c in report["checks"]} - {"builds"}
     assert kinds == {"solid_count"}, "B must not inherit A's cached claims module"
 

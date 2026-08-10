@@ -104,18 +104,43 @@ def scad_target(
     return f"{spec}:make"
 
 
+def report_of(out: Path) -> dict:
+    """The report `partspec check --out <out>` wrote, parsed.
+
+    This read appeared 38 times across eight files (#153): 27 spelled
+    `json.loads((out / "report.json").read_text())` verbatim, 11 the same shape
+    over a different directory. The path is the tool's own convention —
+    `SPEC-report.md` §5.5 derives it from the target — so every one of those
+    sites carried a second copy of a fact the tool owns.
+
+    Named for what it returns rather than what it does, and kept next to
+    `check_of` so the pair reads as "the whole document" / "one check of it".
+
+    The missing-file assertion is the reason this is worth a helper rather than
+    an alias: `read_text()` on an absent report raises `FileNotFoundError`,
+    which says the file is missing but not that the run failed to write one —
+    and `check` writes a report even on failure, so its absence is the finding.
+    """
+    path = out / "report.json"
+    if not path.is_file():
+        present = sorted(p.name for p in out.iterdir()) if out.is_dir() else "no such directory"
+        raise AssertionError(
+            f"no report at {path}; `check --out {out}` writes one even when the "
+            f"run fails (SPEC-report.md 5.5). Present: {present}"
+        )
+    return json.loads(path.read_text())
+
+
 def check_of(out: Path, kind: str) -> dict:
     """The one check of `kind` from the report written under `out`.
 
-    Replaces the eight report reads that selected a check by kind through a
-    `next(c for c in ... if c["kind"] == ...)` generator. Thirty-eight
-    hand-written reads remain; they want the whole document, and #153 tracks
-    whichever are worth a helper.
+    Replaces the report reads that selected a check by kind through a
+    `next(c for c in ... if c["kind"] == ...)` generator.
 
     Raises rather than returning None: an absent check is a test bug, and
     `StopIteration` inside a generator expression reads as a confusing error.
     """
-    doc = json.loads((out / "report.json").read_text())
+    doc = report_of(out)
     matching = [c for c in doc["checks"] if c["kind"] == kind]
     assert matching, (
         f"no {kind!r} check in the report; kinds present: {[c['kind'] for c in doc['checks']]}"

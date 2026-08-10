@@ -11,10 +11,10 @@ sits beside the model, the failure lives in local code — model.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
+from support import report_of
 
 from partspec.backend import BuildError
 from partspec.cli import main
@@ -84,7 +84,7 @@ def test_a_missing_wheel_at_import_is_error_not_a_failing_part(tmp_path: Path):
     code = main(["check", target, "--quiet", "--out", str(out)])
     assert code == 4, "a missing wheel must not read as a disproven design"
 
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert report["verdict"] == "error"
     assert report["build_origin"] == "environment"
     assert "definitely_not_installed_xyz" in report["error"]
@@ -99,7 +99,7 @@ def test_a_lazy_missing_wheel_in_the_factory_is_the_same_statement(tmp_path: Pat
     target = _target(tmp_path, "def make_part():\n    import definitely_not_installed_xyz\n")
     code = main(["check", target, "--quiet", "--out", str(out)])
     assert code == 4
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert report["build_origin"] == "environment"
     assert "definitely_not_installed_xyz" in report["error"]
 
@@ -120,7 +120,7 @@ def test_a_lazy_local_import_names_the_harness_asymmetry(tmp_path: Path):
     code = main(["check", target, "--quiet", "--out", str(out)])
     assert code == 1
 
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert "import time only" in report["hint"]
     assert "sys.path" in report["hint"]
 
@@ -134,7 +134,7 @@ def test_a_broken_local_import_chain_is_still_the_parts_fault(tmp_path: Path):
     code = main(["check", target, "--quiet", "--out", str(out)])
     assert code == 1, "a fault inside local model code is a failing part"
 
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert report["verdict"] == "fail"
     statuses = {c["kind"]: c["status"] for c in report["checks"]}
     assert statuses["builds"] == "fail"

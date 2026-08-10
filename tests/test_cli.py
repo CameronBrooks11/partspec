@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import decode_png, needs_openscad
+from support import decode_png, needs_openscad, report_of
 
 from partspec.cli import main
 from partspec.status import Verdict, exit_code
@@ -132,7 +132,7 @@ def test_measure_carries_the_same_identity_as_the_report(tmp_path: Path, capsys)
     target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
     out = tmp_path / "out"
     assert main(["check", target, "--quiet", "--out", str(out)]) == 0
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
 
     doc = _measure(target, capsys)
     assert doc["schema_version"] == report["schema_version"]
@@ -336,7 +336,7 @@ def test_a_contract_calling_sys_exit_is_not_a_green_run(tmp_path: Path):
     spec.write_text("import sys\nfrom partspec import Part\ndef part() -> Part:\n    sys.exit(0)\n")
     out = tmp_path / "out"
     assert main(["check", f"{spec}:part", "--out", str(out), "--quiet"]) == 4
-    assert json.loads((out / "report.json").read_text())["verdict"] == "error"
+    assert report_of(out)["verdict"] == "error"
 
 
 def test_argparse_still_owns_its_own_exits():
@@ -450,7 +450,7 @@ def test_check_render_records_the_views_in_the_report_or_fails_the_run(tmp_path:
     target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
     out = tmp_path / "out"
     code = main(["check", target, "--quiet", "--render", "--out", str(out)])
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     if code == 0:
         # Relative POSIX paths keyed by view, resolving against the report's
         # own directory (SPEC-report.md section 8.4).
@@ -471,7 +471,7 @@ def test_a_report_without_render_carries_no_renders_key(tmp_path: Path):
     target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
     out = tmp_path / "out"
     assert main(["check", target, "--quiet", "--out", str(out)]) == 0
-    assert "renders" not in json.loads((out / "report.json").read_text())
+    assert "renders" not in report_of(out)
 
 
 def test_check_render_on_the_occt_tier_records_the_views(tmp_path: Path):
@@ -491,7 +491,7 @@ def test_check_render_on_the_occt_tier_records_the_views(tmp_path: Path):
     )
     out = tmp_path / "out"
     assert main(["check", f"{module}:make", "--render", "--quiet", "--out", str(out)]) == 0
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert set(report["renders"]) == {"iso", "front", "top", "right"}
     for rel in report["renders"].values():
         assert not Path(rel).is_absolute()
@@ -688,7 +688,7 @@ def test_check_render_records_the_bbox_in_the_report(tmp_path: Path):
     target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
     out = tmp_path / "out"
     code = main(["check", target, "--quiet", "--render", "--out", str(out)])
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     if code == 0:
         span = [
             b - a
@@ -776,7 +776,7 @@ def test_check_render_builds_the_model_exactly_once(tmp_path: Path):
     out = tmp_path / "out"
     assert main(["check", f"{module}:make", "--render", "--quiet", "--out", str(out)]) == 0
     assert (tmp_path / "builds.txt").read_text() == "1", "one run, one build"
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert set(report["renders"]) == {"iso", "front", "top", "right"}
 
 
@@ -806,7 +806,7 @@ def test_check_render_never_rebuilds_a_failing_build_for_pictures(tmp_path: Path
     assert (tmp_path / "builds.txt").read_text() == "1", (
         "a failed build is not retried for pictures"
     )
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert "renders" not in report
     # The exit is the report's own, not a render-failure 4 layered on top.
     (tmp_path / "builds.txt").unlink()
@@ -839,7 +839,7 @@ def test_check_render_does_not_build_past_a_parameter_blocker(tmp_path: Path):
     assert not (tmp_path / "builds.txt").exists(), (
         "rejected inputs are never built, even for pictures"
     )
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert "renders" not in report
 
 
@@ -915,7 +915,7 @@ def test_render_carries_the_same_identity_as_the_report(tmp_path: Path, capsys):
     target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
     out = tmp_path / "out"
     assert main(["check", target, "--quiet", "--out", str(out)]) == 0
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     capsys.readouterr()
 
     code = main(["render", target, "--out", str(tmp_path / "r")])

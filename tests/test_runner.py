@@ -4,13 +4,13 @@ Most of this file is end-to-end. Those are the tests that would catch the tool
 lying, and each asserts a claim from `SPEC-report.md` that the rest of the
 design depends on.
 
-The last section is not. `# runner internals, exercised directly` holds three
-tests that drive `_run_geometry_check`, `_components_of` and `_failing_axes`
-against hand-built inputs, with no engine and no report. They are here because
-`runner.py` owns those helpers, and this docstring says so because the #153
-split added them while the first line still read "End-to-end" — the same false
-module docstring this commit retracts one file over, in `test_bores.py`
-(PR #158 review).
+The last section is not. `# runner internals, exercised directly` drives
+`_run_geometry_check` with a stub, no engine and no report. It is here because
+`runner.py` owns that helper.
+
+This docstring says so because the #153 split added that section while the
+first line still read "End-to-end" — the same false module docstring #158
+retracted one file over, committed in the commit that retracted it.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 from support import needs_openscad
 
-from partspec import Measurement, Part, Status, Verdict, openscad, run
+from partspec import Part, Status, Verdict, openscad, run
 from partspec.runner import _run_parameter_check
 
 pytest.importorskip("trimesh", reason="mesh extra not installed")
@@ -544,21 +544,16 @@ def test_a_pinned_render_backend_reaches_the_report(tmp_path: Path):
 # --------------------------------------------------------------------------
 # runner internals, exercised directly
 #
-# Three tests that the #153 split first filed by the banner they sat under
-# rather than by their subject (PR #158 review). None of them runs an engine
-# or touches the check they were shelved beside: the first drives
-# `_run_geometry_check` with a stub, the other two call `_components_of` and
-# `_failing_axes` on hand-built measurements. A reader looking for the
-# attribution helpers' unit tests would not have found them in a regions file.
+# One test, filed here because `runner.py` owns the helper it drives. It runs
+# no engine and touches no check: it hands `_run_geometry_check` a stub backend
+# that DECLARES a primitive and then refuses it per-call, which no shipped
+# backend does, so it is the only way `_refused`'s `requires=` field is
+# exercised at all.
 #
-# This did NOT fix `test_regions_e2e.py`'s name, and the first draft of this
-# comment claimed it had. Measured after the move: 7 of the 18 tests there
-# drive `run()`, 11 are `_BoxWorld` stub tests, and four are #84 attribution
-# over envelope/volume/topology rather than regions at all. So `_e2e` still
-# over-counts, by eleven. The rename (`test_region_checks.py`) and the wider
-# question of whether #84 wants its own file belong to #153's remaining sweep,
-# which can see the whole picture; what is fixed here is only the two tests
-# that were neither regions nor end-to-end (PR #158 review).
+# It arrived here in #158 from `test_fillet_radius.py`, where the #153 split had
+# filed it by the banner it sat under rather than by its subject. Two others
+# arrived with it and have since gone on to `test_attribution.py` (#159), which
+# is where the reader asking "which component failed?" now finds all six.
 # --------------------------------------------------------------------------
 
 
@@ -594,39 +589,3 @@ def test_a_declared_primitive_that_refuses_still_names_the_tier():
     assert result.status is Status.UNSUPPORTED
     assert result.detail == "this stub cannot integrate"
     assert result.requires == "occt", "the tier that would answer must survive into the report"
-
-
-def test_components_respect_the_same_epsilon_the_status_does():
-    """The headline invariant, tested at the boundary where it can break: the
-    binary-STL float32 round-trip that `epsilon()` exists for. A recompute of
-    components with a naive comparison would fail x here while the folded
-    status passes — a report contradicting its own attribution."""
-    from partspec import Limit, adjudicate
-    from partspec.runner import _components_of
-
-    m = Measurement((120.30000305, 80.69999695, 40.09999847), "mm", axes=("x", "y", "z"))
-    limit = Limit(max=(120.3, 80.7, 40.1))
-    assert adjudicate(m, limit) is Status.PASS
-    assert _components_of(m, limit) == {"x": Status.PASS, "y": Status.PASS, "z": Status.PASS}
-
-
-def test_an_approximate_axis_is_never_claimed_outside_its_bound():
-    """'outside' is a conclusive claim. An axis whose error band straddles the
-    limit is APPROXIMATE — the tool does not know — and the detail must stay
-    silent about it rather than rounding indeterminate into violated. No
-    backend emits vector bounds today; this pins the path before one does."""
-    from partspec import Limit
-    from partspec.runner import _components_of, _failing_axes
-
-    m = Measurement(
-        (5.0, 2.01),
-        "mm",
-        exact=False,
-        bounds=((4.9, 5.1), (1.96, 2.06)),
-        axes=("a", "b"),
-    )
-    limit = Limit(min=(6.0, 2.0))
-    components = _components_of(m, limit)
-    assert components == {"a": Status.FAIL, "b": Status.APPROXIMATE}
-    assert components is not None
-    assert _failing_axes(m, limit, components) == "a=5 outside min=6.0"

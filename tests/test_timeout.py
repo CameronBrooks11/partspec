@@ -10,13 +10,13 @@ on `verdict: "error"` with `build_origin: "environment"`, never on a failing
 from __future__ import annotations
 
 import contextlib
-import json
 import signal
 import threading
 import time
 from pathlib import Path
 
 import pytest
+from support import report_of
 
 from partspec.backend import DEFAULT_TIMEOUT_S, effective_timeout
 from partspec.cli import main
@@ -169,7 +169,7 @@ def test_a_sleeping_model_is_stopped_and_reported_as_error(tmp_path: Path):
     assert code == 4, "a blown budget is error, never a failing part"
     assert time.monotonic() - started < 25, "the CLI value applied, not DEFAULT_TIMEOUT_S"
 
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert report["verdict"] == "error"
     assert report["build_origin"] == "environment"
     assert "against its 1s budget" in report["error"]
@@ -184,7 +184,7 @@ def test_the_environment_variable_supplies_the_budget(tmp_path: Path, monkeypatc
     monkeypatch.setenv("PARTSPEC_TIMEOUT", "1")
     out = tmp_path / "out"
     assert main(["check", _sleeping_target(tmp_path), "--quiet", "--out", str(out)]) == 4
-    assert json.loads((out / "report.json").read_text())["invocation"]["timeout_s"] == 1.0
+    assert report_of(out)["invocation"]["timeout_s"] == 1.0
 
 
 def test_the_flag_beats_the_environment(tmp_path: Path, monkeypatch):
@@ -195,7 +195,7 @@ def test_the_flag_beats_the_environment(tmp_path: Path, monkeypatch):
         ["check", _sleeping_target(tmp_path), "--timeout", "1", "--quiet", "--out", str(out)]
     )
     assert code == 4
-    assert json.loads((out / "report.json").read_text())["invocation"]["timeout_s"] == 1.0
+    assert report_of(out)["invocation"]["timeout_s"] == 1.0
 
 
 def test_measure_is_bounded_by_the_same_flag(tmp_path: Path, capsys):
@@ -255,7 +255,7 @@ def test_a_model_that_swallows_the_alarm_cannot_report_green(tmp_path: Path):
     assert code == 4, "a result computed past the budget is not a result"
     assert time.monotonic() - started < 25
 
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert report["verdict"] == "error"
     assert report["build_origin"] == "environment"
     assert "budget" in report["error"]
@@ -306,5 +306,5 @@ def test_zero_reaches_the_mesh_tier_as_unbounded(tmp_path: Path, monkeypatch):
 def test_nobody_choosing_applies_and_records_the_default(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("PARTSPEC_TIMEOUT", raising=False)
     assert _captured_render_timeout(tmp_path, monkeypatch, []) == DEFAULT_TIMEOUT_S
-    report = json.loads((tmp_path / "out" / "report.json").read_text())
+    report = report_of(tmp_path / "out")
     assert report["invocation"]["timeout_s"] == DEFAULT_TIMEOUT_S

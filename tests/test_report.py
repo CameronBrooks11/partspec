@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 import pytest
+from support import report_of
 
 from partspec.report import SCHEMA_VERSION, CheckResult, Report, write_placeholder
 from partspec.status import Limit, Measurement, Status, Verdict
@@ -194,7 +195,7 @@ def test_no_checks_is_empty_not_pass():
 
 def test_write_is_atomic_and_leaves_no_temp_files(tmp_path: Path):
     _report(checks=[_check(Status.PASS)]).write(tmp_path)
-    assert json.loads((tmp_path / "report.json").read_text())["verdict"] == "pass"
+    assert report_of(tmp_path)["verdict"] == "pass"
     assert not list(tmp_path.glob(".partspec-*"))
 
 
@@ -222,7 +223,7 @@ def test_write_overwrites_rather_than_accumulating(tmp_path: Path):
     _report(checks=[_check(Status.FAIL)]).write(tmp_path)
     _report(checks=[_check(Status.PASS)]).write(tmp_path)
     assert len(list(tmp_path.glob("*.json"))) == 1
-    assert json.loads((tmp_path / "report.json").read_text())["verdict"] == "pass"
+    assert report_of(tmp_path)["verdict"] == "pass"
 
 
 def test_placeholder_is_written_before_the_engine_runs(tmp_path: Path):
@@ -230,7 +231,7 @@ def test_placeholder_is_written_before_the_engine_runs(tmp_path: Path):
     first means the worst case is a report saying the run died, never one
     saying the part was fine."""
     write_placeholder(tmp_path, part_id="p", contract="parts/p.py:main", argv=["check", "p"])
-    doc = json.loads((tmp_path / "report.json").read_text())
+    doc = report_of(tmp_path)
     assert doc["verdict"] == "error"
     assert doc["error"]
 
@@ -238,7 +239,7 @@ def test_placeholder_is_written_before_the_engine_runs(tmp_path: Path):
 def test_placeholder_is_replaced_by_the_real_report(tmp_path: Path):
     write_placeholder(tmp_path, part_id="p", contract="parts/p.py:main", argv=[])
     _report(checks=[_check(Status.PASS)]).write(tmp_path)
-    assert json.loads((tmp_path / "report.json").read_text())["verdict"] == "pass"
+    assert report_of(tmp_path)["verdict"] == "pass"
 
 
 def test_packages_are_not_quarantined_from_comparison():

@@ -1,9 +1,19 @@
-"""End-to-end: `keep_out` / `keep_in`, and per-component attribution.
+"""The runner path for `keep_out` / `keep_in`, both tiers.
 
-Split out of `test_runner.py` (#153), which reached 1384 lines and 73 tests
-across five unrelated subjects. These two travel together because they share
-`_BoxWorld` — the honest one-box stub the adjudication is attacked with — and
-because attribution is what the region checks report through.
+Split out of `test_runner.py` (#153), and named for its subject rather than its
+method: it was `test_regions_e2e.py` until #159. Counting is what settled it —
+of the 18 tests it held then, only 7 drove `run()`; the other 11 attack the
+adjudication through `_BoxWorld`, the honest one-box stub, with no kernel at
+all, so a reader filtering `_e2e` for end-to-end coverage was over-counting by
+eleven. After the four attribution tests left for `test_attribution.py` the
+ratio is starker still — **3 of the 14 here drive `run()`** — because the ones
+that left were among the end-to-end ones. `test_region_checks` is true of every
+test in this file and claims no tier.
+
+The four per-component attribution tests that came along in the original split
+have moved to `test_attribution.py`; they were #84's subject, not this one's.
+`test_region_clauses_appear_as_components` stays, because a region clause
+appearing as a component IS a claim about the region check.
 
 `test_region.py` holds the region *data* (the canonical polyhedron both tiers
 materialize); this file holds the runner path that consumes it.
@@ -22,7 +32,6 @@ from partspec import Measurement, Part, Status, Unsupported, Verdict, openscad, 
 pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
-BLOCK = FIXTURES / "block_with_hole.scad"
 PLATE = FIXTURES / "parametric_plate.scad"
 
 
@@ -285,59 +294,6 @@ def test_keep_in_tolerance_scales_with_region_volume():
 # --------------------------------------------------------------------------
 # per-component attribution (#84)
 # --------------------------------------------------------------------------
-
-
-@needs_openscad
-def test_a_failing_envelope_names_the_failing_axis(tmp_path: Path):
-    """The block is 30x20x10. Only z breaks its bound, and the report must say
-    so as data — an agent acting on 'envelope failed' has to bisect; one acting
-    on 'z=10 outside max=5' edits once."""
-    p = Part("block", openscad(BLOCK)).envelope(max=(30, 20, 5))
-    report = run(p, out_dir=tmp_path)
-    check = next(c for c in report.checks if c.id == "envelope")
-    assert check.status is Status.FAIL
-    assert check.components == {"x": Status.PASS, "y": Status.PASS, "z": Status.FAIL}
-    assert check.detail == "z=10 outside max=5"
-
-
-@needs_openscad
-def test_components_are_recorded_on_pass_too(tmp_path: Path):
-    """The 7.2 principle applied to attribution: drift analysis needs the
-    passing shape as much as the failing one."""
-    p = Part("block", openscad(BLOCK)).envelope(max=(30, 20, 10))
-    report = run(p, out_dir=tmp_path)
-    check = next(c for c in report.checks if c.id == "envelope")
-    assert check.status is Status.PASS
-    assert check.components == {"x": Status.PASS, "y": Status.PASS, "z": Status.PASS}
-    assert check.detail is None
-
-
-@needs_openscad
-def test_a_scalar_check_carries_no_components(tmp_path: Path):
-    p = Part("block", openscad(BLOCK)).volume(min=1.0)
-    report = run(p, out_dir=tmp_path)
-    check = next(c for c in report.checks if c.id == "volume")
-    assert check.components is None
-    assert "components" not in check.to_json()
-
-
-@pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
-    reason="occt extra not installed",
-)
-def test_an_unconstrained_topology_axis_is_absent_from_components(tmp_path: Path):
-    """faces= alone claims nothing about edges or vertices, so those axes must
-    not appear — a status on an unmade claim would be an answer to a question
-    nobody asked."""
-    from partspec import build123d
-
-    model = tmp_path / "m.py"
-    model.write_text("from build123d import Box\n\n\ndef make_part():\n    return Box(1, 1, 1)\n")
-    p = Part("cube", build123d(model)).topology(faces=6)
-    report = run(p, out_dir=tmp_path)
-    check = next(c for c in report.checks if c.id == "topology")
-    assert check.status is Status.PASS
-    assert check.components == {"faces": Status.PASS}
 
 
 def test_region_clauses_appear_as_components():

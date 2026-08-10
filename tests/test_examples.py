@@ -7,11 +7,10 @@ from an untracked workspace (the audit revision's sharpening of #25).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import needs_openscad, report_of
 
 from partspec.cli import main
 
@@ -19,7 +18,7 @@ EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 
 def _report(out: Path) -> dict:
-    return json.loads((out / "report.json").read_text())
+    return report_of(out)
 
 
 def test_the_bracket_carries_the_standards_citation(tmp_path: Path):

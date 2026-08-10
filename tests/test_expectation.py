@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import needs_openscad, report_of
 
 from partspec.cli import main
 from partspec.expectation import LockError, compare, read_lock
@@ -101,7 +101,7 @@ def test_pin_then_expect_round_trips_green(tmp_path: Path):
     assert json.loads(lock.read_text())["schema_version"] == 1
 
     assert main(["check", target, "--quiet", "--expect", str(lock), "--out", str(out)]) == 0
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert report["expectation"] == {"claims": 2, "matched": True}
     assert list(report)[7:10] == ["counts", "attribution", "expectation"]
 
@@ -117,7 +117,7 @@ def test_a_deleted_check_fails_with_its_name(tmp_path: Path):
     code = main(["check", weakened, "--quiet", "--expect", str(lock), "--out", str(out)])
     assert code == 4, "a contract that shrank is error, never a verdict about the part"
 
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert report["verdict"] == "error"
     assert "removed: envelope" in report["error"]
     assert report["expectation"]["matched"] is False
@@ -135,7 +135,7 @@ def test_a_loosened_limit_fails_showing_both_slugs(tmp_path: Path):
     loosened = _target(tmp_path, "    p.envelope(max=(500, 500, 500))\n    p.watertight()\n")
     out = tmp_path / "out"
     assert main(["check", loosened, "--quiet", "--expect", str(lock), "--out", str(out)]) == 4
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert "changed: envelope" in report["error"]
     assert "31" in report["error"] and "500" in report["error"], "both slugs shown"
 
@@ -159,7 +159,7 @@ def test_an_unpinned_part_does_not_pass_on_someone_elses_pin(tmp_path: Path):
     lock.write_text('{"schema_version": 1, "parts": {"other": {"x": "watertight"}}}')
     out = tmp_path / "out"
     assert main(["check", target, "--quiet", "--expect", str(lock), "--out", str(out)]) == 4
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert report["expectation"]["claims"] == 0
     assert all(d.startswith("added:") for d in report["expectation"]["differences"])
 
@@ -228,7 +228,7 @@ def test_a_report_without_expect_carries_no_expectation_key(tmp_path: Path):
     target = _target(tmp_path, STRICT)
     out = tmp_path / "out"
     assert main(["check", target, "--quiet", "--out", str(out)]) == 0
-    assert "expectation" not in json.loads((out / "report.json").read_text())
+    assert "expectation" not in report_of(out)
 
 
 @needs_openscad
@@ -246,5 +246,5 @@ def test_a_stripped_citation_is_a_named_difference(tmp_path: Path):
     bare = _target(tmp_path, "    p.envelope(max=(22.0, 30.0, 30.0))\n")
     out = tmp_path / "out"
     assert main(["check", bare, "--quiet", "--expect", str(lock), "--out", str(out)]) == 4
-    report = json.loads((out / "report.json").read_text())
+    report = report_of(out)
     assert "ISO 15" in report["error"], "the vanished citation is visible in the difference"
