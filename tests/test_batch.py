@@ -305,6 +305,99 @@ def test_batch_of_two_python_models_each_measures_its_own(tmp_path: Path):
     assert vol_b == pytest.approx(3.0), "model B must not build with model A's cached helper"
 
 
+def test_resolving_a_contract_records_its_sibling_imports(tmp_path: Path):
+    """PR #147's review, major 5: the recording in `target.resolve()` was
+    held only by running the suite in reverse file order — which CI does not
+    do, and no justfile recipe offers. Deleting the call passed 742 tests in
+    the order that actually runs. Bound directly here instead.
+
+    The `finally` half matters more than the success half: a contract that
+    imports its sibling and THEN raises is issue #114's path 1, and an
+    unrecorded leak there is exactly what outlives the run.
+    """
+    import sys
+
+    from partspec.engines.pycad import _LOADED_MODEL_MODULES, invalidate_model_modules
+    from partspec.target import resolve
+
+    d = tmp_path / "recorded"
+    d.mkdir()
+    (d / "helper_mod.py").write_text("VALUE = 1\n")
+    spec = d / "spec.py"
+    spec.write_text(
+        "from helper_mod import VALUE\n"
+        "from partspec import Part, openscad\n\n\n"
+        "def make():\n"
+        "    return Part('p', openscad('x.scad'))\n"
+    )
+    resolve(f"{spec}:make")
+    assert "helper_mod" in _LOADED_MODEL_MODULES.get(str(d), set()), (
+        "a contract's sibling import must be tracked for eviction"
+    )
+
+    # The payoff of recording, and the reason the registry exists: the name
+    # can now be evicted, so the NEXT directory's same-named helper is read
+    # from disk instead of served from cache.
+    invalidate_model_modules(spec)
+    assert "helper_mod" not in sys.modules
+
+    raiser = tmp_path / "raising"
+    raiser.mkdir()
+    (raiser / "helper_mod.py").write_text("VALUE = 2\n")
+    bad = raiser / "spec.py"
+    bad.write_text("from helper_mod import VALUE\n\nraise TypeError('after the import')\n")
+    with pytest.raises(Exception, match="after the import"):
+        resolve(f"{bad}:make")
+    assert "helper_mod" in _LOADED_MODEL_MODULES.get(str(raiser), set()), (
+        "the raise path is the one that most needs the record (#114 path 1)"
+    )
+    invalidate_model_modules(bad)
+
+
+def test_running_a_part_evicts_the_models_own_siblings(tmp_path: Path):
+    """`runner.py`'s eviction call site had no binding test in the order CI
+    actually runs — deleting it passed all 749. PR #147's review found it
+    while proving that an autouse conftest fixture (since removed) would
+    have masked it permanently.
+
+    This is the library-caller path: `run()` without the CLI around it, which
+    is what `test_differential` does and what any embedder does.
+    """
+    import sys
+
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    from partspec.runner import run
+    from partspec.target import resolve
+
+    d = tmp_path / "modeldir"
+    d.mkdir()
+    (d / "geo_helper.py").write_text("SIZE = 4.0\n")
+    (d / "model.py").write_text(
+        "from build123d import Box\nfrom geo_helper import SIZE\n\n\n"
+        "def make_part():\n    return Box(SIZE, SIZE, SIZE)\n"
+    )
+    (d / "spec.py").write_text(
+        "from partspec import Part, build123d\n\n\n"
+        "def make():\n"
+        "    p = Part('m', build123d('model.py'))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    part, target = resolve(f"{d / 'spec.py'}:make")
+    report = run(part, out_dir=tmp_path / "out")
+    # The build succeeding IS the proof that `geo_helper` was imported: the
+    # model reads SIZE from it. So an absent module after the run means it
+    # was imported and then evicted, not that it was never there.
+    assert report.verdict is Verdict.PASS, "the model must actually build from its sibling"
+    assert "geo_helper" not in sys.modules, (
+        "run() must evict the model's siblings, or the next build in this "
+        "process gets a stale helper and reports it as fresh"
+    )
+    from partspec.engines.pycad import invalidate_model_modules
+
+    invalidate_model_modules(target.path)
+
+
 @needs_openscad
 def test_a_contracts_shared_claims_module_does_not_cross_directories(tmp_path: Path):
     """PR #112's review: the taught `from claims import shared_claims`

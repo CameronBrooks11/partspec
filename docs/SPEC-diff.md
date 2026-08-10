@@ -66,13 +66,16 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
-- **`limit_changed`** — status unchanged but the *claim* moved: `kind`, `limit`, `region`,
-  `hole`, `source` or `direction` differ. (The name is historical — it covers every field
+- **`limit_changed`** — status unchanged but the *claim* moved: `kind`, `expr`, `limit`,
+  `region`, `hole`, `source` or `direction` differ. (The name is historical — it covers every field
   that makes a check the claim it is, which the code names `diff.CLAIM_FIELDS` and a test
   holds in step with this list.) `source` is the quiet half of the weakening move: same
-  number, citation stripped, authority now the author's say-so. `kind` is the loud half
-  and was missing until the v0.7.0 sweep — swapping `genus` for `cavities` under one id
-  turns "no through-holes" into "one sealed void" and read as `identical`, exit 0.
+  number, citation stripped, authority now the author's say-so. `kind` and `expr` are the loud half
+  and were both missing until the v0.7.0 sweep — swapping `genus` for `cavities` under one
+  id turns "no through-holes" into "one sealed void", and loosening `wall >= 2.0` to
+  `wall >= 0.2` rewrites a predicate outright; each read as `identical`, exit 0. Every
+  other key a check can carry is listed in `diff.NON_CLAIM_FIELDS` with the reason it is
+  not a claim, and a test requires every emitted field to appear in one list or the other.
   This is a contract edit visible between runs — the raw material of weakening
   detection (#31 owns adjudicating *within* a run; `diff` only reports the change, both
   sides shown, and takes no view on direction).
@@ -82,12 +85,25 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
 through a different transform order perturbs coordinates at ~1e-13, and exact float
 equality would bury signal under noise. Non-numeric values compare exactly.
 
-Also compared, at the top level: `verdict`, `counts.total` (a shrink is named, not
-implied), `contract_digest`, `source_digest` + closure digest, and the environment facts
-that *explain* differences without being differences of the part — `tool_version`,
-`engine.version`, `engine.render_backend` — which are reported only when they changed
-(`SPEC-report.md` §8's principle: a dependency upgrade moving a number is a different
-explanation than the design changing).
+Also compared, at the top level, and **outcome-bearing**: `verdict` and `counts.total` (a
+shrink is named, not implied).
+
+**Recorded but never outcome-bearing**: `contract_digest`, `source_digest`, and the closure
+digest. All three appear in the artifact as `digest_changed` / `closure` so a reader can
+see the inputs moved, and none of them can make an outcome `different` on its own. The
+contract digest is module-scoped and over-fires deliberately (`SPEC-report.md` §7.1) — an
+unrelated docstring edit moves it — and a comment added to a `.scad` is not a semantic
+difference of the part. A verb that reported `different` on either would be piped through
+`|| true` inside a week, and what this comparison actually covers *is* the contract's
+observable content: every check id, every field in `CLAIM_FIELDS`, every status and every
+measurement. The closure digest is the exception that proves the rule: it cannot make an
+outcome `different`, but under §2 rule 3 an absent or partial closure does block
+`identical`, because there the question is whether the inputs were fully identified at all.
+
+Alongside them, the environment facts that *explain* differences without being differences
+of the part — `tool_version`, `engine.version`, `engine.render_backend` — reported only
+when they changed (`SPEC-report.md` §8's principle: a dependency upgrade moving a number is
+a different explanation than the design changing).
 
 ## 4. The artifact
 

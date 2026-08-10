@@ -503,23 +503,29 @@ class OcctBackend:
         the quantity was simply never exposed. The mesh tier reaches the same
         two numbers from triangle orientation.
 
-        Gated on there being a solid at all, and every sibling on this tier
-        was already gated the same way — `volume` and `center_of_mass` on
-        `solids()`, `bbox` and `watertight` on `_empty`, `genus` on exactly
-        one solid. This one was added without the precondition, and an open
-        shell walked straight through it: no material anywhere, 1 shell minus
-        0 solids, and the tool certified `cavities = 1, exact` with
-        `verdict: pass` and exit 0. Two failures in one — the green-on-nothing
-        of SPEC-report §1.1, and a tier disagreement, since the mesh backend
-        answers 0 on the same shape.
+        Counted **per solid**, not as a global `shells - solids`. The global
+        form assumes every shell belongs to a solid, and nothing enforces
+        that: one plain block beside a stray sheet body is 1 solid and 2
+        shells, so the difference certified `cavities = 1, exact` on a part
+        with no cavity at all — `verdict: pass`, exit 0. An open shell alone
+        was the same arithmetic with nothing to hide behind, 1 minus 0.
+
+        PR #147's first attempt gated on `not a.solids()`, which caught only
+        the second case; its own review produced the first through the CLI
+        and the false pass was still there. Summing each solid's own shells
+        minus its outer one needs no precondition for the solid-bearing
+        cases, is 0 for every stray-shell arrangement, and agrees with the
+        mesh tier — which the gate did not (OCCT refused where mesh answered
+        0, so one contract still adjudicated two ways).
+
+        `_empty` is still refused, as `bbox` and `watertight` refuse it: a
+        shape with no geometry at all is not a shape with no cavities.
         """
-        if not a.solids():
-            return Unsupported(
-                "this shape bounds no solid, so it encloses no sealed void — "
-                "there is nothing here for a cavity count to be about "
-                "(check solid_count first)"
-            )
-        return Measurement(max(len(a.shells()) - len(a.solids()), 0), "count", exact=True)
+        if _empty(a):
+            return Unsupported(_EMPTY_REASON)
+        return Measurement(
+            sum(max(len(solid.shells()) - 1, 0) for solid in a.solids()), "count", exact=True
+        )
 
     def genus(self, a: Any) -> Measurement | Unsupported:
         """Through-holes, via the Euler-Poincare formula.

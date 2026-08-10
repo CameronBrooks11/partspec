@@ -66,15 +66,28 @@ def test_counts_are_the_per_status_tally_not_merely_a_sum():
     every check passed while the verdict says fail — a false tally inside the
     artifact that IS the product contract, and `diff` reads only
     `counts.total` (which stays honest), so the comparator misses it too.
-    The exact dict, or this test proves nothing."""
-    r = _report(checks=[_check(Status.PASS), _check(Status.FAIL), _check(Status.UNSUPPORTED)])
+    The exact dict over EVERY status, or this test proves nothing. Three of
+    five left `approximate` and `skipped` pinned only at zero, and a mutant
+    tallying `skipped` as `approximate` still survived all 742 tests — which
+    is the same false tally in a subtler spelling, since `skipped` means not
+    measured and `approximate` means measured with tolerance.
+    """
+    r = _report(
+        checks=[
+            _check(Status.PASS),
+            _check(Status.FAIL),
+            _check(Status.APPROXIMATE),
+            _check(Status.UNSUPPORTED),
+            _check(Status.SKIPPED),
+        ]
+    )
     assert r.counts() == {
-        "total": 3,
+        "total": 5,
         "pass": 1,
         "fail": 1,
-        "approximate": 0,
+        "approximate": 1,
         "unsupported": 1,
-        "skipped": 0,
+        "skipped": 1,
     }
 
 

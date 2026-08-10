@@ -119,13 +119,20 @@ def resolve(spec: str) -> tuple[Part, Target]:
     answered for a later one in a different directory, breaking the five
     tests that exist to prove that cannot happen. Bookkeeping belongs with
     the import that causes it.
+
+    In a `finally`, because the case that most needs the record is the one
+    where the contract imports its sibling and THEN raises (#114 path 1):
+    recording after a successful `_load` leaves the leak untracked on
+    exactly the path `cli._cmd_check`'s own `finally` was written for.
     """
     from .engines.pycad import record_model_modules
 
     target = Target.parse(spec)
     modules_before = set(sys.modules)
-    module = _load(target.path)
-    record_model_modules(target.path, modules_before)
+    try:
+        module = _load(target.path)
+    finally:
+        record_model_modules(target.path, modules_before)
     available = factories(module)
 
     if target.factory is not None:

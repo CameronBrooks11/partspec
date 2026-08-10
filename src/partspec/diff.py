@@ -17,6 +17,7 @@ from .status import _SEVERITY, Status, epsilon
 __all__ = [
     "CLAIM_FIELDS",
     "DIFF_SCHEMA_VERSION",
+    "NON_CLAIM_FIELDS",
     "DiffUsageError",
     "diff_reports",
     "exit_code_of",
@@ -25,13 +26,41 @@ __all__ = [
 
 DIFF_SCHEMA_VERSION = 1
 
-CLAIM_FIELDS = ("kind", "limit", "region", "hole", "source", "direction")
+CLAIM_FIELDS = ("kind", "expr", "limit", "region", "hole", "source", "direction")
 """The fields that make a check the claim it is.
 
-Public and named because SPEC-diff.md §3.2 enumerates them and a test now
-holds the two in step — the list drifted twice unnoticed (`direction` arrived
-with `draft_angle` and was never documented; `kind` was never compared at
-all, so a swapped check kind read as `identical`).
+Public and named because SPEC-diff.md §3 enumerates them and two tests hold
+the three lists in step. The list has drifted three times unnoticed, each
+time in the direction that reads a weakened contract as `identical`:
+`direction` arrived with `draft_angle` and was never documented; `kind` was
+never compared at all, so swapping `genus` for `cavities` under one id passed
+as no difference; and `expr` — the entire predicate of a `requires` check —
+was missing, so `wall >= 2.0` becoming `wall >= 0.2` was invisible.
+
+Every other key `CheckResult.to_json` emits is deliberately NOT here, and
+`NON_CLAIM_FIELDS` says which and why, so the next field added to the report
+has to be classified rather than silently ignored.
+"""
+
+NON_CLAIM_FIELDS = {
+    "id": "the join key itself — a changed id is a removed check plus an added one",
+    "status": "a result, compared separately and reported as regressed/fixed",
+    "measurement": "a result, compared separately and reported as drifted",
+    "operands": "a result — the values the expression saw, compared separately",
+    "components": "a result, derived from measurement against limit",
+    "detail": "prose about a result, not a claim",
+    "phase": "structural, and cannot move without kind or expr moving with it",
+    "requires": "which tier would answer a refusal — environment, like engine.version",
+    "step": "the STEP writer schema — environment, recorded because it changes the artifact",
+    "part_refs": "provenance; not currently serialised at all",
+}
+"""Why each non-claim field is not compared as a claim.
+
+The reverse of `CLAIM_FIELDS`, and the reason the pair is testable: a claim
+that the comparator covers "every field that makes a check the claim it is"
+can only be checked if the fields it does NOT cover are enumerated too. PR
+#147 made that claim in three places while `expr` was missing from both
+lists, and no test could have noticed.
 """
 
 _EXIT = {"identical": 0, "different": 1, "indeterminate": 2}
@@ -73,12 +102,12 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
     # same number, authority gone — is the quiet half of the weakening move,
     # and "no semantic differences" over it would be exactly the silence this
     # verb exists to refuse (#92).
-    # `kind` is a claim field too. Swapping `genus` for `cavities` under one
-    # id turns "no through-holes" into "one sealed void" — a different
-    # question about the same part — and this verb read it as `identical`
-    # until the deslop audit swapped one and watched it exit 0.
-    # `expectation._claim_slug` already treated kind as claim-bearing and
-    # said so in its docstring; the two agree now.
+    # `kind` and `expr` are claim fields too, and both were missing. Swapping
+    # `genus` for `cavities` under one id turns "no through-holes" into "one
+    # sealed void"; loosening `wall >= 2.0` to `wall >= 0.2` rewrites the
+    # predicate outright. Both read as `identical`, exit 0, until PR #147 and
+    # its review each found one. `expectation._claim_slug` already covered
+    # kind and expr and said so in its docstring; the two agree now.
     claim_fields = [f for f in CLAIM_FIELDS if old.get(f) != new.get(f)]
     claim = (
         {
@@ -134,10 +163,10 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
     return None
 
 
-def _closure_state(old_part: dict[str, Any], new_part: dict[str, Any]) -> str | None:
+def _closure_state(old_part: dict[str, Any], new_part: dict[str, Any]) -> str:
     old_closure, new_closure = old_part.get("source_closure"), new_part.get("source_closure")
     if old_closure is None and new_closure is None:
-        # BOTH absent. SPEC-diff §2.3 names this case in the same breath as
+        # BOTH absent. SPEC-diff §2 rule 3 names this case in the same breath as
         # one-side-absent — "the ordinary v0.1.0 upgrade path" — and the rule
         # is the same: with no closure on either side, `identical` would rest
         # on `source_digest` alone, which is the overclaim SPEC-report §8.3
@@ -216,7 +245,7 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
     elif different:
         outcome = "different"
     elif closure == "inconclusive":
-        # The partial-closure rule (SPEC-diff.md §2.3): matching digests on a
+        # The partial-closure rule (SPEC-diff.md §2 rule 3): matching digests on a
         # partial closure mean "nothing we looked at changed". Claiming
         # `identical` on that evidence is silence-as-success at the
         # provenance layer.
