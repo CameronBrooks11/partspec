@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `partspec diff` refuses a report carrying two checks under one `id`, exit 64
+  (#148). SPEC-report §7.1 already made uniqueness a MUST NOT; nothing checked
+  it on the consuming side, and the comparator joins on `id`, so the second
+  occurrence silently replaced the first and two unrelated claims were compared
+  as one. Measured before the fix: a `genus` check aliased onto a `param_range`
+  check reported `limit_changed` from `{"kind": "param_range"}` to
+  `{"kind": "genus"}` at exit 1, with the displaced claim absent from the output
+  entirely — a confident wrong answer, not a lost check. `counts.total` cannot
+  catch it, because such a report carries exactly the number of checks it
+  claims. `Part._add` already refuses an id clash at authoring time, so
+  `partspec` never emitted one; this binds `diff`, which consumes reports it did
+  not produce.
+
 ### Changed
 
 - The sdist no longer ships `notes/` or `evals/` (#150). They were carried

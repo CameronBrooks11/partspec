@@ -212,6 +212,33 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"the {label} report is corrupt: counts.total is {total} but it "
                 f"carries {len(report.get('checks', []))} checks"
             )
+
+        # Ids must be unique, for the same reason and in the same class (#148).
+        # The comparator joins on id, so a report carrying two checks under one
+        # id does not merely lose information — it produces a CONFIDENT WRONG
+        # answer. Observed before this guard, comparing a two-check report
+        # against one where a `genus` check had aliased onto a `volume` one:
+        # the volume claim vanished from the analysis entirely and the survivor
+        # was reported as `limit_changed` from `{"kind": "volume"}` to
+        # `{"kind": "genus"}` — two unrelated claims diffed as one, exit 1.
+        #
+        # `counts.total` cannot catch this: both reports carried the number of
+        # checks they said they did. Uniqueness is a separate invariant.
+        #
+        # `Part._add` already refuses an id clash at authoring time, so partspec
+        # cannot emit such a report. That is exactly why this belongs here: the
+        # report schema is the stable product surface (D5), `diff` consumes
+        # whatever is handed to it, and a guarantee that holds only for reports
+        # we produced is not one the comparator may assume.
+        ids = [c.get("id") for c in report.get("checks", []) if isinstance(c, dict)]
+        duplicated = sorted({i for i in ids if ids.count(i) > 1}, key=lambda i: (i is None, i))
+        if duplicated:
+            raise DiffUsageError(
+                f"the {label} report is corrupt: check ids must be unique because the "
+                f"comparison joins on them, and these appear more than once: "
+                f"{duplicated}. Two different claims under one id are compared as if "
+                f"they were the same claim."
+            )
     old_part, new_part = old.get("part", {}), new.get("part", {})
     if old_part.get("id") != new_part.get("id"):
         raise DiffUsageError(

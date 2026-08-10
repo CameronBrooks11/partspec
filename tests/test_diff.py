@@ -538,6 +538,49 @@ def test_a_report_contradicting_its_own_counts_is_corrupt_input():
         _diff(_doc(), bad)
 
 
+def test_a_report_with_two_checks_under_one_id_is_corrupt_input():
+    """Ids are the join key, so aliasing is not a lost check — it is a wrong
+    answer (#148).
+
+    `counts.total` cannot catch this: the report carries exactly the number of
+    checks it claims. Uniqueness is a separate invariant, and the comparator
+    builds `{id: check}`, so the second occurrence silently replaces the first.
+
+    Measured before the guard, on this exact input: the `param_range` claim
+    vanished from the analysis entirely and the survivor was reported as a
+    change from `{"kind": "param_range"}` to `{"kind": "genus"}` — two
+    unrelated claims diffed as one, at exit 1, with no indication anything was
+    wrong. That is the failure mode this project exists to refuse, in the
+    confident-wrong-answer direction rather than the silent-pass one.
+    """
+    bad = _doc()
+    aliased = dict(bad["checks"][0])
+    aliased["kind"] = "genus"
+    bad["checks"] = [bad["checks"][0], aliased, *bad["checks"][1:]]
+    bad["counts"]["total"] = len(bad["checks"])  # self-consistent, so the counts guard is silent
+    with pytest.raises(DiffUsageError, match="unique"):
+        _diff(_doc(), bad)
+
+
+def test_the_id_uniqueness_guard_names_every_repeated_id():
+    """The message must name what to fix; a bare 'corrupt' sends the reader
+    back to a diff of two whole reports."""
+    bad = _doc()
+    bad["checks"] = [*bad["checks"], dict(bad["checks"][0]), dict(bad["checks"][1])]
+    bad["counts"]["total"] = len(bad["checks"])
+    with pytest.raises(DiffUsageError) as exc:
+        _diff(_doc(), bad)
+    assert "wall_gt_2" in str(exc.value) and "fits" in str(exc.value)
+
+
+def test_an_honest_report_is_not_caught_by_the_uniqueness_guard():
+    """The guard must not fire on the ordinary case — two checks of one KIND
+    under distinct ids, which `p.volume(min=).volume(max=, id=)` produces and
+    `test_duplicate_kinds_are_fine_with_explicit_ids` declares legal."""
+    doc = _diff(_doc(), _doc())
+    assert doc["outcome"] == "identical"
+
+
 def test_cli_malformed_reports_and_usage_typos_exit_64_not_a_verdict(tmp_path: Path):
     """A status outside the enum, a JSON array, and a forgotten argument all
     used to reach exit 4 or argparse's exit 2 — which reads as incomplete
