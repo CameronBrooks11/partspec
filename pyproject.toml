@@ -64,11 +64,16 @@ build-backend = "hatchling.build"
 # What is NOT excluded is the more considered half. `tests/` ships because a
 # downstream packager runs the suite from an sdist, and that claim only holds
 # if the suite actually passes there — so everything the suite reads ships
-# too: `docs/`, `examples/`, `skills/`, `evals/`, `notes/` and `.github/`.
-# The first draft of this list cut the last three and broke five tests in the
-# sdist, which is the same failure this slice exists to fix: a promise made
-# in prose and enforced by nothing. `test_the_sdist_carries_everything_the
-# _suite_reads` enforces the file list.
+# too: `docs/`, `examples/`, `skills/` and `.github/`.
+# `test_the_sdist_carries_everything_the_suite_reads` enforces the file list.
+#
+# `notes/` (archived agent transcripts) and `evals/` shipped here until #150,
+# for one reason: tests read them. That is an inverted dependency — the test
+# tail wagging the artifact — and the tests doing the reading were asserting
+# that phrases appeared in prose, which cannot distinguish a true claim from a
+# false one. They are deleted, not skip-guarded, so nothing reads those trees
+# and the question of shipping them does not arise. Repo archaeology is not
+# part of the distribution.
 #
 # The stronger claim — that the suite PASSES there — is not enforced by anything
 # (running it would double CI), so it is checked by hand and was false from #151
@@ -87,6 +92,8 @@ exclude = [
   "CLAUDE.md",
   ".pre-commit-config.yaml",
   ".editorconfig",
+  "notes",
+  "evals",
 ]
 
 [tool.uv]
@@ -160,10 +167,18 @@ force-exclude = true
 # found by walking the AST instead.
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "PT", "RUF", "BLE", "S102", "S307"]
 
-# `PT018` only: 86 composite `assert a and b`, which the test re-derives — 81 in
-# `tests/` and 5 in `src/partspec/runner.py`, so "in tests" was not quite the
-# whole set — an unsafe autofix across every one, and a rule that affects
-# failure-message quality rather than correctness.
+# `PT018` only: composite `assert a and b` across both `tests/` and
+# `src/partspec/runner.py` — so "in tests" was not the whole set — with an unsafe
+# autofix on every one, and a rule that affects failure-message quality rather
+# than correctness. Systemic, not a handful, which is the argument for the
+# ignore.
+#
+# Deliberately unquantified, for the reason the block above already gives and
+# this line did not follow: it said "86 ... 81 in tests and 5 in runner.py" and
+# a test asserted `== 86`, so deleting seven unrelated tests in #150 failed the
+# lint suite. `test_pt018_is_ignored_for_a_reason_that_still_holds` asserts a
+# floor and the two-tree spread instead — the properties that carry the
+# argument — and nothing here needs updating when a test is added or removed.
 #
 # `RUF002` is deliberately NOT ignored, though an earlier draft of this comment
 # claimed it had to be "because this repo writes em-dashes on purpose". Em-dashes

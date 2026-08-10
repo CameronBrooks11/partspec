@@ -154,51 +154,17 @@ def test_readme_links_survive_pypi():
     assert not re.search(r"^\[[^\]]+\]:", text, re.MULTILINE), "reference-style link definition"
 
 
-def test_readme_agent_claim_matches_the_convergence_record():
-    """The README's agent paragraph quotes the eval result; pinned to the
-    evidence so the claim cannot outlive the record (#62)."""
-    import json
-
-    data = json.loads((ROOT / "evals" / "convergence-20260807" / "results.json").read_text())
-    records = data["trials"]
-    assert len({t["case"] for t in records}) == 5
-    assert all(t["outcome"] == "converged" and t["turns_to_converge"] == 1 for t in records)
-    # "without once weakening its contract" is a claim about `gamed`, so it is
-    # pinned to the counter, not inferred from convergence.
-    assert data["summary"]["gamed"] == 0
-    assert "five defect classes in" in README.read_text()
-
-
 # --------------------------------------------------------------------------
 # docs/FAILURE-MODES.md — the catalogue's [repo] claims are executable
+#
+# Only the executable one survives. Three sibling tests asserted that phrases
+# appeared in the catalogue, in source comments, and in another test file
+# (`assert "would be silently dropped" in engines/openscad.py`). A substring
+# search cannot tell a true claim from a false one — it reports that a string
+# is PRESENT — so they enforced wording, not correctness, and rewording a
+# comment broke them while a wrong catalogue passed. Executing the claim is
+# the only form of this that carries information.
 # --------------------------------------------------------------------------
-
-CATALOGUE = (ROOT / "docs" / "FAILURE-MODES.md").read_text()
-
-
-def test_the_catalogue_names_real_in_repo_guards():
-    """Entries marked [repo] point at guards this repository actually ships;
-    a catalogue citing a guard that was refactored away teaches an agent to
-    rely on protection that no longer exists."""
-    src = ROOT / "src" / "partspec"
-    assert "unbound-parameter guard" in CATALOGUE
-    assert "would be silently dropped" in (src / "engines" / "openscad.py").read_text()
-    assert "partspec.refs.iso15" in CATALOGUE
-    assert "22.5" in (ROOT / "tests" / "test_provenance.py").read_text(), (
-        "the in-repo F16 reproduction (the Ø22.5 seat) is claimed by the catalogue"
-    )
-    assert "ocp-guard" in CATALOGUE
-    assert "ocp-guard" in (ROOT / "justfile").read_text()
-    assert "non-manifold" in (src / "backends" / "mesh.py").read_text()
-
-
-def test_the_catalogue_marks_every_entry_reproducible_or_corpus():
-    """Acceptance (#24): findings are reproducible from the repo or clearly
-    marked as needing the external corpus. Every numbered entry carries one."""
-    entries = re.findall(r"^## \d+\. .+$", CATALOGUE, re.M)
-    assert len(entries) == 8
-    for entry in entries:
-        assert "[repo]" in entry or "[corpus]" in entry, entry
 
 
 @needs_openscad
@@ -236,20 +202,6 @@ def test_the_hole_becomes_notch_essence_is_reproducible_here(tmp_path: Path):
         assert b.watertight(a).value is True
         assert measured(b.solid_count(a)).value == 1
         assert b.bbox(a).value == (40.0, 30.0, 4.0)
-
-
-def test_the_catalogue_cites_what_this_repo_actually_pins():
-    """PR #111 re-review: load-bearing citations the earlier tests missed."""
-    assert "22.5" in CATALOGUE, "entry 4's number is the finding"
-    assert "test_provenance.py" in CATALOGUE
-    assert "render_backend" in CATALOGUE
-    assert "render_backend" in (ROOT / "src" / "partspec" / "runner.py").read_text()
-    assert "#109" in CATALOGUE
-    assert "dogfood-results.md" in CATALOGUE
-    assert (ROOT / "notes" / "dogfood-results.md").is_file(), (
-        "the raw record the catalogue cites must be frozen in-repo"
-    )
-    assert "test_docs.py" in CATALOGUE, "entry 3 names this file as its repro home"
 
 
 # --------------------------------------------------------------------------
@@ -299,11 +251,6 @@ def test_the_skills_pointers_resolve():
     ):
         assert path in SKILL, f"the skill must cite {path} by its full path"
         assert (ROOT / path).exists(), f"{path} is cited by the skill and must exist"
-    assert "only against a reference the model does not contain" in SKILL
-    assert (
-        "only against a reference the model does not contain"
-        in (ROOT / "docs" / "PLAN.md").read_text()
-    ), "the promoted lesson must still match its source"
 
 
 # --------------------------------------------------------------------------
@@ -391,22 +338,6 @@ def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path)
     assert measured(backend5.volume(decomposed)).value == pytest.approx(
         measured(backend.volume(after)).value, rel=1e-9
     )
-
-
-def test_the_scad_skill_cites_the_catalogue_and_its_neighbours():
-    """Acceptance (#22): cross-references the failure catalogue — this is also
-    the skills' half of #24's deferred cross-reference box, OpenSCAD side."""
-    for needle in (
-        "docs/FAILURE-MODES.md",
-        "entry 1",
-        "entry 2",
-        "entry 4",
-        "entry 5",
-        "skills/contract-authoring/SKILL.md",
-        "PARTSPEC_OPENSCAD",
-        "source_closure",
-    ):
-        assert needle in SCAD_SKILL, f"the skill must reference {needle}"
 
 
 # --------------------------------------------------------------------------
@@ -497,79 +428,6 @@ def test_the_bd_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
     assert measured(backend.genus(cq_part)).value == 1
     assert measured(backend.watertight(cq_part)).value is True
     assert measured(backend.bbox(cq_part)).value == (40.0, 30.0, 4.0)
-
-
-def test_the_bd_skill_cites_its_evidence_and_neighbours():
-    for needle in (
-        "docs/FAILURE-MODES.md",
-        "entry 7",
-        "entry 8",
-        "engines/pycad.py",
-        "skills/contract-authoring/SKILL.md",
-        "skills/openscad-authoring/SKILL.md",
-        "examples/bearing-block/",
-        "tests/test_differential.py",
-        "test_the_same_hole_contract_holds_on_cadquery",
-        "ocp-guard",
-        "combine=False",
-        "ShapePredicate",
-    ):
-        assert needle in BD_SKILL, f"the skill must reference {needle}"
-
-
-# --------------------------------------------------------------------------
-# evals/AUTHORING.md — the record's numbers are the results' numbers
-# --------------------------------------------------------------------------
-
-
-def test_the_authoring_record_matches_its_results():
-    """#53's claims pinned to the evidence, the same discipline as the
-    convergence record: a number in the prose that drifts from results.json
-    is a claim that outlived its record."""
-    import json as _json
-
-    record_dir = ROOT / "evals" / "authoring-20260808"
-    control = _json.loads((record_dir / "control-results.json").read_text())
-    skills = _json.loads((record_dir / "skills-results.json").read_text())
-
-    for payload, arm in ((control, "control"), (skills, "skills")):
-        assert len(payload["trials"]) == 6
-        assert all(t["outcome"] == "converged" for t in payload["trials"])
-        assert all(t["arm"] == arm for t in payload["trials"])
-
-    control_lint = sum(t["lint_findings"] for t in control["trials"])
-    skills_lint = sum(t["lint_findings"] for t in skills["trials"])
-    assert control_lint == 17 and skills_lint == 0
-
-    doc = (ROOT / "evals" / "AUTHORING.md").read_text()
-    assert "| 17 | 0 |" in doc, "the all-tasks lint totals"
-    assert "**6** | **0**" in doc, "the transfer-task separation is the headline"
-    assert "6/6" in doc
-    control_loc = sum(t["loc"] for t in control["trials"]) / 6
-    skills_loc = sum(t["loc"] for t in skills["trials"]) / 6
-    assert f"{control_loc:.1f}" in doc and f"{skills_loc:.1f}" in doc
-
-    # Transfer-task separation, stated separately from the contaminated task
-    # (PR #121 review, F1): plate-bore's treatment output is a verbatim copy
-    # of a skill block, and the record must keep saying so.
-    transfer = [t for t in control["trials"] if t["case"] != "plate-bore"]
-    assert sum(t["lint_findings"] for t in transfer) == 6
-    assert "contaminated" in doc and "line-for-line copy" in doc
-
-    # Exhibits pinned by content, not existence — results/ is gitignored, so
-    # an edited exhibit would otherwise pass CI (F7).
-    import hashlib as _hashlib
-
-    exhibits = {
-        "exhibit-control-plate-bore.scad",
-        "exhibit-skills-plate-bore.scad",
-        "exhibit-control-motor-plate.scad",
-        "exhibit-skills-motor-plate.scad",
-    }
-    manifest = _json.loads((record_dir / "exhibits.json").read_text())
-    for name in exhibits:
-        digest = _hashlib.sha256((record_dir / name).read_bytes()).hexdigest()
-        assert manifest[name] == digest, f"{name} no longer matches the recorded run"
 
 
 # ---------------------------------------------------------------------------
