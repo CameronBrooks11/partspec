@@ -8,11 +8,18 @@ The CLI tests run two genuine engine builds and diff the written artifacts.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
-from partspec.diff import DiffUsageError, diff_reports, exit_code_of, summary_of
+from partspec.diff import (
+    CLAIM_FIELDS,
+    DiffUsageError,
+    diff_reports,
+    exit_code_of,
+    summary_of,
+)
 from partspec.report import CheckResult, Report
 from partspec.status import Limit, Measurement, Status
 
@@ -219,7 +226,17 @@ def test_environment_changes_explain_without_being_differences():
 
 def test_a_cosmetic_contract_edit_is_recorded_but_not_a_difference():
     """The module-scoped digest over-fires deliberately (SPEC-report.md 7.1);
-    the semantic comparison must not inherit the over-firing."""
+    the semantic comparison must not inherit the over-firing.
+
+    The deslop audit proposed the opposite — routing a changed digest with no
+    check deltas to `indeterminate` — and this test is why it was not taken:
+    the digest moves when an unrelated docstring in the contract module
+    changes, so the rule would make routine edits exit 2 until someone piped
+    the verb through `|| true`. What the diff compares IS the contract's
+    observable content: every id, kind, claim field, status and measurement.
+    Recorded, not outcome-bearing, on purpose. SPEC-diff §3 now says so, in the paragraph headed
+    'Recorded but never outcome-bearing'.
+    """
     old = _doc()
     new = _doc()
     new["part"]["contract_digest"] = "sha256:c2"
@@ -227,6 +244,150 @@ def test_a_cosmetic_contract_edit_is_recorded_but_not_a_difference():
     doc = _diff(old, new)
     assert doc["outcome"] == "identical"
     assert doc["contract"]["digest_changed"] is True
+
+
+def test_a_loosened_requires_predicate_is_a_different_claim():
+    """PR #147's review, blocker 1: `expr` is the entire claim of a
+    `requires` check, and nothing compared it. `wall >= 2.0` becoming
+    `wall >= 0.2` — a tenfold weakening, the flagship move this verb exists
+    to catch — reported `identical`, exit 0, with `contract_digest` the only
+    remaining signal and that deliberately not outcome-bearing."""
+    old = _doc()
+    new = _doc()
+    next(c for c in new["checks"] if c["id"] == "fits")["expr"] = "a + b <= c * 0.01"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "different"
+    entry = next(c for c in doc["checks"] if c["id"] == "fits")
+    assert entry["claim"]["old"]["expr"] == "a + b <= c"
+    assert entry["claim"]["new"]["expr"] == "a + b <= c * 0.01"
+
+
+def test_a_swapped_check_kind_is_a_different_claim():
+    """The deslop audit's silent-weakening find: `kind` was compared by
+    nothing, so under one id `genus` could become `cavities` — "this part has
+    no through-holes" turning into "this part has one sealed void" — and the
+    verb reported `identical`, exit 0.
+
+    `expectation._claim_slug` had covered kind as claim-bearing all along and
+    said so in its docstring, so the pin caught what the comparator could
+    not. The two agree now.
+    """
+    old = _doc()
+    new = _doc()
+    target = next(c for c in new["checks"] if c["id"] == "wall_gt_2")
+    target["kind"] = "envelope"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "different"
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert entry["claim"]["old"]["kind"] == "param_range"
+    assert entry["claim"]["new"]["kind"] == "envelope"
+
+
+def test_the_spec_lists_every_field_that_makes_a_claim_a_claim():
+    """SPEC-diff §3 enumerates the claim fields and the list drifted three
+    times unnoticed — `direction` arrived with `draft_angle` and was never
+    documented, `kind` was never compared at all, and `expr` (the whole
+    predicate of a `requires` check) was in neither list. Held in step now.
+
+    The bullet terminator matches the next bullet or heading rather than a
+    blank line: reflowing the paragraph used to fail this test with a
+    message claiming fields were undocumented when every one was present.
+
+    And it reads the ENUMERATION, not the whole bullet. Scanning every
+    backticked word counted the prose — `kind` and `expr` are named in the
+    anecdote that follows — so deleting either from the actual list went
+    undetected, which is the entire failure this test exists to prevent.
+    """
+    spec = (Path(__file__).resolve().parents[1] / "docs" / "SPEC-diff.md").read_text()
+    bullet = re.search(
+        r"^- \*\*`limit_changed`\*\*.*?(?=\n- \*\*|\n\*\*|\n#{2,} )", spec, re.S | re.M
+    )
+    assert bullet, "SPEC-diff must carry a `limit_changed` bullet"
+    enumeration = re.search(r"the \*claim\* moved: (.*?) differ", bullet.group(0), re.S)
+    assert enumeration, "the bullet must enumerate the claim fields before the word 'differ'"
+    named = set(re.findall(r"`(\w+)`", enumeration.group(1)))
+    assert set(CLAIM_FIELDS) == named, (
+        f"spec enumeration and CLAIM_FIELDS disagree: "
+        f"only in code {set(CLAIM_FIELDS) - named}, only in spec {named - set(CLAIM_FIELDS)}"
+    )
+
+
+def test_every_field_the_report_emits_is_classified_as_claim_or_not():
+    """The reverse direction, and the one that would have caught `expr`.
+
+    Checking only that the spec names every field in `CLAIM_FIELDS` can
+    never notice a claim-bearing field missing from BOTH lists — which is
+    exactly how a loosened `requires` predicate stayed invisible while three
+    places asserted the comparator covered "every field that makes a check
+    the claim it is". Every key the serializer can emit must now be either
+    compared as a claim or listed in `NON_CLAIM_FIELDS` with a reason, so
+    the next field added to a report has to be classified deliberately.
+    """
+    import dataclasses
+
+    from partspec.diff import NON_CLAIM_FIELDS
+
+    # Declared fields, not just the ones this fixture happens to pass. The
+    # first draft hand-built a CheckResult and checked only what it saw,
+    # which is the same blind spot one level up: adding a new optional field
+    # to CheckResult sailed through it. The two sets are already equal, so
+    # this costs nothing today and refuses tomorrow's unclassified field.
+    declared = {f.name for f in dataclasses.fields(CheckResult)}
+    classified_all = set(CLAIM_FIELDS) | set(NON_CLAIM_FIELDS)
+    assert declared <= classified_all, (
+        f"CheckResult fields classified as neither claim nor non-claim: "
+        f"{sorted(declared - classified_all)}"
+    )
+    assert classified_all <= declared, (
+        f"classified but not a CheckResult field: {sorted(classified_all - declared)}"
+    )
+
+    emitted = set()
+    for status in (Status.PASS, Status.UNSUPPORTED):
+        emitted |= set(
+            CheckResult(
+                id="x",
+                kind="requires",
+                phase="parameter",
+                status=status,
+                measurement=Measurement(1.0, "mm"),
+                limit=Limit(min=0.0),
+                components={"x": Status.PASS},
+                expr="a > b",
+                operands={"a": 1},
+                region={"kind": "box"},
+                hole={"d": 1.0},
+                source={"min": {"standard": "ISO"}},
+                direction=[0.0, 0.0, 1.0],
+                step={"schema": "AP214IS"},
+                detail="d",
+                requires="occt",
+            ).to_json()
+        )
+
+    classified = set(CLAIM_FIELDS) | set(NON_CLAIM_FIELDS)
+    assert emitted <= classified, (
+        f"report fields classified as neither claim nor non-claim: {sorted(emitted - classified)}"
+    )
+    assert not (set(CLAIM_FIELDS) & set(NON_CLAIM_FIELDS)), "a field cannot be both"
+
+
+def test_two_reports_with_no_closure_at_all_are_not_identical():
+    """SPEC-diff §2 rule 3 names this case explicitly — "absent from either input,
+    which is the ordinary v0.1.0 upgrade path" — and the code returned early
+    when BOTH were absent, so the rule fired for one side and not for two.
+    `identical` then rested on `source_digest` alone, which is the overclaim
+    SPEC-report §8.3 reversed itself to prevent."""
+    old, new = _doc(), _doc()
+    for doc in (old, new):
+        doc["part"].pop("source_closure")
+
+    result = _diff(old, new)
+    assert result["outcome"] == "indeterminate"
+    assert result["source"]["closure"] == "inconclusive"
+    assert exit_code_of(result["outcome"]) == 2
 
 
 # --------------------------------------------------------------------------

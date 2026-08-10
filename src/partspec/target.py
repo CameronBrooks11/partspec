@@ -108,9 +108,31 @@ def factories(module: ModuleType) -> tuple[str, ...]:
 
 
 def resolve(spec: str) -> tuple[Part, Target]:
-    """Resolve a target string to a Part."""
+    """Resolve a target string to a Part.
+
+    Records whatever the contract's import pulled in from beside it, so a
+    later `invalidate_model_modules(target.path)` can evict it. The recording
+    used to live only in `cli._cmd_check`, which meant a library caller —
+    or a test — that reached `resolve()` directly left its siblings cached
+    under bare names like `claims` with nothing tracking them. The deslop
+    audit found exactly that: an exemplar's `claims.py` outlived its test and
+    answered for a later one in a different directory, breaking the five
+    tests that exist to prove that cannot happen. Bookkeeping belongs with
+    the import that causes it.
+
+    In a `finally`, because the case that most needs the record is the one
+    where the contract imports its sibling and THEN raises (#114 path 1):
+    recording after a successful `_load` leaves the leak untracked on
+    exactly the path `cli._cmd_check`'s own `finally` was written for.
+    """
+    from .engines.pycad import record_model_modules
+
     target = Target.parse(spec)
-    module = _load(target.path)
+    modules_before = set(sys.modules)
+    try:
+        module = _load(target.path)
+    finally:
+        record_model_modules(target.path, modules_before)
     available = factories(module)
 
     if target.factory is not None:

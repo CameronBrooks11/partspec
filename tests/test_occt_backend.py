@@ -168,13 +168,91 @@ def test_a_sealed_cavity_is_one_solid_with_one_void(backend: OcctBackend):
     """
     block = bd.Box(20, 20, 20) - bd.Box(10, 10, 10)
     assert backend.solid_count(block).value == 1
-    assert backend.cavities(block).value == 1
+    assert measured(backend.cavities(block)).value == 1
     assert measured(backend.genus(block)).value == 0
     assert measured(backend.volume(block)).value == pytest.approx(7000.0)
 
 
 def test_a_plain_solid_has_no_cavities(backend: OcctBackend):
-    assert backend.cavities(bd.Box(10, 10, 10)).value == 0
+    assert measured(backend.cavities(bd.Box(10, 10, 10))).value == 0
+
+
+@pytest.mark.parametrize(
+    ("name", "builder", "cavities"),
+    [
+        ("an open shell alone", lambda: bd.Shell(bd.Box(10, 10, 10).faces()[1:]), 0),
+        (
+            "a plain solid beside a stray sheet body",
+            lambda: bd.Compound(
+                children=[
+                    bd.Box(10, 10, 10),
+                    bd.Pos(60, 0, 0) * bd.Shell(bd.Box(10, 10, 10).faces()[1:]),
+                ]
+            ),
+            0,
+        ),
+        (
+            "a cavity solid beside a stray sheet body",
+            lambda: bd.Compound(
+                children=[
+                    bd.Box(20, 20, 20) - bd.Box(10, 10, 10),
+                    bd.Pos(60, 0, 0) * bd.Shell(bd.Box(10, 10, 10).faces()[1:]),
+                ]
+            ),
+            1,
+        ),
+        (
+            "two cavity solids",
+            lambda: bd.Compound(
+                children=[
+                    bd.Box(20, 20, 20) - bd.Box(10, 10, 10),
+                    bd.Pos(60, 0, 0) * (bd.Box(20, 20, 20) - bd.Box(10, 10, 10)),
+                ]
+            ),
+            2,
+        ),
+    ],
+)
+def test_a_stray_shell_is_not_a_sealed_void(
+    backend: OcctBackend, name: str, builder, cavities: int
+):
+    """The deslop audit's headline defect, and the deeper version its own
+    review found. `cavities` was a global `shells - solids`, so an OPEN
+    shell answered 1 - 0 = 1 and the tool certified `cavities = 1, exact`,
+    `verdict: pass`, exit 0 on a shape with no material at all.
+
+    The first fix gated on `not a.solids()` and was still wrong: the formula
+    assumes every shell belongs to a solid, and nothing enforces that. One
+    plain block beside a stray sheet body is 1 solid and 2 shells, so the
+    same false pass came straight back through the CLI on a part that does
+    build. Counting each solid's own shells minus its outer one is right by
+    construction for every arrangement here, and needs no precondition.
+    """
+    shape = builder()
+    assert measured(backend.cavities(shape)).value == cavities, name
+
+
+def test_the_two_tiers_agree_about_a_shape_with_no_material(backend: OcctBackend):
+    """The other half of the defect, which the first fix moved rather than
+    closed: OCCT refused where the mesh tier answered 0, so one contract
+    still adjudicated two ways depending on the engine. Zero is the honest
+    answer — a shape with no solid encloses no sealed void — and both tiers
+    give it now."""
+    trimesh = pytest.importorskip("trimesh", reason="mesh extra not installed")
+    import tempfile
+    from pathlib import Path
+
+    from partspec.backends.mesh import MeshBackend
+
+    shell = bd.Shell(bd.Box(10, 10, 10).faces()[1:])
+    assert measured(backend.solid_count(shell)).value == 0, "the fixture really has no solid"
+    assert measured(backend.cavities(shell)).value == 0
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "shell.stl"
+        bd.export_stl(shell, str(path))
+        mesh = trimesh.load(str(path))
+        assert measured(MeshBackend().cavities(mesh)).value == 0, "and the mesh tier agrees"
 
 
 def test_a_cut_that_consumes_the_part_does_not_build():

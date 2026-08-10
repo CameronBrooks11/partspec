@@ -238,6 +238,25 @@ def test_check_exits_with_the_verdicts_code(tmp_path: Path, body: str, expected:
 
 
 @needs_openscad
+def test_an_empty_contract_says_so_on_the_console(tmp_path: Path, capsys):
+    """The human-facing half of the vacuous-green thesis, and it had no test:
+    every EMPTY-verdict case ran with `--quiet`, so `if report.verdict is
+    Verdict.EMPTY` could be neutered and all 725 tests still passed.
+
+    Note the asymmetry the deslop audit found — the *attribution* warning has
+    three dedicated tests asserting on capsys, while the more important one
+    had none. A contract that asserts nothing is the failure this whole tool
+    is built around; the operator has to be told in words, not just by an
+    exit code they may not be reading.
+    """
+    target = _contract(tmp_path, "block_with_hole.scad", "")
+    assert main(["check", target, "--out", str(tmp_path / "out")]) == exit_code(Verdict.EMPTY)
+    err = capsys.readouterr().err
+    assert "declares no checks" in err
+    assert "not a passing design" in err
+
+
+@needs_openscad
 def test_check_writes_the_report_where_it_says_it_did(tmp_path: Path, capsys):
     target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
     assert main(["check", target]) == 0

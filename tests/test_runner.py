@@ -355,6 +355,11 @@ def test_a_design_that_does_not_compile_does_fail_builds(tmp_path: Path):
     assert report.build_origin == "model"
     assert _status(report, "builds") is Status.FAIL
     assert _status(report, "watertight") is Status.SKIPPED
+    # `build_stderr` exists so the #37 hint filter can never lose the
+    # diagnosis, and nothing asserted the value survived the hop into the
+    # report — `report.build_stderr = None` passed the whole suite.
+    assert report.build_stderr, "the unabridged diagnosis must reach the report"
+    assert "bad.scad" in report.build_stderr
 
 
 def test_an_unknown_engine_errors_rather_than_pretending(tmp_path: Path):

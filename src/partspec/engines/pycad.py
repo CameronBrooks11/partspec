@@ -53,6 +53,16 @@ def record_model_modules(model_path: Path, before: set[str]) -> None:
             # evicting a C extension for re-import buys nothing and risks
             # duplicate-class identity bugs.
             continue
+        if name == "partspec" or name.startswith("partspec."):
+            # Never this package. An EDITABLE install's source is not under
+            # site-packages, so the filter above misses it, and a contract
+            # sitting at the repo root makes `partspec.*` relative to the
+            # model root — the registry then evicts partspec's own modules
+            # and the next import rebuilds classes that fail `isinstance`
+            # against the ones already held. PR #147's review demonstrated
+            # the duplicate-class break live. The registry was described as
+            # preventing this; it did not, and now it does.
+            continue
         try:
             if Path(filename).resolve().is_relative_to(root):
                 added.add(name)

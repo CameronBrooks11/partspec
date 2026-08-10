@@ -166,3 +166,35 @@ def test_a_stranded_ocp_proxy_is_named_not_circular(monkeypatch):
     assert err.origin == "environment"
     assert "cadquery-ocp-proxy" in err.message and "delivered no OCP" in err.message
     assert err.hint is not None and "plain pip" in err.hint and "#109" in err.hint
+
+
+def test_the_registry_never_records_partspec_itself():
+    """PR #147's review, minor 10: the registry was described as preventing
+    the over-eviction a directory sweep once caused — "it evicted the
+    editable-installed partspec itself" — and it did not.
+
+    An editable install's source is not under `site-packages`, so the
+    existing filter misses it, and a contract sitting at the repo root makes
+    every `partspec.*` module relative to the model root. Recording them
+    means a later eviction re-imports the package, and classes built by the
+    second import fail `isinstance` against objects held from the first —
+    the duplicate-class break, reproduced live during that review. The
+    protection is real now, and this is what holds it.
+    """
+    import sys
+
+    import partspec.diff  # noqa: F401 - the fixture needs it present in sys.modules
+    from partspec.engines.pycad import _LOADED_MODEL_MODULES, record_model_modules
+
+    repo_root = Path(__file__).resolve().parents[1]
+    contract_at_root = repo_root / "contract.py"
+
+    before = set(sys.modules) - {"partspec", "partspec.diff"}
+    try:
+        record_model_modules(contract_at_root, before)
+        recorded = _LOADED_MODEL_MODULES.get(str(repo_root), set())
+        assert not {n for n in recorded if n == "partspec" or n.startswith("partspec.")}, (
+            "the registry must never make partspec's own modules evictable"
+        )
+    finally:
+        _LOADED_MODEL_MODULES.pop(str(repo_root), None)

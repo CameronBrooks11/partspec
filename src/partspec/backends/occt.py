@@ -494,7 +494,7 @@ class OcctBackend:
     def solid_count(self, a: Any) -> Measurement:
         return Measurement(len(a.solids()), "count", exact=True)
 
-    def cavities(self, a: Any) -> Measurement:
+    def cavities(self, a: Any) -> Measurement | Unsupported:
         """Sealed internal voids.
 
         A solid is bounded by one outer shell plus one shell per enclosed void,
@@ -502,8 +502,30 @@ class OcctBackend:
         correctly — a block with a sealed cavity is 1 solid and 2 shells — and
         the quantity was simply never exposed. The mesh tier reaches the same
         two numbers from triangle orientation.
+
+        Counted **per solid**, not as a global `shells - solids`. The global
+        form assumes every shell belongs to a solid, and nothing enforces
+        that: one plain block beside a stray sheet body is 1 solid and 2
+        shells, so the difference certified `cavities = 1, exact` on a part
+        with no cavity at all — `verdict: pass`, exit 0. An open shell alone
+        was the same arithmetic with nothing to hide behind, 1 minus 0.
+
+        PR #147's first attempt gated on `not a.solids()`, which caught only
+        the second case; its own review produced the first through the CLI
+        and the false pass was still there. Summing each solid's own shells
+        minus its outer one needs no precondition for the solid-bearing
+        cases, is 0 for every stray-shell arrangement, and agrees with the
+        mesh tier — which the gate did not (OCCT refused where mesh answered
+        0, so one contract still adjudicated two ways).
+
+        `_empty` is still refused, as `bbox` and `watertight` refuse it: a
+        shape with no geometry at all is not a shape with no cavities.
         """
-        return Measurement(max(len(a.shells()) - len(a.solids()), 0), "count", exact=True)
+        if _empty(a):
+            return Unsupported(_EMPTY_REASON)
+        return Measurement(
+            sum(max(len(solid.shells()) - 1, 0) for solid in a.solids()), "count", exact=True
+        )
 
     def genus(self, a: Any) -> Measurement | Unsupported:
         """Through-holes, via the Euler-Poincare formula.
