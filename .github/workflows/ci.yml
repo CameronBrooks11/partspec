@@ -145,6 +145,22 @@ jobs:
           PARTSPEC_REQUIRE_ENGINES: "1"
         run: ${{ matrix.source == 'apt' && 'xvfb-run -a just test' || 'just test' }}
 
+      # The same suite, reversed. Order coupling is invisible to the forward
+      # run by construction — a test that leaves process-global state behind
+      # only breaks whatever sorts after it — and the forward order is the one
+      # every developer and every other job already runs. One reversal exposes
+      # the pairs, deterministically. It has caught a real one: an exemplar's
+      # `claims.py` outliving its test and breaking the five tests that exist
+      # to prove model modules do not cross directories.
+      #
+      # Only on one matrix leg: the coupling is a property of the Python
+      # process, not of the OpenSCAD build.
+      - name: Test (reverse file order)
+        if: matrix.source == 'apt'
+        env:
+          PARTSPEC_REQUIRE_ENGINES: "1"
+        run: xvfb-run -a just test-reverse
+
   # The mesh extra, alone, in a throwaway environment. `just setup` takes all
   # extras and scipy reaches the machine only via build123d/cadquery, so a
   # mesh-tier dependency on it passes every other job here and breaks everyone

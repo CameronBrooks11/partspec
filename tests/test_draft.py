@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 
 import pytest
+from support import check_of, needs_mesh, needs_openscad, scad_target
 
 from partspec.contract import ContractError, Part
 from partspec.status import Status
@@ -164,8 +165,6 @@ def test_the_direction_is_normalised_at_declaration():
 
 
 def test_the_report_names_the_failing_faces_and_the_claim(tmp_path):
-    import json
-
     from partspec.cli import main
 
     (tmp_path / "m.py").write_text(
@@ -179,11 +178,7 @@ def test_the_report_names_the_failing_faces_and_the_claim(tmp_path):
     )
     out = tmp_path / "out"
     assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 1
-    check = next(
-        c
-        for c in json.loads((out / "report.json").read_text())["checks"]
-        if c["kind"] == "draft_angle"
-    )
+    check = check_of(out, "draft_angle")
     assert check["status"] == "fail"
     assert check["direction"] == [0.0, 0.0, 1.0], "the claim's axis is in the artifact"
     assert "face_" in check["detail"]
@@ -210,33 +205,17 @@ def test_a_drafted_part_passes(tmp_path):
     )
 
 
+@needs_openscad
+@needs_mesh
 def test_the_mesh_tier_refuses_with_the_tier_named(tmp_path):
-    pytest.importorskip("trimesh", reason="mesh extra not installed")
-    import json
-    import shutil
-    from pathlib import Path
-
-    from support import OPENSCAD
-
     from partspec.cli import main
 
-    if OPENSCAD is None:
-        pytest.skip("openscad binary not installed")
-    fixtures = Path(__file__).parent / "fixtures"
-    shutil.copy(fixtures / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, openscad\n\n\ndef make():\n"
-        "    p = Part('subject', openscad('block_with_hole.scad'))\n"
-        "    p.draft_angle(min=2.0)\n"
-        "    return p\n"
+    target = scad_target(
+        tmp_path, source="block_with_hole.scad", claims="    p.draft_angle(min=2.0)\n"
     )
     out = tmp_path / "out"
-    assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 2
-    check = next(
-        c
-        for c in json.loads((out / "report.json").read_text())["checks"]
-        if c["kind"] == "draft_angle"
-    )
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 2
+    check = check_of(out, "draft_angle")
     assert check["status"] == "unsupported"
     assert check["requires"] == "occt"
 

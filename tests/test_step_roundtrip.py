@@ -9,11 +9,17 @@ calibrates the 1e-6 default (PR #143 review, F1).
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 bd = pytest.importorskip("build123d", reason="occt extra not installed")
+
+from support import (  # noqa: E402
+    check_of,
+    forced_open_solid,
+    needs_mesh,
+    needs_openscad,
+    scad_target,
+)
 
 from partspec.backend import Unsupported  # noqa: E402
 from partspec.backends.occt import OcctBackend  # noqa: E402
@@ -21,22 +27,6 @@ from partspec.cli import main  # noqa: E402
 from partspec.contract import ContractError, Part  # noqa: E402
 from partspec.runner import _run_geometry_check  # noqa: E402
 from partspec.status import Status  # noqa: E402
-
-
-def _forced_open_solid():
-    """Five faces of a box sewn and forced into a 'solid' — ill-formed, and
-    the executed STEP degrader: the reader heals it away entirely."""
-    from OCP.BRepBuilderAPI import (
-        BRepBuilderAPI_MakeSolid,  # pyright: ignore[reportAttributeAccessIssue]
-        BRepBuilderAPI_Sewing,  # pyright: ignore[reportAttributeAccessIssue]
-    )
-    from OCP.TopoDS import TopoDS
-
-    sew = BRepBuilderAPI_Sewing()
-    for face in bd.Box(10, 10, 10).faces()[:5]:
-        sew.Add(face.wrapped)
-    sew.Perform()
-    return bd.Solid(BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(sew.SewedShape())).Solid())
 
 
 def test_healthy_families_round_trip_clean():
@@ -57,7 +47,7 @@ def test_healthy_families_round_trip_clean():
 
 
 def test_the_forced_solid_loses_its_volume_through_step():
-    outcome = OcctBackend().step_roundtrip(_forced_open_solid())
+    outcome = OcctBackend().step_roundtrip(forced_open_solid())
     assert not isinstance(outcome, Unsupported)
     assert outcome["volume_rel"] == pytest.approx(1.0), "total volume loss"
     assert outcome["solids"] == (1, 0), "the reader healed the solid away"
@@ -75,7 +65,7 @@ def test_topology_drift_fails_at_any_tolerance():
     """The two gates are separate: a count that changed is a different part
     at ANY tol, so even tol=1.0 must fail the forced solid."""
     spec = _spec(tol=1.0)
-    result = _run_geometry_check(spec, OcctBackend(), _forced_open_solid())
+    result = _run_geometry_check(spec, OcctBackend(), forced_open_solid())
     assert result.status is Status.FAIL
     assert result.detail is not None and "solids 1 -> 0" in result.detail
     assert result.step is not None
@@ -218,11 +208,7 @@ def test_the_check_through_the_cli_records_the_schema(tmp_path):
     )
     out = tmp_path / "out"
     assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 0
-    check = next(
-        c
-        for c in json.loads((out / "report.json").read_text())["checks"]
-        if c["kind"] == "step_roundtrip"
-    )
+    check = check_of(out, "step_roundtrip")
     assert check["status"] == "pass"
     assert check["step"]["schema"].startswith("AP")
     assert check["measurement"]["axes"] == ["volume", "area"]
@@ -248,29 +234,12 @@ def test_the_cli_stdout_stays_clean_json(tmp_path, capsys):
     assert "Transfer" not in captured.out and "Transfer" not in captured.err
 
 
+@needs_openscad
+@needs_mesh
 def test_the_mesh_tier_refuses_with_the_tier_named(tmp_path):
-    pytest.importorskip("trimesh", reason="mesh extra not installed")
-    import shutil
-    from pathlib import Path
-
-    from support import OPENSCAD
-
-    if OPENSCAD is None:
-        pytest.skip("openscad binary not installed")
-    fixtures = Path(__file__).parent / "fixtures"
-    shutil.copy(fixtures / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, openscad\n\n\ndef make():\n"
-        "    p = Part('subject', openscad('block_with_hole.scad'))\n"
-        "    p.step_roundtrip()\n"
-        "    return p\n"
-    )
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.step_roundtrip()\n")
     out = tmp_path / "out"
-    assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 2
-    check = next(
-        c
-        for c in json.loads((out / "report.json").read_text())["checks"]
-        if c["kind"] == "step_roundtrip"
-    )
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 2
+    check = check_of(out, "step_roundtrip")
     assert check["status"] == "unsupported"
     assert check["requires"] == "occt"

@@ -491,7 +491,7 @@ def test_area_and_bbox_survive_an_open_mesh(backend: MeshBackend, open_cube):
     assert backend.watertight(open_cube).value is False
 
 
-def test_a_rejected_manifold_is_never_read(backend: MeshBackend, open_cube):
+def test_a_rejected_manifold_is_never_read(open_cube):
     """Pins the dependency behaviour that caused the bug.
 
     Handed an open mesh, manifold3d returns an object reporting
@@ -869,12 +869,30 @@ def test_a_sealed_cavity_still_has_a_volume(backend: MeshBackend):
 
 
 def test_camera_framing_is_derived_from_the_bbox_and_stable():
+    """The whole camera string, distance included.
+
+    The old version asserted a prefix that stopped short of the distance
+    term, then compared `_camera(bbox, view)` to itself — a pure function
+    called twice with the same arguments, which no implementation can fail.
+    Executed proof it hid something: changing `2.2 * diagonal` to
+    `3.5 * diagonal` in `openscad._camera` left all 773 tests green, while
+    `test_raster.py` deliberately pins 2.2 for the rasterizer path. Framing
+    stability across the two tiers is what `vdiff` stands on, so both need
+    the constant bound, not one.
+    """
+    import math
+
     bbox = ((0.0, 0.0, 0.0), (10.0, 20.0, 30.0))
+    diagonal = math.dist(*bbox)
+    expected_distance = max(2.2 * diagonal, 1.0)
+
     camera = openscad._camera(bbox, openscad.VIEWS["iso"])
-    # Center is the bbox midpoint; the same geometry must frame identically on
-    # every run, or no two iterations of a part are comparable.
-    assert camera.startswith("5.0,10.0,15.0,55.0,0.0,25.0,")
-    assert camera == openscad._camera(bbox, openscad.VIEWS["iso"])
+    centre_and_rotation, _, distance = camera.rpartition(",")
+    assert centre_and_rotation == "5.0,10.0,15.0,55.0,0.0,25.0", "centre is the bbox midpoint"
+    assert float(distance) == pytest.approx(expected_distance), (
+        "the framing distance is 2.2x the diagonal — the same factor test_raster pins "
+        "for the rasterizer, because the two tiers must frame identically (#21)"
+    )
 
 
 @needs_openscad

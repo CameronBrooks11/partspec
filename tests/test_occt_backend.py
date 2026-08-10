@@ -271,7 +271,9 @@ def test_geometry_without_faces_is_still_measurable(backend: OcctBackend):
     solids, and its bounding box and area are honest answers about it — refusing
     there would be the over-refusal D17 part 2 forbids."""
     wire = bd.Wire.make_circle(5)
-    assert adopt(wire) is not None and not isinstance(adopt(wire), BuildError)
+    # `adopt` never returns None on any path, and calling it twice measured
+    # nothing the first call did not.
+    assert not isinstance(adopt(wire), BuildError)
     assert measured(backend.bbox(wire)).value == pytest.approx((10.0, 10.0, 0.0))
     assert measured(backend.area(wire)).value == pytest.approx(0.0)
     assert measured(backend.watertight(wire)).value is False

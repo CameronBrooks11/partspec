@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import needs_build123d, needs_openscad
 
 from partspec import Measurement, Part, Status, Unsupported, Verdict, openscad, run
 from partspec.runner import _run_parameter_check
@@ -400,6 +400,18 @@ def test_the_report_written_to_disk_is_schema_shaped(tmp_path: Path):
     assert sum(v for k, v in doc["counts"].items() if k != "total") == doc["counts"]["total"]
     assert doc["part"]["source_digest"].startswith("sha256:")
     assert doc["engine"]["backend"] == "mesh"
+    # `argv` is passed in and was never read back, so emitting `[]` instead
+    # passed the suite — and the invocation block exists so a reader can tell
+    # what produced the artifact.
+    assert doc["invocation"]["argv"] == ["check", "x"]
+    assert doc["counts"] == {
+        "total": 2,
+        "pass": 2,
+        "fail": 0,
+        "approximate": 0,
+        "unsupported": 0,
+        "skipped": 0,
+    }, "the per-status tally, not just its sum"
 
 
 @needs_openscad
@@ -917,11 +929,6 @@ _HOLE_MODEL = (
     "        - (Location((30, 20, -1)) * Cylinder(4, 12, align=A))\n"
     "        + (Location((50, 20, 10)) * Cylinder(3, 5, align=A))\n"
     "    )\n"
-)
-
-needs_build123d = pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
-    reason="occt extra not installed",
 )
 
 

@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+from support import needs_mesh, needs_openscad
 
 from partspec import Part, Referenced, openscad
 from partspec.provenance import source_map
@@ -512,14 +513,11 @@ def test_one_attributed_bound_quiets_the_warning(tmp_path: Path, capsys):
     assert "unattributed" not in err
 
 
+@needs_mesh
+@needs_openscad
 def test_a_topology_only_contract_never_warns(tmp_path: Path, capsys):
     """Topological claims are absolute and cannot be circular; a contract made
     of them has no attribution question to answer."""
-    pytest.importorskip("trimesh", reason="mesh extra not installed")
-    from support import OPENSCAD
-
-    if OPENSCAD is None:
-        pytest.skip("openscad binary not installed")
     from partspec.cli import main
 
     scad = tmp_path / "p.scad"
@@ -542,15 +540,12 @@ def test_a_topology_only_contract_never_warns(tmp_path: Path, capsys):
     assert "unattributed" not in err
 
 
+@needs_mesh
+@needs_openscad
 def test_param_bounds_count_toward_attribution(tmp_path: Path, capsys):
     """#50's acceptance names param explicitly, and a mutant dropping
     param_range from DIMENSIONAL_KINDS survived the suite (PR #97 review):
     a bare param bound must warn, a referenced one must not."""
-    pytest.importorskip("trimesh", reason="mesh extra not installed")
-    from support import OPENSCAD
-
-    if OPENSCAD is None:
-        pytest.skip("openscad binary not installed")
     from partspec.cli import main
 
     scad = tmp_path / "p.scad"
