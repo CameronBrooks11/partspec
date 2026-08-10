@@ -1,7 +1,16 @@
-"""End-to-end: contract in, report out.
+"""The runner: contract in, report out — and the internals that path relies on.
 
-These are the tests that would catch the tool lying. Each asserts a claim from
-`SPEC-report.md` that the rest of the design depends on.
+Most of this file is end-to-end. Those are the tests that would catch the tool
+lying, and each asserts a claim from `SPEC-report.md` that the rest of the
+design depends on.
+
+The last section is not. `# runner internals, exercised directly` holds three
+tests that drive `_run_geometry_check`, `_components_of` and `_failing_axes`
+against hand-built inputs, with no engine and no report. They are here because
+`runner.py` owns those helpers, and this docstring says so because the #153
+split added them while the first line still read "End-to-end" — the same false
+module docstring this commit retracts one file over, in `test_bores.py`
+(PR #158 review).
 """
 
 from __future__ import annotations
@@ -540,8 +549,16 @@ def test_a_pinned_render_backend_reaches_the_report(tmp_path: Path):
 # or touches the check they were shelved beside: the first drives
 # `_run_geometry_check` with a stub, the other two call `_components_of` and
 # `_failing_axes` on hand-built measurements. A reader looking for the
-# attribution helpers' unit tests would not have found them in a regions file,
-# and a reader filtering `_e2e` for end-to-end coverage would have over-counted.
+# attribution helpers' unit tests would not have found them in a regions file.
+#
+# This did NOT fix `test_regions_e2e.py`'s name, and the first draft of this
+# comment claimed it had. Measured after the move: 7 of the 18 tests there
+# drive `run()`, 11 are `_BoxWorld` stub tests, and four are #84 attribution
+# over envelope/volume/topology rather than regions at all. So `_e2e` still
+# over-counts, by eleven. The rename (`test_region_checks.py`) and the wider
+# question of whether #84 wants its own file belong to #153's remaining sweep,
+# which can see the whole picture; what is fixed here is only the two tests
+# that were neither regions nor end-to-end (PR #158 review).
 # --------------------------------------------------------------------------
 
 
