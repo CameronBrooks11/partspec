@@ -28,10 +28,23 @@ setup-mesh:
 fmt:
     uv run ruff format .
     uv run ruff check --fix .
+    uv run python scripts/gen_docs.py
 
 # Verify formatting (non-mutating — use in CI)
 fmt-check:
     uv run ruff format --check .
+    uv run python scripts/gen_docs.py --check
+
+# Regenerate the mechanical blocks in the docs from the code they describe.
+#
+# The vocabulary table, the unit table, `DIMENSIONAL_KINDS`, the backend
+# protocol block and the README's exit codes are projections of the code, and
+# used to be second copies of it held in step by tests that reported drift
+# after the fact. Same mutating/non-mutating split as `fmt` — `just fmt`
+# rewrites, `just check` refuses a stale block. Run by `fmt` and `fmt-check`,
+# so this recipe is for running it alone.
+gen-docs:
+    uv run python scripts/gen_docs.py
 
 # Run linters
 lint:

@@ -76,8 +76,9 @@ docs/             # the specs and decision log — normative, not background rea
 
 ```sh
 just setup           # uv sync --all-extras (ALL engines — matches CI exactly)
-just fmt             # ruff format + ruff check --fix
-just check           # fmt-check + lint + typecheck (CI-equivalent)
+just fmt             # ruff format + ruff check --fix + regenerate doc blocks
+just gen-docs        # regenerate the generated doc blocks alone
+just check           # fmt-check + gen-docs --check + lint + typecheck (CI-equivalent)
 just test            # pytest
 just run -- --version
 just setup-mesh      # light path: mesh tier only. NOT what CI runs
@@ -97,6 +98,20 @@ Run the suite under both before touching `engines/openscad.py`.
 - **The specs in `docs/` are normative.** `SPEC-report.md`, `SPEC-contract.md` and
   `SPEC-backend.md` define behaviour; the code implements them. If code and spec disagree,
   that is a bug in one of them — say which, do not silently pick.
+- **Mechanical enumerations inside the specs are GENERATED**, between
+  `<!-- BEGIN GENERATED: name -->` markers: the vocabulary tables, the unit table,
+  `DIMENSIONAL_KINDS`, the backend protocol block, the README's exit codes. Edit the code
+  and run `just fmt`; editing the block by hand is reverted on the next run and `just check`
+  fails meanwhile. The prose around them is hand-written and stays normative — only the
+  parts that are a projection of the code by definition are generated, because a generated
+  spec could never say the code is wrong.
+- **Do not write a test that reads a doc and reads the code and diffs them.** That is two
+  copies of one fact with a failure report attached; generate the doc instead. Equally, do
+  not assert that a phrase appears in prose — `assert "five defect classes in" in README`
+  passes when the README says "five defect classes in 2019, all of which failed". A
+  substring search reports that a string is present, which is not a claim anyone wanted to
+  make. Seven such tests were deleted in #150. What belongs in `tests/test_docs.py` is a
+  claim that can be **executed**: the skills' examples build, the README's example runs.
 - **Decisions live in `docs/DECISIONS.md`** (D1–D19), each with the reasoning that produced
   it. Do not relitigate a numbered decision; if it is wrong, add a superseding entry.
 - **Status claims are part of the gate.** The "Status:" line here and in `README.md` say

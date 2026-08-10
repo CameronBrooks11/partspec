@@ -125,10 +125,12 @@ set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (�
 
 ### 4.1 Parameter phase
 
+<!-- BEGIN GENERATED: vocabulary-parameter -->
 | method | `kind` | shape |
 |---|---|---|
-| `p.requires(expr)` | `requires` | predicate — see §5 |
-| `p.param(name, min=, max=)` | `param_range` | measurement + limit |
+| `p.requires(expr, id=)` | `requires` | predicate (see §5) |
+| `p.param(name, min=, max=, unit=, id=)` | `param_range` | measurement + limit |
+<!-- END GENERATED: vocabulary-parameter -->
 
 `p.param` is the structured form and SHOULD be preferred when the claim is a simple bound
 on one named parameter, because it produces a real measurement that `diff` can track drift
@@ -136,26 +138,28 @@ on. `p.requires` is the escape hatch for anything relational.
 
 ### 4.2 Geometry phase
 
+<!-- BEGIN GENERATED: vocabulary-geometry -->
 | method | `kind` | measurement | tier |
 |---|---|---|---|
 | *(implicit)* | `builds` | none | both |
-| `p.envelope(max=, min=)` | `envelope` | vector, `mm`, exact | both |
-| `p.watertight()` | `watertight` | bool-valued, exact | both |
-| `p.solid_count(n)` | `solid_count` | scalar, `count`, exact | both |
-| `p.genus(n)` | `genus` | scalar, `count`, exact | both |
-| `p.cavities(n)` | `cavities` | scalar, `count`, exact | both |
-| `p.volume(min=, max=)` | `volume` | scalar, `mm3` | both |
-| `p.area(min=, max=)` | `area` | scalar, `mm2` | both |
-| `p.topology(faces=, edges=, vertices=)` | `topology` | vector, `count`, exact | **occt only** |
-| `p.keep_out(region, shell=)` | `keep_out` | vector, `mm3`, exact | both |
-| `p.keep_in(region, shell=)` | `keep_in` | vector, `mm3`, exact | both |
-| `p.hole_diameter(d, count=, tol=)` | `hole_diameter` | vector, `mm`, exact | **occt only** |
-| `p.bolt_circle(d, count=, bcd=, tol=)` | `bolt_circle` | scalar, `mm`, exact | **occt only** |
-| `p.fillet_radius(min=, max=)` | `fillet_radius` | vector, `mm`, exact | **occt only** |
-| `p.draft_angle(min=, direction=)` | `draft_angle` | vector, `deg`, exact | **occt only** |
-| `p.self_intersection_free()` | `self_intersection_free` | bool-valued, exact | **occt only** |
-| `p.step_roundtrip(tol=)` | `step_roundtrip` | vector, `rel`, exact | **occt only** |
-| `p.min_wall(min=)` | `min_wall` | scalar, `mm`, **interval** (exact when it collapses) | **occt only** |
+| `p.envelope(max=, min=, id=)` | `envelope` | vector, `mm`, exact | both |
+| `p.watertight(id=)` | `watertight` | bool-valued, exact | both |
+| `p.solid_count(n, id=)` | `solid_count` | scalar, `count`, exact | both |
+| `p.cavities(n, id=)` | `cavities` | scalar, `count`, exact | both |
+| `p.genus(n, id=)` | `genus` | scalar, `count`, exact | both |
+| `p.volume(min=, max=, id=)` | `volume` | scalar, `mm3` | both |
+| `p.area(min=, max=, id=)` | `area` | scalar, `mm2` | both |
+| `p.topology(faces=, edges=, vertices=, id=)` | `topology` | vector, `count`, exact | **occt only** |
+| `p.keep_out(region, shell=, id=)` | `keep_out` | vector, `mm3`, exact | both |
+| `p.keep_in(region, shell=, id=)` | `keep_in` | vector, `mm3`, exact | both |
+| `p.hole_diameter(d, count=, tol=, id=)` | `hole_diameter` | vector, `mm`, exact | **occt only** |
+| `p.bolt_circle(d, count=, bcd=, tol=, id=)` | `bolt_circle` | scalar, `mm`, exact | **occt only** |
+| `p.fillet_radius(min=, max=, id=)` | `fillet_radius` | vector, `mm`, exact | **occt only** |
+| `p.draft_angle(min=, direction=, id=)` | `draft_angle` | vector, `deg`, exact | **occt only** |
+| `p.self_intersection_free(id=)` | `self_intersection_free` | bool-valued, exact | **occt only** |
+| `p.step_roundtrip(tol=, id=)` | `step_roundtrip` | vector, `rel`, exact | **occt only** |
+| `p.min_wall(min=, id=)` | `min_wall` | scalar, `mm`, **interval** (exact when it collapses) | **occt only** |
+<!-- END GENERATED: vocabulary-geometry -->
 
 `builds` is **implicit and always present**: every part gets it, and it fails if the engine
 exits non-zero or emits no artifact. It is the one check an author cannot forget, and it is
@@ -771,11 +775,16 @@ naming the part, because `empty` is the single most likely output when an agent 
 know what to assert, and a silent exit `3` in a batch is easy to miss.
 
 **A run whose every dimensional check is unattributed MUST draw one warning line** on the
-same channel, naming the part (#50). The dimensional kinds (`DIMENSIONAL_KINDS`:
-`param_range`, `envelope`, `volume`, `area`, `hole_diameter`, `bolt_circle`,
-`fillet_radius`, `draft_angle`, `min_wall`) are the ones whose limits are numbers an author chose, and so the ones a
-contract can make circular — a bound recomputed from the model's own constants cannot fail
-however the design moves, and a single green run cannot distinguish that from a proof.
+same channel, naming the part (#50). The dimensional kinds are the ones whose limits are
+numbers an author chose, and so the ones a contract can make circular — a bound recomputed
+from the model's own constants cannot fail however the design moves, and a single green run
+cannot distinguish that from a proof.
+
+<!-- BEGIN GENERATED: dimensional-kinds -->
+`DIMENSIONAL_KINDS`: `param_range`, `envelope`, `volume`, `area`, `hole_diameter`, `bolt_circle`,
+`fillet_radius`, `draft_angle`, `min_wall`
+<!-- END GENERATED: dimensional-kinds -->
+
 Attribution (§10) is the distinguisher: **the absence of `source` IS the unattributed
 state** — the report does not stamp "unattributed" per check, because an absent claim of
 authority must not be dressed as a present one. Topological kinds are absolute claims,

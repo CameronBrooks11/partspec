@@ -498,3 +498,108 @@ def test_fillet_radius_must_bound_something():
         _part().fillet_radius()
     with pytest.raises(ContractError, match="min must be > 0"):
         _part().fillet_radius(min=0)
+
+
+# --------------------------------------------------------------------------
+# MEASURANDS — the one column of SPEC-contract §4.2 that no other code knows
+#
+# §4.2's table is generated from the code (`scripts/gen_docs.py`), so nothing
+# below reads markdown. Method, kind and tier are derived at generation and
+# cannot disagree with anything. Shape and unit are declared in `MEASURANDS`,
+# and unit is the half that reality can answer — so it is asked here, against
+# the functions that actually attach it.
+#
+# This replaces `test_the_unit_table_lists_every_unit_a_measurement_can_carry`,
+# which compared a markdown table against an AST walk. Same walk, no markdown,
+# and per-kind rather than set-wide: that test would have passed with `volume`
+# documented in `mm2`.
+# --------------------------------------------------------------------------
+
+SRC = Path(__file__).resolve().parent.parent / "src"
+
+# Kinds whose unit is attached somewhere other than the primitive named in
+# `GEOMETRY_KINDS`: four the runner composes from other primitives, and
+# `min_wall`, whose backend method delegates to a helper. Asserted for equality
+# below, never merely tolerated — a kind that quietly stops being covered by the
+# primitive walk has to appear here or fail.
+_UNIT_ATTACHED_ELSEWHERE = {
+    "keep_out": "_run_region_check",
+    "keep_in": "_run_region_check",
+    "bolt_circle": "_run_bolt_circle_check",
+    "step_roundtrip": "_run_step_check",
+    "min_wall": "_min_wall_measurement",
+}
+
+
+def _units_by_function() -> dict[str, set[str]]:
+    """Every `Measurement(value, "unit")` in `src/`, keyed by enclosing function.
+
+    Static rather than executed because the alternative is building a part that
+    exercises all seventeen kinds on the OCCT tier, which is a much slower test
+    that would skip on the mesh-only path — where a wrong unit is just as wrong.
+    """
+    import ast
+
+    found: dict[str, set[str]] = {}
+    for path in sorted(SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            for call in ast.walk(node):
+                if (
+                    isinstance(call, ast.Call)
+                    and getattr(call.func, "id", None) == "Measurement"
+                    and len(call.args) >= 2
+                    and isinstance(call.args[1], ast.Constant)
+                    and isinstance(call.args[1].value, str)
+                ):
+                    found.setdefault(node.name, set()).add(call.args[1].value)
+    assert found, "the walk found no Measurement call at all"
+    return found
+
+
+def test_every_declared_unit_is_the_unit_the_code_emits():
+    """`MEASURANDS[kind].unit` equals the unit the answering function attaches."""
+    from partspec.contract import MEASURANDS
+
+    emitted = _units_by_function()
+    composed = set()
+    for kind, primitive in GEOMETRY_KINDS.items():
+        units = emitted.get(primitive, set())
+        if not units:
+            composed.add(kind)
+            continue
+        assert len(units) == 1, f"`{primitive}` emits more than one unit: {sorted(units)}"
+        assert MEASURANDS[kind].unit == next(iter(units)), (
+            f"MEASURANDS says `{kind}` is {MEASURANDS[kind].unit!r}; "
+            f"`{primitive}` emits {next(iter(units))!r}"
+        )
+
+    # The five whose unit lives elsewhere, through the function that attaches it.
+    assert composed == set(_UNIT_ATTACHED_ELSEWHERE), (
+        f"kinds no primitive measures, and not recorded as composed: "
+        f"{sorted(composed - set(_UNIT_ATTACHED_ELSEWHERE))}; "
+        f"recorded as composed but now measured directly: "
+        f"{sorted(set(_UNIT_ATTACHED_ELSEWHERE) - composed)}"
+    )
+    for kind, handler in _UNIT_ATTACHED_ELSEWHERE.items():
+        units = emitted[handler]
+        assert units == {MEASURANDS[kind].unit}, (
+            f"MEASURANDS says `{kind}` is {MEASURANDS[kind].unit!r}; "
+            f"`{handler}` emits {sorted(units)}"
+        )
+
+
+def test_the_declared_units_are_exactly_the_units_the_tool_emits():
+    """Both directions, which is the failure `bool` and `rel` actually were:
+    the tool emitted them and the table described a smaller vocabulary. A
+    subset check in one direction cannot see that."""
+    from partspec.contract import MEASURANDS
+
+    emitted = {u for units in _units_by_function().values() for u in units}
+    declared = {m.unit for m in MEASURANDS.values() if m.unit is not None}
+    assert declared == emitted, (
+        f"declared and never emitted: {sorted(declared - emitted)}; "
+        f"emitted and undeclared: {sorted(emitted - declared)}"
+    )

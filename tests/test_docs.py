@@ -1,11 +1,28 @@
-"""The README makes checkable claims, so they are checked.
+"""The docs make executable claims, so they are executed.
 
 A verification tool whose own front page overstates what it does is not a small
 irony — it is the same failure it exists to prevent, and it happened: the status
 line asserted the backends were unimplemented for three phases after they
 shipped. A written rule did not catch that. These do.
 
-Nothing here needs a CAD engine; it is all parsing.
+**What belongs here is a claim that can be RUN**: the skills' worked examples
+build and satisfy what they advertise, the README's example is the contract that
+actually executes, the catalogue's reproducible entry reproduces. What does not
+belong is a search for a phrase. `assert "five defect classes in" in README`
+passes when the README says "five defect classes in 2019, all of which failed" —
+it reports that a string is present, which is not the claim anyone wanted to
+make. Seven such tests were deleted in #150; do not reintroduce the shape.
+
+Nor does an enumeration belong here. The vocabulary table, the unit table,
+`DIMENSIONAL_KINDS`, the backend protocol block and the exit codes are
+projections of the code, and six tests used to hold those second copies in step.
+They are generated now (`scripts/gen_docs.py`, enforced by `just check`), so
+there is one copy and nothing to compare. If you find yourself writing a test
+that reads markdown and reads code and diffs them, generate the markdown
+instead.
+
+Some of these need a CAD engine — executing a skill's build123d example means
+building it — and are marked accordingly.
 """
 
 from __future__ import annotations
@@ -17,9 +34,8 @@ from pathlib import Path
 import pytest
 from support import measured, needs_openscad
 
-from partspec.status import EXIT_USAGE, Verdict, exit_code
-
 ROOT = Path(__file__).resolve().parent.parent
+DOCS = ROOT / "docs"
 README = ROOT / "README.md"
 EXAMPLE = ROOT / "examples" / "spacer" / "spec.py"
 
@@ -72,27 +88,6 @@ def test_the_readme_console_output_matches_the_contract():
     shown = len(re.findall(r"^\s+ok\s+\S+", body, re.M))
     assert shown == declared + 1, "transcript check count disagrees with the contract"
     assert f"PASS: {shown} pass" in body, "the transcript's tally disagrees with its own lines"
-
-
-@pytest.mark.parametrize(
-    ("verdict", "described"),
-    [
-        (Verdict.PASS, "pass"),
-        (Verdict.FAIL, "fail"),
-        (Verdict.INCOMPLETE, "incomplete"),
-        (Verdict.EMPTY, "empty"),
-        (Verdict.ERROR, "error"),
-    ],
-)
-def test_the_readme_exit_codes_match_the_implementation(verdict: Verdict, described: str):
-    """The exit codes are the machine-readable half of the product contract
-    (`SPEC-report.md` §6.2), so the README's table of them must not drift."""
-    line = next(ln for ln in README.read_text().splitlines() if ln.startswith("codes: `0` pass"))
-    assert f"`{exit_code(verdict)}` {described}" in line
-
-
-def test_the_readme_documents_the_usage_exit_code():
-    assert f"`{EXIT_USAGE}` bad usage" in README.read_text()
 
 
 def _verbs_named(text: str) -> set[str]:
@@ -430,228 +425,6 @@ def test_the_bd_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
     assert measured(backend.bbox(cq_part)).value == (40.0, 30.0, 4.0)
 
 
-# ---------------------------------------------------------------------------
-# the specs, held against the code they specify
-#
-# Every claim below was wrong at once, and the docs audit found each by hand.
-# The vocabulary table lagged its own file by four kinds; DIMENSIONAL_KINDS was
-# listed as seven when it was nine; the report's example named a field the
-# serializer never emits and omitted three it does; the unit table listed three
-# of five units. None of it could have been caught by reading, which is why
-# these read the code instead.
-# ---------------------------------------------------------------------------
-
-DOCS = ROOT / "docs"
-SPEC_CONTRACT = (DOCS / "SPEC-contract.md").read_text()
-SPEC_REPORT = (DOCS / "SPEC-report.md").read_text()
-
-
-def _unit_box():
-    """The smallest real Region, for the two rows that take one."""
-    from partspec import region
-
-    return region.box(min=(0, 0, 0), max=(1, 1, 1))
-
-
-def _vocabulary_rows() -> dict[str, tuple[str, str, str]]:
-    """§4.2's table as {method: (kind, measurement, tier)}.
-
-    Scoped to §4.2 and parsed by column, because the first version matched
-    a bare method-name match anywhere in the file: a row could carry a nonsense kind, a
-    unit that does not exist and the wrong tier, or sit in §4.1's parameter
-    table entirely, and the test still passed (PR #151 review, MA3).
-    """
-    section = SPEC_CONTRACT[SPEC_CONTRACT.index("### 4.2") : SPEC_CONTRACT.index("### 4.2.2")]
-    rows = {}
-    for line in section.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) != 4:
-            continue
-        method = re.match(r"`p\.(\w+)", cells[0])
-        if method:
-            rows[method.group(1)] = (cells[1].strip("`"), cells[2], cells[3])
-    return rows
-
-
-def test_the_vocabulary_table_lists_every_check_an_author_can_declare():
-    """SPEC-contract §4.2 is the table `skills/contract-authoring` routes an
-    author to as normative. It stopped at `fillet_radius` while §4.8-4.11 of
-    the same file documented four more shipped kinds."""
-    from partspec.contract import Part
-
-    geometry = set(_vocabulary_rows())
-    # §4.1's ROWS, not its prose: the first version regexed the whole section,
-    # so deleting a row from §4.2 and name-dropping the method in one §4.1
-    # sentence satisfied both vocabulary tests (PR #151 review, M2b/M2c).
-    parameter_phase = SPEC_CONTRACT[SPEC_CONTRACT.index("### 4.1") : SPEC_CONTRACT.index("### 4.2")]
-    parameter = set()
-    for line in parameter_phase.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) == 3:
-            match = re.match(r"`p\.(\w+)", cells[0])
-            if match:
-                parameter.add(match.group(1))
-
-    declared = {name for name in dir(Part) if not name.startswith("_")}
-    tabled = geometry | parameter
-    assert declared == tabled, (
-        f"undocumented: {sorted(declared - tabled)}, "
-        f"documented but absent: {sorted(tabled - declared)}"
-    )
-    assert not (geometry & parameter), "a method belongs to one phase table, not both"
-    # And §4.1 is the parameter phase, exhaustively. Without this a geometry
-    # row could be MOVED there with nonsense columns: it would appear in only
-    # one table (so the disjointness assert stays quiet) and never reach the
-    # column checks, which are scoped to §4.2 (PR #151 review, M2b).
-    assert parameter == {"requires", "param"}, (
-        f"§4.1 is the parameter phase; these are documented in the wrong table: "
-        f"{sorted(parameter - {'requires', 'param'})}"
-    )
-
-
-def test_every_vocabulary_row_names_the_kind_and_tier_the_code_uses():
-    """The columns, not just the method name. A row could say a check emits
-    `furlongs` on `both` tiers and nothing noticed."""
-    from partspec.backends import mesh, occt
-    from partspec.contract import GEOMETRY_KINDS, Part
-
-    units = {"mm", "mm2", "mm3", "deg", "count", "bool", "rel"}
-    skipped = set()
-    for method, (kind, measurement, tier) in _vocabulary_rows().items():
-        part = Part.__new__(Part)
-        part.checks = []
-        part.id = "t"
-        try:
-            getattr(Part, method)(part, **_MINIMAL_ARGS.get(method, {}))
-        except Exception:  # noqa: BLE001 - recorded below, never silently dropped
-            skipped.add(method)
-            continue
-        if not part.checks:
-            skipped.add(method)
-            continue
-        actual = part.checks[-1].kind
-        assert kind == actual, f"§4.2 calls `p.{method}` kind `{kind}`; the code emits `{actual}`"
-
-        # Both directions. One-way ("if OCCT-only, the doc must say so") let a
-        # both-tier check be advertised as OCCT-only — the direction that makes
-        # an author skip a check they could have run (review, N2).
-        # Through GEOMETRY_KINDS, because the check kind and the primitive it
-        # needs are different names (`topology` -> `topology_counts`,
-        # `hole_diameter` -> `bores`) and comparing the kind against the
-        # capability sets quietly answered "not OCCT-only" for all of them.
-        primitive = GEOMETRY_KINDS.get(actual)
-        occt_only = (
-            primitive is not None
-            and primitive in occt.CAPABILITIES
-            and primitive not in mesh.CAPABILITIES
-        )
-        assert occt_only == ("occt only" in tier), (
-            f"`{actual}` is {'OCCT-only' if occt_only else 'on both tiers'}; §4.2 says {tier!r}"
-        )
-        named = set(re.findall(r"`(\w+)`", measurement))
-        assert named <= units, (
-            f"§4.2 gives `p.{method}` a unit that does not exist: {named - units}"
-        )
-
-    # The skip set is asserted, not silent: `except: continue` could shrink
-    # coverage to nothing without one failing assertion (review, M8b).
-    assert skipped == _UNCOVERED, (
-        f"rows this test no longer exercises: {sorted(skipped - _UNCOVERED)}; "
-        f"rows now exercised that were recorded as uncovered: {sorted(_UNCOVERED - skipped)}"
-    )
-
-
-_UNCOVERED: set[str] = set()
-"""Rows the column check does not exercise, with the reason — empty today.
-
-Asserted for equality rather than containment, so a row that quietly stops
-being covered fails here instead of vanishing. An earlier draft excused
-`keep_out`/`keep_in` as unreachable; they are reachable in one line
-(`partspec.region` is a public export), and excusing them was a choice
-dressed as an impossibility."""
-
-
-_MINIMAL_ARGS = {
-    "envelope": {"max": (1, 1, 1)},
-    "watertight": {},
-    "solid_count": {"n": 1},
-    "genus": {"n": 0},
-    "cavities": {"n": 0},
-    "volume": {"min": 1.0},
-    "area": {"min": 1.0},
-    "topology": {"faces": 6},
-    "hole_diameter": {"d": 5.0},
-    "bolt_circle": {"d": 5.0, "count": 4, "bcd": 20.0},
-    "fillet_radius": {"min": 1.0},
-    "draft_angle": {"min": 1.0},
-    "self_intersection_free": {},
-    "step_roundtrip": {},
-    "min_wall": {"min": 1.0},
-    "param": {"name": "w", "min": 1.0},
-    "keep_out": {"region": _unit_box(), "shell": 0.5},
-    "keep_in": {"region": _unit_box(), "shell": 0.5},
-}
-
-
-def test_the_spec_names_every_dimensional_kind():
-    """The kinds whose limits are numbers an author chose — the set the
-    unattributed-limit warning ranges over. Listed as seven; it is nine."""
-    from partspec.contract import DIMENSIONAL_KINDS
-
-    paragraph = re.search(r"`DIMENSIONAL_KINDS`:(.*?)\)", SPEC_CONTRACT, re.S)
-    assert paragraph, "SPEC-contract must enumerate DIMENSIONAL_KINDS"
-    assert set(re.findall(r"`(\w+)`", paragraph.group(1))) == DIMENSIONAL_KINDS
-
-
-def test_the_unit_table_lists_every_unit_a_measurement_can_carry():
-    """SPEC-report §2.2's table listed mm/mm2/mm3, deg and count while the
-    tool also emits `bool` (watertight, self_intersection_free) and `rel`
-    (step_roundtrip's unitless drift)."""
-    emitted = set()
-    for source in (ROOT / "src").rglob("*.py"):
-        tree = ast.parse(source.read_text())
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and getattr(node.func, "id", None) == "Measurement"
-                and len(node.args) >= 2
-                and isinstance(node.args[1], ast.Constant)
-                and isinstance(node.args[1].value, str)
-            ):
-                emitted.add(node.args[1].value)
-    assert emitted, "the walk found no Measurement call at all"
-
-    # Table ROWS, not every backticked word in the section: deleting the whole
-    # table left enough prose to satisfy the first version (PR #151 review, MA1),
-    # and the regex it used could not cross a `)` so it saw two of six units.
-    section = SPEC_REPORT[SPEC_REPORT.index("### 2.2") : SPEC_REPORT.index("### 2.3")]
-    tabled = set()
-    for line in section.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) == 2 and cells[0].startswith("`"):
-            tabled |= set(re.findall(r"`(\w+)`", cells[0]))
-    missing = emitted - tabled
-    assert not missing, f"units the tool emits and the §2.2 table omits: {sorted(missing)}"
-
-
-def test_the_backend_spec_counts_the_primitives_it_specifies():
-    """SPEC-backend called the protocol "the original twelve" while the block
-    beneath held 13, the prose listed 17, and the two backends implement 21
-    between them. A count in a normative document is a claim."""
-    from partspec.backends import mesh, occt
-
-    spec = (DOCS / "SPEC-backend.md").read_text()
-    implemented = occt.CAPABILITIES | mesh.CAPABILITIES
-    # The DECLARED methods in the protocol block, not a name-drop anywhere in
-    # the file: the first version passed when the whole block was deleted and
-    # the five names were mentioned in one unrelated sentence (review, MA2).
-    declared = set(re.findall(r"^\s*def (\w+)\(self", spec, re.M))
-    missing = implemented - declared
-    assert not missing, (
-        f"capabilities the backends implement and the protocol block omits: {sorted(missing)}"
-    )
-
-
 def test_every_repo_path_the_specs_cite_can_be_opened():
     """Two normative specs listed `investigations/03`, `investigations/04` and
     `DIRECTION.md` under **Backing:** — files in an unpublished survey
@@ -692,23 +465,3 @@ def test_every_repo_path_the_specs_cite_can_be_opened():
                 continue
             missing.append(f"{doc.name} -> {cited}")
     assert not missing, "cited paths no reader can open:\n  " + "\n  ".join(missing)
-
-
-def test_the_protocol_and_the_spec_declare_the_same_primitives():
-    """`GeometryBackend` is `@runtime_checkable` and nothing in the repo ever
-    calls `isinstance` against it, so it drifted five primitives behind the
-    backends it types without a single failure. The spec's fenced block was
-    corrected first, which only moved the disagreement into the code."""
-    import inspect
-
-    from partspec import backend
-
-    spec = (DOCS / "SPEC-backend.md").read_text()
-    in_spec = set(re.findall(r"^\s*def (\w+)\(self", spec, re.M))
-    # `\(` not `\(self`: the protocol wraps `build`'s signature across lines.
-    in_code = set(
-        re.findall(r"^\s{4}def (\w+)\(", inspect.getsource(backend.GeometryBackend), re.M)
-    )
-    assert in_spec == in_code, (
-        f"spec-only: {sorted(in_spec - in_code)}, code-only: {sorted(in_code - in_spec)}"
-    )

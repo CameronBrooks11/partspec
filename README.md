@@ -82,7 +82,9 @@ PASS: 8 pass
 ```
 
 The JSON report is the actual product surface; the console summary is a courtesy. Exit
+<!-- BEGIN GENERATED: exit-codes -->
 codes: `0` pass, `1` fail, `2` incomplete, `3` empty, `4` error, `64` bad usage
+<!-- END GENERATED: exit-codes -->
 (`130` is the SIGINT convention, not a verdict).
 
 That last warning line is the tool being honest about its own example: every bound above

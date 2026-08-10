@@ -73,6 +73,65 @@ forget, which is how the first version rotted.
 composed in the runner from `region_solid` and `intersect_volume` rather than
 being one primitive call (SPEC-contract.md 4.4)."""
 
+
+@dataclass(frozen=True, slots=True)
+class Measurand:
+    """How a kind's measurement is shaped: scalar or vector, in what unit, and
+    whether the answer is exact.
+
+    This is the one part of SPEC-contract §4.2's table that no other code knows.
+    The method signature comes from `inspect.signature`, the `kind` from calling
+    the method, the tier from `GEOMETRY_KINDS` against the backends' capability
+    sets — all derived, so all generated. Shape and unit were derivable from
+    nothing, and lived only as prose in the spec, where a test compared two
+    hand-maintained copies of the same fact and called that enforcement.
+
+    `unit` is held against reality by
+    `test_every_declared_unit_is_the_unit_the_code_emits`: the value here must
+    equal the unit the function answering that kind actually attaches. That is
+    code against code. Nothing reads the markdown.
+    """
+
+    shape: str
+    unit: str | None = None
+    exact: bool = True
+    interval: bool = False
+    note: str = ""
+
+
+MEASURANDS: dict[str, Measurand] = {
+    # Parameter phase (§4.1). Neither is a geometry primitive; `requires` carries
+    # no measurement at all, which is why `unit` is None rather than empty.
+    "requires": Measurand("predicate", note="see §5"),
+    "param_range": Measurand("measurement + limit"),
+    # Geometry phase (§4.2).
+    "builds": Measurand("none"),
+    "envelope": Measurand("vector", "mm"),
+    "watertight": Measurand("bool-valued", "bool"),
+    "solid_count": Measurand("scalar", "count"),
+    "genus": Measurand("scalar", "count"),
+    "cavities": Measurand("scalar", "count"),
+    "volume": Measurand("scalar", "mm3", exact=False),
+    "area": Measurand("scalar", "mm2", exact=False),
+    "topology": Measurand("vector", "count"),
+    "keep_out": Measurand("vector", "mm3"),
+    "keep_in": Measurand("vector", "mm3"),
+    "hole_diameter": Measurand("vector", "mm"),
+    "bolt_circle": Measurand("scalar", "mm"),
+    "fillet_radius": Measurand("vector", "mm"),
+    "draft_angle": Measurand("vector", "deg"),
+    "self_intersection_free": Measurand("bool-valued", "bool"),
+    "step_roundtrip": Measurand("vector", "rel"),
+    "min_wall": Measurand("scalar", "mm", interval=True, note="exact when it collapses"),
+}
+"""Every kind's measurement shape, keyed by `kind` — not by method, because
+`keep_out` and `keep_in` are two methods and `builds` is no method at all.
+
+Held complete in both directions by `scripts/gen_docs.py`'s
+`_assert_vocabulary_is_complete`, which `just check` runs: a kind with no entry
+here, or an entry naming no kind, fails the gate rather than quietly generating
+a table with a hole in it."""
+
 DIMENSIONAL_KINDS = frozenset(
     {
         "param_range",

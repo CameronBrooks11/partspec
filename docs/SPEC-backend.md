@@ -52,66 +52,150 @@ bare float, so a caller cannot accidentally lose provenance.
 
 ## 3. The protocol
 
+<!-- BEGIN GENERATED: backend-protocol -->
 ```python
+@runtime_checkable
 class GeometryBackend(Protocol):
-    kind: str          # "occt" | "mesh"
-    engine: str        # "build123d" | "cadquery" | "openscad"
+    kind: str  # Tier.MESH | Tier.OCCT
+    engine: str  # "openscad" | "build123d" | "cadquery"
     engine_version: str
 
     # --- lifecycle ---
-    def build(self, source: SourceRef, out_dir, *, timeout_s: float | None = None) -> Artifact | BuildError: ...
-    #   timeout_s: None -> the 300 s default; 0 -> explicitly unbounded; positive -> the
-    #   budget. A blown budget MUST return BuildError(origin="environment") naming it —
-    #   a stopwatch disproves nothing about the part (#46). On the Python tier the alarm
-    #   records that it fired and re-fires escalating past `except Exception`, so a model
-    #   that swallows it cannot report a result computed over budget. The stated ceiling:
-    #   a hang inside a C kernel call is not preemptible in-process; a model that installs
-    #   its own SIGALRM handler, ignores the signal, or catches BaseException in a loop
-    #   defeats the alarm; and a leaked non-daemon thread keeps the *process* alive at
-    #   exit even though the report is finished and honest.
-    def provenance(self, a) -> dict: ...    # -> report.geometry block
 
-    # --- the primitives. "The original twelve" was the survey's set (investigation
-    #     03 §2) and the count has been wrong in this file ever since: the block
-    #     below has always held thirteen, and the two backends implement 21
-    #     capabilities between them (22 until v0.7.0 undeclared the mesh tier's
-    #     `raycast`, which it could not honour). The survey's dozen is a historical note, not
-    #     an inventory. ---
-    def bbox(self, a) -> Measured: ...
-    def volume(self, a) -> Measured: ...
-    def area(self, a) -> Measured: ...
-    def center_of_mass(self, a) -> Measured: ...
-    def is_valid(self, a) -> Measured: ...
-    def watertight(self, a) -> Measured: ...
-    def solid_count(self, a) -> Measured: ...
-    def genus(self, a) -> Measured: ...
-    def topology_counts(self, a) -> Counts | Unsupported: ...
-    def min_distance(self, a, b) -> Measured | Unsupported: ...
-    def intersect_volume(self, a, b) -> Measured | Unsupported: ...
-    def triangles(self, a) -> Tris: ...
-    def raycast(self, a, origin, direction) -> list[Vec3] | Unsupported: ...
+    def build(
+        self, source: Any, out_dir: Any, *, timeout_s: float | None = None
+    ) -> Any | BuildError:
+        """Run the engine and return an opaque artifact handle.
 
-    # --- added for keep_out / keep_in (SPEC-contract.md §4.4) ---
-    def region_solid(self, region) -> Artifact: ...
+        `timeout_s` is interpreted through `effective_timeout` — None defaults,
+        0 waives, positive bounds — and a blown budget is a `BuildError` with
+        `origin="environment"`: a stopwatch disproves nothing about the part.
+        """
+        ...
 
-    # --- added for hole_diameter (SPEC-contract.md §4.5); OCCT-only, like
-    #     topology_counts — a mesh has no cylindrical face to enumerate ---
-    def bores(self, a) -> Measured | Unsupported: ...
-    def bore_table(self, a) -> list[BoreInfo] | Unsupported: ...   # raw data, like triangles
-    def blend_radii(self, a) -> Measured | Unsupported: ...        # partial-wrap clusters (SPEC-contract 4.7)
+    def provenance(self, a: Any) -> dict[str, Any]:
+        """Populate the report's `geometry` block.
 
-    # --- added for cavities (SPEC-contract.md §4.2); both tiers ---
-    def cavities(self, a) -> Measured | Unsupported: ...
+        Mesh tier emits `triangles` and `distinct_normals`; both, not either.
+        `distinct_normals` is the identity signal — retriangulation-invariant,
+        and it tracks $fn nearly one-to-one. `triangles` is the drift
+        explainer, because chord error scales with edge length.
 
-    # --- added by the depth epic (#136), all OCCT-only (SPEC-contract.md §4.8-4.11) ---
-    def draft_angle(self, a, direction) -> Measured | Unsupported: ...
-    def self_intersection_free(self, a) -> Measured | Unsupported: ...
-    def step_roundtrip(self, a) -> dict | Unsupported: ...
-    def min_wall(self, a) -> Measured | Unsupported: ...
+        NOT `facets`, which is what this docstring said until the v0.7.0
+        sweep: trimesh's `.facets` is coplanar-region grouping and needs
+        `scipy` or `networkx`, so D16 replaced it with a count the backend
+        computes itself. The name never shipped, and four documents plus this
+        line went on describing a field no report has ever carried.
+        """
+        ...
 
-    # --- honesty ---
-    def capabilities(self) -> frozenset[str]: ...
+    def capabilities(self) -> frozenset[str]:
+        """Primitives this backend can answer at all.
+
+        Consulted before dispatch, so an `unsupported` result costs nothing.
+        Capability is static; exactness is not, and is decided per evaluation.
+        """
+        ...
+
+    # --- the primitives ---
+
+    # `bbox`, `area` and `watertight` are total: they are statements about the
+    # triangles or the shape as given, and stay answerable however broken it is.
+    # The rest are conditional, and each returns `Unsupported` rather than a
+    # number when its precondition fails — volume and centre of mass presume a
+    # closed consistently-wound surface, genus presumes a single closed body,
+    # and a body count presumes no edge shared by more than two faces.
+    def bbox(self, a: Any) -> Measurement: ...
+    def volume(self, a: Any) -> Measurement | Unsupported: ...
+    def area(self, a: Any) -> Measurement: ...
+    def center_of_mass(self, a: Any) -> Measurement | Unsupported: ...
+    def is_valid(self, a: Any) -> Measurement: ...
+    def watertight(self, a: Any) -> Measurement: ...
+    def solid_count(self, a: Any) -> Measurement | Unsupported: ...
+    def genus(self, a: Any) -> Measurement | Unsupported: ...
+    def topology_counts(self, a: Any) -> Measurement | Unsupported: ...
+    def triangles(self, a: Any) -> Any: ...
+
+    # Present because they are part of the survey's twelve. `intersect_volume`
+    # has a caller — the shipped `keep_out` / `keep_in` compose from it and
+    # `region_solid` (SPEC-contract 4.4), and its empty case is normative.
+    # `min_distance` and `raycast` have none: they serve clearance and
+    # interference, which wait on assemblies, and specifying them now means
+    # the protocol does not change when those land. The mesh tier does NOT
+    # implement `raycast` cheaply — it needs a spatial index the `mesh` extra
+    # does not carry, so on that install it refuses rather than answering.
+    def min_distance(self, a: Any, b: Any) -> Measurement | Unsupported: ...
+    def intersect_volume(self, a: Any, b: Any) -> Measurement | Unsupported: ...
+    def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> list[Vec3] | Unsupported: ...
+
+    def region_solid(self, region: Any) -> Any:
+        """Materialize a declared `partspec.region` as this backend's native solid.
+
+        Both tiers MUST realise the same polyhedron from the region's canonical
+        vertex list (SPEC-contract.md 4.4) — a backend that substitutes an exact
+        cylinder for the polygon prism is answering a different question than
+        the other tier, however much better its representation could do.
+        """
+        ...
+
+    def bores(self, a: Any) -> Measurement | Unsupported:
+        """Every cylindrical bore's diameter (SPEC-contract.md 4.5).
+
+        OCCT-only, like `topology_counts`, and for the same reason: a mesh has
+        no cylindrical face to enumerate, and fitting one to the facets
+        manufactures the confident wrong number this protocol exists to refuse.
+        The mesh backend MUST NOT declare this capability.
+        """
+        ...
+
+    def bore_table(self, a: Any) -> Any:
+        """The raw per-bore view beneath `bores` — `{d, direction, center}`
+        per bore — consumed by `bolt_circle` (SPEC-contract.md 4.6). OCCT-only,
+        with `bores`."""
+        ...
+
+    def blend_radii(self, a: Any) -> Measurement | Unsupported:
+        """Every partial-wrap cylindrical cluster's radius, ascending — the
+        candidates a `fillet_radius` claim ranges over (SPEC-contract.md 4.7).
+        OCCT-only, with `bores`; MUST share its clustering, so a seam-split
+        bore cannot masquerade as two blends."""
+        ...
+
+    # --- cavities (SPEC-contract.md 4.2), both tiers ---
+
+    def cavities(self, a: Any) -> Measurement | Unsupported:
+        """Sealed internal voids: per solid, its shells minus its outer one.
+        Refused when there is no geometry to be about."""
+        ...
+
+    # --- the depth epic (#136), OCCT-only: SPEC-contract.md 4.8-4.11.
+    #     These were implemented, dispatched by the runner and declared in
+    #     CAPABILITIES for a day while this Protocol said nothing about them,
+    #     and nothing noticed because nothing in src/ or tests/ ever does
+    #     `isinstance(x, GeometryBackend)`. A structural type that lags the
+    #     structures it types is decoration; the spec's block and this one are
+    #     now held equal by a test. ---
+
+    def draft_angle(
+        self, a: Any, direction: tuple[float, float, float]
+    ) -> Measurement | Unsupported:
+        """Every face's draft against a pull axis, ascending, in degrees."""
+        ...
+
+    def self_intersection_free(self, a: Any) -> Measurement | Unsupported:
+        """Whether the shape crosses itself, with the faults inventoried."""
+        ...
+
+    def step_roundtrip(self, a: Any) -> dict[str, Any] | Unsupported:
+        """Write to STEP, read back, report the drift and the writer schema."""
+        ...
+
+    def min_wall(self, a: Any) -> Measurement | Unsupported:
+        """The minimum wall within a declared measurand, as a guaranteed
+        interval that may collapse to exact."""
+        ...
 ```
+<!-- END GENERATED: backend-protocol -->
 
 `min_distance` and `raycast` are present because the survey listed them, and **no check
 calls either**. Two corrections to what this paragraph used to say. `min_wall` is no longer
