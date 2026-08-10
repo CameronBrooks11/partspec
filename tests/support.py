@@ -16,6 +16,7 @@ from partspec.status import Measurement
 
 __all__ = [
     "FIXTURES",
+    "OPENSCAD",
     "check_of",
     "decode_png",
     "forced_open_solid",
@@ -106,7 +107,7 @@ def scad_target(
 
 
 def report_of(out: Path) -> dict:
-    """The report `partspec check --out <out>` wrote, parsed.
+    """The `report.json` written under `out`, parsed.
 
     This read appeared 38 times across eight files (#153): 27 spelled
     `json.loads((out / "report.json").read_text())` verbatim, 11 the same shape
@@ -120,14 +121,21 @@ def report_of(out: Path) -> dict:
     The missing-file assertion is the reason this is worth a helper rather than
     an alias: `read_text()` on an absent report raises `FileNotFoundError`,
     which says the file is missing but not that the run failed to write one —
-    and `check` writes a report even on failure, so its absence is the finding.
+    and a report is written even when the run fails, so its absence is the
+    finding.
+
+    That message names the WRITER, not `partspec check`. Four call sites in
+    `test_report.py` drive `Report.write()` / `write_placeholder()` directly and
+    never invoke the CLI, so a message blaming `check --out` would point a
+    reader — plausibly a downstream packager running the shipped suite from an
+    sdist, with no repo to read — at a command the failing test never ran.
     """
     path = out / "report.json"
     if not path.is_file():
         present = sorted(p.name for p in out.iterdir()) if out.is_dir() else "no such directory"
         raise AssertionError(
-            f"no report at {path}; `check --out {out}` writes one even when the "
-            f"run fails (SPEC-report.md 5.5). Present: {present}"
+            f"no report at {path}; the writer produces one even when the run "
+            f"fails (SPEC-report.md 5.5). Present: {present}"
         )
     return json.loads(path.read_text())
 
