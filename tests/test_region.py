@@ -171,7 +171,7 @@ def test_shell_is_mandatory_and_must_be_positive():
 
 
 def test_a_non_region_is_refused_with_the_path_to_the_right_one():
-    with pytest.raises(ContractError, match="partspec.region"):
+    with pytest.raises(ContractError, match=r"partspec\.region"):
         _part().keep_out((0, 0, 0, 1, 1, 1), shell=1.0)  # type: ignore[arg-type]
 
 

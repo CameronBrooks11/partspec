@@ -70,9 +70,6 @@ exclude = [
   "uv.lock",
   "CLAUDE.md",
   ".pre-commit-config.yaml",
-  ".markdownlint.jsonc",
-  ".prettierrc",
-  ".prettierignore",
   ".editorconfig",
 ]
 
@@ -100,7 +97,7 @@ override-dependencies = ["cadquery-ocp-novtk ; sys_platform == 'never'"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    "ruff>=0.11",
+    "ruff==0.16.*",  # pinned with .pre-commit-config.yaml — see the note there
     "pyright>=1.1",
 ]
 
@@ -118,12 +115,36 @@ extend-exclude = ["*.md", "notes"]
 force-exclude = true
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+# Measured before adopting, each with `--extend-select` on top of the base set.
+#
+# `C4`, `S102` and `S307` cost ZERO violations today. The last two matter more
+# than that sounds: this repo carries five `# noqa: S102`/`S307` comments over
+# the places it executes user-supplied CAD-as-code, and they suppressed rules
+# nobody had enabled — a hazard marked "reviewed and waived" with no reviewer.
+# Enabling them turns five decorative comments into enforced ones.
+#
+# `BLE` costs 2 and makes the ten existing `noqa: BLE001` annotations true for
+# the same reason. `PTH` costs 4. `PT` costs 88, of which 86 are `PT018`
+# (composite `assert a and b`) — high churn, taste-dependent, and an unsafe
+# autofix across 86 test assertions is not a diff worth reviewing, so it is
+# ignored and the remaining 2 adopted. `RUF` costs 47, of which 6 are `RUF002`
+# (ambiguous unicode in a docstring) — this repo writes em-dashes deliberately
+# throughout its prose, and that rule fights the house voice.
+#
+# `ARG` (55, of which 41 in tests) is deliberately NOT adopted: an unused
+# fixture argument is the normal shape of a pytest test, and the eight real
+# ones were found by walking the AST instead.
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "PT", "RUF", "BLE", "S102", "S307"]
+ignore = ["PT018", "RUF002"]
 
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["src", "tests"]
+include = ["src", "tests", "examples", "evals", "scripts"]
+# `examples/` in particular: it is user-facing teaching material, and an example
+# that would not type-check is a worse lesson than one that would. `evals/` and
+# `scripts/` were linted by ruff and never type-checked; both were already
+# clean, so including them costs nothing and stops the drift.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

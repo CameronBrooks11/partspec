@@ -83,10 +83,38 @@ def test_every_exemplar_model_is_parameterised_and_documented():
     """The structural half of the acceptance, held mechanically: every
     exemplar directory carries a README, and every factory model takes
     parameters rather than hardcoding its dimensions."""
-    for name in ("stepper-bracket", "bearing-block", "enclosure"):
-        d = EXAMPLES / name
-        assert (d / "README.md").is_file(), f"{name} must explain what it teaches"
+    # Derived, not listed: `spacer` had no README for six releases while being
+    # the example the front page inlines, and a hardcoded list is what let that
+    # sit. Every exemplar directory now has to explain itself.
+    exemplars = sorted(d for d in EXAMPLES.iterdir() if d.is_dir() and (d / "spec.py").exists())
+    assert len(exemplars) >= 3, "the exemplars moved; this test needs to know"
+    for d in exemplars:
+        assert (d / "README.md").is_file(), f"{d.name} must explain what it teaches"
     bracket = (EXAMPLES / "stepper-bracket" / "bracket.py").read_text()
     assert "def bracket(" in bracket and "width: float" in bracket
     block = (EXAMPLES / "bearing-block" / "block.py").read_text()
     assert "def block(" in block and "bore_d: float" in block
+
+
+def test_the_spacer_readme_describes_the_contract_it_documents():
+    """The exemplar READMEs enumerate their claims in prose, and prose about
+    code is how this repo has repeatedly drifted. Written after the first draft
+    of this README named two claims the contract does not make — `wall_min <=
+    plate_x` and a bound on `bore_d` — so the table is checked against the
+    source rather than read."""
+    import re
+
+    readme = (EXAMPLES / "spacer" / "README.md").read_text()
+    spec = (EXAMPLES / "spacer" / "spec.py").read_text()
+
+    claimed = re.findall(r"^\| `([^`]+)` \|", readme, re.M)
+    assert len(claimed) >= 5, "the README must still enumerate the contract's claims"
+    for claim in claimed:
+        assert f"p.{claim}" in spec, f"the README claims `p.{claim}`, which the contract does not"
+
+    declared = set(re.findall(r"^    p\.(\w+)\(", spec, re.M))
+    documented = {c.split("(")[0] for c in claimed}
+    assert declared == documented, (
+        f"undocumented claims: {sorted(declared - documented)}; "
+        f"documented but absent: {sorted(documented - declared)}"
+    )

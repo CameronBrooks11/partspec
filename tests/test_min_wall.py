@@ -373,7 +373,7 @@ def test_the_antipodal_maps_are_diametric():
         (bd.Cone(8, 2, 20), 4.0),
     ]
     for shape, span in families:
-        seen = False  # noqa: SIM113
+        seen = False
         for face in shape.faces():
             surf = BRepAdaptor_Surface(face.wrapped)
             if not (surf.IsUClosed() or surf.IsVClosed()):

@@ -110,7 +110,7 @@ ocp-guard:
 
 # Remove build artifacts
 clean:
-    rm -rf .venv dist .pytest_cache .ruff_cache .pyright
+    rm -rf .venv dist outputs .pytest_cache .ruff_cache .pyright .mypy_cache .coverage
     find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 # Run the agent-convergence evals (see evals/README.md). Costs real agent calls.

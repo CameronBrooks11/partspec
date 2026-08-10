@@ -12,10 +12,21 @@ repos:
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-added-large-files
+        # `uv.lock` is 512 KB and already tracked, so the default 500 KB limit
+        # passes today only because the hook inspects newly-ADDED files. A
+        # fresh clone adding it for the first time would trip on a file this
+        # repo commits deliberately.
+        args: [--maxkb=1024]
 
+  # Pinned to the SAME ruff the gate runs. These hooks are mutating
+  # (`--fix`, `ruff-format`), so a version split means `git commit` can write a
+  # diff `just check` then rejects — two answers to one question, which is the
+  # drift `just setup`'s comment says this project already got burned by once.
+  # 0.11.12 and 0.16.1 happened to agree on this tree; that was luck, not a
+  # property. Bump this rev and the dev-group pin together.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.12
+    rev: v0.16.1
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       - id: ruff-format

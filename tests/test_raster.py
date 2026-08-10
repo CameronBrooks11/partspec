@@ -362,7 +362,7 @@ def test_the_cut_faces_wear_the_cut_colour_and_nothing_else_does(tmp_path: Path)
     # Framed by the ORIGINAL 20 mm cube, not the cut half: same 528 px span
     # as the canonical views, so sections and views compare.
     mask = np.abs(img.astype(int) - img[0, 0].astype(int)).sum(axis=2) > 40
-    ys, xs = np.nonzero(mask)
+    _ys, xs = np.nonzero(mask)
     assert abs((xs.max() - xs.min() + 1) - 528) <= 2
 
 
@@ -374,7 +374,7 @@ def test_coplanarity_survives_the_float32_round_trip(tmp_path: Path):
     verts, faces = _box(20, 20, 10, at=(0, 0, offset - 5))
     quantised = np.asarray(verts, np.float32).astype(np.float64)
     full = np.asarray(_box(20, 20, 20)[0], np.float64)
-    png, cut_n = render_section(
+    _png, cut_n = render_section(
         quantised, np.asarray(faces, np.int64), "xy", offset, full, tmp_path
     )
     assert cut_n == 2, "float32 rounding must not lose the cap"

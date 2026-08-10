@@ -119,7 +119,7 @@ class MeshBackend:
         error scales with edge length.
         """
         return {
-            "triangles": int(len(a.faces)),
+            "triangles": len(a.faces),
             "distinct_normals": _distinct_normals(a),
         }
 
@@ -443,7 +443,7 @@ def _distinct_normals(mesh: Any) -> int:
 
     normals = np.round(np.asarray(mesh.face_normals, dtype=np.float64), 4)
     normals += 0.0  # normalise -0.0 to 0.0 so it does not read as a distinct row
-    return int(len(np.unique(normals, axis=0)))
+    return len(np.unique(normals, axis=0))
 
 
 # --------------------------------------------------------------------------
@@ -646,9 +646,9 @@ def _euler_characteristic(mesh: Any) -> int:
     import numpy as np
 
     faces = np.asarray(mesh.faces)
-    vertices = int(len(np.unique(faces)))
-    edges = int(len(np.unique(np.asarray(mesh.edges_sorted), axis=0)))
-    return vertices - edges + int(len(faces))
+    vertices = len(np.unique(faces))
+    edges = len(np.unique(np.asarray(mesh.edges_sorted), axis=0))
+    return vertices - edges + len(faces)
 
 
 def _manifold(mesh: Any) -> Any | Unsupported:

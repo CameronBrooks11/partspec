@@ -813,7 +813,7 @@ def test_every_repo_path_the_specs_cite_can_be_opened():
     )
     pattern = re.compile(r"`((?:docs|notes|src|tests|examples|skills|evals|scripts)/[\w./-]+)`")
     missing = []
-    for doc in sorted(DOCS.glob("*.md")) + [README]:
+    for doc in [*sorted(DOCS.glob("*.md")), README]:
         for cited in pattern.findall(doc.read_text()):
             # Tracked, not merely present. `notes/upstream/` is a gitignored
             # vendored clone: DECISIONS cited a path inside it, the file existed

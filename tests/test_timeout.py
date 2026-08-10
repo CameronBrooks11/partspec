@@ -93,11 +93,15 @@ def test_a_swallowing_loop_is_escalated_past_except_exception():
     this test FAIL with "DID NOT RAISE" in seconds instead of hanging the
     suite until a CI job timeout — a hang is itself a silent signal."""
     started = time.monotonic()
-    with pytest.raises(_BuildTimeoutHard), _time_limit(0.05):
+    # PT012/BLE001 suppressed deliberately: the multi-statement block and the
+    # blind except ARE the fixture. This reproduces a model that catches
+    # everything in a loop, which is what defeats a single SIGALRM and why the
+    # escalation to BaseException exists (PR #100 review, blocker 1).
+    with pytest.raises(_BuildTimeoutHard), _time_limit(0.05):  # noqa: PT012
         for _ in range(50):
             try:
                 time.sleep(0.2)
-            except Exception:
+            except Exception:  # noqa: BLE001 - the swallowing loop is the point
                 continue
     assert time.monotonic() - started < 10
 
@@ -115,7 +119,9 @@ def test_a_nested_window_restores_the_outer_bound():
     """An inner window that completes must hand the alarm back to its
     enclosing window, not silently unbound it (PR #100 review, finding 5)."""
     started = time.monotonic()
-    with pytest.raises(_BuildTimeout), _time_limit(0.5):
+    # PT012: the nesting IS the assertion — an inner window completing, then
+    # the outer bound still firing. It cannot be one statement.
+    with pytest.raises(_BuildTimeout), _time_limit(0.5):  # noqa: PT012
         with _time_limit(0.05):
             pass  # completes without firing
         time.sleep(5)  # the OUTER bound must still stop this

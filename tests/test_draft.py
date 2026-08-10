@@ -66,7 +66,7 @@ def test_the_sinusoid_minimum_is_exact_against_brute_force():
 
 
 def test_a_box_measures_zero_walls_and_ninety_tops():
-    spec, outcome = _check(bd.Box(20, 10, 6), min=2.0)
+    _spec, outcome = _check(bd.Box(20, 10, 6), min=2.0)
     assert not isinstance(outcome, Unsupported)
     values = list(outcome.value)
     assert values[:4] == pytest.approx([0.0, 0.0, 0.0, 0.0], abs=1e-9)
@@ -79,14 +79,14 @@ def test_a_box_measures_zero_walls_and_ninety_tops():
 def test_a_cone_wall_reads_its_half_angle_exactly():
     """Cone(8, 5, 6): half-angle atan(3/6) — the closed form must land on it
     to float precision, because nothing was sampled."""
-    spec, outcome = _check(bd.Cone(8, 5, 6), min=2.0)
+    _spec, outcome = _check(bd.Cone(8, 5, 6), min=2.0)
     assert not isinstance(outcome, Unsupported)
     expected = math.degrees(math.atan(0.5))
     assert min(outcome.value) == pytest.approx(expected, abs=1e-9)
 
 
 def test_a_vertical_cylinder_wall_is_zero_draft():
-    spec, outcome = _check(bd.Cylinder(5, 8), min=1.0)
+    _spec, outcome = _check(bd.Cylinder(5, 8), min=1.0)
     assert not isinstance(outcome, Unsupported)
     assert min(outcome.value) == pytest.approx(0.0, abs=1e-9)
 
@@ -95,7 +95,7 @@ def test_a_horizontal_cylinder_contains_its_tangent():
     """Axis perpendicular to the pull: the wrap passes through the vertical
     tangent, so the face's minimum draft is exactly 0."""
     shape = bd.Rot(90, 0, 0) * bd.Cylinder(5, 8)
-    spec, outcome = _check(shape, min=1.0)
+    _spec, outcome = _check(shape, min=1.0)
     assert not isinstance(outcome, Unsupported)
     assert min(outcome.value) == pytest.approx(0.0, abs=1e-9)
 
@@ -103,7 +103,7 @@ def test_a_horizontal_cylinder_contains_its_tangent():
 def test_a_tilted_plane_reads_its_exact_elevation():
     """A box rotated 10 degrees: its former walls read exactly 10 and its
     former tops exactly 80 — asin(|n.d|) to float precision."""
-    spec, outcome = _check(bd.Rot(0, 10, 0) * bd.Box(20, 10, 6), min=2.0)
+    _spec, outcome = _check(bd.Rot(0, 10, 0) * bd.Box(20, 10, 6), min=2.0)
     assert not isinstance(outcome, Unsupported)
     values = sorted(round(v, 6) for v in outcome.value)
     assert values == pytest.approx([0.0, 0.0, 10.0, 10.0, 80.0, 80.0], abs=1e-6)
@@ -111,7 +111,7 @@ def test_a_tilted_plane_reads_its_exact_elevation():
 
 def test_the_direction_is_honoured():
     """The same box, pulled along X: the roles of walls and tops swap."""
-    spec, outcome = _check(bd.Box(20, 10, 6), min=2.0, direction=(1, 0, 0))
+    _spec, outcome = _check(bd.Box(20, 10, 6), min=2.0, direction=(1, 0, 0))
     assert not isinstance(outcome, Unsupported)
     assert list(outcome.value)[:4] == pytest.approx([0, 0, 0, 0], abs=1e-9)
     assert list(outcome.value)[4:] == pytest.approx([90, 90], abs=1e-9)
@@ -121,7 +121,7 @@ def test_a_freeform_face_refuses_the_whole_check():
     """A sphere face has no closed-form wrap extreme here; the check refuses
     whole rather than passing the analytic subset — a verdict that skipped a
     face would be silence reading as success."""
-    spec, outcome = _check(bd.Sphere(10), min=2.0)
+    _spec, outcome = _check(bd.Sphere(10), min=2.0)
     assert isinstance(outcome, Unsupported)
     assert "sphere" in outcome.reason
     assert "face_0" in outcome.reason
@@ -235,7 +235,7 @@ def test_a_generically_rotated_cylinder_wall_still_finds_its_tangent():
     so swapping the wrap interval's ends survived the suite while reporting
     10.96 where the truth is 0. A generic rotation has no such alignment."""
     shape = bd.Rot(37, 22, 10) * bd.Cylinder(4, 9)
-    spec, outcome = _check(shape, min=1.0)
+    _spec, outcome = _check(shape, min=1.0)
     assert not isinstance(outcome, Unsupported)
     assert min(outcome.value) == pytest.approx(0.0, abs=1e-9)
 

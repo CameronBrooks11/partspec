@@ -1578,7 +1578,7 @@ provides-extras = ["mesh", "occt", "cadquery", "mcp"]
 dev = [
     { name = "pyright", specifier = ">=1.1" },
     { name = "pytest", specifier = ">=8.0" },
-    { name = "ruff", specifier = ">=0.11" },
+    { name = "ruff", specifier = "==0.16.*" },
 ]
 
 [[package]]

@@ -1208,9 +1208,12 @@ def test_a_tilted_hole_does_not_complete_a_circle():
     """Axes must be parallel: three straight holes plus one tilted 15 degrees
     at the fourth position is not a bolt circle. Kills the direction-grouping
     mutant."""
-    table = _ring(20.0)[:3] + [
-        {"d": 5.0, "direction": (0.0, 0.2588, 0.9659), "center": _ring(20.0)[3]["center"]}
-    ]
+    tilted = {
+        "d": 5.0,
+        "direction": (0.0, 0.2588, 0.9659),
+        "center": _ring(20.0)[3]["center"],
+    }
+    table = [*_ring(20.0)[:3], tilted]
     assert _bolt_result(table).status is Status.FAIL
 
 

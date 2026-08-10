@@ -186,7 +186,9 @@ def _method_scratch(source: OpenSCADSource, out_dir: Path) -> Path | BuildError:
                 "resolve against the entry file's directory — the scratch must sit beside "
                 "the source, and that directory is not writable",
             )
-        with open(fd, "w", encoding="utf-8") as fh:
+        # `open` on a file DESCRIPTOR from mkstemp; `Path.open` takes a path
+        # and would reopen by name, losing the atomic-create guarantee.
+        with open(fd, "w", encoding="utf-8") as fh:  # noqa: PTH123
             fh.write(body)
         return Path(tmp_name)
     scratch = out_dir / f".partspec-{source.path.stem}-{source.method}.scad"

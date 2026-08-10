@@ -65,4 +65,4 @@ def bracket(
     body = _plate(width, height, thickness) + _base(width, depth, thickness)
     for drill in _motor_holes(thickness, motor_centre_z):
         body -= drill
-    return body
+    return body  # pyright: ignore[reportReturnType]
