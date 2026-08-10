@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import decode_png, needs_openscad
 
 from partspec.cli import main
 from partspec.status import Verdict, exit_code
@@ -577,22 +577,10 @@ def _cut_pixels(path: Path) -> int:
     """Pixels wearing the exact shaded cut colour — the deterministic value
     the rasterizer produces for a cap facing its camera head-on."""
     import math
-    import struct
-    import zlib
 
     np = pytest.importorskip("numpy")
-    data = path.read_bytes()
-    width, height = struct.unpack(">II", data[16:24])
-    idat = b""
-    pos = 8
-    while pos < len(data):
-        length, kind = struct.unpack(">I4s", data[pos : pos + 8])
-        if kind == b"IDAT":
-            idat += data[pos + 8 : pos + 8 + length]
-        pos += 12 + length
-    raw = zlib.decompress(idat)
-    img = np.frombuffer(raw, np.uint8).reshape(height, width * 3 + 1)[:, 1:]
-    img = img.reshape(height, width, 3)
+    width, height, rgb = decode_png(path)
+    img = np.frombuffer(rgb, np.uint8).reshape(height, width, 3)
     lz = 0.89 / math.sqrt(0.35**2 + 0.30**2 + 0.89**2)
     shade = 0.35 + 0.65 * lz
     cut = tuple(int(c * shade) for c in (204, 92, 63))

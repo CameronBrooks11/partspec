@@ -198,6 +198,26 @@ def test_write_is_atomic_and_leaves_no_temp_files(tmp_path: Path):
     assert not list(tmp_path.glob(".partspec-*"))
 
 
+def test_a_failed_serialisation_leaves_no_temp_file_behind(tmp_path: Path, monkeypatch):
+    """The cleanup that only runs when writing FAILS, which is the only case
+    where a temp file can exist. The existing atomic-write test asserts the
+    absence on the success path, where nothing could have been left — so
+    deleting `Path(tmp).unlink(missing_ok=True)` from the failure handler
+    passed the whole suite.
+    """
+    import json as json_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("serialisation failed mid-write")
+
+    monkeypatch.setattr(json_module, "dump", explode)
+    with pytest.raises(RuntimeError, match="mid-write"):
+        _report(checks=[_check(Status.PASS)]).write(tmp_path)
+
+    assert not list(tmp_path.glob(".partspec-*")), "a failed write must not leave its scratch"
+    assert not (tmp_path / "report.json").exists(), "and must not leave a half report either"
+
+
 def test_write_overwrites_rather_than_accumulating(tmp_path: Path):
     _report(checks=[_check(Status.FAIL)]).write(tmp_path)
     _report(checks=[_check(Status.PASS)]).write(tmp_path)
@@ -223,8 +243,34 @@ def test_placeholder_is_replaced_by_the_real_report(tmp_path: Path):
 
 def test_packages_are_not_quarantined_from_comparison():
     """environment.packages distinguishes 'a dependency upgrade moved this
-    number' from 'the design changed' — so it must be present and comparable."""
-    assert "packages" in _report().to_json()["environment"]
+    number' from 'the design changed' — so it must be present and comparable.
+
+    Presence alone was the whole assertion, and an empty dict satisfied it
+    while defeating the purpose: `_installed_versions()` -> `{}` passed the
+    suite. The content is the claim.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    packages = _report().to_json()["environment"]["packages"]
+    assert packages, "an empty map explains nothing about a moved number"
+
+    # Against the installed metadata, not merely well-shaped: a fabricated map
+    # of str -> str satisfied the first repair while recording nothing real.
+    for name, recorded in packages.items():
+        assert version(name) == recorded, f"{name} recorded as {recorded}"
+
+    # And every installed engine must appear. Requiring "at least one" let the
+    # field silently stop recording a whole tier — exactly the case the block
+    # exists for. The list is duplicated on purpose: which packages explain a
+    # moved number is a product decision, like DEFAULT_TIMEOUT_S's value.
+    for name in ("build123d", "cadquery", "cadquery-ocp", "trimesh", "manifold3d"):
+        try:
+            installed = version(name)
+        except PackageNotFoundError:
+            continue
+        assert packages.get(name) == installed, (
+            f"{name} is installed at {installed}; the report says {packages.get(name)!r}"
+        )
 
 
 # --------------------------------------------------------------------------

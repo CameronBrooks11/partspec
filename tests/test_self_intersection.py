@@ -10,6 +10,14 @@ import pytest
 
 bd = pytest.importorskip("build123d", reason="occt extra not installed")
 
+from support import (  # noqa: E402
+    check_of,
+    forced_open_solid,
+    needs_mesh,
+    needs_openscad,
+    scad_target,
+)
+
 from partspec.backends.occt import OcctBackend  # noqa: E402
 from partspec.cli import main  # noqa: E402
 
@@ -89,17 +97,7 @@ def test_neither_validity_check_subsumes_the_other():
     assert backend.is_valid(helix).value is True
     assert backend.self_intersection_free(helix).value is False
     # invalid but self-intersection-free: an open shell forced into a solid.
-    from OCP.BRepBuilderAPI import (
-        BRepBuilderAPI_MakeSolid,  # pyright: ignore[reportAttributeAccessIssue]
-        BRepBuilderAPI_Sewing,  # pyright: ignore[reportAttributeAccessIssue]
-    )
-    from OCP.TopoDS import TopoDS
-
-    sew = BRepBuilderAPI_Sewing()
-    for face in bd.Box(10, 10, 10).faces()[:5]:
-        sew.Add(face.wrapped)
-    sew.Perform()
-    forced = bd.Solid(BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(sew.SewedShape())).Solid())
+    forced = forced_open_solid()
     assert backend.is_valid(forced).value is False
     assert backend.self_intersection_free(forced).value is True
 
@@ -139,11 +137,7 @@ def test_the_check_through_the_cli_names_the_defect(tmp_path):
     )
     out = tmp_path / "out"
     assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 1
-    check = next(
-        c
-        for c in json.loads((out / "report.json").read_text())["checks"]
-        if c["kind"] == "self_intersection_free"
-    )
+    check = check_of(out, "self_intersection_free")
     assert check["status"] == "fail"
     assert check["measurement"]["value"] is False
     assert "entity fault" in check["detail"]
@@ -165,30 +159,15 @@ def test_a_sound_part_passes_through_the_cli(tmp_path):
     )
 
 
+@needs_openscad
+@needs_mesh
 def test_the_mesh_tier_refuses_with_the_tier_named(tmp_path):
-    pytest.importorskip("trimesh", reason="mesh extra not installed")
-    import shutil
-    from pathlib import Path
-
-    from support import OPENSCAD
-
-    if OPENSCAD is None:
-        pytest.skip("openscad binary not installed")
-    fixtures = Path(__file__).parent / "fixtures"
-    shutil.copy(fixtures / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, openscad\n\n\ndef make():\n"
-        "    p = Part('subject', openscad('block_with_hole.scad'))\n"
-        "    p.self_intersection_free()\n"
-        "    return p\n"
+    target = scad_target(
+        tmp_path, source="block_with_hole.scad", claims="    p.self_intersection_free()\n"
     )
     out = tmp_path / "out"
-    assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 2
-    check = next(
-        c
-        for c in json.loads((out / "report.json").read_text())["checks"]
-        if c["kind"] == "self_intersection_free"
-    )
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 2
+    check = check_of(out, "self_intersection_free")
     assert check["status"] == "unsupported"
     assert check["requires"] == "occt"
 

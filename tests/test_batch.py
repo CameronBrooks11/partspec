@@ -79,7 +79,7 @@ def _report(target: str) -> dict:
 
 
 @needs_openscad
-def test_a_batch_writes_every_report_and_exits_the_worst_verdict(tmp_path: Path, capsys):
+def test_a_batch_writes_every_report_and_exits_the_worst_verdict(tmp_path: Path):
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
     bad = _scad_target(tmp_path, "bad", "    p.envelope(max=(1, 1, 1))\n")
     assert main(["check", good, bad, "--quiet"]) == exit_code(Verdict.FAIL)
@@ -88,7 +88,7 @@ def test_a_batch_writes_every_report_and_exits_the_worst_verdict(tmp_path: Path,
 
 
 @needs_openscad
-def test_an_erroring_part_does_not_stop_the_rest(tmp_path: Path, capsys):
+def test_an_erroring_part_does_not_stop_the_rest(tmp_path: Path):
     raising = tmp_path / "raising.py"
     raising.write_text("def make():\n    raise TypeError('broken contract')\n")
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
@@ -97,14 +97,14 @@ def test_an_erroring_part_does_not_stop_the_rest(tmp_path: Path, capsys):
 
 
 @needs_openscad
-def test_an_unresolvable_target_is_usage_and_the_rest_still_run(tmp_path: Path, capsys):
+def test_an_unresolvable_target_is_usage_and_the_rest_still_run(tmp_path: Path):
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
     assert main(["check", str(tmp_path / "nowhere.py") + ":make", good, "--quiet"]) == 64
     assert _report(good)["verdict"] == "pass"
 
 
 @needs_openscad
-def test_empty_outranks_fail_in_the_batch_exit(tmp_path: Path, capsys):
+def test_empty_outranks_fail_in_the_batch_exit(tmp_path: Path):
     """SPEC-report 6.1 precedence, pinned: the vacuous-green case is the more
     dangerous signal and must not hide behind a mere failure."""
     empty = _scad_target(tmp_path, "empty", "")
@@ -264,7 +264,7 @@ def test_a_helper_the_contract_imports_is_invalidated_too(tmp_path: Path):
 
 
 @needs_openscad
-def test_garbage_timeout_env_still_placeholders_every_target(tmp_path: Path, monkeypatch, capsys):
+def test_garbage_timeout_env_still_placeholders_every_target(tmp_path: Path, monkeypatch):
     """The fan-out exists so an invocation that dies at the door leaves every
     target's artifact saying the run died — never a previous verdict."""
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
@@ -277,7 +277,7 @@ def test_garbage_timeout_env_still_placeholders_every_target(tmp_path: Path, mon
     assert _report(bad)["verdict"] == "error"
 
 
-def test_an_interrupt_leaves_no_stale_pass_behind_it(tmp_path: Path, capsys):
+def test_an_interrupt_leaves_no_stale_pass_behind_it(tmp_path: Path):
     """A batch interrupted at part two meant to re-check part three; part
     three's previous pass sitting untouched would be a stale artifact reading
     as current. Placeholders for every target go down before any runs."""

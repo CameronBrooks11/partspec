@@ -48,6 +48,23 @@ check: fmt-check lint typecheck
 test:
     uv run pytest
 
+# Run the suite in reverse file order.
+#
+# Deterministic rather than randomised: the failure this catches is one test
+# leaving process-global state (a cached sys.modules entry, an OCCT printer)
+# that a later test depends on or is broken by. A reversal exposes every
+# such pair with one run and the same result every time, where a shuffle
+# finds them eventually and reproduces them never.
+#
+# `find`, not `ls tests/test_*.py`: the glob is non-recursive while pytest
+# collects `tests/` recursively, so a test file in a subdirectory would be
+# silently skipped here — fewer tests, still green, which is the failure this
+# repo refuses. It caught a real one:
+# an exemplar's `claims.py` outliving its test and breaking the five tests
+# that exist to prove that cannot happen.
+test-reverse:
+    uv run pytest $(find tests -name 'test_*.py' | sort -r)
+
 # Run the mesh tests against a mesh-ONLY install, in a throwaway environment.
 #
 # Because `setup` installs all extras, the mesh-only install is exercised

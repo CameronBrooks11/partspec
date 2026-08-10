@@ -95,14 +95,48 @@ def test_the_readme_documents_the_usage_exit_code():
     assert f"`{EXIT_USAGE}` bad usage" in README.read_text()
 
 
-def test_the_readme_does_not_claim_the_backends_are_unimplemented():
-    """Pins the specific regression. Both README.md and AGENTS.md asserted the
-    contract API and geometry backends did not exist, through P1-P5 shipping
-    them."""
+def _verbs_named(text: str) -> set[str]:
+    """Verbs a document mentions, in either form the docs use: `partspec
+    render` or a bare `` `vdiff` ``."""
+    return set(re.findall(r"partspec (\w+)", text)) | set(re.findall(r"`(\w+)`", text))
+
+
+def test_the_front_page_describes_the_surface_that_exists():
+    """Two guards: the claim it made, and the surface it denied.
+
+    The regression: README and AGENTS both asserted the contract API and
+    geometry backends did not exist, for three phases after they shipped.
+
+    The first guard is the negation denylist that caught it — kept, because
+    substring absence pins a specific historical claim perfectly well. What
+    rotted was matching RAW text: one pattern contained a hard newline at a
+    wrap position, so rewrapping the paragraph silently retired it. Joining
+    whitespace first fixes the actual cause, and PR #154's review proved the
+    point by showing that replacing this guard with verb-derivation alone let
+    the original sentence back in — a repair that was a coverage regression.
+
+    The second guard is derivable and catches the wider failure: a front page
+    describing a smaller tool than the one installed. Both documents must name
+    every verb the parser serves.
+    """
+    import argparse
+
+    from partspec.cli import build_parser
+
+    subparsers = [
+        action
+        for action in build_parser()._actions
+        if isinstance(action, argparse._SubParsersAction)
+    ]
+    assert subparsers, "the CLI must still have subcommands"
+    verbs = set(subparsers[0].choices)
+
     for doc in (README, ROOT / "AGENTS.md"):
-        text = doc.read_text().lower()
-        assert "backends are\nnot" not in text, doc.name
-        assert "nothing useful to run yet" not in text, doc.name
+        prose = " ".join(doc.read_text().lower().split())
+        for claim in ("backends are not implemented", "nothing useful to run yet"):
+            assert claim not in prose, f"{doc.name} claims {claim!r}"
+        named = _verbs_named(doc.read_text()) & verbs
+        assert named == verbs, f"{doc.name} does not mention: {sorted(verbs - named)}"
 
 
 def test_readme_links_survive_pypi():

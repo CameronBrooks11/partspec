@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from support import check_of, needs_mesh, needs_openscad, scad_target
 
 bd = pytest.importorskip("build123d", reason="occt extra not installed")
 
@@ -180,11 +181,7 @@ def test_approximate_surfaces_in_the_verdict(tmp_path):
     )
     out = tmp_path / "out"
     assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 2
-    check = next(
-        c
-        for c in json.loads((out / "report.json").read_text())["checks"]
-        if c["kind"] == "min_wall"
-    )
+    check = check_of(out, "min_wall")
     assert check["status"] == "approximate"
     assert check["measurement"]["exactness"] == "approximate"
     assert check["measurement"]["bounds"] is not None
@@ -208,6 +205,14 @@ def test_the_cross_drilled_rod_reads_its_diameter():
     assert "self-span" in raw["witness"]
     result = _run_geometry_check(_spec(min=10.0), OcctBackend(), rod)
     assert result.status is Status.FAIL, "the reviewer's false pass, dead"
+
+    # This fixture also pins the recorded escape (SPEC 4.11): material bounded
+    # by edge-SHARING faces — the web beside the cross-hole — is outside the
+    # measurand. The rod reads its diametric 4.0, NOT its ~1 mm web, and the
+    # spec says why. A separate test asserted exactly this with the same
+    # fixture and the same assertion; its docstring is the part worth keeping.
+    # If pair analysis ever grows web coverage, this expectation moves with
+    # the spec.
 
 
 def test_the_spiral_wall_cannot_false_pass():
@@ -287,18 +292,6 @@ def test_a_witnessed_span_below_lo_refuses(monkeypatch):
     raw = _raw(bd.Box(30, 20, 10) - bd.Box(26, 16, 6))
     assert isinstance(raw, Unsupported)
     assert "contradicts itself" in raw.reason
-
-
-def test_the_drilled_web_escape_is_documented_behavior():
-    """The recorded escape (SPEC 4.11): material bounded by edge-SHARING
-    faces — the web beside the cross-hole — is outside the measurand. This
-    pin documents the boundary as executed fact: the rod reads its
-    diametric 4.0, NOT the ~1 mm web, and the spec says why. If pair
-    analysis ever grows web coverage, this pin moves with the spec."""
-    rod = bd.Cylinder(2, 40) - bd.Rot(90, 0, 0) * bd.Cylinder(1, 10)
-    raw = _raw(rod)
-    assert isinstance(raw, dict)
-    assert raw["lo"] == pytest.approx(4.0, abs=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +609,7 @@ def test_a_fillet_span_caps_the_interval_but_is_never_the_answer():
         assert not measurement.exact, "so the interval never collapses onto the fillet"
 
 
-def test_the_certificate_declines_a_chord_that_is_nearly_material(monkeypatch):
+def test_the_certificate_declines_a_chord_that_is_nearly_material():
     """PR #146 review, MINOR 4/N2: the 1e-7 comparison was unpinned — a
     tolerance of 10% changed nothing in the whole suite. A chord that is 95%
     material is not a certificate, and a bore that removes a twentieth of it
@@ -716,20 +709,14 @@ def test_a_corner_only_part_fails_vacuously():
     """A tetrahedron: every face pair shares an edge, so there are no walls
     — and 'every wall is thick enough' over zero walls is the vacuous green
     this tool refuses, mirroring fillet_radius's empty set."""
-    from OCP.BRepBuilderAPI import (
-        BRepBuilderAPI_MakeSolid,  # pyright: ignore[reportAttributeAccessIssue]
-        BRepBuilderAPI_Sewing,  # pyright: ignore[reportAttributeAccessIssue]
-    )
-    from OCP.TopoDS import TopoDS
+    from support import sew_into_solid
 
     points = [(0, 0, 0), (10, 0, 0), (0, 10, 0), (0, 0, 10)]
     triangles = [(0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)]
-    sew = BRepBuilderAPI_Sewing()
-    for a, b, c in triangles:
-        face = bd.make_face(bd.Polyline(points[a], points[b], points[c], close=True))
-        sew.Add(face.wrapped)
-    sew.Perform()
-    tetra = bd.Solid(BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(sew.SewedShape())).Solid())
+    tetra = sew_into_solid(
+        bd.make_face(bd.Polyline(points[a], points[b], points[c], close=True))
+        for a, b, c in triangles
+    )
     result = _run_geometry_check(_spec(min=1.0), OcctBackend(), tetra)
     assert result.status is Status.FAIL
     assert result.detail is not None and "vacuous green" in result.detail
@@ -738,14 +725,12 @@ def test_a_corner_only_part_fails_vacuously():
 def test_a_closed_freeform_face_refuses_the_whole_check():
     """A closed surface of revolution outside the analytic families has no
     guaranteed self-span: the check refuses by name rather than sampling."""
-    profile = bd.Polyline((6, 0, -5), (8, 0, 0), (6, 0, 5))
     revolved = bd.revolve(
         bd.make_face(
             bd.Polyline((6, 0, -5), (8, 0, 0), (6, 0, 5), (5, 0, 5), (5, 0, -5), close=True)
         ),
         bd.Axis.Z,
     )
-    del profile
     raw = _raw(revolved)
     if isinstance(raw, Unsupported):
         assert "no analytic self-span" in raw.reason
@@ -786,29 +771,14 @@ def test_measure_lists_the_quantity_with_bounds_honesty(tmp_path):
     assert entry["exactness"] == "exact"
 
 
+@needs_openscad
+@needs_mesh
 def test_the_mesh_tier_refuses_with_the_tier_named(tmp_path):
-    pytest.importorskip("trimesh", reason="mesh extra not installed")
-    import shutil
-    from pathlib import Path
-
-    from support import OPENSCAD
-
-    if OPENSCAD is None:
-        pytest.skip("openscad binary not installed")
-    fixtures = Path(__file__).parent / "fixtures"
-    shutil.copy(fixtures / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, openscad\n\n\ndef make():\n"
-        "    p = Part('subject', openscad('block_with_hole.scad'))\n"
-        "    p.min_wall(min=2.0)\n"
-        "    return p\n"
+    target = scad_target(
+        tmp_path, source="block_with_hole.scad", claims="    p.min_wall(min=2.0)\n"
     )
     out = tmp_path / "out"
-    assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 2
-    check = next(
-        c
-        for c in json.loads((out / "report.json").read_text())["checks"]
-        if c["kind"] == "min_wall"
-    )
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 2
+    check = check_of(out, "min_wall")
     assert check["status"] == "unsupported"
     assert check["requires"] == "occt"

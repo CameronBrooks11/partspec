@@ -43,6 +43,12 @@ def _sleeping_target(tmp_path: Path) -> str:
 
 def test_the_timeout_mapping_is_one_rule_for_both_tiers():
     assert effective_timeout(None) == DEFAULT_TIMEOUT_S
+    # The number itself, not just the mapping. Every other assertion here is
+    # relative to the constant, so it could move by any factor unnoticed — and
+    # the default build budget is a product decision (the module docstring's
+    # "a bounded repair loop with an unbounded build step is a stall"), not an
+    # implementation detail.
+    assert DEFAULT_TIMEOUT_S == 300.0, "five minutes; changing it is a decision, not a tweak"
     assert effective_timeout(0) is None, "0 is the explicit waiver"
     assert effective_timeout(2.5) == 2.5
 
