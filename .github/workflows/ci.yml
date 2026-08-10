@@ -16,6 +16,12 @@ on:
   pull_request:
     branches: [main]
 
+# Declared rather than inherited. The repo default is already read-only, but
+# that is a repo setting a future flip can widen silently — a permissions
+# block is reviewable in the diff, which the setting is not.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
