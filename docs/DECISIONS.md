@@ -240,7 +240,8 @@ cad-khana:
 - **`sweep.py`** — `factory(t) -> Assembly` motion sampling with bracket-then-bisect onset.
 
 Design constraints to honour now so this stays cheap later: attach claims **by dotted path
-name** rather than by object identity; keep `part_refs` on every assertion; keep the
+name** rather than by object identity; re-introduce `part_refs` on every assertion (it was carried unserialised in v0 and
+removed in v0.7.0 rather than left as an invisible half-measure); keep the
 tri-state skip (it is what lets a standalone sub-assembly run evaluate the same list
 without the absent parts).
 
@@ -610,7 +611,8 @@ that opens the post-1.0 line, not a v1.0 item.
    into someone else's depth.
 
 3. **Deferral is not foreclosure — v0 already paid the carrying cost.** Free-form check
-   ids, `part_refs` on every check, `skipped` as a legitimate run state
+   ids, `part_refs` on every check (to be re-introduced — §7.1 makes it additive),
+   `skipped` as a legitimate run state
    (`SPEC-contract.md` §9). Nothing in a depth-first v1.0 makes assemblies harder later.
 
 **What v1.0 therefore means.** An agent — or a CI job — given one part and one contract

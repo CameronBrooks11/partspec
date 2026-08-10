@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from .report import SCHEMA_VERSION
-from .status import _SEVERITY, Status, epsilon
+from .status import _SEVERITY, Status, comparison_exit_code, epsilon
 
 __all__ = [
     "CLAIM_FIELDS",
@@ -58,7 +58,6 @@ NON_CLAIM_FIELDS = {
         "round-trip measurement goes unexplained. A known gap, stated rather than "
         "implied by calling it environment"
     ),
-    "part_refs": "provenance; not currently serialised at all",
 }
 """Why each non-claim field is not compared as a claim.
 
@@ -69,8 +68,6 @@ can only be checked if the fields it does NOT cover are enumerated too. PR
 lists, and no test could have noticed.
 """
 
-_EXIT = {"identical": 0, "different": 1, "indeterminate": 2}
-
 
 class DiffUsageError(Exception):
     """The inputs cannot be compared at all — a usage error (exit 64), never a
@@ -78,7 +75,9 @@ class DiffUsageError(Exception):
 
 
 def exit_code_of(outcome: str) -> int:
-    return _EXIT[outcome]
+    """The shared policy (`status.comparison_exit_code`), re-exported so both
+    verbs keep their own name for it."""
+    return comparison_exit_code(outcome)
 
 
 def _values_equal(old: Any, new: Any) -> bool:

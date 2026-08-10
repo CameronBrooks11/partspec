@@ -611,7 +611,6 @@ class OcctBackend:
         data rather than a Measurement; one detection implementation serves
         every consumer, so the bore definition cannot fork.
         """
-        import math
 
         clusters = self._cylinder_clusters(a)
         if isinstance(clusters, Unsupported):
@@ -1189,7 +1188,6 @@ class OcctBackend:
         level distinguishes them from fillets, and for the machinability claim
         this kind exists for they constrain the tool identically.
         """
-        import math
 
         clusters = self._cylinder_clusters(a)
         if isinstance(clusters, Unsupported):
@@ -1236,8 +1234,11 @@ class OcctBackend:
     def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> Unsupported:
         """Not implemented on this tier yet.
 
-        `find_intersection_points` exists in build123d, but no v0 check calls it
-        and it serves min_wall, which is post-v0. Declared absent rather than
+        `find_intersection_points` exists in build123d, but no check calls
+        this primitive. `min_wall` shipped (#140) and casts its own rays
+        through `IntCurvesFace_ShapeIntersector` inline, so the stated reason
+        for deferring this one — that min_wall would need it — is spent; what
+        is left is that nothing needs it. Declared absent rather than
         written untested.
         """
         return Unsupported("raycast is not implemented on the occt tier yet")

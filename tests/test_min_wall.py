@@ -64,10 +64,10 @@ def test_the_gap_limits_the_bound_honestly():
     assert raw["gap_limited"] is True
     assert raw["hi"] >= 3.0 - 1e-9, "the interval still contains the true wall"
 
-    result = _run_geometry_check(_spec(min=2.0), OcctBackend(), channel, "subject")
+    result = _run_geometry_check(_spec(min=2.0), OcctBackend(), channel)
     assert result.status is Status.APPROXIMATE
     assert result.detail is not None and "gap-like pair" in result.detail
-    conclusive = _run_geometry_check(_spec(min=0.5), OcctBackend(), channel, "subject")
+    conclusive = _run_geometry_check(_spec(min=0.5), OcctBackend(), channel)
     assert conclusive.status is Status.PASS
 
 
@@ -149,15 +149,15 @@ def test_a_straddling_limit_adjudicates_approximate():
     inside_limit = (raw["lo"] + raw["hi"]) / 2
 
     backend = OcctBackend()
-    result = _run_geometry_check(_spec(min=inside_limit), backend, shape, "subject")
+    result = _run_geometry_check(_spec(min=inside_limit), backend, shape)
     assert result.status is Status.APPROXIMATE
     assert result.detail is not None and "will not guess" in result.detail
     assert result.measurement is not None and result.measurement.exact is False
     assert result.measurement.bounds == (raw["lo"], raw["hi"])
 
-    conclusive_pass = _run_geometry_check(_spec(min=raw["lo"] / 2), backend, shape, "subject")
+    conclusive_pass = _run_geometry_check(_spec(min=raw["lo"] / 2), backend, shape)
     assert conclusive_pass.status is Status.PASS
-    conclusive_fail = _run_geometry_check(_spec(min=raw["hi"] * 2), backend, shape, "subject")
+    conclusive_fail = _run_geometry_check(_spec(min=raw["hi"] * 2), backend, shape)
     assert conclusive_fail.status is Status.FAIL
 
 
@@ -206,7 +206,7 @@ def test_the_cross_drilled_rod_reads_its_diameter():
     assert isinstance(raw, dict)
     assert raw["lo"] == pytest.approx(4.0, abs=1e-9)
     assert "self-span" in raw["witness"]
-    result = _run_geometry_check(_spec(min=10.0), OcctBackend(), rod, "subject")
+    result = _run_geometry_check(_spec(min=10.0), OcctBackend(), rod)
     assert result.status is Status.FAIL, "the reviewer's false pass, dead"
 
 
@@ -233,7 +233,7 @@ def test_the_spiral_wall_cannot_false_pass():
     raw = _raw(spiral)
     assert isinstance(raw, dict)
     assert raw["lo"] <= 3.0 + 1e-6, "lo can never exceed the true wall"
-    result = _run_geometry_check(_spec(min=10.0), OcctBackend(), spiral, "subject")
+    result = _run_geometry_check(_spec(min=10.0), OcctBackend(), spiral)
     assert result.status is not Status.PASS, "the reviewer's false pass, dead"
 
 
@@ -258,7 +258,7 @@ def test_the_analytic_families_have_fixtures():
     frustum = _raw(bd.Cone(8, 5, 6))
     assert isinstance(frustum, dict) and frustum["lo"] > 0
 
-    cone = _run_geometry_check(_spec(min=1.0), backend, bd.Cone(8, 0, 6), "subject")
+    cone = _run_geometry_check(_spec(min=1.0), backend, bd.Cone(8, 0, 6))
     assert cone.status is Status.FAIL
     assert cone.detail is not None and "no wall spans exist" in cone.detail, (
         "the apex skip makes the solid cone vacuous, never a near-zero sliver"
@@ -322,11 +322,9 @@ def test_a_frustum_is_exact_again_through_its_certified_chord():
     assert raw["lo"] == pytest.approx(4.0, abs=1e-9)
     assert raw["hi"] == pytest.approx(4.0, abs=1e-9), "the rim chord caps the interval"
 
-    result = _run_geometry_check(_spec(min=5.0), OcctBackend(), frustum, "subject")
+    result = _run_geometry_check(_spec(min=5.0), OcctBackend(), frustum)
     assert result.status is Status.FAIL, "5 mm is refuted by a certified 4 mm crossing"
-    assert _run_geometry_check(_spec(min=3.0), OcctBackend(), frustum, "subject").status is (
-        Status.PASS
-    )
+    assert _run_geometry_check(_spec(min=3.0), OcctBackend(), frustum).status is (Status.PASS)
 
 
 def test_a_short_frustum_no_longer_refuses_outright():
@@ -515,7 +513,7 @@ def test_a_certified_span_can_only_tighten_the_upper_end():
     assert _certified_self_span(flange.wrapped, candidates, 0.5) is None, "the ceiling binds"
     assert _certified_self_span(flange.wrapped, candidates, None) == pytest.approx(4.0)
 
-    result = _run_geometry_check(_spec(min=0.6), OcctBackend(), flange, "subject")
+    result = _run_geometry_check(_spec(min=0.6), OcctBackend(), flange)
     assert result.status is Status.FAIL, "0.6 is refuted by the 0.5 flange"
 
 
@@ -578,7 +576,7 @@ def test_the_fillet_flip_now_fails_conclusively():
     Correct within the measurand — the 1.414 span is real — but a stronger
     verdict than the escape's wording implied, so 4.11 says so."""
     boss = bd.fillet(bd.Cylinder(10, 20).edges().filter_by(bd.GeomType.CIRCLE)[0], 1.0)
-    result = _run_geometry_check(_spec(min=3.0), OcctBackend(), boss, "subject")
+    result = _run_geometry_check(_spec(min=3.0), OcctBackend(), boss)
     assert result.status is Status.FAIL
     assert result.measurement is not None and result.measurement.bounds is not None
     assert result.measurement.bounds[0] == pytest.approx(2**0.5, abs=1e-9)
@@ -704,9 +702,9 @@ def test_a_stepped_ledge_bounds_from_the_ledge_and_says_so():
     assert raw["hi"] >= 2.0 - 1e-9, "the interval still contains the true wall"
 
     backend = OcctBackend()
-    straddle = _run_geometry_check(_spec(min=2.0), backend, slab, "subject")
+    straddle = _run_geometry_check(_spec(min=2.0), backend, slab)
     assert straddle.status is Status.APPROXIMATE, "never a pass on the unproven 2.0"
-    assert _run_geometry_check(_spec(min=1.0), backend, slab, "subject").status is Status.PASS
+    assert _run_geometry_check(_spec(min=1.0), backend, slab).status is Status.PASS
 
 
 # ---------------------------------------------------------------------------
@@ -732,7 +730,7 @@ def test_a_corner_only_part_fails_vacuously():
         sew.Add(face.wrapped)
     sew.Perform()
     tetra = bd.Solid(BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(sew.SewedShape())).Solid())
-    result = _run_geometry_check(_spec(min=1.0), OcctBackend(), tetra, "subject")
+    result = _run_geometry_check(_spec(min=1.0), OcctBackend(), tetra)
     assert result.status is Status.FAIL
     assert result.detail is not None and "vacuous green" in result.detail
 

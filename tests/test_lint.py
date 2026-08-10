@@ -535,19 +535,36 @@ def test_a_singular_transform_is_an_entry_not_a_crash(tmp_path: Path, capsys):
     assert any("could not be evaluated" in u["reason"] for u in entry.get("unsupported", []))
 
 
-def test_string_bearing_trees_are_refused_whole():
+def test_string_bearing_exports_are_refused_whole(tmp_path: Path, monkeypatch):
     """PR #125 review F3: the format does not escape string interiors, so a
-    hostile label silently reshaped the parse into phantom findings. Any
-    string in the tree refuses tier 2 at file level — engine-free pin on the
-    detector, plus the parse-side admission path it guards."""
-    from partspec.csg import contains_strings, parse_csg
+    hostile label silently reshaped the parse into phantom findings.
 
-    innocent = parse_csg("difference() { cube(size = [4, 4, 4], center = false); }")
-    assert not contains_strings(innocent)
-    labeled = parse_csg('group() { text(text = "hi", size = 10); }')
-    assert contains_strings(labeled)
-    nested = parse_csg('group() { color([1, 0, 0, 1]) { import(file = "x.stl"); } }')
-    assert contains_strings(nested)
+    The guard runs on the RAW export bytes, before any parse. It used to have
+    a tree-walking twin (`csg.contains_strings`) which the re-review showed
+    was bypassable by hiding the string in a %-dropped statement; that twin
+    was deleted in the v0.7.0 sweep and this test moved onto the real guard.
+    Engine-free by faking the export, so it holds in a mesh-only environment
+    where the end-to-end version can only skip.
+    """
+    import subprocess
+
+    from partspec import lint as lint_module
+
+    scad = tmp_path / "m.scad"
+    scad.write_text("cube(4);\n")
+
+    def fake_export(args, **kwargs):
+        Path(args[2]).write_text('group() { text(text = "hi", size = 10); }\n')
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    # `lint_scad_tier2` does `import subprocess` inside the function, so the
+    # name resolves to the real module at call time — patching its attribute
+    # is what reaches the call.
+    monkeypatch.setattr(subprocess, "run", fake_export)
+    findings, unsupported = lint_module.lint_scad_tier2(scad, "openscad")
+    assert findings == []
+    assert {u["rule"] for u in unsupported} == set(lint_module.TIER2_RULES)
+    assert all("string content" in u["reason"] for u in unsupported)
 
 
 @needs_openscad

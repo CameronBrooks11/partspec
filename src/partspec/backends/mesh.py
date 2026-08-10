@@ -50,15 +50,12 @@ CAPABILITIES = frozenset(
         "triangles",
         "min_distance",
         "intersect_volume",
-        "raycast",
         "region_solid",
     }
 )
 """What this tier can answer at all. `topology_counts` is absent on purpose: a
 triangle count is not a face count, and returning one is exactly the failure this
 tool exists to prevent."""
-
-_NORMAL_DECIMALS = 4
 
 
 class MeshBackend:
@@ -335,11 +332,7 @@ class MeshBackend:
         """Defense-in-depth, like `topology_counts`: the capability is not
         declared so the runner never dispatches here, but a direct caller must
         get the refusal, not an AttributeError."""
-        return Unsupported(
-            "a triangle mesh has no cylindrical face; a bore diameter fitted to "
-            "facets would be a confident wrong number in the unsafe direction",
-            requires=Tier.OCCT,
-        )
+        return _no_cylindrical_face("a bore diameter")
 
     def bore_table(self, a: Any) -> Unsupported:
         """Same refusal as `bores`, for the positional view `bolt_circle` uses."""
@@ -347,11 +340,7 @@ class MeshBackend:
 
     def blend_radii(self, a: Any) -> Unsupported:
         """Same refusal again: a fillet fitted to facets is not a fillet."""
-        return Unsupported(
-            "a triangle mesh has no cylindrical face; a blend radius fitted to "
-            "facets would be a confident wrong number in the unsafe direction",
-            requires=Tier.OCCT,
-        )
+        return _no_cylindrical_face("a blend radius")
 
     # The depth epic's four (SPEC-contract 4.8-4.11). Defined here for the
     # same reason `bores` and `blend_radii` are: the runner consults
@@ -411,15 +400,29 @@ class MeshBackend:
         vertices, faces = region.mesh()
         return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
 
-    def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> list[Vec3]:
-        locations = a.ray.intersects_location(
-            ray_origins=[list(origin.as_tuple())],
-            ray_directions=[list(direction.as_tuple())],
-        )[0]
+    def raycast(self, a: Any, origin: Vec3, direction: Vec3) -> list[Vec3] | Unsupported:
+        """Ray/mesh intersection — and NOT a declared capability.
+
+        It was in `CAPABILITIES` while `trimesh`'s default ray path indexes
+        through `rtree`, which the `mesh` extra does not carry (the
+        accelerated engine is embree, and needs no rtree): a declared
+        capability that raises is the exact thing §3.2 says capabilities
+        exist to prevent, and adding a spatial-index dependency to the
+        smallest useful install for a primitive no check calls is the wrong
+        trade. Undeclared and working-when-available is honest; declared and
+        raising was not.
+        """
+        try:
+            locations = a.ray.intersects_location(
+                ray_origins=[list(origin.as_tuple())],
+                ray_directions=[list(direction.as_tuple())],
+            )[0]
+        except ImportError as exc:  # rtree absent: refuse, never raise (SPEC-backend 3.1)
+            return Unsupported(f"the mesh tier's ray engine is unavailable: {exc}")
         return [Vec3(*(float(c) for c in point)) for point in locations]
 
 
-def _distinct_normals(mesh: Any, decimals: int = _NORMAL_DECIMALS) -> int:
+def _distinct_normals(mesh: Any) -> int:
     """Count distinct face normals.
 
     Deliberately NOT trimesh's `.facets` (coplanar-region grouping), which needs
@@ -430,10 +433,15 @@ def _distinct_normals(mesh: Any, decimals: int = _NORMAL_DECIMALS) -> int:
     It differs from a true facet count only where two disjoint coplanar regions
     share a normal, which merges them. That is why the field is named for what it
     measures rather than borrowed from CGAL's vocabulary.
+
+    Rounded to 4 decimals: the tolerance that makes two faces of one flat
+    surface read as one normal despite float noise. Inlined rather than a
+    parameter, because it was a parameter with a module constant for a
+    default that no caller ever overrode.
     """
     import numpy as np
 
-    normals = np.round(np.asarray(mesh.face_normals, dtype=np.float64), decimals)
+    normals = np.round(np.asarray(mesh.face_normals, dtype=np.float64), 4)
     normals += 0.0  # normalise -0.0 to 0.0 so it does not read as a distinct row
     return int(len(np.unique(normals, axis=0)))
 
@@ -557,10 +565,19 @@ def _face_components(mesh: Any) -> Any:
         labels = nxt
 
 
-def _body_count(mesh: Any) -> int:
-    import numpy as np
+def _no_cylindrical_face(what: str) -> Unsupported:
+    """The refusal `bores`, `bore_table` and `blend_radii` share.
 
-    return int(len(np.unique(_face_components(mesh))))
+    One string, because they are one argument: a mesh has no cylindrical
+    face, so any radius read off it is fitted to facets — and a fitted
+    radius is smaller than the true one, which is a confident wrong number
+    in the unsafe direction.
+    """
+    return Unsupported(
+        f"a triangle mesh has no cylindrical face; {what} fitted to facets "
+        "would be a confident wrong number in the unsafe direction",
+        requires=Tier.OCCT,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -571,8 +588,6 @@ class _ShellCensus:
     """Closed and outward-oriented: each bounds a solid."""
     cavities: int
     """Closed and inward-oriented: each is a sealed void inside a solid."""
-    open_shells: int
-    """Not closed, so they bound nothing. Counted, never silently promoted."""
 
 
 def _shell_census(mesh: Any) -> _ShellCensus:
@@ -597,7 +612,7 @@ def _shell_census(mesh: Any) -> _ShellCensus:
     vertices = np.asarray(mesh.vertices, dtype=np.float64)
     labels = _face_components(mesh)
 
-    solids = cavities = open_shells = 0
+    solids = cavities = 0
     for label in np.unique(labels):
         tris = faces[labels == label]
 
@@ -606,7 +621,10 @@ def _shell_census(mesh: Any) -> _ShellCensus:
         edges = np.sort(np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]]), axis=1)
         _, counts = np.unique(edges, axis=0, return_counts=True)
         if not np.all(counts == 2):
-            open_shells += 1
+            # Open: it bounds nothing, so it is neither a solid nor a cavity.
+            # Skipped rather than counted — an open component promoted to a
+            # solid because its neighbour was closed is the miscount this
+            # per-component test exists to prevent.
             continue
 
         a, b, c = vertices[tris[:, 0]], vertices[tris[:, 1]], vertices[tris[:, 2]]
@@ -616,7 +634,7 @@ def _shell_census(mesh: Any) -> _ShellCensus:
         else:
             cavities += 1
 
-    return _ShellCensus(solids=solids, cavities=cavities, open_shells=open_shells)
+    return _ShellCensus(solids=solids, cavities=cavities)
 
 
 def _euler_characteristic(mesh: Any) -> int:

@@ -837,8 +837,11 @@ constraints, adopted now at no cost:
 
 1. **`checks[].id` is a free-form string**, so dotted paths (`turret.rotor.arm`) fit without
    a schema change.
-2. **Every check records the part references it read** (`part_refs`), even though in v0 that
-   is always the single part. It is what makes cad-khana's `qualified()` propagation
+2. **A check will record the part references it read** when there is more than one part to
+   refer to. The field was carried in v0 as forward-compat and removed in v0.7.0: it was
+   set on three code paths, never serialised, and so could not be read from any artifact —
+   a cost paid for a benefit nobody could collect. `SPEC-report.md` §7.1 makes added fields
+   non-breaking, so assemblies can introduce it for real. It is what makes cad-khana's `qualified()` propagation
    possible later.
 3. **The `skipped` status already exists** with the semantics assemblies need — *"absence is
    a legitimate run state, not an input error"* — so a standalone sub-assembly run can

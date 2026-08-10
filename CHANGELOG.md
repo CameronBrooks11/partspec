@@ -49,6 +49,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   naturally, and the pull axis is recorded in the check
   (`checks[].direction`). SPEC-contract 4.8.
 
+### Removed
+
+- `partspec.BBox` — a dataclass never constructed anywhere in the repo, on the
+  public export list since v0.1. `Vec3` stays; nothing else changes.
+- `partspec.run` leaves `__all__`. README has called it internal since v0.1
+  while the export said otherwise; it remains importable (`from partspec
+  import run` still works, and `partspec.runner.run` is the honest path), but
+  it is not part of the stable surface and its signature may change without a
+  major bump. The stable surface is the report schema and the exit codes.
+- `CheckResult.part_refs` — set on three of the construction sites, never
+  serialised by `to_json`, and therefore unreadable from any artifact, while
+  four claim sites across three documents said every check recorded it. Forward-compat for
+  assemblies that cost coherence now and could not be collected later anyway:
+  SPEC-report §7.1 makes an added field non-breaking, so assemblies can
+  introduce it for real.
+- `partspec.csg.read_csg` and `partspec.csg.contains_strings`. Neither had a
+  production caller; `contains_strings` was the superseded tree-walking half
+  of a guard that `lint.lint_scad_tier2` performs on the raw export bytes,
+  because the tree version was bypassable by hiding the string in a %-dropped
+  statement. `csg` is not a documented surface, but `contains_strings` was in
+  `csg.__all__`, so it is recorded here.
+- The mesh tier no longer declares the `raycast` capability. It needs
+  `rtree`, which the `mesh` extra does not carry, so the declaration was a
+  promise the backend could not keep — the one thing SPEC-backend §3.2 says
+  capabilities exist to prevent. The method remains and now returns
+  `Unsupported` instead of raising when the ray engine is absent.
+
 ## [0.6.0] - 2026-08-08
 
 An agent can see the part it made (epic #2): renders on every engine, section

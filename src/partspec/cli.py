@@ -24,7 +24,7 @@ from typing import Any, cast
 
 from .backend import DEFAULT_TIMEOUT_S, BuildError, effective_timeout
 from .contract import Part
-from .report import write_placeholder
+from .report import tool_version, write_placeholder
 from .runner import run
 from .status import EXIT_USAGE, Status, Verdict, exit_code
 from .target import Target, TargetError, resolve
@@ -80,21 +80,12 @@ def _timeout_s(explicit: float | None) -> float:
         raise _TimeoutUsage(f"{ENV_TIMEOUT} is unusable: {exc}") from None
 
 
-def _version() -> str:
-    from importlib.metadata import PackageNotFoundError, version
-
-    try:
-        return version("partspec")
-    except PackageNotFoundError:
-        return "0.0.0+unknown"
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="partspec",
         description="Verify CAD-as-code parts against declared engineering intent.",
     )
-    parser.add_argument("--version", action="version", version=f"partspec {_version()}")
+    parser.add_argument("--version", action="version", version=f"partspec {tool_version()}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     check = sub.add_parser("check", help="build parts and check them against their contracts")
@@ -478,8 +469,6 @@ def _check_resolved(
     # on both tiers.
     built_ok = any(c.kind == "builds" and c.status is Status.PASS for c in report.checks)
     if args.render and report.error is None and built_ok:
-        from .backend import BuildError
-
         result = _render_files(part, out, timeout_s, prebuilt=built[0] if built else None)
         if isinstance(result, BuildError):
             render_error = result
@@ -548,9 +537,9 @@ def _cmd_measure(args: argparse.Namespace) -> int:
 def _measure_resolved(
     args: argparse.Namespace, part: Part, target: Target, timeout_s: float
 ) -> int:
-    from .backend import BuildError, Unsupported
+    from .backend import Unsupported
     from .report import SCHEMA_VERSION
-    from .runner import _backend_for, _engine_source, _tool_version, engine_block, identity
+    from .runner import _backend_for, _engine_source, engine_block, identity
     from .status import ContractError
 
     try:
@@ -569,7 +558,7 @@ def _measure_resolved(
         # consumer can tell WHICH file and revision failed to measure.
         failed: dict[str, object] = {
             "schema_version": SCHEMA_VERSION,
-            "tool": {"name": "partspec", "version": _tool_version()},
+            "tool": {"name": "partspec", "version": tool_version()},
             "part": identity(part, target.path),
             "engine": engine_block(part, backend),
             "params": dict(part.source.params),
@@ -636,7 +625,7 @@ def _measure_resolved(
         # consumer of one artifact can orient in the other. `built=True`:
         # a Python model's imports are only knowable once it has run.
         "schema_version": SCHEMA_VERSION,
-        "tool": {"name": "partspec", "version": _tool_version()},
+        "tool": {"name": "partspec", "version": tool_version()},
         "part": identity(part, target.path, built=True),
         "engine": engine_block(part, backend),
         "params": dict(part.source.params),
@@ -671,7 +660,6 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     import hashlib
 
     from .lint import LINT_SCHEMA_VERSION, LintError, lint_path
-    from .runner import _tool_version
 
     # Deduped on the resolved path, order kept: the same file twice is one
     # file, not doubled counts (#120).
@@ -717,7 +705,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     total = sum(len(f["findings"]) for f in files)  # type: ignore[arg-type]
     payload = {
         "schema_version": LINT_SCHEMA_VERSION,
-        "tool": {"name": "partspec-lint", "version": _tool_version()},
+        "tool": {"name": "partspec-lint", "version": tool_version()},
         "files": files,
         "counts": {"files": len(files), "findings": total},
     }
@@ -954,9 +942,8 @@ def _render_resolved(
     timeout_s: float,
     section: tuple[str, float | None] | None = None,
 ) -> int:
-    from .backend import BuildError
     from .report import SCHEMA_VERSION
-    from .runner import _backend_for, _tool_version, engine_block, identity
+    from .runner import _backend_for, engine_block, identity
     from .status import ContractError
 
     if part.source.engine == "openscad":
@@ -989,7 +976,7 @@ def _render_resolved(
     # tied to the revision that produced them.
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
-        "tool": {"name": "partspec", "version": _tool_version()},
+        "tool": {"name": "partspec", "version": tool_version()},
         "part": identity(part, target.path),
         "engine": engine,
         "params": dict(part.source.params),
@@ -1111,7 +1098,7 @@ def _cmd_vdiff(args: argparse.Namespace) -> int:
         base = args.new if args.new.is_dir() else args.new.parent
         out = base / "vdiff"
     try:
-        doc = diff_renders(old, new, out, tool_version=_version())
+        doc = diff_renders(old, new, out, tool_version=tool_version())
     except VdiffUsageError as exc:
         # An unreadable or foreign image mid-diff: the ask was malformed,
         # nothing was compared — usage, never a fabricated outcome.
@@ -1150,7 +1137,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
             return EXIT_USAGE
 
     try:
-        doc = diff_reports(reports[0], reports[1], tool_version=_version())
+        doc = diff_reports(reports[0], reports[1], tool_version=tool_version())
     except DiffUsageError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE

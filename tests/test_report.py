@@ -339,3 +339,14 @@ def test_hole_serialises_after_region_position():
         "hole",
         "detail",
     ]
+
+
+def test_the_version_fallback_is_distinguishable_from_a_real_release():
+    """Not the literal — the property. `tool.version` reaches the artifact,
+    and a consumer must be able to tell "run from a source tree" from "ran
+    release 0.0.0". A PEP 440 local-version segment says so and survives any
+    rewording; pinning the string itself would pin an implementation detail.
+    """
+    from partspec.report import TOOL_VERSION_FALLBACK
+
+    assert "+" in TOOL_VERSION_FALLBACK

@@ -245,6 +245,26 @@ def test_the_tier_specific_kinds_are_exactly_the_declared_ones():
     others = {v for k, v in GEOMETRY_KINDS.items() if k not in occt_only}
     assert others <= MESH & OCCT, "no other check may depend on the tier"
 
+    # And GEOMETRY_KINDS' own docstring must name the same set. It said
+    # "topology and hole_diameter are the entries" long after there were
+    # eight. The docstring carries no numeral, deliberately: a count beside
+    # the data it counts is a second thing to forget, and this assertion
+    # holds only what it can — the list.
+    import re
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "src" / "partspec" / "contract.py").read_text()
+    paragraph = re.search(
+        r"^These entries have primitives.*?is how the first version rotted", source, re.S | re.M
+    )
+    assert paragraph, "GEOMETRY_KINDS must still explain its tier-asymmetric members"
+    # Equality, not containment: `>=` let the docstring ADD a both-tiers kind
+    # to the list and stay green (PR #152 review, MK4). Equality also pins the
+    # set size without a numeral anywhere, which is the point.
+    assert set(re.findall(r"`(\w+)`", paragraph.group(0))) == occt_only, (
+        "the docstring's list and the code's OCCT-only set must be the same set"
+    )
+
 
 def test_source_records_the_engine_explicitly():
     """Never inferred from the file extension: a .py could be either Python

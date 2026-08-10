@@ -744,7 +744,7 @@ def test_the_unit_table_lists_every_unit_a_measurement_can_carry():
 
 def test_the_backend_spec_counts_the_primitives_it_specifies():
     """SPEC-backend called the protocol "the original twelve" while the block
-    beneath held 13, the prose listed 17, and the two backends implement 22
+    beneath held 13, the prose listed 17, and the two backends implement 21
     between them. A count in a normative document is a claim."""
     from partspec.backends import mesh, occt
 

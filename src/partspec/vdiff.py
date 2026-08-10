@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from .report import SCHEMA_VERSION
+from .status import comparison_exit_code
 
 __all__ = [
     "VDIFF_SCHEMA_VERSION",
@@ -48,7 +49,6 @@ __all__ = [
 
 VDIFF_SCHEMA_VERSION = 1
 
-_EXIT = {"identical": 0, "different": 1, "indeterminate": 2}
 
 _HIGHLIGHT = (230, 0, 126)  # magenta: pixels that changed, unmissable on both palettes
 
@@ -58,7 +58,9 @@ class VdiffUsageError(Exception):
 
 
 def exit_code_of(outcome: str) -> int:
-    return _EXIT[outcome]
+    """The shared policy (`status.comparison_exit_code`), re-exported so both
+    verbs keep their own name for it."""
+    return comparison_exit_code(outcome)
 
 
 def load_run(path: Path) -> dict[str, Any]:
