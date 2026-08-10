@@ -293,7 +293,7 @@ not adopt its normalization.
 
 **Revisit post-v0 as a parts *source*, not a substrate** — its `interfaces:`/mating model
 (abstract interfaces with inheritance and ports, verified in
-`examples/feature_interface/partcad.yaml`) remains the best existing prior art for
+`partcad/examples/feature_interface/partcad.yaml` upstream) remains the best existing prior art for
 declaring mechanical interfaces as data, and is the natural reference when assemblies land
 (D11).
 
@@ -415,7 +415,7 @@ never given.
 
 **The corollary is stated openly rather than hidden:** `partspec` measures the artifact, not
 the intent. A coarse `$fn` is a design choice the tool *reports* (via `geometry.triangles`
-and `geometry.facets`), not an error it bounds away. A bore modelled as a 16-gon is measured
+and `geometry.distinct_normals`), not an error it bounds away. A bore modelled as a 16-gon is measured
 as a 16-gon — which is what a real dowel will experience.
 
 **Consequence that fell out of this, and is worth knowing before implementation:** under
@@ -423,8 +423,10 @@ D15, essentially the whole v0 check set is exact on a polyhedron, and the one ca
 `approximate` — `min_wall` — turns out to admit no honest two-sided bound (sampling can only
 ever find a *thinner* wall), making it `unsupported` instead. **So v0 contains no check that
 can produce `approximate`.** The interval machinery stays because D10 is the thesis and the
-first BREP tolerance check will need it — but it is dormant in v0, the dogfood run will not
-exercise it, and its first real test will be its first bug report.
+first BREP tolerance check will need it — but it is dormant in v0 (no longer: `min_wall`,
+#140, made it live on the OCCT tier), the dogfood run did not
+exercise it, and its first real test was expected to be its first bug report (it was not — `min_wall`'s
+straddle fixtures got there first).
 
 
 ---
@@ -467,7 +469,7 @@ than trimesh's `body_count`.
 > computed directly over the exported triangles. `distinct_normals` is unaffected and the
 > reasoning above still stands for it.
 
-**Also corrected here:** the claim in `DIRECTION.md` and investigation 02 that a mesh
+**Also corrected here:** the claim in `notes/survey/DIRECTION.md` and investigation 02 that a mesh
 bounding box is *"exact and resolution-independent"*. It is exact — the polyhedron is
 measured exactly, per D15 — but **not invariant to facet settings**. The original spike used
 explicit `$fn` values, and OpenSCAD places a vertex on the +X axis for an explicit `$fn`, so
@@ -552,8 +554,9 @@ leaderboard (June 2026) it raised the same model's score 0.360 → 0.457 and CAD
 loop and the skill own visual review and manufacturing handoff."* Epics #2 and #4, as first
 filed, drifted toward that niche — where partspec would be a worse copy of a shipped tool
 with published gains. Nothing in the repo drew the line, which is why the drift was
-invisible. (Citations: `notes/RESEARCH.md` §6 and the vendored clone at
-`notes/upstream/build123d-mcp`.)
+invisible. (Citations: `notes/RESEARCH.md` §6, and a local clone of the upstream
+`build123d-mcp` project — gitignored, so it is a pointer for whoever has it rather than
+something this repository carries.)
 
 **What stays on partspec's side of the line** — what the authoring tools do not have: the
 OpenSCAD tier; a persisted, schema-versioned report; adjudication in which `unsupported` and

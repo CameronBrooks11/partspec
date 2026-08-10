@@ -161,9 +161,22 @@ class BuildError:
 class GeometryBackend(Protocol):
     """What every backend implements.
 
-    Sixteen primitives, plus lifecycle and an explicit capability declaration.
-    Each returns a `Measurement` carrying its own `exact` flag, so a caller
-    cannot accidentally lose provenance by receiving a bare float.
+    Every primitive either backend implements, plus lifecycle and an explicit
+    capability declaration. Both backends DEFINE every member and satisfy
+    `isinstance` at runtime: an OCCT-only primitive is still defined on the
+    mesh backend, returning `Unsupported` with `requires="occt"`, because §3.1
+    says a backend that cannot answer must refuse rather than raise — and an
+    AttributeError from a library call is the kind of failure a caller
+    misreads. (Static assignability is a weaker story and predates this: both
+    declare `engine_version` as a property, and the OCCT tier widens some
+    return types to `Measurement | Unsupported`.) Each returns a `Measurement` carrying its own
+    `exact` flag, so a caller cannot accidentally lose provenance by receiving
+    a bare float.
+
+    No count in this sentence, deliberately: it read "sixteen" while the block
+    held seventeen and the backends implemented twenty-two, and a number in a
+    docstring is a claim that rots. A test holds this block equal to
+    SPEC-backend's.
     """
 
     kind: str  # Tier.MESH | Tier.OCCT
@@ -186,10 +199,16 @@ class GeometryBackend(Protocol):
     def provenance(self, a: Any) -> dict[str, Any]:
         """Populate the report's `geometry` block.
 
-        Mesh tier emits `triangles` and `facets`; both, not either. `facets` is
-        the coplanar-grouped count — retriangulation-invariant, and it tracks
-        $fn nearly one-to-one, so it is the identity signal. `triangles` is the
-        drift explainer, because chord error scales with edge length.
+        Mesh tier emits `triangles` and `distinct_normals`; both, not either.
+        `distinct_normals` is the identity signal — retriangulation-invariant,
+        and it tracks $fn nearly one-to-one. `triangles` is the drift
+        explainer, because chord error scales with edge length.
+
+        NOT `facets`, which is what this docstring said until the v0.7.0
+        sweep: trimesh's `.facets` is coplanar-region grouping and needs
+        `scipy` or `networkx`, so D16 replaced it with a count the backend
+        computes itself. The name never shipped, and four documents plus this
+        line went on describing a field no report has ever carried.
         """
         ...
 
@@ -201,7 +220,7 @@ class GeometryBackend(Protocol):
         """
         ...
 
-    # --- the sixteen primitives ---
+    # --- the primitives ---
 
     # `bbox`, `area` and `watertight` are total: they are statements about the
     # triangles or the shape as given, and stay answerable however broken it is.
@@ -259,4 +278,38 @@ class GeometryBackend(Protocol):
         candidates a `fillet_radius` claim ranges over (SPEC-contract.md 4.7).
         OCCT-only, with `bores`; MUST share its clustering, so a seam-split
         bore cannot masquerade as two blends."""
+        ...
+
+    # --- cavities (SPEC-contract.md 4.2), both tiers ---
+
+    def cavities(self, a: Any) -> Measurement | Unsupported:
+        """Sealed internal voids: per solid, its shells minus its outer one.
+        Refused when there is no geometry to be about."""
+        ...
+
+    # --- the depth epic (#136), OCCT-only: SPEC-contract.md 4.8-4.11.
+    #     These were implemented, dispatched by the runner and declared in
+    #     CAPABILITIES for a day while this Protocol said nothing about them,
+    #     and nothing noticed because nothing in src/ or tests/ ever does
+    #     `isinstance(x, GeometryBackend)`. A structural type that lags the
+    #     structures it types is decoration; the spec's block and this one are
+    #     now held equal by a test. ---
+
+    def draft_angle(
+        self, a: Any, direction: tuple[float, float, float]
+    ) -> Measurement | Unsupported:
+        """Every face's draft against a pull axis, ascending, in degrees."""
+        ...
+
+    def self_intersection_free(self, a: Any) -> Measurement | Unsupported:
+        """Whether the shape crosses itself, with the faults inventoried."""
+        ...
+
+    def step_roundtrip(self, a: Any) -> dict[str, Any] | Unsupported:
+        """Write to STEP, read back, report the drift and the writer schema."""
+        ...
+
+    def min_wall(self, a: Any) -> Measurement | Unsupported:
+        """The minimum wall within a declared measurand, as a guaranteed
+        interval that may collapse to exact."""
         ...

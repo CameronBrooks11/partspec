@@ -172,11 +172,49 @@ def test_lint_runs_without_any_engine_import():
 def test_every_rule_is_documented_with_its_limits():
     for rule in RULES:
         assert f"`{rule}`" in LINT_DOC, f"docs/LINT.md must document {rule}"
-    assert f"more than {MODULE_LINE_LIMIT} lines" in LINT_DOC
+    assert f"exceeds {MODULE_LINE_LIMIT} lines" in LINT_DOC
     assert f"more than {FUNCTION_LINE_LIMIT} lines" in LINT_DOC
     assert f"|value| > {MAGIC_EXEMPT:g}" in LINT_DOC
     assert "advisory and never a verdict on the part" in LINT_DOC, "bullet 3, verbatim"
-    assert "#118" in LINT_DOC, "the tier-2 deferral names its tracked issue"
+    assert "#118" in LINT_DOC, "tier 2 names its issue"
+
+
+def test_the_module_size_rule_fires_exactly_where_the_doc_says(tmp_path: Path):
+    """A size rule's whole claim is its boundary, and the existing test probed
+    LIMIT±2 — two lines either side of the only interesting value.
+
+    A docs audit read the rule as off by one against `py-function-size`, and
+    it IS — I overrode the audit, and PR #151's review proved me wrong by
+    reading the code: `scad-module-size` counts from the `module` line while
+    `py-function-size` counts from `fn.body[0].lineno`, excluding the `def`.
+    So a 40-line module body fires and a 60-line function body does not.
+    Both frames are pinned below so neither drifts and nobody re-litigates it
+    from the prose.
+    """
+    source = tmp_path / "m.scad"
+
+    def findings_for(body_lines: int) -> list:
+        body = "\n".join(f"  cube({i + 3});" for i in range(body_lines))
+        source.write_text(f"module big() {{\n{body}\n}}\n")
+        return [f for f in lint_path(source) if f.rule == "scad-module-size"]
+
+    assert findings_for(MODULE_LINE_LIMIT - 1) == [], "a body one under the limit is silent"
+    fired = findings_for(MODULE_LINE_LIMIT)
+    assert fired, "a body AT the limit spans limit+1 with its header, and fires"
+    assert f"spans {MODULE_LINE_LIMIT + 1} lines (limit {MODULE_LINE_LIMIT})" in fired[0].message
+
+    # The other frame, so the asymmetry is a pinned fact rather than prose.
+    py = tmp_path / "m.py"
+
+    def python_findings(body_lines: int) -> list:
+        body = "\n".join("    x = 1" for _ in range(body_lines))
+        py.write_text(f"def big():\n{body}\n")
+        return [f for f in lint_path(py) if f.rule == "py-function-size"]
+
+    assert python_findings(FUNCTION_LINE_LIMIT) == [], (
+        "a function body AT its limit is silent — the def line is NOT counted"
+    )
+    assert python_findings(FUNCTION_LINE_LIMIT + 1), "one over fires"
 
 
 # --------------------------------------------------------------------------

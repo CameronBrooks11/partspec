@@ -11,10 +11,13 @@ follows: **silence must never read as success** — a check the tool could not e
 could not evaluate precisely enough to decide, never reports as a pass.
 
 Status: pre-alpha; **v0.6.0 released on PyPI** (2026-08-08, tag → trusted publishing via
-`release.yml`). `check`, `measure` and `render` work against all three engines (`render`
-with `--section` cuts on both tiers), `diff` compares reports and `vdiff` compares
-renders, `lint` reads the geometry (tier 2), and `partspec-mcp` serves
-check/measure/render/vdiff as stateless MCP tools.
+`release.yml`), with the depth epic (#136) merged since and unreleased. `check`, `measure`
+and `render` work against all three engines (`render` with `--section` cuts on both tiers),
+`diff` compares reports and `vdiff` compares renders, `lint` reads the geometry (tier 2),
+and `partspec-mcp` serves check/measure/render/vdiff as stateless MCP tools. The OCCT tier
+gained four depth checks — `draft_angle`, `self_intersection_free`, `step_roundtrip` and
+`min_wall` — and `min_wall` made the `approximate` verdict live: a guaranteed interval that
+straddles a limit now exits 2 rather than guessing.
 P0–P6 of `docs/PLAN.md` are complete; epic #6 grew the vocabulary to real mechanical
 intent (`keep_out`/`keep_in`, `hole_diameter`, `bolt_circle`, `fillet_radius`) and added
 the `partspec diff` comparator (`SPEC-diff.md`); epic #5 added reference data with

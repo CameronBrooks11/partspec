@@ -1,11 +1,15 @@
 """The adjudication rule, tested directly.
 
-Worth doing thoroughly and early for a specific reason: as v0 is scoped, *no v0
-check can produce APPROXIMATE*. Everything in the v0 set is exact on a polyhedron
-under D15, and the one candidate (min_wall) turns out to be UNSUPPORTED for want
-of an honest lower bound. So the interval machinery ships dormant, and its first
-real exercise would otherwise be its first bug report. These tests are the
-substitute for that exercise.
+Worth doing thoroughly and early for a specific reason, now historical: as v0 was
+scoped, *no v0 check could produce APPROXIMATE*. Everything in the v0 set is exact
+on a polyhedron under D15, and the one candidate (min_wall) was UNSUPPORTED for
+want of an honest lower bound. The interval machinery shipped dormant, and these
+tests were the substitute for the exercise it was not getting.
+
+It is live now. `min_wall` (#140) measures a genuine interval on the OCCT tier and
+`tests/test_min_wall.py` exercises the straddle end to end at exit 2, so these are
+no longer a substitute for anything — they are the unit-level half, and the
+adjudicator is worth pinning directly regardless.
 """
 
 from __future__ import annotations

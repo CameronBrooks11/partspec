@@ -1,6 +1,7 @@
 # SPEC — `partspec diff`
 
-**Status:** draft 1 · 2026-08-07
+**Status:** draft 2 · 2026-08-09 · `kind` and `expr` join the claim fields; the digests
+are stated as recorded-not-outcome-bearing
 **Scope:** the semantic comparison of two reports of one part, its artifact, and its exit
 codes. Written before the implementation, like the other specs.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.

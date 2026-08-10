@@ -1,13 +1,15 @@
-# partspec lint — the tier-1 rules
+# partspec lint — the rules
 
-**Status:** v1 · 2026-08-08 · closes #26 (tier 1)
+**Status:** v2 · 2026-08-09 · closes #26 (tier 1) and #118 (tier 2)
 **Scope:** `partspec lint <source>…` over `.scad` and `.py` model sources. Findings are
 **advisory and never a verdict on the part — it is about the source** (#26, verbatim):
 exit 0 says the lint ran, the findings are data in the JSON payload, and 64 is reserved
 for inputs that cannot be linted at all. The payload (schema 2) is per-file
 blocks — `{file, digest, findings[, unsupported]}` — so a clean file is a visible entry with the
 sha256 of the bytes that were linted, not an absence; duplicate arguments are deduped
-(#120). Tier 1 runs **without an engine installed**.
+(#120). **Tier 1** runs without an engine installed; **tier 2** (the two `csg-*` rules)
+reads OpenSCAD's constant-folded `.csg` export and refuses by name when the binary is
+absent.
 
 Each rule states its exact predicate — a lint whose rules are vibes teaches nothing —
 plus the rationale and a real example. The rule registry in `src/partspec/lint.py` and
@@ -34,8 +36,10 @@ map governs `check`).
 
 ## `scad-magic-number`
 
-- **Predicate:** a numeric literal with `|value| > 2` on any line that is not a
-  top-level assignment or an `include`/`use`, in the noise-stripped source. The
+- **Predicate:** a numeric literal with `|value| > 2` on any line that is not an
+  assignment or an `include`/`use`, in the noise-stripped source. (Any assignment, at
+  any depth — not only top-level ones, which is what this said until v2; `x = 50;`
+  inside a module body is exempt.) The
   exemption is deliberate: 0/1/2 are structure, and the `-1`/`+2` boolean-overshoot
   idiom (skills/openscad-authoring rule 3) must not be flagged by the tool whose own
   skills teach it.
@@ -50,8 +54,15 @@ map governs `check`).
 
 ## `scad-module-size`
 
-- **Predicate:** a `module` whose body spans more than 40 lines (brace-matched, over
-  the noise-stripped source).
+- **Predicate:** a `module` whose reported span exceeds 40 lines (brace-matched, over the
+  noise-stripped source). The span is counted from the `module` line, so **a body of 40
+  lines reports 41 and fires** — the effective body limit is 39.
+- **Known asymmetry with `py-function-size`:** that rule counts from the *first statement
+  of the body*, excluding the `def` (`lint.py`'s `fn.body[0].lineno`), so a 60-line body
+  reports 60 and stays **silent**. The same-sized body therefore fires here and not there.
+  The limits differing (40 vs 60) is deliberate; the counting frames differing is not.
+  Aligning them changes behaviour, so it is tracked separately rather than fixed in a
+  documentation pass. Both boundaries are pinned by tests.
 - **Rationale:** the LoC symptom head-on — the observed failure is bloat, and a module
   past feature-size has stopped being a feature (skills/openscad-authoring rule 5).
 - **Real example:** the corpus's gear library concentrates its geometry in one
@@ -60,8 +71,12 @@ map governs `check`).
 ## `py-magic-number`
 
 - **Predicate:** a numeric `Constant` with `|value| > 2` inside a `Call`'s arguments —
-  positional and keyword alike — within any function body (stdlib `ast`; each call
-  reports its own arguments once; lambda bodies are pruned; defaults in the signature
+  positional and keyword alike — within any `def` body (stdlib `ast`. **`async def` is not
+  seen by this rule OR by `py-function-size`**: both walk for `ast.FunctionDef`, and
+  `ast.AsyncFunctionDef` is not a subclass, so an async factory is silently unlinted
+  however long or magic it is — a rule staying quiet about code it cannot evaluate, which
+  is the failure this tool's own refusal policy forbids. Tracked. A call inside a nested
+  `def` reports twice; lambda bodies are pruned; defaults in the signature
   are exactly where numbers SHOULD live and are never flagged; module-level constants
   likewise; signs are kept, so `-90` reports as -90).
 - **Rationale:** skills/build123d-authoring rule 1 — hoist it to a parameter with a

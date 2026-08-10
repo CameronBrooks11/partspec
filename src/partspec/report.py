@@ -316,8 +316,13 @@ class Report:
     def _environment(self) -> dict[str, Any]:
         """Volatile data, quarantined by field rather than by block.
 
-        Only `timestamp`, `duration_ms` and `platform` vary between two runs of
-        identical inputs. `packages` deliberately does NOT — it is exactly what
+        Only `duration_ms` and `platform` vary between two runs of identical
+        inputs. There is no `timestamp` field: its absence is what lets a
+        comparator quarantine volatility field-by-field (SPEC-report §8 rule 2
+        names `duration_ms`) instead of excluding the whole block. The report
+        is NOT byte-reproducible — `duration_ms` alone sees to that.
+
+        `packages` deliberately does NOT vary — it is exactly what
         distinguishes "a dependency upgrade moved this number" from "the design
         changed", so a comparator that excludes the whole block loses the ability
         to explain its own findings.

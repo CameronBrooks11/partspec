@@ -2,9 +2,17 @@
 
 **Status:** v1 · 2026-08-08 · closes #28
 **Audience:** an agent (or the harness around one) using `partspec` to take a part to
-green — via the CLI or the `partspec-mcp` tools, which run the same CLI per call.
+green, **via the CLI**.
 **Scope:** how to act on partspec's output. How to *author* a contract is
 `SPEC-contract.md`; what the artifact means is `SPEC-report.md`.
+
+**The `partspec-mcp` tools cannot execute this document.** They run the same CLI per call,
+but the four registered tools are `check` / `measure` / `render` / `vdiff`, and the check
+tool builds only `["check", target, "--quiet"]` plus `--out` and `--render`. There is no
+`--expect`, no `--pin`, no `--timeout`, and **no `diff` tool at all** — so §1 step 1's
+claims pin and §4's `diff` remedy are both unreachable from MCP. An MCP-driven agent is
+running a weaker loop than the one specified here, and should be told so rather than
+assumed to be following it. (Tracked: the flags are plumbing, not design.)
 
 The one rule everything below serves: **the report artifact is the ground truth, and
 only `pass` is green.** Read `report.json`, not the console — the console is a courtesy
@@ -40,9 +48,17 @@ Every evaluated `check` run leaves a report at the deterministic path (a placeho
 saying the run died is written before anything happens, then overwritten by the real
 report; a usage refusal — exit 64 — may leave the placeholder, or nothing when the
 invocation's shape was refused outright). The exit code plus two fields — `verdict` and
-`error` — decide the action, with one exception: the uncovered-pin failure (§4) lives on
-stderr and in the exit alone, because no report path exists for a part no target
-produced.
+`error` — decide the action, with **two** exceptions, both of which exit 4 while the
+report says something else:
+
+1. The uncovered-pin failure (§4) lives on stderr and in the exit alone, because no report
+   path exists for a part no target produced.
+2. A `check --render` whose render fails on an otherwise green part writes a normal report
+   — `verdict: "pass"`, `error: null`, no `hint` — and still exits 4. The report speaks for
+   the part; the exit speaks for the run, and the run did not produce what was asked of it.
+   The diagnosis is on stderr.
+
+In both, reading `error` and `hint` from the report yields nothing. Read stderr.
 
 | exit | verdict | action |
 |---|---|---|
@@ -50,7 +66,7 @@ produced.
 | `1` | `fail` | Something asserted was disproven. Disambiguate by the failing check (§2.1), then edit the **model** — or, for a parameter-phase fail, the declared parameter *values*; never the claims (§4). |
 | `2` | `incomplete` | Nothing disproven, not everything proven. **Do not edit geometry** — the part is not the problem. Disambiguate by `checks[].status` (§2.2). |
 | `3` | `empty` | The contract asserts nothing — the single most likely output when you do not know what to assert. Run `measure`, decide which numbers are *intent*, declare them. Never celebrate exit 3. |
-| `4` | `error` | Not a statement about the part (§2.3). Read `error` and `hint`; fix the machine or the contract, or escalate. Editing the model on exit 4 is noise. |
+| `4` | `error` | Not a statement about the part (§2.3). Read `error` and `hint` — **except in the two cases above, where the report carries neither and stderr is the only diagnosis**; fix the machine or the contract, or escalate. Editing the model on exit 4 is noise. |
 | `64` | — | Your invocation is malformed (unresolvable target, bad flag, missing/corrupt pin, colliding slugs). Fix the command, not the code. |
 | `130` | — | The operator interrupted you. Stop entirely. |
 
@@ -77,11 +93,13 @@ Read the non-`pass` statuses in `checks[]`:
 - **`unsupported`** → this engine tier cannot answer, and `requires` names the tier that
   would (`"occt"` → port the source to build123d/CadQuery, or accept the gap). **Never
   delete the unanswerable check to make the run conclusive** — that is §4.
-- **`approximate`** → the measurement's error interval straddles the limit. Dormant in
-  v0 — no shipped check can produce it (SPEC-report §10), so seeing it before a
-  tolerance-bearing check exists is a tool bug worth escalating. When it becomes live:
-  tighten the design away from the boundary, or escalate; do not shave the limit to
-  swallow it.
+- **`approximate`** → the guaranteed interval around the measurement straddles the limit:
+  the tool does not know, and will not guess. **Live since `min_wall` shipped** (#140) and
+  routine on the OCCT tier — a wall whose bound is `[1.0, 3.0]` against `min=2` is neither
+  proven nor disproven. This paragraph told you the opposite until the v0.7.0 sweep, and an
+  agent following it would have escalated correct output as a tool bug. Act on it: tighten
+  the design away from the boundary, or measure the feature a different way, or accept the
+  gap and say so. **Never shave the limit to swallow it** — that is §4.
 - **`skipped` alone** cannot produce exit 2 in v0: every path that skips checks
   co-occurs with a `fail` (exit 1, §2.1's parameter branch) or an `error` (exit 4). A
   lone `skipped` under exit 2 would mean a referenced part is absent — an assemblies

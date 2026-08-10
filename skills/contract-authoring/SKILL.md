@@ -24,7 +24,7 @@ decided, asserting that the model matches itself.
 ## 1. Choosing checks — the decision table
 
 Navigate by what you need to prove; the kind vocabulary itself is normative in
-`SPEC-contract.md` §4.1–4.7 (do not learn it from here — this table only routes you).
+`SPEC-contract.md` §4.1–4.11 (do not learn it from here — this table only routes you).
 
 | you need to prove | reach for | notes |
 |---|---|---|
@@ -34,6 +34,10 @@ Navigate by what you need to prove; the kind vocabulary itself is normative in
 | through-holes exist — and stay holes | `p.genus` (§4.2) | genus sees through-holes only (a blind hole is genus 0 — route it to `hole_diameter` or `keep_out`); a hole reaching the boundary is a notch — FAILURE-MODES entry 3 |
 | a cavity is sealed | `p.cavities` (§4.2) | an open tray is also watertight, 1 solid, genus 0 |
 | a drawing callout (bore Ø, bolt circle, fillet) | `p.hole_diameter`, `p.bolt_circle`, `p.fillet_radius` (§4.5–4.7) | OCCT tier; the mesh tier refuses honestly |
+| the part can leave the mould | `p.draft_angle(min=, direction=)` (§4.8) | OCCT tier; exact on planes, cylinders and cones — a freeform face refuses the whole check |
+| the shape does not cross itself | `p.self_intersection_free()` (§4.9) | OCCT tier; the kernel's own pairwise analysis, faults inventoried |
+| the part survives its exchange format | `p.step_roundtrip(tol=)` (§4.10) | OCCT tier; topology drift fails at any tolerance |
+| every wall is thick enough | `p.min_wall(min=)` (§4.11) | OCCT tier; a guaranteed interval — a limit inside it adjudicates `approximate`, never a guess |
 | a whole interface standard | a fragment — `nema17.mount(p)`, `iso15.seat(p, n)` (§11) | one call, cited |
 | material amount / wall drift over time | `p.volume`, `p.area` (§4.2) | drift shows in `diff` even while both runs pass |
 

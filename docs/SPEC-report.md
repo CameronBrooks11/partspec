@@ -1,6 +1,8 @@
 # SPEC — the `partspec` report
 
-**Status:** draft 12 · 2026-08-08 · the render verb leaves `render.json` on disk (its
+**Status:** draft 13 · 2026-08-09 · §10 rewritten (`approximate` is live), §2.2 gains
+`bool` and `rel`, the example's phantom `timestamp` removed; the render verb leaves
+`render.json` on disk (its
 payload with `renders` relativized, §8 rule 4) and every render records `render_bbox`
 (`{min, max}` mm) — the framing scales with the part, so the bbox is the scale witness
 `vdiff` (#21) compares when the pixels cannot; draft 11 added `render --section` (#19):
@@ -39,7 +41,7 @@ about. A target that never resolves has no identity to emit: those failures are 
 exit code only (for `check`, the placeholder artifact covers that window; `measure` and
 `render` write no artifact).
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
-**Backing:** `DECISIONS.md` D5, D10, D13; `investigations/04-kernel-capability.md`.
+**Backing:** `DECISIONS.md` D5, D10, D13; `notes/survey/04-kernel-capability.md`.
 
 ---
 
@@ -148,8 +150,14 @@ REQUIRED on every measurement, because it distinguishes quantities a bare number
 | unit | for |
 |---|---|
 | `mm` · `mm2` · `mm3` | length, area, volume |
-| `deg` | angles |
+| `deg` | angles (`draft_angle`) |
 | `count` | dimensionless integer counts |
+| `bool` | a predicate answered as a measurement (`watertight`, `self_intersection_free`) |
+| `rel` | a unitless relative quantity (`step_roundtrip`'s volume and area drift) |
+
+`bool` and `rel` were absent from this table while the tool emitted both. §5's remark that
+`unit: "bool"` disappears was scoped to `requires` predicates, which carry no measurement
+at all, and got over-generalised into a claim about the vocabulary.
 
 Values are never scaled. There is no `part.units` field: a single legal value is not
 information, and every measurement carries its own unit anyway.
@@ -231,8 +239,13 @@ exists.
 
 By §2's rule ("a backend that cannot honestly produce `bounds` MUST NOT report that
 quantity as `approximate`"), **`min_wall` is `unsupported` on the mesh tier** until someone
-derives a defensible lower bound. It is not an `approximate` check, and this document
-deliberately does not use it as one.
+derives a defensible lower bound — the tier refusal stands.
+
+On the OCCT tier it **is** an `approximate` check, and the first one: a guaranteed `[lo,
+hi]` interval whose straddle of a limit adjudicates `approximate` and exits 2 (§10, and
+`SPEC-contract.md` §4.11). An earlier draft of this paragraph said "it is not an
+`approximate` check" without the tier qualifier, which stopped being true when #140
+shipped.
 
 ### 3.3 Bound epsilon
 
@@ -546,7 +559,6 @@ an unknown major version rather than best-effort parse it.
     "packages": { "build123d": "0.11.1", "cadquery-ocp": "7.9.3.1.1",
                   "trimesh": "5.0.0", "manifold3d": "3.5.2" },
     "platform": "linux-x86_64",
-    "timestamp": "2026-08-02T20:14:03Z",
     "duration_ms": 812
   },
 
@@ -723,7 +735,7 @@ The report is compared across runs, so instability is a correctness bug.
 1. **Ordering.** `checks` MUST appear in contract declaration order. Object keys MUST be
    emitted in the order given in §7. Any derived collection MUST be sorted by a stated key.
 2. **Volatile data is quarantined — by field, not by block.** Only
-   `environment.timestamp`, `environment.duration_ms`, and `environment.platform` may vary
+   `environment.duration_ms` and `environment.platform` may vary
    between two runs of identical inputs on the same machine, and only those MUST be excluded
    from comparison.
 
@@ -859,30 +871,33 @@ Stated so they are decisions rather than omissions:
 
 ---
 
-## 10. The `approximate` machinery is unexercised by v0 — deliberately
+## 10. The `approximate` machinery, and how it stopped being dormant
 
-This follows from §3.2 and D11 together, and it is important enough to state rather than
-let a reader discover it:
+Through v0 this section said the opposite of what it says now, and the correction is worth
+keeping rather than overwriting: **as v0 was scoped, no check in it could produce
+`approximate`.** The v0 set was parameter predicates plus `builds`, `envelope`,
+`watertight`, `solid_count` and `genus`; under §2.3's measurand every one of those is exact
+on a polyhedron, and an exported OpenSCAD part *is* a polyhedron. So `bounds`, §3.1's
+interval adjudication and the `approximate` status were correct, load-bearing for the
+design D10 commits to, and unexercised. The two consequences were stated openly: the
+dogfood run would not test the machinery, and its first real exercise would be its first
+bug report.
 
-**As v0 is scoped, no check in it can produce `approximate`.** The v0 set is parameter
-predicates plus `builds`, `envelope`, `watertight`, `solid_count` and `genus`.
-(`clearance` and `interference` were listed in an earlier draft; they take two bodies and
-so move to post-v0 with assemblies — `SPEC-contract.md` §4.3.) Under §2.3's measurand, every one of those is **exact on a polyhedron** —
-and an exported OpenSCAD part *is* a polyhedron. The one v0 check that might have been
-approximate, `min_wall`, is `unsupported` on the mesh tier for want of an honest lower
-bound.
+**That debt is paid.** `min_wall` (#140, `SPEC-contract.md` §4.11) is a genuine interval
+measurement on the OCCT tier — a guaranteed `[lo, hi]` from kernel-exact face-pair minima
+and certified diametric spans — and a limit inside that interval adjudicates `approximate`
+and exits 2. It is routine, not exotic: a U-channel bounded by a nearby gap, a stepped
+slab bounded by its ledge, a tilted pocket. The first exercise was a fixture, not a bug
+report.
 
-So `bounds`, §3.1's interval adjudication and the `approximate` status are all correct, all
-load-bearing for the design D10 commits to, and all **dormant in v0**.
+Two notes for a reader arriving from an older copy of this document:
 
-They stay. D10 is the thesis, and the first BREP-tier tolerance check will need them
-immediately. But two consequences must be accepted openly:
-
-1. The dogfood run **will not test this machinery.** Its first real exercise will be its
-   first bug report.
-2. **Q6 below is therefore not a v0 blocker.** It was previously billed as "the largest
-   unresolved gap in the spec"; that was wrong. It is the largest gap in the *first check
-   that needs it*.
+1. **`approximate` is live and an agent must act on it.** `AGENT-CONTRACT.md` §2.2 used to
+   call it dormant and instruct an agent to escalate it as a tool bug; correct output was
+   being described as a defect. Both are fixed.
+2. **The mesh tier still cannot produce it.** `min_wall` is `unsupported` there for want of
+   an honest lower bound (§3.2), so a mesh-only run remains exact-or-refused. That is a
+   property of the tier, not of the machinery.
 
 ---
 
