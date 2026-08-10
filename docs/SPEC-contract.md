@@ -1,7 +1,8 @@
 # SPEC — the `partspec` contract
 
-**Status:** draft 2 · 2026-08-08 · adds §4.4–4.7 (regions, hole_diameter, bolt_circle,
-fillet_radius), §10 (referenced values) and §11 (fragments)
+**Status:** draft 3 · 2026-08-09 · adds §4.8–4.11 (draft_angle, self_intersection_free,
+step_roundtrip, min_wall) to the vocabulary table and the dimensional set; corrects the
+constructor signatures in §3
 **Scope:** the Python API an author (human or agent) writes to declare a part and the
 claims it must satisfy. Defines the `kind` vocabulary that `SPEC-report.md` deliberately
 left open.
@@ -79,10 +80,16 @@ replacement (`SPEC-report.md` §5.5).
 One constructor per engine. Each takes a source reference plus the parameters to build with.
 
 ```python
-openscad(path, **params)      # params become -D name=value  (see §3.1)
-build123d(target, **params)   # target: "module:callable" or a callable
-cadquery(target, **params)    # adopted into the OCCT backend via .wrapped (D3)
+openscad(path, /, method=None, backend=None, **params)  # -D name=value  (see §3.1)
+build123d(path, /, method=None, **params)               # a .py file beside the contract
+cadquery(path, /, method=None, **params)                # adopted via .wrapped (D3)
 ```
+
+All three take a **path**, positionally. An earlier draft wrote `build123d(target,
+**params)` and described `target` as `"module:callable"` or a callable — neither works:
+the string is treated as a path and fails to resolve, and a callable raises `TypeError`.
+Naming the factory inside that file is `method=`, the same parameter the OpenSCAD side
+uses to name a module. `backend=` on `openscad` selects the mesh backend explicitly.
 
 The engine is declared, never sniffed from the file extension: a `.py` file could be
 either Python engine, and guessing is exactly the kind of implicitness this project exists
@@ -145,6 +152,10 @@ on. `p.requires` is the escape hatch for anything relational.
 | `p.hole_diameter(d, count=, tol=)` | `hole_diameter` | vector, `mm`, exact | **occt only** |
 | `p.bolt_circle(d, count=, bcd=, tol=)` | `bolt_circle` | scalar, `mm`, exact | **occt only** |
 | `p.fillet_radius(min=, max=)` | `fillet_radius` | vector, `mm`, exact | **occt only** |
+| `p.draft_angle(min=, direction=)` | `draft_angle` | vector, `deg`, exact | **occt only** |
+| `p.self_intersection_free()` | `self_intersection_free` | bool-valued, exact | **occt only** |
+| `p.step_roundtrip(tol=)` | `step_roundtrip` | vector, `rel`, exact | **occt only** |
+| `p.min_wall(min=)` | `min_wall` | scalar, `mm`, **interval** (exact when it collapses) | **occt only** |
 
 `builds` is **implicit and always present**: every part gets it, and it fails if the engine
 exits non-zero or emits no artifact. It is the one check an author cannot forget, and it is
@@ -207,15 +218,15 @@ difference*, which is a thing the tool should report loudly rather than absorb q
 
 ### 4.3 Deliberately NOT in v0
 
-- **`clearance` / `interference`** — `DIRECTION.md` §5 listed these as v0 because they are
+- **`clearance` / `interference`** — `notes/survey/DIRECTION.md` §5 listed these as v0 because they are
   *capability-portable* (exact on polyhedra via `manifold3d.min_gap`). **That was a
   category error: they take two bodies, and v0 is parts only (D11).** They move to post-v0
   with assemblies, where they have a subject. The portability finding stands and carries
   over unchanged.
-- **`min_wall`** — `unsupported` on the mesh tier for want of an honest lower bound
-  (`SPEC-report.md` §3.2). Ships when the BREP tier does.
-- **`hole_diameter`, `fillet_radius`, `bolt_circle`, `self_intersection`, `step_roundtrip`**
-  — BREP-tier only. Post-v0.
+*(Both `min_wall` and the BREP-tier feature checks were listed here and have since
+shipped — §4.5–§4.11. `min_wall` remains `unsupported` on the mesh tier for want of an
+honest lower bound, which was the real content of its entry.)*
+
 - **`overhang`** — mesh-native and genuinely better there than on BREP, so it is *cheap*;
   deferred only because printability is a separate concern from dimensional intent and
   would widen v0's story.
@@ -762,7 +773,7 @@ know what to assert, and a silent exit `3` in a batch is easy to miss.
 **A run whose every dimensional check is unattributed MUST draw one warning line** on the
 same channel, naming the part (#50). The dimensional kinds (`DIMENSIONAL_KINDS`:
 `param_range`, `envelope`, `volume`, `area`, `hole_diameter`, `bolt_circle`,
-`fillet_radius`) are the ones whose limits are numbers an author chose, and so the ones a
+`fillet_radius`, `draft_angle`, `min_wall`) are the ones whose limits are numbers an author chose, and so the ones a
 contract can make circular — a bound recomputed from the model's own constants cannot fail
 however the design moves, and a single green run cannot distinguish that from a proof.
 Attribution (§10) is the distinguisher: **the absence of `source` IS the unattributed
@@ -851,8 +862,9 @@ p.hole_diameter(seat.od, tol=0.05)     # the check records source: ISO 15 / 608 
 p.volume(min=1000.0)                    # a bare literal records nothing
 ```
 
-The seven bound-carrying methods (`param`, `envelope`, `volume`, `area`,
-`hole_diameter`, `bolt_circle`, `fillet_radius`) record `source: {field: citation}` on the
+The nine bound-carrying methods (`param`, `envelope`, `volume`, `area`,
+`hole_diameter`, `bolt_circle`, `fillet_radius`, `draft_angle`, `min_wall`) record
+`source: {field: citation}` on the
 check when a `Referenced` reaches their bounds (`SPEC-report.md` §7.1) — the report states
 not just what was claimed but on whose authority. Region and shell dimensions do not yet
 carry attribution: their values pass through geometric validation that normalises to plain

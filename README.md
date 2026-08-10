@@ -7,19 +7,24 @@ Verify CAD-as-code parts against declared engineering intent.
 > `--section` cuts on both tiers), `diff` on the reports and `vdiff` on
 > the renders they produce — and is dogfooded on real
 > parts. The vocabulary covers real mechanical intent: keep-out/keep-in regions,
-> `hole_diameter`, `bolt_circle` and `fillet_radius` on the OCCT tier. The loop is built
+> `hole_diameter`, `bolt_circle`, `fillet_radius`, `draft_angle`,
+> `self_intersection_free`, `step_roundtrip` and `min_wall` on the OCCT tier — the last
+> of which answers with a guaranteed interval and says `approximate` rather than guess
+> when a limit falls inside it. The loop is built
 > to run unattended: every build is bounded (`--timeout`), `check` takes many targets in
 > one process, a committed claims pin (`--pin`/`--expect`) catches a contract that shrank
 > with no baseline in hand, and the rules an agent follows are
 > [`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md).
-> And the repo teaches the craft it verifies: `partspec lint` (advisory, engine-free),
+> And the repo teaches the craft it verifies: `partspec lint` (advisory; tier 1 is
+> engine-free, the two `csg-*` tier-2 rules need the OpenSCAD binary and refuse without it),
 > three authoring skills, worked exemplars, the observed
 > [failure catalogue](https://github.com/CameronBrooks11/partspec/blob/main/docs/FAILURE-MODES.md),
 > and a [recorded before/after](https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md)
 > showing what the guidance changes.
 > [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is still withheld and why.
 > Expect the Python API to move: the stable surface is the report schema plus the exit
-> codes, and `partspec.run()` is internal.
+> codes. `partspec.run()` is internal — it is still in `__all__` for now, which is the
+> export's mistake rather than this sentence's, and it is being removed.
 
 ## What it is for
 

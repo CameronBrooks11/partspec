@@ -353,6 +353,52 @@ class MeshBackend:
             requires=Tier.OCCT,
         )
 
+    # The depth epic's four (SPEC-contract 4.8-4.11). Defined here for the
+    # same reason `bores` and `blend_radii` are: the runner consults
+    # `capabilities()` first so it never dispatches to these, but SPEC-backend
+    # §3.1 says a backend that cannot answer MUST return `Unsupported` rather
+    # than raise, and a direct caller getting an AttributeError from a library
+    # is exactly the failure that rule exists to prevent. Adding them to the
+    # Protocol without adding them here is what made `isinstance(MeshBackend(),
+    # GeometryBackend)` false (PR #151 review, R3).
+
+    def draft_angle(self, a: Any, direction: tuple[float, float, float]) -> Unsupported:
+        """A facet's normal is the tessellation's, not the surface's: every
+        draft angle read off a mesh is an artifact of $fn."""
+        return Unsupported(
+            "a facet's normal is the tessellation's, not the surface's, so a "
+            "draft angle read off a mesh varies with $fn and carries no bound",
+            requires=Tier.OCCT,
+        )
+
+    def self_intersection_free(self, a: Any) -> Unsupported:
+        """Mesh self-intersection needs a dependency that is either GPL
+        (libigl/CGAL) or heavyweight (pymeshlab) — an open question (D14),
+        not a capability this tier quietly has."""
+        return Unsupported(
+            "a mesh self-intersection test needs a library this tier does not "
+            "carry; answering from watertightness alone would miss the case",
+            requires=Tier.OCCT,
+        )
+
+    def step_roundtrip(self, a: Any) -> Unsupported:
+        """STEP is a BREP exchange format. A mesh written to STEP round-trips
+        its triangles, which says nothing about the part's fidelity."""
+        return Unsupported(
+            "STEP carries BREP; a triangle mesh has none, so a round trip "
+            "would measure the tessellation surviving, not the part",
+            requires=Tier.OCCT,
+        )
+
+    def min_wall(self, a: Any) -> Unsupported:
+        """The recorded refusal (POST-V0 §5): sampling is one-sided by
+        construction, so no principled lower bound exists on this tier."""
+        return Unsupported(
+            "sampling a mesh can only ever find a thinner wall, never bound "
+            "one from below, so no honest interval exists on this tier",
+            requires=Tier.OCCT,
+        )
+
     def region_solid(self, region: Any) -> Any:
         """Materialize a declared region as this tier's native solid.
 

@@ -1,7 +1,12 @@
 # PLAN — `partspec` v0
 
-**Date:** 2026-08-02
-**Reads with:** `DECISIONS.md` (D1–D15), `SPEC-report.md`, `SPEC-contract.md`,
+**Date:** 2026-08-02 · **frozen 2026-08-05**
+**Status:** **HISTORICAL.** This describes how v0 was built and what was known while
+building it. It is not a description of the current feature set — §5's "deliberately not
+in v0" list has since shipped almost entirely, and §7 is the only part still load-bearing.
+For what exists now, read `README.md` and `SPEC-contract.md` §4; for what is still
+withheld, `POST-V0.md`.
+**Reads with:** `DECISIONS.md` (D1–D19), `SPEC-report.md`, `SPEC-contract.md`,
 `SPEC-backend.md`, `POST-V0.md`.
 **Shape:** survey → build → dogfood, following the `scadman` precedent (D1). This working
 directory is the survey and is **throwaway**; only its distilled outputs get promoted.
@@ -70,7 +75,8 @@ the design risk lives, and it is testable without a CAD kernel.
 
 `openscad -D … --export-format binstl` → `trimesh.load_mesh()` → measure. Never parse
 `--summary` (D13). Implements: `bbox`, `volume`, `area`, `center_of_mass`, `watertight`,
-`solid_count`, `genus`, `triangles`, `facets`. Returns `Unsupported` for topology counts and
+`solid_count`, `genus`, `triangles`, `facets`. (`facets` was renamed `distinct_normals`
+before it shipped — D16.) Returns `Unsupported` for topology counts and
 self-intersection.
 
 Mesh before OCCT because it is the cheaper install, the faster loop, and the engine with the
@@ -228,20 +234,20 @@ bolted on when OpenSCAD support arrives.
 
 | risk | why it matters | mitigation |
 |---|---|---|
-| **The `approximate` machinery is dead code in v0** | No v0 check can produce it (`SPEC-report.md` §10). Its first real exercise will be its first bug report. | Accept. Unit-test the adjudicator directly with synthetic intervals so it is at least *tested*, even if unexercised. |
+| **The `approximate` machinery is dead code in v0** (no longer — see the mitigation) | No v0 check can produce it (`SPEC-report.md` §10). Its first real exercise will be its first bug report. | Accept. Unit-test the adjudicator directly with synthetic intervals so it is at least *tested*, even if unexercised. **Discharged 2026-08-09**: `min_wall` (#140) exercises it with real geometry, and the first exercise was a fixture rather than a bug report. |
 | **The parts have nothing interesting to say** | If every contract passes first try, the project has proved nothing. | Deliberately contract a part **known to have a defect**, and confirm the report catches it. A green dogfood run is a failed experiment. |
 | ⚠️ **This risk fired.** `bayonet-lock-scad` carries 12 of its own `assert()`s, so OpenSCAD already rejects every invalid parameterisation and partspec's `requires` checks are redundant there (dogfood F1). | The first dogfood subject was the best-defended library in the corpus — the worst choice for demonstrating the tool. | **P6 must start from a library with no asserts** (`NEMA17.scad`, `bearings.scad`, `hotends.scad`). Until then the core claim is untested on a subject that needs it. |
 | Silent OCP clobbering | `cadquery-ocp` and `-novtk` both own `OCP/`; pip does not notice | Pin + lock + CI assertion (P4) |
-| Contract weakening undetected | Known gap: needs `diff`, out of v0 scope | Recorded in `SPEC-report.md` §7.1. `counts.total` + `contract_digest` make it detectable on comparison |
+| Contract weakening undetected | Known gap: needs `diff`, out of v0 scope | Recorded in `SPEC-report.md` §7.1. **Closed**: `diff` (#83) names removed and claim-changed checks, and the claims pin `--expect` (#31) refuses before the engine starts |
 | Scope creep into assemblies | The absorbed design's best ideas are assembly-level | `POST-V0.md` exists to hold them |
 
 ### Deferred setup
 
-- **Branch protection is OFF, deliberately** (decided 2026-08-03) — requiring PRs and the
-  `ok` check on a solo repo costs velocity during bootstrap, and the gate already reports
-  correctly. Turn on before the first outside contributor, or before v0.1.0 is tagged,
-  whichever comes first. Squash-only merges are already locked; what remains is requiring
-  the `ok` status check and linear history.
+- **Branch protection was OFF, deliberately** (decided 2026-08-03) — requiring PRs and the
+  `ok` check on a solo repo cost velocity during bootstrap, and the gate already reported
+  correctly. The condition was "before v0.1.0 is tagged", and it was met: `main` now
+  requires the `ok` check and linear history, blocks force-pushes and deletions, and
+  requires conversation resolution. **Done 2026-08-05; this entry is history.**
 
 ---
 
@@ -253,12 +259,18 @@ suite · PartCAD integration · a viewer.
 
 Each has a recorded reason. None is "we ran out of time."
 
+**As of 2026-08-09, all but four have shipped**: `diff` (#83), the MCP server (#63/#66),
+renders (#18/#19/#21), the BREP-tier feature checks (epic #6) and `min_wall` (#140).
+`--allow-incomplete` was refused outright rather than deferred (`SPEC-report.md` §6.2).
+Still withheld and still reasoned: assemblies with `clearance`/`interference`
+(`POST-V0.md` §1), the benchmark suite, PartCAD integration, and a viewer.
+
 ---
 
 ## 6. What promotes out of this directory
 
 To `partspec/docs/`: `DECISIONS.md` (renumbered from D1), the three specs, `POST-V0.md`.
-Archived here: the investigations, `SYNTHESIS.md`, `TRIAGE.md`, `DIRECTION.md` — the
+Archived here: the investigations, `SYNTHESIS.md`, `TRIAGE.md`, `notes/survey/DIRECTION.md` — the
 reasoning trail, per D7 of the scadman precedent (*"only its stable outputs are promoted"*).
 
 ---

@@ -6,13 +6,18 @@ assemblies rather than be retrofitted. Writing the backlog now is what makes tha
 and it is also where the best ideas being absorbed from cad-khana live, so leaving them
 unrecorded would quietly lose them.
 
-Nothing here is scheduled. This is a holding pen, not a roadmap.
+Nothing here is scheduled. This is a holding pen, not a roadmap — and a holding pen for
+what is **still withheld**, which is the only thing it is useful for. Sections whose
+subject has since shipped are reduced to a pointer at the spec that now owns it, rather
+than kept as struck-through archaeology: half this file had become a record of completed
+work, in a document `README.md` sells as "what is still withheld and why". Assemblies (§1)
+and printability (§6) are the substance now.
 
 ---
 
 ## 1. Assemblies — the largest item
 
-Everything below is from `investigations/03-cad-khana-absorption.md` and is deferred whole.
+Everything below is from `notes/survey/03-cad-khana-absorption.md` and is deferred whole.
 **Scheduling decision, 2026-08-07:** D19 places assemblies after v1.0 — the v1.0 budget
 goes to part-level depth of intent. This section is the design basis for when they begin.
 
@@ -31,7 +36,7 @@ standalone sub-assembly run needs.
   shared datum is, in its own frame; the parent asserts the beliefs coincide after
   placement. Replaces mirror-constant + drift-assert pairs.
 - **Relational checks** — `clearance`, `interference`, `tangent_contact`, `allowed_contact`,
-  `expected_interference`. These were briefly listed as v0 in `DIRECTION.md` §5 because they
+  `expected_interference`. These were briefly listed as v0 in `notes/survey/DIRECTION.md` §5 because they
   are capability-portable; that was a category error (they take two bodies). The portability
   finding stands: `manifold3d.min_gap` returned exactly 7.5, and intersection volume was
   exact on both tiers.
@@ -54,85 +59,55 @@ deliberately omitted from v0.
 
 ---
 
-## 2. `diff` — and the gap it closes
+## 2. `diff` — SHIPPED
 
-**Shipped 2026-08-07 (#83): `partspec diff`, spec'd in `SPEC-diff.md`.** The section
-below is the design basis it was built from.
+Shipped 2026-08-07 (#83). `SPEC-diff.md` owns the design, the outcome vocabulary and the
+exit codes; `SPEC-report.md` §7.1 owns the silent-weakening argument that motivated it.
 
-The semantic report differ. Consumes two reports, emits its own artifact. Reports
-`regressed` / `fixed` / `added` / `removed` per check, **plus value drift on checks whose
-pass/fail state did not change** — "drift the boolean can't see." A wall thinning from
-2.9 mm to 2.1 mm against a 2.0 mm minimum is two passes and one important trend.
-
-This is why `SPEC-report.md` §7.2 mandates recording measurements on pass. The field exists
-in v0; the consumer does not.
-
-**It closes the one known undetected gap in v0:** silent contract weakening. An agent that
-deletes a check produces an internally consistent green report; `counts.total` and
-`contract_digest` make that *detectable on comparison*, not visible on inspection. `diff` is
-the comparison. *(Since #31 the gap is also closed with no baseline in hand: the claims pin
-— `check --pin` / `--expect` — fails a single run whose declared claim set drifted from its
-committed lock, naming what moved.)*
-
-Needs a numeric tolerance (`1e-6`), not exact float equality — rebuilding identical geometry
-through a different transform-composition order perturbs coordinates at ~1e-13, and exact
-comparison would report noise and bury signal.
-
-**It must also honour `part.source_closure.partial`** (`SPEC-report.md` §8.3). Matching
-digests on a partial closure mean "nothing we looked at changed", not "nothing changed", and
-a differ that reports the two as identical inputs would be making the same
-silence-as-success mistake at the provenance layer. Treat it as `unsupported` is treated for
-a check.
 
 ---
 
-## 3. MCP server
+## 3. MCP server — SHIPPED
 
-**Shipped 2026-08-07 (#63, #66): `partspec-mcp`,** stateless `check` / `measure` / `render`
-tools, each a fresh subprocess returning the artifact the CLI writes (D18). The paragraph
-below was the design basis; D5's "~100 lines" estimate held.
+Shipped 2026-08-07/08 (#63, #66, #28; `vdiff` joined in #131). D18 owns the stateless
+subprocess-per-call design; `AGENT-CONTRACT.md` owns how an agent drives it, including
+which flags the MCP surface does *not* expose.
 
-The other half **shipped 2026-08-08 (#28): `docs/AGENT-CONTRACT.md`** — cad-khana's
-`SKILL.md` agent contract, the strongest artifact in that repo, rebuilt against this
-tool's real surfaces: a bounded **5-attempt** repair loop, machine-greppable escalation
-(`HUMAN_REVIEW: <why> — last failure: <check id>: <detail>`), feeding failure forward
-rather than restarting, the **vacuous green** checklist (counts, attribution, closure,
-expectation), and the out-of-bounds section naming the guards (#31's claims pin, `diff`,
-`attribution`) that watch the weakening moves it forbids.
 
 ---
 
-## 4. BREP-tier checks
+## 4. BREP-tier checks — SHIPPED
 
-~~`hole_diameter`~~ (shipped 2026-08-07, #80 — `SPEC-contract.md` §4.5), ~~`hole_pattern` /
-bolt circle~~ (shipped 2026-08-07, #81 — §4.6), ~~`fillet_radius`~~ (shipped 2026-08-07,
-#82 — §4.7), ~~`draft_angle`~~ (shipped 2026-08-08, #137 — §4.8),
-~~`self_intersection`~~ (shipped 2026-08-08, #138 — §4.9), ~~`step_roundtrip`~~
-(shipped 2026-08-08, #139 — §4.10). All
-`unsupported` on mesh, irreducibly — no conversion recovers them (`investigations/04` §4).
+All six shipped between 2026-08-07 and 2026-08-09 and are specified in `SPEC-contract.md`
+§4.5–§4.10: `hole_diameter` (#80), bolt circle (#81), `fillet_radius` (#82), `draft_angle`
+(#137), `self_intersection_free` (#138), `step_roundtrip` (#139). All `unsupported` on
+mesh, irreducibly — no conversion recovers them.
 
-**These were predicted to be the first checks to exercise the `approximate` machinery.**
-The prediction failed on its first member: `hole_diameter` landed exact, because a BREP
-cylinder's radius is a surface parameter, not an estimate. §3.1's real test is still
-outstanding, and whichever check first carries a genuine error interval inherits the
-obligation.
+One prediction from this section is worth keeping because it failed twice and then came
+true. These were expected to be the first checks to exercise the `approximate` machinery;
+`hole_diameter` landed exact (a BREP cylinder's radius is a surface parameter, not an
+estimate), and so did the next four. The obligation was discharged by `min_wall` (§5).
 
-`self_intersection` additionally needs a mesh-side answer that is neither GPL (libigl/CGAL)
-nor heavyweight (pymeshlab) — currently an open dependency question (D14).
+Still open here: a mesh-side self-intersection answer that is neither GPL (libigl/CGAL) nor
+heavyweight (pymeshlab) — a dependency question (D14), not a design one.
 
 ---
 
-## 5. `min_wall` — SHIPPED on the BREP tier (2026-08-09, #140 — SPEC-contract §4.11)
+## 5. `min_wall` — SHIPPED on the BREP tier
 
-The deferral reason held for the mesh tier and is now recorded with executed evidence
-(§4.11): sampling is one-sided by construction — more samples can only ever find a
-*thinner* wall — so no principled `lo` exists there, and every erosion-style candidate
-was executed and refused. The ship condition ("the BREP tier makes a different method
-available") was met by the face-pair minimum-distance method: kernel-exact `lo`,
-witnessed-span `hi`, a guaranteed interval that finally exercises the `approximate`
-machinery. cad-khana's `min_wall_alignment` was reconstructed and falsified by execution
-(a shallow taper measures alignment 0.995); the shared-edge exclusion replaces it
-structurally.
+Shipped 2026-08-09 (#140); `SPEC-contract.md` §4.11 owns the measurand, the bound, the
+five recorded escapes and the calibration. Two things belong here rather than there,
+because they are backlog facts:
+
+- **The mesh tier's refusal stands, with executed evidence.** Sampling is one-sided by
+  construction — more samples can only ever find a *thinner* wall — so no principled `lo`
+  exists there, and every erosion-style candidate was executed and refused. Shipping this
+  on mesh needs a new method, not more effort.
+- **cad-khana's `min_wall_alignment` was reconstructed and falsified**: a shallow taper
+  measures alignment 0.995, indistinguishable from a slab, so the scalar cannot separate a
+  wedge from a wall. The structural shared-edge rule replaces it.
+
+This is also where §4's `approximate` obligation was discharged.
 
 ---
 
@@ -153,7 +128,7 @@ That gap is a genuine opportunity if this project ever wants one.
 
 ## 7. Smaller items
 
-- **`geometry.facets` on the OCCT tier** — currently mesh-only. Would need a deliberate
+- **`geometry.distinct_normals` on the OCCT tier** — currently mesh-only. Would need a deliberate
   tessellation, which is a design choice rather than a measurement.
 - ~~**Per-component vector statuses** (`SPEC-report.md` Q8)~~ — shipped 2026-08-07 as
   `checks[].components` (#84).
@@ -170,17 +145,9 @@ That gap is a genuine opportunity if this project ever wants one.
 
 ---
 
-## 8. In-process batching invalidates a stale Python model cache
+## 8. In-process batching — SHIPPED
 
-**Shipped 2026-08-08 (#29):** multi-target `check` landed with the invalidation this
-section demanded — the model's directory subtree is evicted from `sys.modules` after
-every Python-engine build, in `run()` itself rather than only between batch targets,
-because PR #101's review demonstrated the staleness live in a plain two-build process.
-The paragraph below is the design basis.
-
-Found while adding the Python source closure (2026-08-05). D5 answers OCP's multi-second
-import cost with **batching** — one process evaluating many contracts — rather than a daemon.
-That is still right, but it has a consequence nothing previously handled: `sys.modules` caches
-a model's helper modules, so a second contract in the same process that imports an edited
-helper gets the *previous* version of it — a stale build reported as fresh, with a closure
-digest computed from the edited file on disk that never reached the interpreter.
+Shipped with batch mode (#29). The normative rule is `SPEC-report.md` §6.2 (§5 rule 4 is the no-early-abort rule), and the
+eviction machinery is `engines/pycad.py`'s module registry — whose two recorded ceilings
+(a same-second same-length edit defeating CPython's pyc validation, and the registry's
+refusal to sweep by directory) are the part worth remembering.

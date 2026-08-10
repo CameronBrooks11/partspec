@@ -383,7 +383,7 @@ callouts, and reports become comparable.
   - Reports what it could not cover: `unresolved` includes, and `reads_external_data` when
     `import()`/`surface()` name files whose paths may be computed at render time. Either
     sets `partial`, stated positively so absence cannot be read as a guarantee.
-  - Python engines emit none — a claim withheld rather than one made. `environment.packages`
+  - Python engines emit none — a claim withheld rather than one made. **(Historical note, corrected 2026-08-09: this was already untrue at the tag. The Python closure shipped in `83f1119`, inside v0.1.0, emitting `scope: "model_directory", partial: true`; SPEC-report §8.3 records the reversal two days before the tag and this entry was written from the superseded plan.)**. `environment.packages`
     already covers installed deps; local helper modules beside a model are a recorded gap.
 
 - **`p.topology(faces=, edges=, vertices=)`** — modelled face/edge/vertex counts, and the

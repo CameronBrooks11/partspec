@@ -1,12 +1,13 @@
 # SPEC — the `partspec` geometry backend
 
-**Status:** draft 3 · 2026-08-08 · `build()` grows `timeout_s` with the blown-budget
+**Status:** draft 4 · 2026-08-09 · the protocol block gains the five primitives it was
+missing, the `decompose()` and winding claims are corrected; `build()` grows `timeout_s` with the blown-budget
 MUSTs and the stated in-process enforcement ceiling
 **Scope:** the protocol a geometry backend implements, the two v0 implementations, and how
 `exactness`, `bounds` and capability gating are determined.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
 **Backing:** D3 (two backends), D13 (ignore `--summary`), D14 (trimesh + manifold3d),
-D15 (measurand), `investigations/03` §2, `investigations/04`.
+D15 (measurand), `notes/survey/03-cad-khana-absorption.md` §2, `notes/survey/04-kernel-capability.md`.
 
 ---
 
@@ -73,7 +74,11 @@ class GeometryBackend(Protocol):
     #   exit even though the report is finished and honest.
     def provenance(self, a) -> dict: ...    # -> report.geometry block
 
-    # --- the primitives (the original twelve: investigation 03 §2) ---
+    # --- the primitives. "The original twelve" was the survey's set (investigation
+    #     03 §2) and the count has been wrong in this file ever since: the block
+    #     below has always held thirteen, and the two backends now implement 22
+    #     capabilities between them. The survey's dozen is a historical note, not
+    #     an inventory. ---
     def bbox(self, a) -> Measured: ...
     def volume(self, a) -> Measured: ...
     def area(self, a) -> Measured: ...
@@ -97,15 +102,29 @@ class GeometryBackend(Protocol):
     def bore_table(self, a) -> list[BoreInfo] | Unsupported: ...   # raw data, like triangles
     def blend_radii(self, a) -> Measured | Unsupported: ...        # partial-wrap clusters (SPEC-contract 4.7)
 
+    # --- added for cavities (SPEC-contract.md §4.2); both tiers ---
+    def cavities(self, a) -> Measured | Unsupported: ...
+
+    # --- added by the depth epic (#136), all OCCT-only (SPEC-contract.md §4.8-4.11) ---
+    def draft_angle(self, a, direction) -> Measured | Unsupported: ...
+    def self_intersection_free(self, a) -> Measured | Unsupported: ...
+    def step_roundtrip(self, a) -> dict | Unsupported: ...
+    def min_wall(self, a) -> Measured | Unsupported: ...
+
     # --- honesty ---
     def capabilities(self) -> frozenset[str]: ...
 ```
 
-`min_distance` / `raycast` are present because they are part of the original twelve and the
-mesh backend implements them cheaply; **no check calls them yet** (they serve `clearance` /
-`interference` / `min_wall`, all deferred per `SPEC-contract.md` §4.3). They are specified
-now so the protocol does not change when those land. `intersect_volume` gained its first
-caller with `keep_out` / `keep_in`; its empty case is normative — **disjoint inputs MUST
+`min_distance` and `raycast` are present because the survey listed them, and **no check
+calls either**. Two corrections to what this paragraph used to say. `min_wall` is no longer
+among the deferred — it shipped (#140) and implements its own ray casting inline against
+`IntCurvesFace_ShapeIntersector` rather than going through `raycast`, so the stated reason
+for keeping `raycast` unimplemented no longer holds; what remains deferred is `clearance` /
+`interference`, with assemblies. And the mesh backend does *not* implement `raycast`
+cheaply: it declares the capability and raises `ModuleNotFoundError` for want of `rtree`,
+which is a declared capability that cannot be honoured — the one thing §3.2 says
+capabilities exist to prevent. `intersect_volume` gained its first caller with `keep_out` /
+`keep_in`; its empty case is normative — **disjoint inputs MUST
 return a `0.0` measurement, not raise**, because the conforming case of a `keep_out` is
 exactly two disjoint shapes (build123d's `&` returns `None` there, and the naive
 `.volume` read crashed on the first real call).
@@ -210,7 +229,7 @@ approximated, so there is no tessellation error to bound.
 This dissolves the question the review raised — *"how does a backend know whether its input
 is polyhedral or a tessellated curve?"* Under D15 the backend does not need to know, because
 the distinction is not about measurement accuracy. It is about **design identity**, and it
-is reported through `geometry.facets` and `geometry.triangles` rather than through error
+is reported through `geometry.distinct_normals` and `geometry.triangles` rather than through error
 bars.
 
 > **Corrected 2026-08-05 (dogfood F14).** The paragraph above is true of a mesh that
@@ -228,7 +247,7 @@ bars.
 |---|---|---|
 | `bbox`, `area`, `triangles`, `distinct_normals` | none — statements about the triangles as exported | always answered |
 | `watertight` | none — it *is* the closedness test | always answered |
-| `volume`, `center_of_mass` | closed **and** consistently wound: the divergence theorem sums signed contributions, so a flipped triangle subtracts where it should add | `Unsupported` |
+| `volume`, `center_of_mass` | closed, consistently wound **and outward-oriented**: the divergence theorem sums signed contributions, so a flipped triangle subtracts where it should add — and a uniformly inverted mesh is closed and consistent while every component encloses negative volume, which is refused too | `Unsupported` |
 | `genus` | closed, and exactly one body | `Unsupported` |
 | `solid_count` | no edge shared by more than two faces | `Unsupported` |
 
@@ -340,9 +359,12 @@ all in v0.
 drift explainer, because chord error scales with edge length. Both, not either.
 
 **Not** trimesh's `.facets` coplanar grouping, which requires `scipy` or `networkx` — see
-D16. Likewise `solid_count` uses `manifold3d.decompose()` rather than trimesh's
-`body_count`, which routes through the same graph machinery and raises `ImportError`
-without it.
+D16. Likewise `solid_count` uses **neither** `manifold3d.decompose()` nor trimesh's
+`body_count`: it counts bodies itself from face connectivity over the exported triangles
+(`_shell_census` / `_face_components`). `body_count` routes through the same graph
+machinery and raises `ImportError` without `scipy`; `decompose()` was the earlier plan and
+this paragraph went on describing it after §5.1.2 replaced it. Counting in-backend is what
+D17 requires and what `just test-mesh-only` exists to keep honest.
 
 ---
 
