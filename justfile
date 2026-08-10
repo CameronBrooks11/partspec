@@ -111,6 +111,11 @@ ocp-guard:
 # Remove build artifacts
 clean:
     rm -rf .venv dist outputs .pytest_cache .ruff_cache .pyright .mypy_cache .coverage
+    # `outputs/` above is only the repo root's. Every exemplar writes its own
+    # `examples/<name>/outputs/` on a `check` or `render`, all four matched by
+    # the same `outputs/` gitignore line, and `just clean` left every one of
+    # them behind. Driven off the gitignore pattern, not a hand-listed four.
+    find examples -type d -name outputs -exec rm -rf {} + 2>/dev/null || true
     find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 # Run the agent-convergence evals (see evals/README.md). Costs real agent calls.

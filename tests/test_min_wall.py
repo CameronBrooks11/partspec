@@ -627,7 +627,7 @@ def test_an_unanswerable_chord_is_never_a_certificate(monkeypatch):
     fixture can reach must be forced at the seam rather than accepted as
     untestable — and the new function had two such branches. Both are forced
     here: a kernel that reports failure, and a kernel that raises."""
-    import OCP.BRepAlgoAPI  # pyright: ignore[reportMissingImports]
+    import OCP.BRepAlgoAPI
 
     from partspec.backends.occt import _chord_span
 

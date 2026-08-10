@@ -86,7 +86,7 @@ def _axis_key(
     # groups and reporting a hole that exists as absent.
     canonical = direction
     if next((c for c in canonical if abs(c) > 5e-7), 1.0) < 0:
-        canonical = tuple(-c for c in canonical)  # type: ignore[assignment]
+        canonical = tuple(-c for c in canonical)
     along = sum(o * d for o, d in zip(origin, canonical, strict=True))
     foot = tuple(o - along * d for o, d in zip(origin, canonical, strict=True))
     key = (

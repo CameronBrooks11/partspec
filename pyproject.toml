@@ -51,9 +51,13 @@ Documentation = "https://github.com/CameronBrooks11/partspec/tree/main/docs"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# The sdist shipped everything not gitignored, and `uv.lock` alone was 27% of
-# it — half a megabyte a consumer cannot use, since it pins this repo's dev
-# environment and not the package's requirements.
+# The sdist shipped everything not gitignored, including `uv.lock` — which
+# pins this repo's dev environment, not the package's requirements, so a
+# consumer cannot use it. Building both ways: 529 KB excluded, 689 KB included,
+# so it costs 160 KB (23% of the shipped tarball). NOT "half a megabyte", as
+# this comment claimed: the lock is 511 KB on disk and gzip does most of the
+# work on a file that repetitive. The number to quote is the one measured on
+# the artifact that ships.
 #
 # What is NOT excluded is the more considered half. `tests/` ships because a
 # downstream packager runs the suite from an sdist, and that claim only holds
@@ -97,7 +101,7 @@ override-dependencies = ["cadquery-ocp-novtk ; sys_platform == 'never'"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    "ruff==0.16.*",  # pinned with .pre-commit-config.yaml — see the note there
+    "ruff==0.16.1",  # EXACT, and equal to .pre-commit-config.yaml — see the note there
     "pyright>=1.1",
 ]
 
@@ -115,31 +119,54 @@ extend-exclude = ["*.md", "notes"]
 force-exclude = true
 
 [tool.ruff.lint]
-# Measured before adopting, each with `--extend-select` on top of the base set.
+# The rule set and the reasoning behind it, with `tests/test_lint_config.py`
+# re-deriving each claim below from ruff itself. PR #155's review found four
+# numbers here wrong, all written from memory — the same failure this repo
+# refuses everywhere else. (Not "every number is re-derived", which is what this
+# comment first claimed while `86` and `six` sat in it unasserted. The test now
+# covers each surviving one, and the ones it cannot make durable were rewritten
+# as properties instead.)
 #
-# `C4`, `S102` and `S307` cost ZERO violations today. The last two matter more
-# than that sounds: this repo carries five `# noqa: S102`/`S307` comments over
-# the places it executes user-supplied CAD-as-code, and they suppressed rules
-# nobody had enabled — a hazard marked "reviewed and waived" with no reviewer.
-# Enabling them turns five decorative comments into enforced ones.
+# `C4` costs zero outright: nothing in the tree trips it. `S102`, `S307` and
+# `BLE` cost zero only in the sense that matters least — `ruff check` is silent
+# because `# noqa` comments already sat there. Run `--ignore-noqa` and they find
+# real code: the `S102`/`S307` sites are where this tool executes user-supplied
+# CAD-as-code, and the `BLE001` ones are its blind excepts. Those annotations
+# suppressed rules nobody had enabled — a hazard stamped "reviewed and waived"
+# with no reviewer — and adopting the rules is what made them live.
 #
-# `BLE` costs 2 and makes the ten existing `noqa: BLE001` annotations true for
-# the same reason. `PTH` costs 4. `PT` costs 88, of which 86 are `PT018`
-# (composite `assert a and b`) — high churn, taste-dependent, and an unsafe
-# autofix across 86 test assertions is not a diff worth reviewing, so it is
-# ignored and the remaining 2 adopted. `RUF` costs 47, of which 6 are `RUF002`
-# (ambiguous unicode in a docstring) — this repo writes em-dashes deliberately
-# throughout its prose, and that rule fights the house voice.
+# So the durable claim is not a count of them but the pair of properties the
+# test asserts: honoring `noqa`, each rule finds nothing (the tree is clean);
+# ignoring `noqa`, each finds something (the waivers cover real sites, and
+# `RUF100` proves none has gone inert).
 #
-# `ARG` (55, of which 41 in tests) is deliberately NOT adopted: an unused
-# fixture argument is the normal shape of a pytest test, and the eight real
-# ones were found by walking the AST instead.
+# `ARG` is deliberately NOT adopted: an unused fixture argument is the normal
+# shape of a pytest test, most of its findings are there, and the real ones were
+# found by walking the AST instead.
 select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PTH", "PT", "RUF", "BLE", "S102", "S307"]
-ignore = ["PT018", "RUF002"]
+
+# `PT018` only: composite `assert a and b` in tests — 86 of them, which the
+# test re-derives — an unsafe autofix across every one, and a rule that affects
+# failure-message quality rather than correctness.
+#
+# `RUF002` is deliberately NOT ignored, though an earlier draft of this comment
+# claimed it had to be "because this repo writes em-dashes on purpose". Em-dashes
+# are never flagged by RUF001-003; every finding, then and now, is the
+# MULTIPLICATION SIGN in prose like "3 × 4". Allowing that one confusable keeps
+# the rule enforced at zero cost, where the blanket ignore would have retired it
+# on a false premise. The test asserts both halves: zero findings with `×`
+# allowed, and `×` as the only reason there would be any without it.
+ignore = ["PT018"]
+allowed-confusables = ["×"]
 
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
+# The pyright equivalent of ruff's RUF100. Without it a `# pyright: ignore` that
+# suppresses nothing passes silently — which is the decorative-waiver shape this
+# slice removed from the ruff side, so leaving it on the type-checker side would
+# have been inconsistent. Turning it on surfaced five stale ignores.
+reportUnnecessaryTypeIgnoreComment = "error"
 include = ["src", "tests", "examples", "evals", "scripts"]
 # `examples/` in particular: it is user-facing teaching material, and an example
 # that would not type-check is a worse lesson than one that would. `evals/` and

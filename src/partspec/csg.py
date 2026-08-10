@@ -278,7 +278,7 @@ def _plane(normal, point) -> tuple[float, float, float, float]:
         if component > 0:
             break
         if component < 0:
-            rounded = tuple(-v if v != 0 else 0.0 for v in rounded)  # type: ignore[assignment]
+            rounded = tuple(-v if v != 0 else 0.0 for v in rounded)
             break
     return rounded  # type: ignore[return-value]
 

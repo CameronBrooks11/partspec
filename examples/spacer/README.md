@@ -8,10 +8,14 @@ a contract beside it, and a report that says which claims were proven.
 $ partspec check examples/spacer/spec.py:spacer
 ```
 
-Every other exemplar teaches something extra — `bearing-block` teaches one
-contract across two engines, `stepper-bracket` teaches a cited interface
-standard, `enclosure` teaches a family whose members disagree. This one teaches
-nothing extra on purpose.
+Every other exemplar teaches something extra. `bearing-block` runs the *shared*
+claims against both engines — not one identical contract, which is the point: the
+build123d leg adds the cited seat diameter, and the OpenSCAD leg omits it because
+a 96-gon bore has no diameter to measure. `stepper-bracket` reduces a whole
+mounting interface to one cited call, `nema17.mount(p)`. `enclosure` is one
+factory with four members, three ordinary and one whose walls consume its own
+height — `requires` disproves that member in the parameter phase, before a render
+is attempted. This one teaches nothing extra on purpose.
 
 ## What it claims, and why each claim is here
 

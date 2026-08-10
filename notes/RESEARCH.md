@@ -246,6 +246,6 @@ The audit in `notes/audit-synthesis.md` was executed against the tracker:
 - **14 issues gained an "Audit revision — 2026-08-06" section** rather than a silent rewrite, so the correction is auditable.
 - **Epics #5 and #6 are no longer childless**; #7 gained its three pre-tag schema slices.
 
-Scripts: `file_audit_issues.py`, `revise_audit_issues.py`, removed in the v0.7.0 sweep and
-recoverable from git history — see `notes/README.md` (both REST — the audit's
-120 agents exhausted the GraphQL quota, and `gh issue create`/`list`/`edit` all route through it).
+Scripts: removed in the v0.7.0 sweep, recoverable from git history — see
+`notes/README.md`. (Both were REST: the audit's 120 agents exhausted the GraphQL
+quota, and `gh issue create`/`list`/`edit` all route through it.)

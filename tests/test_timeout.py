@@ -125,7 +125,14 @@ def test_a_nested_window_restores_the_outer_bound():
         with _time_limit(0.05):
             pass  # completes without firing
         time.sleep(5)  # the OUTER bound must still stop this
-    assert time.monotonic() - started < 3
+    elapsed = time.monotonic() - started
+    # BOTH bounds, because `< 3` alone cannot tell the two outcomes apart. If the
+    # inner 0.05s window leaked its alarm instead of restoring the outer one, the
+    # sleep is cut at ~0.05s, `_BuildTimeout` raises anyway, and an upper-bound-only
+    # assertion passes on the exact bug the test is named for. The floor is what
+    # distinguishes "the outer window fired" from "an inner leak fired early".
+    assert elapsed >= 0.4, f"fired at {elapsed:.3f}s — an inner alarm leaked"
+    assert elapsed < 3, f"the outer bound did not stop the sleep ({elapsed:.3f}s)"
 
 
 def test_a_bound_off_the_main_thread_is_refused_not_silently_dropped():

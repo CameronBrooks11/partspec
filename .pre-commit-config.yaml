@@ -12,10 +12,13 @@ repos:
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-added-large-files
-        # `uv.lock` is 512 KB and already tracked, so the default 500 KB limit
-        # passes today only because the hook inspects newly-ADDED files. A
-        # fresh clone adding it for the first time would trip on a file this
-        # repo commits deliberately.
+        # `uv.lock` is 511.5 KB, over the default 500 KB limit, and committed
+        # deliberately. It passes today only because the hook filters to
+        # genuinely new paths (`git diff --staged --diff-filter=A`), and
+        # `uv.lock` is already tracked — modifying it is never checked. Cloning
+        # stages nothing, so a fresh clone is not the hazard; the commit that
+        # first ADDED the lock was, and a re-add after deleting and
+        # regenerating it would be again.
         args: [--maxkb=1024]
 
   # Pinned to the SAME ruff the gate runs. These hooks are mutating
@@ -23,7 +26,14 @@ repos:
   # diff `just check` then rejects — two answers to one question, which is the
   # drift `just setup`'s comment says this project already got burned by once.
   # 0.11.12 and 0.16.1 happened to agree on this tree; that was luck, not a
-  # property. Bump this rev and the dev-group pin together.
+  # property.
+  #
+  # This said "the SAME ruff" while the dev group pinned `ruff==0.16.*`, which
+  # admits any patch release — so the two could not diverge by more than a
+  # patch, but "the same" was not what was pinned, and ruff ships formatter
+  # changes in patch releases. Both are exact now, and
+  # `test_lint_config.py::test_both_ruff_pins_name_one_version` holds them
+  # equal, so bumping one alone fails the gate instead of drifting quietly.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.1
     hooks:

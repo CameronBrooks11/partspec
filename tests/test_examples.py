@@ -86,8 +86,14 @@ def test_every_exemplar_model_is_parameterised_and_documented():
     # Derived, not listed: `spacer` had no README for six releases while being
     # the example the front page inlines, and a hardcoded list is what let that
     # sit. Every exemplar directory now has to explain itself.
-    exemplars = sorted(d for d in EXAMPLES.iterdir() if d.is_dir() and (d / "spec.py").exists())
-    assert len(exemplars) >= 3, "the exemplars moved; this test needs to know"
+    #
+    # `spec*.py`, not `spec.py` — `bearing-block` carries `spec_py.py` and
+    # `spec_scad.py`, so the first version of this derivation silently DROPPED
+    # it and the check was weaker than the hardcoded list it replaced (PR #155
+    # review). And `== 4`, not `>= 3`: three-of-four passing is precisely how
+    # that went unnoticed.
+    exemplars = sorted(d for d in EXAMPLES.iterdir() if d.is_dir() and any(d.glob("spec*.py")))
+    assert len(exemplars) == 4, f"the exemplars moved; this test needs to know: {exemplars}"
     for d in exemplars:
         assert (d / "README.md").is_file(), f"{d.name} must explain what it teaches"
     bracket = (EXAMPLES / "stepper-bracket" / "bracket.py").read_text()
@@ -112,9 +118,22 @@ def test_the_spacer_readme_describes_the_contract_it_documents():
     for claim in claimed:
         assert f"p.{claim}" in spec, f"the README claims `p.{claim}`, which the contract does not"
 
-    declared = set(re.findall(r"^    p\.(\w+)\(", spec, re.M))
-    documented = {c.split("(")[0] for c in claimed}
-    assert declared == documented, (
-        f"undocumented claims: {sorted(declared - documented)}; "
-        f"documented but absent: {sorted(documented - declared)}"
+    # Whole calls, not method names. Comparing names let a NEW claim reusing a
+    # documented name through — `p.param("plate_x", min=999.0)` beside the
+    # documented `p.param("plate_z", min=1.0)` passed (PR #155 review).
+    import ast
+
+    def normalise(call: str) -> str:
+        return ast.unparse(ast.parse(call, mode="eval"))
+
+    declared = {
+        ast.unparse(node)[2:]
+        for node in ast.walk(ast.parse(spec))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "p"
+    }
+    assert {normalise(c) for c in claimed} == {normalise(d) for d in declared}, (
+        f"undocumented claims: {sorted(declared)}; documented: {sorted(claimed)}"
     )
