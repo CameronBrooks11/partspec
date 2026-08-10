@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import needs_build123d, needs_openscad
 
 from partspec import Part, Status, Verdict, openscad, run
 from partspec.runner import _run_parameter_check
@@ -200,10 +200,7 @@ def test_the_python_closure_is_not_computed_before_the_build(tmp_path: Path):
     assert _closure(build123d(model)) is None
 
 
-@pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
-    reason="occt extra not installed",
-)
+@needs_build123d
 def test_a_helper_beside_a_python_model_is_part_of_the_build(tmp_path: Path):
     """The same gap the OpenSCAD closure closed, on the other tier.
 
@@ -496,10 +493,7 @@ def test_a_define_build_states_the_default_entry(tmp_path: Path):
     assert "source_rendered" not in report.engine
 
 
-@pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
-    reason="occt extra not installed",
-)
+@needs_build123d
 def test_a_python_build_records_its_named_factory(tmp_path: Path):
     model = tmp_path / "m.py"
     model.write_text(

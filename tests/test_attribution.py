@@ -18,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import needs_build123d, needs_openscad
 
 from partspec import Measurement, Part, Status, openscad, run
 
@@ -62,10 +62,7 @@ def test_a_scalar_check_carries_no_components(tmp_path: Path):
     assert "components" not in check.to_json()
 
 
-@pytest.mark.skipif(
-    __import__("importlib.util", fromlist=["util"]).find_spec("build123d") is None,
-    reason="occt extra not installed",
-)
+@needs_build123d
 def test_an_unconstrained_topology_axis_is_absent_from_components(tmp_path: Path):
     """faces= alone claims nothing about edges or vertices, so those axes must
     not appear — a status on an unmade claim would be an answer to a question

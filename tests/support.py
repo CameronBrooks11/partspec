@@ -25,6 +25,7 @@ __all__ = [
     "needs_openscad",
     "openscad_supports_backend_flag",
     "refused",
+    "report_of",
     "scad_target",
     "sew_into_solid",
 ]
