@@ -294,14 +294,24 @@ def test_the_spec_lists_every_field_that_makes_a_claim_a_claim():
     The bullet terminator matches the next bullet or heading rather than a
     blank line: reflowing the paragraph used to fail this test with a
     message claiming fields were undocumented when every one was present.
+
+    And it reads the ENUMERATION, not the whole bullet. Scanning every
+    backticked word counted the prose — `kind` and `expr` are named in the
+    anecdote that follows — so deleting either from the actual list went
+    undetected, which is the entire failure this test exists to prevent.
     """
     spec = (Path(__file__).resolve().parents[1] / "docs" / "SPEC-diff.md").read_text()
     bullet = re.search(
         r"^- \*\*`limit_changed`\*\*.*?(?=\n- \*\*|\n\*\*|\n#{2,} )", spec, re.S | re.M
     )
     assert bullet, "SPEC-diff must carry a `limit_changed` bullet"
-    named = set(re.findall(r"`(\w+)`", bullet.group(0)))
-    assert set(CLAIM_FIELDS) <= named, f"undocumented claim fields: {set(CLAIM_FIELDS) - named}"
+    enumeration = re.search(r"the \*claim\* moved: (.*?) differ", bullet.group(0), re.S)
+    assert enumeration, "the bullet must enumerate the claim fields before the word 'differ'"
+    named = set(re.findall(r"`(\w+)`", enumeration.group(1)))
+    assert set(CLAIM_FIELDS) == named, (
+        f"spec enumeration and CLAIM_FIELDS disagree: "
+        f"only in code {set(CLAIM_FIELDS) - named}, only in spec {named - set(CLAIM_FIELDS)}"
+    )
 
 
 def test_every_field_the_report_emits_is_classified_as_claim_or_not():
@@ -315,7 +325,24 @@ def test_every_field_the_report_emits_is_classified_as_claim_or_not():
     compared as a claim or listed in `NON_CLAIM_FIELDS` with a reason, so
     the next field added to a report has to be classified deliberately.
     """
+    import dataclasses
+
     from partspec.diff import NON_CLAIM_FIELDS
+
+    # Declared fields, not just the ones this fixture happens to pass. The
+    # first draft hand-built a CheckResult and checked only what it saw,
+    # which is the same blind spot one level up: adding a new optional field
+    # to CheckResult sailed through it. The two sets are already equal, so
+    # this costs nothing today and refuses tomorrow's unclassified field.
+    declared = {f.name for f in dataclasses.fields(CheckResult)}
+    classified_all = set(CLAIM_FIELDS) | set(NON_CLAIM_FIELDS)
+    assert declared <= classified_all, (
+        f"CheckResult fields classified as neither claim nor non-claim: "
+        f"{sorted(declared - classified_all)}"
+    )
+    assert classified_all <= declared, (
+        f"classified but not a CheckResult field: {sorted(classified_all - declared)}"
+    )
 
     emitted = set()
     for status in (Status.PASS, Status.UNSUPPORTED):

@@ -183,11 +183,11 @@ def test_the_registry_never_records_partspec_itself():
     """
     import sys
 
+    import partspec.diff  # noqa: F401 - the fixture needs it present in sys.modules
     from partspec.engines.pycad import _LOADED_MODEL_MODULES, record_model_modules
 
     repo_root = Path(__file__).resolve().parents[1]
     contract_at_root = repo_root / "contract.py"
-    assert "partspec.diff" in sys.modules, "the fixture needs partspec already imported"
 
     before = set(sys.modules) - {"partspec", "partspec.diff"}
     try:

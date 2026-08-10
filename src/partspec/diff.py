@@ -51,7 +51,13 @@ NON_CLAIM_FIELDS = {
     "detail": "prose about a result, not a claim",
     "phase": "structural, and cannot move without kind or expr moving with it",
     "requires": "which tier would answer a refusal — environment, like engine.version",
-    "step": "the STEP writer schema — environment, recorded because it changes the artifact",
+    "step": (
+        "the STEP writer schema — tool-chosen, not author-declared, so not a claim. "
+        "Note it is not surfaced anywhere else either: unlike engine.version it does "
+        "NOT reach the environment block, so a schema change beside a drifted "
+        "round-trip measurement goes unexplained. A known gap, stated rather than "
+        "implied by calling it environment"
+    ),
     "part_refs": "provenance; not currently serialised at all",
 }
 """Why each non-claim field is not compared as a claim.
