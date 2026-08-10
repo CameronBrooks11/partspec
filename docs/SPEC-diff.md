@@ -36,7 +36,7 @@ that requires comparable, fully-identified inputs — not a fallthrough.
 | `0` | `identical` | compared conclusively; no semantic difference |
 | `1` | `different` | compared; at least one semantic difference found |
 | `2` | `indeterminate` | the comparison could not be made conclusively |
-| `64` | — | unusable input: unreadable file, unknown `schema_version` (§7.1 requires rejection, not best-effort parsing), a report violating its own `counts.total` invariant or otherwise malformed, or two reports that do not describe the same part. A forgotten argument is also `64` — argparse's default usage exit is `2`, which would read as `indeterminate` |
+| `64` | — | unusable input: unreadable file, unknown `schema_version` (§7.1 requires rejection, not best-effort parsing), a report violating its own `counts.total` invariant, a report carrying two checks under one `id` (SPEC-report.md §7.1 makes uniqueness a MUST NOT, and the comparison joins on it), or otherwise malformed, or two reports that do not describe the same part. A forgotten argument is also `64` — argparse's default usage exit is `2`, which would read as `indeterminate` |
 
 Rules:
 
@@ -51,6 +51,22 @@ Rules:
    stated — claiming `identical` there is the silence-as-success mistake at the provenance
    layer. Found differences are real regardless of closure partiality, so this rule only
    ever blocks the `identical` claim, never the `different` one.
+4. **Check ids MUST be unique within each input**, refused with exit `64` (#148). The
+   comparator joins on `id`, so a report carrying two checks under one id does not merely
+   lose a check — the second silently replaces the first and two unrelated claims are
+   compared as one. Measured before the guard existed: a `genus` check aliased onto a
+   `param_range` check reported `limit_changed` from `{"kind": "param_range"}` to
+   `{"kind": "genus"}` at exit `1`, with the displaced claim absent from the output
+   entirely. `counts.total` does not catch it — such a report carries exactly the number
+   of checks it claims. Two neighbouring refusals share this precondition, because the join
+   must be keyable and must key each check to itself: a check carrying no `id` is a missing
+   REQUIRED field and is refused as that rather than as a repeated `null`, and an `id` that
+   is not a string is refused as a type error — §7.1 types it as a string, and comparing
+   ids any other way lets `1` and `1.0` pass a uniqueness check and then collapse onto one
+   another in the join. `Part._add` refuses both the clash and the non-string id at
+   authoring time, so `partspec` emits neither; this rule binds `diff` because the report
+   schema is the product surface (D5) and the comparator must not assume it produced its
+   own input.
 
 ## 3. What is compared
 

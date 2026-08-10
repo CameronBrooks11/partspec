@@ -792,6 +792,18 @@ class Part:
     # -- internals ---------------------------------------------------------
 
     def _add(self, spec: CheckSpec) -> Part:
+        if not isinstance(spec.id, str):
+            # `CheckResult.id: str` is an annotation, not an enforcement, and
+            # nothing checked it: `p.param("wall", min=2.0, id=3)` was accepted,
+            # `check` wrote `"id": 3`, and #148's guard in `diff` then refused
+            # that report at exit 64 — blaming the artifact for a mistake made
+            # in a contract two commands earlier. The refusal belongs here,
+            # beside the other two, so `diff`'s type check is the belt to these
+            # braces rather than the only strap (PR #157 review).
+            raise ContractError(
+                f"check id {spec.id!r} is not a string; ids are the join key a report "
+                f"diff relies on (SPEC-report.md 7.1)"
+            )
         if spec.id == "builds":
             # The runner emits its own `builds` check for every run; a
             # contract shadowing the id would put two same-id checks in one

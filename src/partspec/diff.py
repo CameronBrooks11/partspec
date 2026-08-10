@@ -203,14 +203,113 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"this diff understands report schema {SCHEMA_VERSION} and must not "
                 f"best-effort parse anything else (SPEC-report.md 7.1)"
             )
+        # `or []` so a literal `"checks": null` reaches the branches below
+        # rather than raising `TypeError: object of type 'NoneType' has no
+        # len()` out of the counts check. Bound once, above the first reader,
+        # because two readers spelling the fallback differently is how the
+        # first one ended up not having it.
+        #
+        # Named `raw_checks`, not `entries`: this function rebinds `entries`
+        # further down to the diff's own output list, and one name for two
+        # meanings in one scope is a trap for the next edit (PR #157 review).
+        raw_checks = report.get("checks") or []
+
         total = report.get("counts", {}).get("total")
-        if total is not None and total != len(report.get("checks", [])):
+        if total is not None and total != len(raw_checks):
             # counts.total is redundant by construction in an honest report;
             # an input that violates its own invariant is corrupt, and no
             # claim over corrupt input is earned.
             raise DiffUsageError(
                 f"the {label} report is corrupt: counts.total is {total} but it "
-                f"carries {len(report.get('checks', []))} checks"
+                f"carries {len(raw_checks)} checks"
+            )
+
+        # Everything below is ONE precondition on the join at the bottom of this
+        # function: `{c["id"]: c}` must be keyable, and must key each check to
+        # itself. Split into branches only so the message names the actual defect.
+        if not_objects := [c for c in raw_checks if not isinstance(c, dict)]:
+            raise DiffUsageError(
+                f"the {label} report has {len(not_objects)} entr(y/ies) in `checks` that "
+                f"are not objects (first: {not_objects[0]!r}); every check is an object "
+                f"with an `id` (SPEC-report.md 7.1)"
+            )
+        ids = [c.get("id") for c in raw_checks]
+
+        # A check with no id is a MISSING FIELD, not a collision, and saying so
+        # matters: mapping it to None first made two id-less checks report as
+        # "None appears more than once", which is a confident diagnosis of the
+        # wrong defect. Before this guard the join raised `KeyError: 'id'` and
+        # the CLI rendered "not well-formed reports", which was less precise but
+        # not misleading (PR #157 review).
+        absent = sum(1 for i in ids if i is None)
+        if absent:
+            raise DiffUsageError(
+                f"the {label} report has {absent} check(s) with no `id`. "
+                f"`checks[].id` is REQUIRED and is the key this comparison joins on "
+                f"(SPEC-report.md 7.1)"
+            )
+
+        # And the id must be a STRING, which SPEC-report §7.1 types it as.
+        #
+        # `CheckResult.id: str` is an annotation, not an enforcement, so that
+        # alone did not make this safe to assume: `p.param("wall", min=2.0,
+        # id=3)` was accepted by authoring and `check` wrote `"id": 3`, which
+        # this branch would then have refused at 64 — blaming the artifact for a
+        # contract error. `Part._add` now refuses a non-string id where it is
+        # written, so nothing partspec emits reaches here (PR #157 review).
+        #
+        # This replaces a `repr`-keyed uniqueness count, which was a fix for
+        # mixed-type and unhashable ids that reopened the very hole this guard
+        # exists to close. `repr` compares ids by their RENDERING while the join
+        # keys a dict on their VALUE, and the two disagree wherever Python's
+        # `==`/`hash` merge distinct JSON literals: `1` and `1.0` (and `true`
+        # and `1`) render differently, pass the count, and then collapse onto
+        # one another in the join. Measured: a four-check report with ids `1`
+        # and `1.0` was joined as three checks, no refusal, exit 1 — the same
+        # confident wrong answer described above, reached through the guard
+        # meant to prevent it (PR #157 review).
+        #
+        # Refusing the type instead of routing around it fixes all three at
+        # once: a non-string never reaches the sort (no TypeError on mixed
+        # types), never reaches the set (no TypeError on an unhashable list),
+        # and cannot alias by numeric equality. `isinstance(True, str)` is
+        # False, so booleans are covered.
+        if malformed := [i for i in ids if not isinstance(i, str)]:
+            raise DiffUsageError(
+                f"the {label} report has check ids that are not strings "
+                f"({', '.join(map(repr, malformed))}); `checks[].id` is typed as a string "
+                f"and is the key this comparison joins on (SPEC-report.md 7.1)"
+            )
+
+        # Ids must be unique, for the same reason and in the same class (#148).
+        # The comparator joins on id, so a report carrying two checks under one
+        # id does not merely lose information — it produces a CONFIDENT WRONG
+        # answer. Measured before this guard, on the input
+        # `test_a_report_with_two_checks_under_one_id_is_corrupt_input` builds:
+        # the displaced `param_range` claim vanished from the analysis entirely
+        # and the survivor was reported as `limit_changed` from
+        # `{"kind": "param_range"}` to `{"kind": "genus"}` — two unrelated
+        # claims diffed as one, exit 1.
+        #
+        # `counts.total` cannot catch this: both reports carried the number of
+        # checks they said they did. Uniqueness is a separate invariant.
+        #
+        # `Part._add` already refuses an id clash at authoring time, so partspec
+        # cannot emit such a report. That is exactly why this belongs here: the
+        # report schema is the stable product surface (D5), `diff` consumes
+        # whatever is handed to it, and a guarantee that holds only for reports
+        # we produced is not one the comparator may assume.
+        #
+        # Counted by value, the same way the join keys — so the guard and the
+        # join agree by construction rather than by two implementations
+        # happening to match. Safe now that every id is known to be a string.
+        duplicated = sorted({i for i in ids if ids.count(i) > 1})
+        if duplicated:
+            raise DiffUsageError(
+                f"the {label} report is corrupt: check ids must be unique because the "
+                f"comparison joins on them, and these appear more than once: "
+                f"{', '.join(repr(i) for i in duplicated)}. Two different claims under "
+                f"one id are compared as if they were the same claim."
             )
     old_part, new_part = old.get("part", {}), new.get("part", {})
     if old_part.get("id") != new_part.get("id"):
@@ -230,8 +329,12 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 }
             )
 
-    old_checks = {c["id"]: c for c in old.get("checks", [])}
-    new_checks = {c["id"]: c for c in new.get("checks", [])}
+    # `or []` matching the validation loop's fallback: `"checks": null` is a
+    # real shape a hand-written report can take, and spelling the fallback two
+    # ways is how the counts check ended up raising TypeError past a guard that
+    # had already handled it.
+    old_checks = {c["id"]: c for c in old.get("checks") or []}
+    new_checks = {c["id"]: c for c in new.get("checks") or []}
     removed = [check_id for check_id in old_checks if check_id not in new_checks]
     added = [check_id for check_id in new_checks if check_id not in old_checks]
     entries = [

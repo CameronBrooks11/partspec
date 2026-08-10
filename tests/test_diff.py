@@ -538,6 +538,131 @@ def test_a_report_contradicting_its_own_counts_is_corrupt_input():
         _diff(_doc(), bad)
 
 
+def test_a_report_with_two_checks_under_one_id_is_corrupt_input():
+    """Ids are the join key, so aliasing is not a lost check — it is a wrong
+    answer (#148).
+
+    `counts.total` cannot catch this: the report carries exactly the number of
+    checks it claims. Uniqueness is a separate invariant, and the comparator
+    builds `{id: check}`, so the second occurrence silently replaces the first.
+
+    Measured before the guard, on this exact input: the `param_range` claim
+    vanished from the analysis entirely and the survivor was reported as a
+    change from `{"kind": "param_range"}` to `{"kind": "genus"}` — two
+    unrelated claims diffed as one, at exit 1, with no indication anything was
+    wrong. That is the failure mode this project exists to refuse, in the
+    confident-wrong-answer direction rather than the silent-pass one.
+    """
+    bad = _doc()
+    aliased = dict(bad["checks"][0])
+    aliased["kind"] = "genus"
+    bad["checks"] = [bad["checks"][0], aliased, *bad["checks"][1:]]
+    bad["counts"]["total"] = len(bad["checks"])  # self-consistent, so the counts guard is silent
+    with pytest.raises(DiffUsageError, match="unique"):
+        _diff(_doc(), bad)
+
+
+def test_the_id_uniqueness_guard_names_every_repeated_id():
+    """The message must name what to fix; a bare 'corrupt' sends the reader
+    back to a diff of two whole reports."""
+    bad = _doc()
+    bad["checks"] = [*bad["checks"], dict(bad["checks"][0]), dict(bad["checks"][1])]
+    bad["counts"]["total"] = len(bad["checks"])
+    with pytest.raises(DiffUsageError) as exc:
+        _diff(_doc(), bad)
+    assert "wall_gt_2" in str(exc.value) and "fits" in str(exc.value)
+
+
+def test_ids_that_are_not_strings_are_refused_before_they_can_alias():
+    """The guard must key the way the join keys, or it lets through exactly what
+    it exists to stop.
+
+    A `repr`-based uniqueness count — added to stop mixed-type ids raising
+    TypeError out of the guard — compared ids by their RENDERING while the join
+    keys a dict on their VALUE. `1` and `1.0` render differently and pass the
+    count, then collapse onto one another in `{c["id"]: c}`. Measured on that
+    version: a four-check report joined as three, no refusal, exit 1 — the
+    confident wrong answer of #148, reached THROUGH the guard meant to prevent
+    it (PR #157 review).
+
+    `checks[].id` is typed as a string by SPEC-report §7.1 and by
+    `CheckResult.id`, so refusing the type costs nothing legitimate and closes
+    the numeric-alias case, the mixed-type TypeError and the unhashable-id
+    TypeError together.
+    """
+    for ids in ([1, 1.0], [True, 1], [["a"], ["a"]], ["ok", 2]):
+        bad = _doc()
+        for check, value in zip(bad["checks"], ids, strict=False):
+            check["id"] = value
+        with pytest.raises(DiffUsageError, match="not strings"):
+            _diff(_doc(), bad)
+
+
+def test_a_checks_entry_that_is_not_an_object_is_refused():
+    """Same precondition, one step earlier: a non-object entry was filtered out
+    of the id scan and then reached the join, where `c["id"]` raised TypeError
+    into the CLI's blanket catch (PR #157 review)."""
+    bad = _doc()
+    bad["checks"] = [*bad["checks"], "not-a-check"]
+    bad["counts"]["total"] = len(bad["checks"])
+    with pytest.raises(DiffUsageError, match="not objects"):
+        _diff(_doc(), bad)
+
+
+def test_a_null_checks_field_does_not_crash_the_guard():
+    """`"checks": null` is a shape a hand-written report can take, and the
+    fallback has to be spelled the same way everywhere.
+
+    `report.get("checks", [])` returns `None` when the key EXISTS with a null
+    value, so the counts check raised `TypeError: object of type 'NoneType' has
+    no len()` before reaching any guard, and the join raised again further down.
+    Bound once now, above the first reader (PR #157 review).
+    """
+    empty = _doc()
+    empty["checks"] = None
+    empty["counts"]["total"] = 0
+    # `== "identical"`, not `in {...}`: an assertion that passes whichever way
+    # the code goes answers nothing, which is the shape a93df3a went through the
+    # whole suite to remove. The fixture carries a complete `source_closure`, so
+    # the partial-closure rule does not fire and the answer is determinate.
+    assert _diff(empty, empty)["outcome"] == "identical"
+
+    lying = _doc()
+    lying["checks"] = None  # while counts.total still claims 4
+    with pytest.raises(DiffUsageError, match=r"counts\.total"):
+        _diff(lying, lying)
+
+
+def test_two_checks_of_one_kind_under_distinct_ids_are_not_caught():
+    """The ordinary legal case the guard must not fire on.
+
+    `p.volume(min=).volume(max=, id="volume_ceiling")` is legal — declared so by
+    `test_duplicate_kinds_are_fine_with_explicit_ids` — so a guard keying on
+    anything but the id, or deduping over-broadly, must fail here.
+
+    The first version of this test asserted `_diff(_doc(), _doc())` is
+    `identical` while claiming in its docstring to cover exactly the above.
+    `_doc()` carries four checks with four DISTINCT kinds, so it constructed no
+    such pair, duplicated four existing tests, and passed with the guard
+    deleted — a test whose docstring was a claim about itself that nothing
+    executed, which is the shape #150 spent a whole slice removing (PR #157
+    review). It now builds the pair.
+    """
+    doc = _doc()
+    ceiling = dict(doc["checks"][3])  # the `envelope` check, a real vector kind
+    assert ceiling["kind"] == "envelope", "fixture changed; pick another kind to duplicate"
+    ceiling["id"] = "envelope_ceiling"
+    doc["checks"] = [*doc["checks"], ceiling]
+    doc["counts"]["total"] = len(doc["checks"])
+
+    kinds = [c["kind"] for c in doc["checks"]]
+    assert kinds.count("envelope") == 2, "the pair this test exists for"
+    assert len({c["id"] for c in doc["checks"]}) == len(doc["checks"]), "ids stay distinct"
+
+    result = _diff(doc, doc)
+    assert result["outcome"] == "identical"
+
+
 def test_cli_malformed_reports_and_usage_typos_exit_64_not_a_verdict(tmp_path: Path):
     """A status outside the enum, a JSON array, and a forgotten argument all
     used to reach exit 4 or argparse's exit 2 — which reads as incomplete
@@ -554,6 +679,32 @@ def test_cli_malformed_reports_and_usage_typos_exit_64_not_a_verdict(tmp_path: P
     array = tmp_path / "array.json"
     array.write_text("[]")
     assert _run_cli("diff", str(good), str(array))[0] == 64
+
+    # Aliased ids, end to end. Every other test of the uniqueness guard asserts
+    # `DiffUsageError`; SPEC-diff's table claims exit 64, and until this line
+    # nothing checked that the exception reaches the process exit code as one
+    # (PR #157 review).
+    aliased = _doc()
+    twin = dict(aliased["checks"][0])
+    twin["kind"] = "genus"
+    aliased["checks"] = [aliased["checks"][0], twin, *aliased["checks"][1:]]
+    aliased["counts"]["total"] = len(aliased["checks"])
+    dupes = tmp_path / "dupes.json"
+    dupes.write_text(json.dumps(aliased))
+    code, _, err = _run_cli("diff", str(good), str(dupes))
+    assert code == 64
+    assert "wall_gt_2" in err, "the exit code must arrive with the id that caused it"
+
+    # A check with no id at all is a DIFFERENT defect and must say so, rather
+    # than be reported as `None` appearing twice.
+    idless = _doc()
+    for check in idless["checks"][:2]:
+        check.pop("id")
+    missing = tmp_path / "idless.json"
+    missing.write_text(json.dumps(idless))
+    code, _, err = _run_cli("diff", str(good), str(missing))
+    assert code == 64
+    assert "no `id`" in err, f"a missing id must be diagnosed as missing, got: {err}"
 
     with pytest.raises(SystemExit) as excinfo:
         _run_cli("diff", str(good))  # forgotten second argument

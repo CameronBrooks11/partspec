@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -161,6 +162,50 @@ def test_the_builds_id_is_reserved(tmp_path):
         p.requires("w > 0", id="builds")
     with pytest.raises(ContractError, match="reserved for the runner"):
         p.watertight(id="builds")
+
+
+def test_a_non_string_check_id_is_refused_where_it_is_written():
+    """`CheckResult.id: str` is an annotation, not an enforcement.
+
+    `p.param("wall", min=2.0, id=3)` was accepted, `check` wrote `"id": 3`, and
+    #148's uniqueness guard in `diff` then refused that report at exit 64 —
+    blaming the artifact for a mistake made in a contract two commands earlier,
+    and falsifying two written claims that `partspec` cannot emit a report
+    `diff` will refuse. Caught here now, beside the reserved-id and clash
+    refusals, which is what makes those claims true (PR #157 review).
+    """
+    # `list[Any]`, not a bare tuple literal: pyright is correct that these are
+    # not `str | None`, and that is the point of the test — the annotation is
+    # what a caller with types on ignores, and this asserts what happens at
+    # runtime when they do. Widening the local is honest; a `# type: ignore`
+    # per call would suppress a diagnosis that is right.
+    wrong_types: list[Any] = [3, 3.0, True, ("a",)]
+    for bad in wrong_types:
+        with pytest.raises(ContractError, match="not a string"):
+            _part(wall=2.0).param("wall", min=1.0, id=bad)
+
+    # The guard reaches only TRUTHY non-strings, because `id or <derived>` in
+    # every caller short-circuits first. That is not a hole — the derived id is
+    # always a string, so no out-of-spec report can result — but it is a
+    # fall-through worth documenting rather than leaving for someone to
+    # rediscover: an explicit `id=0` is silently ignored and replaced, with no
+    # diagnostic. Recorded here so moving the type check into the defaulting,
+    # where `""` and `None` would need distinguishing, fails this line first
+    # (PR #157 review).
+    falsy_values: list[Any] = [0, 0.0, False, [], (), ""]
+    for falsy in falsy_values:
+        derived = _part(wall=2.0).param("wall", min=1.0, id=falsy)
+        assert derived.checks[0].id == "param:wall", (
+            f"id={falsy!r} no longer falls through to the derived id"
+        )
+
+    # `None` is NOT in the refused list: it is the default and means "derive the id",
+    # so it never reaches `_add` as an id. Asserted rather than left implicit,
+    # because a guard written as `if not isinstance(spec.id, str)` placed before
+    # the defaulting would refuse every ordinary check, and this is the line
+    # that would say so.
+    auto = _part(wall=2.0).param("wall", min=1.0, id=None)
+    assert auto.checks[0].id == "param:wall"
 
 
 def test_duplicate_ids_are_refused():
