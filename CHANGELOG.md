@@ -20,7 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   catch it, because such a report carries exactly the number of checks it
   claims. `Part._add` already refuses an id clash at authoring time, so
   `partspec` never emitted one; this binds `diff`, which consumes reports it did
-  not produce.
+  not produce. Two neighbouring refusals share the precondition: a check with no
+  `id`, and an `id` that is not a string (§7.1 types it as one — comparing ids
+  any other way lets `1` and `1.0` pass a uniqueness check and then collapse
+  onto one another in the join).
 
 ### Changed
 

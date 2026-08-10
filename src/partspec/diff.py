@@ -213,7 +213,17 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"carries {len(report.get('checks', []))} checks"
             )
 
-        ids = [c.get("id") for c in report.get("checks", []) if isinstance(c, dict)]
+        # Everything below is ONE precondition on the join at the bottom of this
+        # function: `{c["id"]: c}` must be keyable, and must key each check to
+        # itself. Split into branches only so the message names the actual defect.
+        entries = report.get("checks", [])
+        if not_objects := [c for c in entries if not isinstance(c, dict)]:
+            raise DiffUsageError(
+                f"the {label} report has {len(not_objects)} entr(y/ies) in `checks` that "
+                f"are not objects (first: {not_objects[0]!r}); every check is an object "
+                f"with an `id` (SPEC-report.md 7.1)"
+            )
+        ids = [c.get("id") for c in entries]
 
         # A check with no id is a MISSING FIELD, not a collision, and saying so
         # matters: mapping it to None first made two id-less checks report as
@@ -227,6 +237,32 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"the {label} report has {absent} check(s) with no `id`. "
                 f"`checks[].id` is REQUIRED and is the key this comparison joins on "
                 f"(SPEC-report.md 7.1)"
+            )
+
+        # And the id must be a STRING, which SPEC-report §7.1 types it as and
+        # `CheckResult.id` declares, so nothing legitimate is refused here.
+        #
+        # This replaces a `repr`-keyed uniqueness count, which was a fix for
+        # mixed-type and unhashable ids that reopened the very hole this guard
+        # exists to close. `repr` compares ids by their RENDERING while the join
+        # keys a dict on their VALUE, and the two disagree wherever Python's
+        # `==`/`hash` merge distinct JSON literals: `1` and `1.0` (and `true`
+        # and `1`) render differently, pass the count, and then collapse onto
+        # one another in the join. Measured: a four-check report with ids `1`
+        # and `1.0` was joined as three checks, no refusal, exit 1 — the same
+        # confident wrong answer described above, reached through the guard
+        # meant to prevent it (PR #157 review).
+        #
+        # Refusing the type instead of routing around it fixes all three at
+        # once: a non-string never reaches the sort (no TypeError on mixed
+        # types), never reaches the set (no TypeError on an unhashable list),
+        # and cannot alias by numeric equality. `isinstance(True, str)` is
+        # False, so booleans are covered.
+        if malformed := [i for i in ids if not isinstance(i, str)]:
+            raise DiffUsageError(
+                f"the {label} report has check ids that are not strings "
+                f"({', '.join(map(repr, malformed))}); `checks[].id` is typed as a string "
+                f"and is the key this comparison joins on (SPEC-report.md 7.1)"
             )
 
         # Ids must be unique, for the same reason and in the same class (#148).
@@ -248,19 +284,16 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         # whatever is handed to it, and a guarantee that holds only for reports
         # we produced is not one the comparator may assume.
         #
-        # Counted by `repr`, not by the ids themselves: this function's contract
-        # is that unusable input raises DiffUsageError, and a hand-written report
-        # can carry an unhashable id (a list) or ids of mixed type, both of which
-        # made the set comprehension or the sort raise TypeError straight out of
-        # the guard — losing the message that names the offender.
-        keys = [repr(i) for i in ids]
-        duplicated = sorted({k for k in keys if keys.count(k) > 1})
+        # Counted by value, the same way the join keys — so the guard and the
+        # join agree by construction rather than by two implementations
+        # happening to match. Safe now that every id is known to be a string.
+        duplicated = sorted({i for i in ids if ids.count(i) > 1})
         if duplicated:
             raise DiffUsageError(
                 f"the {label} report is corrupt: check ids must be unique because the "
                 f"comparison joins on them, and these appear more than once: "
-                f"{', '.join(duplicated)}. Two different claims under one id are "
-                f"compared as if they were the same claim."
+                f"{', '.join(repr(i) for i in duplicated)}. Two different claims under "
+                f"one id are compared as if they were the same claim."
             )
     old_part, new_part = old.get("part", {}), new.get("part", {})
     if old_part.get("id") != new_part.get("id"):

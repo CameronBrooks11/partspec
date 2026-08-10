@@ -573,6 +573,42 @@ def test_the_id_uniqueness_guard_names_every_repeated_id():
     assert "wall_gt_2" in str(exc.value) and "fits" in str(exc.value)
 
 
+def test_ids_that_are_not_strings_are_refused_before_they_can_alias():
+    """The guard must key the way the join keys, or it lets through exactly what
+    it exists to stop.
+
+    A `repr`-based uniqueness count — added to stop mixed-type ids raising
+    TypeError out of the guard — compared ids by their RENDERING while the join
+    keys a dict on their VALUE. `1` and `1.0` render differently and pass the
+    count, then collapse onto one another in `{c["id"]: c}`. Measured on that
+    version: a four-check report joined as three, no refusal, exit 1 — the
+    confident wrong answer of #148, reached THROUGH the guard meant to prevent
+    it (PR #157 review).
+
+    `checks[].id` is typed as a string by SPEC-report §7.1 and by
+    `CheckResult.id`, so refusing the type costs nothing legitimate and closes
+    the numeric-alias case, the mixed-type TypeError and the unhashable-id
+    TypeError together.
+    """
+    for ids in ([1, 1.0], [True, 1], [["a"], ["a"]], ["ok", 2]):
+        bad = _doc()
+        for check, value in zip(bad["checks"], ids, strict=False):
+            check["id"] = value
+        with pytest.raises(DiffUsageError, match="not strings"):
+            _diff(_doc(), bad)
+
+
+def test_a_checks_entry_that_is_not_an_object_is_refused():
+    """Same precondition, one step earlier: a non-object entry was filtered out
+    of the id scan and then reached the join, where `c["id"]` raised TypeError
+    into the CLI's blanket catch (PR #157 review)."""
+    bad = _doc()
+    bad["checks"] = [*bad["checks"], "not-a-check"]
+    bad["counts"]["total"] = len(bad["checks"])
+    with pytest.raises(DiffUsageError, match="not objects"):
+        _diff(_doc(), bad)
+
+
 def test_two_checks_of_one_kind_under_distinct_ids_are_not_caught():
     """The ordinary legal case the guard must not fire on.
 

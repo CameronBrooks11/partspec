@@ -58,8 +58,12 @@ Rules:
    `param_range` check reported `limit_changed` from `{"kind": "param_range"}` to
    `{"kind": "genus"}` at exit `1`, with the displaced claim absent from the output
    entirely. `counts.total` does not catch it — such a report carries exactly the number
-   of checks it claims. A check carrying no `id` at all is a missing REQUIRED field and is
-   refused as that, not as a repeated `null`. `Part._add` refuses an id clash at authoring
+   of checks it claims. Two neighbouring refusals share this precondition, because the join
+   must be keyable and must key each check to itself: a check carrying no `id` is a missing
+   REQUIRED field and is refused as that rather than as a repeated `null`, and an `id` that
+   is not a string is refused as a type error — §7.1 types it as a string, and comparing
+   ids any other way lets `1` and `1.0` pass a uniqueness check and then collapse onto one
+   another in the join. `Part._add` refuses an id clash at authoring
    time, so `partspec` cannot emit one; this rule binds `diff` because the report schema is
    the product surface (D5) and the comparator must not assume it produced its own input.
 
