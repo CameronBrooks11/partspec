@@ -18,6 +18,7 @@ from support import (  # noqa: E402
     forced_open_solid,
     needs_mesh,
     needs_openscad,
+    py_target,
     scad_target,
 )
 
@@ -211,14 +212,12 @@ def test_the_check_through_the_cli_records_the_schema(tmp_path):
     (tmp_path / "m.py").write_text(
         "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
     )
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.step_roundtrip()\n"
-        "    return p\n"
+    target = py_target(
+        tmp_path,
+        claims="    p.step_roundtrip()\n",
     )
     out = tmp_path / "out"
-    assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 0
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 0
     check = check_of(out, "step_roundtrip")
     assert check["status"] == "pass"
     assert check["step"]["schema"].startswith("AP")
@@ -233,14 +232,12 @@ def test_the_cli_stdout_stays_clean_json(tmp_path, capsys):
     (tmp_path / "m.py").write_text(
         "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
     )
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.step_roundtrip()\n"
-        "    return p\n"
+    target = py_target(
+        tmp_path,
+        claims="    p.step_roundtrip()\n",
     )
     out = tmp_path / "out"
-    assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 0
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 0
     captured = capsys.readouterr()
     assert "Transfer" not in captured.out and "Transfer" not in captured.err
 

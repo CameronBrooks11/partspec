@@ -15,6 +15,7 @@ from support import (  # noqa: E402
     forced_open_solid,
     needs_mesh,
     needs_openscad,
+    py_target,
     scad_target,
 )
 
@@ -129,14 +130,12 @@ def test_the_check_through_the_cli_names_the_defect(tmp_path):
         "    profile = (bd.Plane.YZ * bd.Rectangle(10, 2)).located(bd.Location((3, 0, 0)))\n"
         "    return bd.sweep(profile, arc)\n"
     )
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.self_intersection_free()\n"
-        "    return p\n"
+    target = py_target(
+        tmp_path,
+        claims="    p.self_intersection_free()\n",
     )
     out = tmp_path / "out"
-    assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 1
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 1
     check = check_of(out, "self_intersection_free")
     assert check["status"] == "fail"
     assert check["measurement"]["value"] is False
@@ -147,16 +146,11 @@ def test_a_sound_part_passes_through_the_cli(tmp_path):
     (tmp_path / "m.py").write_text(
         "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
     )
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.self_intersection_free()\n"
-        "    return p\n"
+    target = py_target(
+        tmp_path,
+        claims="    p.self_intersection_free()\n",
     )
-    assert (
-        main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(tmp_path / "o")])
-        == 0
-    )
+    assert main(["check", target, "--quiet", "--out", str(tmp_path / "o")]) == 0
 
 
 @needs_openscad

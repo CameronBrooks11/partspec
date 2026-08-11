@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from support import check_of, needs_mesh, needs_openscad, scad_target
+from support import check_of, needs_mesh, needs_openscad, py_target, scad_target
 
 bd = pytest.importorskip("build123d", reason="occt extra not installed")
 
@@ -173,14 +173,12 @@ def test_approximate_surfaces_in_the_verdict(tmp_path):
     raw = _raw(_tilted_pocket())
     assert isinstance(raw, dict)
     limit = (raw["lo"] + raw["hi"]) / 2
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        f"    p.min_wall(min={limit})\n"
-        "    return p\n"
+    target = py_target(
+        tmp_path,
+        claims=f"    p.min_wall(min={limit})\n",
     )
     out = tmp_path / "out"
-    assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 2
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 2
     check = check_of(out, "min_wall")
     assert check["status"] == "approximate"
     assert check["measurement"]["exactness"] == "approximate"

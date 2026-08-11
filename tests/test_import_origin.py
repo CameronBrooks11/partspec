@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from support import needs_openscad, openscad_supports_backend_flag, report_of
+from support import needs_openscad, openscad_supports_backend_flag, py_target, report_of
 
 from partspec.backend import BuildError
 from partspec.cli import main
@@ -66,14 +66,7 @@ def test_a_nameless_error_stays_model(tmp_path: Path):
 
 def _target(tmp_path: Path, model_body: str) -> str:
     (tmp_path / "model.py").write_text(model_body)
-    spec = tmp_path / "spec.py"
-    spec.write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('model.py'))\n"
-        "    p.volume(min=1.0)\n"
-        "    return p\n"
-    )
-    return f"{spec}:make"
+    return py_target(tmp_path, model="model.py", claims="    p.volume(min=1.0)\n")
 
 
 def test_a_missing_wheel_at_import_is_error_not_a_failing_part(tmp_path: Path):

@@ -383,6 +383,27 @@ def test_every_changelog_version_is_a_link_and_unreleased_starts_at_the_last_one
         f"Add a definition at the foot of CHANGELOG.md."
     )
 
+    # One section per change type, checked on `[Unreleased]`. Two `### Fixed`
+    # blocks under one version is not a formatting nit: a reader scanning for
+    # what changed stops at the first, and a tool grouping by heading keeps
+    # one. It happened here and six green gates did not notice (PR #164
+    # review) — the thesis pointed at the release notes.
+    #
+    # `[Unreleased]` ONLY, and that is where it bites: a release is cut from
+    # this section, so guarding it stops the defect before it becomes history.
+    # The released sections are not retrofitted — `[0.1.0]` carries five
+    # `### Fixed` blocks from the pre-1.0 scramble, and merging them would
+    # reorder historical entries, which is more than the form-only edit
+    # AGENTS.md permits on a released section.
+    if "Unreleased" in headings:
+        block = text.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+        kinds = re.findall(r"^### (\w+)", block, re.M)
+        dupes = sorted({k for k in kinds if kinds.count(k) > 1})
+        assert not dupes, (
+            f"[Unreleased] has more than one '### {dupes[0]}' section ({kinds}); "
+            f"fold the bullets into one before this is cut into a release"
+        )
+
     versions = [h for h in headings if h != "Unreleased"]
     assert versions, "a changelog with no released version is not one this test understands"
     if "Unreleased" in headings:

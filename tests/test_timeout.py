@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 import pytest
-from support import report_of
+from support import py_target, report_of
 
 from partspec.backend import DEFAULT_TIMEOUT_S, effective_timeout
 from partspec.cli import main
@@ -26,14 +26,9 @@ from partspec.engines.pycad import _BuildTimeout, _BuildTimeoutHard, _CannotBoun
 def _sleeping_target(tmp_path: Path) -> str:
     """A build123d contract whose model sleeps far past any test budget."""
     (tmp_path / "model.py").write_text("import time\n\n\ndef make_part():\n    time.sleep(30)\n")
-    spec = tmp_path / "spec.py"
-    spec.write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('sleeper', build123d('model.py'))\n"
-        "    p.volume(min=1.0)\n"
-        "    return p\n"
+    return py_target(
+        tmp_path, model="model.py", part_id="sleeper", claims="    p.volume(min=1.0)\n"
     )
-    return f"{spec}:make"
 
 
 # --------------------------------------------------------------------------
@@ -242,16 +237,12 @@ def test_a_model_that_swallows_the_alarm_cannot_report_green(tmp_path: Path):
         "        pass\n"
         "    return Box(1, 1, 1)\n"
     )
-    spec = tmp_path / "spec.py"
-    spec.write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('swallower', build123d('model.py'))\n"
-        "    p.volume(min=0.5)\n"
-        "    return p\n"
+    target = py_target(
+        tmp_path, model="model.py", part_id="swallower", claims="    p.volume(min=0.5)\n"
     )
     out = tmp_path / "out"
     started = time.monotonic()
-    code = main(["check", f"{spec}:make", "--timeout", "1", "--quiet", "--out", str(out)])
+    code = main(["check", target, "--timeout", "1", "--quiet", "--out", str(out)])
     assert code == 4, "a result computed past the budget is not a result"
     assert time.monotonic() - started < 25
 

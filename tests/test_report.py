@@ -466,3 +466,56 @@ def test_the_version_fallback_is_distinguishable_from_a_real_release():
     from partspec.report import TOOL_VERSION_FALLBACK
 
     assert "+" in TOOL_VERSION_FALLBACK
+
+
+def test_a_failed_write_leaves_the_previous_report_intact(tmp_path: Path):
+    """`_write_json` writes to a temp file and renames, and nothing held it to
+    that (#153, recorded there as "also unpinned").
+
+    Measured: replacing the tempfile/`os.replace` dance with a direct
+    `os.open(path, O_WRONLY|O_CREAT|O_TRUNC)` left the whole suite green apart
+    from an unused-import lint. So the docstring's claim — "a partially written
+    report that happens to parse is worse than none" — was prose only.
+
+    The trigger is the writer's own `allow_nan=False`, not a monkeypatch:
+    `json.dump` streams, so it emits the opening bytes and then raises on the
+    non-finite value. A truncating writer has destroyed the previous report by
+    that point; this one has not touched it.
+
+    Two properties, and the second is the one that actually says "atomic".
+    Failure-leaves-the-old-file-alone is satisfied by a writer that encodes to
+    a temp file and then *copies* it over the destination — under which a
+    concurrent reader can still observe a half-written report, which is the
+    property the temp-file dance exists for. So the successful path is checked
+    too, by inode: `os.replace` swaps a new file into the name, while any
+    open-and-write keeps the original inode. A copy-into-place writer passes
+    the first assertion and fails the second.
+
+    NOT held here: the `fsync`. That is crash durability rather than
+    atomicity, and no in-process test can observe it — removing the `fsync`
+    leaves both assertions below green, deliberately.
+    """
+    from partspec.report import _write_json
+
+    path = tmp_path / "report.json"
+    _write_json(path, {"verdict": "pass", "checks": []})
+    before = path.read_text()
+
+    with pytest.raises(ValueError, match="Out of range float"):
+        _write_json(path, {"verdict": "fail", "measurement": float("nan")})
+
+    assert path.read_text() == before, (
+        "the previous report was modified by a write that failed; a reader "
+        "arriving now sees a truncated or half-written artifact"
+    )
+    assert json.loads(path.read_text())["verdict"] == "pass"
+    litter = [p.name for p in tmp_path.iterdir() if p.name.startswith(".partspec-")]
+    assert not litter, f"the failed write left its temp file behind: {litter}"
+
+    inode_before = path.stat().st_ino
+    _write_json(path, {"verdict": "fail", "checks": []})
+    assert json.loads(path.read_text())["verdict"] == "fail", "the good write still lands"
+    assert path.stat().st_ino != inode_before, (
+        "the report was written in place rather than renamed over; a reader "
+        "holding the path can observe a partially written artifact"
+    )
