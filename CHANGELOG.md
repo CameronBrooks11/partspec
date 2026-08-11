@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `cavities` certified exactly one sealed void in a shape with no material
+  (OCCT, #147). The same report said `solid_count: 0`, and the mesh tier
+  answered `0` — a number contradicted by its own neighbour and by the other
+  tier. Gated now.
+- `diff` compared every claim field except the one that says what a check IS
+  (#147). Swapping `genus` for `cavities` under one id reported `identical`,
+  exit 0. `CLAIM_FIELDS` is public and held in step with `SPEC-diff.md`;
+  `NON_CLAIM_FIELDS` enumerates the rest, and every `CheckResult` field is
+  classified into one or the other, so a field added later cannot fall through
+  both.
+- `diff` returned `identical` when both inputs' source closures were absent —
+  "nothing we looked at changed" reported as "nothing changed" (#147). And
+  `counts` was asserted only to sum, so a tally claiming every check passed
+  while the verdict said fail was a self-inconsistent report the comparator
+  accepted.
+- An empty `Compound()` escaped as an `AssertionError` traceback with empty
+  stdout (#133). All three verbs now name it — `model returned a shape
+  containing no geometry (an empty Compound with no underlying handle)` — and
+  `measure`/`render` still emit the identity artifact so a consumer learns
+  which file and revision it was talking about.
+- `check --render` built the model twice (#133): doubled side effects, a
+  `--timeout N` that bounded each build separately rather than the run, and
+  renders that could disagree with the geometry measured beside them. One
+  build now.
+- The release workflow's safety argument is enforced rather than stated
+  (#149). It runs no tests by design — correctness is the `ok` gate's job on
+  main — and that reasoning holds only if the tag is ON main, which nothing
+  checked. `scripts/assert_tag_on_main.sh` refuses a tag that is not an
+  ancestor of `origin/main`, in a script because an inline gate can only be
+  grepped, not tested. The publish action is SHA-pinned.
+- A missing mesh wheel is an environment fault, not a traceback. `pip install
+  partspec` then running an OpenSCAD part raised `ModuleNotFoundError` with a
+  hint blaming "a native segfault/OOM in the CAD kernel"; it now reports
+  `build_origin: environment` with `pip install 'partspec[mesh]'`. The OCCT
+  tier has classified this correctly since v0.4.0.
+- An OpenSCAD binary rejecting an option partspec passed is an environment
+  fault. `backend="CGAL"` on 2021.01 — what Debian and Ubuntu ship — reported
+  `build_origin: "model"`, sending an agent to fix a source that was fine.
+- `scad-magic-number` exempted the line, not the statement: a named constant
+  wrapped across lines drew three findings that the same constant on one line
+  did not.
+
 - `partspec diff` refuses a report carrying two checks under one `id`, exit 64
   (#148). SPEC-report §7.1 already made uniqueness a MUST NOT; nothing checked
   it on the consuming side, and the comparator joins on `id`, so the second
@@ -34,12 +76,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `Part._add` refuses `id="builds"` — reserved for the runner's own build
+  check, which a contract could previously shadow, putting two same-id checks
+  in one report and once letting a passing parameter check impersonate a
+  failed build to `check --render`'s gate (#135). The gate keys on `kind` now.
+  **Behaviour change**: such a contract raises `ContractError`, verdict
+  `error`, exit 4.
+- The package ships a type marker (`py.typed`, #149). It is fully annotated
+  and pyright-clean and shipped no marker, so a downstream consumer got not
+  weaker type checking but **none**, silently.
+
 - The sdist no longer ships `notes/` or `evals/` (#150). They were carried
   because tests read them — an inverted dependency that put 310 KB of archived
   agent transcripts in front of every PyPI consumer so a test could assert a
   phrase appeared in prose. Those tests are deleted rather than skip-guarded, so
   nothing reads those trees and the question does not arise. The tarball loses
-  105 KiB, 20% of its size. `tests/`, `docs/`, `examples/`, `skills/` and
+  105 KiB. (No share: this said "20% of its size" and the measured figures
+  are 18.7% of the larger tarball or 23.0% of the shipped one, neither of
+  which is 20% and both of which move as prose is added. The delta does
+  not.) `tests/`, `docs/`, `examples/`, `skills/` and
   `.github/` still ship, and the suite still passes from an unpacked sdist.
 - The mechanical enumerations in the specs are **generated** from the code
   (`scripts/gen_docs.py`, run by `just fmt`, gated by `just check`): the §4.1/§4.2
