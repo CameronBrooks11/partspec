@@ -307,9 +307,32 @@ def render(
             )
 
         if proc.returncode != 0:
+            reason = _first_error_line(proc.stderr)
+            if _is_unknown_option(proc.stderr):
+                # The engine rejected an option partspec passed, which is a
+                # statement about the ENGINE, not the part. The 2021.01 case is
+                # `backend=`: render backends arrived later, and Debian and
+                # Ubuntu ship 2021.01, so this is the ordinary experience of a
+                # contract written against a newer engine, not an exotic one.
+                #
+                # Measured before this branch existed: `verdict: fail`,
+                # `build_origin: "model"`, hint `unrecognised option
+                # '--backend'`. The hint was right and the origin was wrong,
+                # and the origin is what AGENT-CONTRACT §2.3 routes on — so an
+                # agent was sent to §2.1 "fix the source" over a machine that
+                # simply predates the flag. SPEC-report §6.1 forbids exactly
+                # that: an environment fault MUST NOT be reported as a
+                # statement about the part.
+                return BuildError(
+                    f"the openscad binary rejected an option partspec passed: {reason}",
+                    hint="this engine predates the option; upgrade openscad, or drop the "
+                    "argument that needs it (2021.01 has no --backend)",
+                    origin="environment",
+                    stderr=proc.stderr,
+                )
             return BuildError(
                 f"openscad exited {proc.returncode}",
-                hint=_first_error_line(proc.stderr),
+                hint=reason,
                 stderr=proc.stderr,
             )
         # OpenSCAD exits 0 on some degenerate input while writing nothing useful,
@@ -566,6 +589,37 @@ accompany the exit-0-no-geometry branch. Both binaries print `Geometries in
 cache:` FIRST, so the first-wins fallback below handed an agent a cache
 statistic as the hint — confidently irrelevant — while `Current top level
 object is empty.` sat one line down (#37)."""
+
+
+_UNKNOWN_OPTION = re.compile(r"unrecognised option|unrecognized option|unknown option", re.I)
+"""The engine rejecting a FLAG rather than the source.
+
+Measured on the apt 2021.01 binary, which is what Debian and Ubuntu ship:
+
+    $ openscad --backend=CGAL -o out.stl m.scad
+    unrecognised option '--backend=CGAL'
+    Usage: openscad [options] file.scad
+
+Both British and American spellings are matched because the message comes from
+boost::program_options in one version and the engine's own parser in another,
+and neither is a spelling this project controls. Deliberately narrow: it names
+only the failure mode where the ENGINE could not accept what partspec passed,
+which is the whole class that must not be blamed on the part."""
+
+
+def _is_unknown_option(stderr: str) -> bool:
+    """Whether the engine rejected an option rather than the model.
+
+    Scoped to the FIRST non-empty line, which is where a CLI-level rejection is
+    printed — before any compilation output, because the engine never got as far
+    as compiling. Anything looser reads the `Usage:` dump that follows, which
+    lists every allowed option and, on some builds, the phrase this looks for:
+    a three-line window classified `ERROR: Parser error` + a usage dump as an
+    engine fault, which is an ordinary compile failure blamed on the machine —
+    the mirror of the bug this predicate fixes. Caught by the test below.
+    """
+    lines = [line for line in stderr.splitlines() if line.strip()]
+    return bool(lines) and _UNKNOWN_OPTION.search(lines[0]) is not None
 
 
 def _first_error_line(stderr: str) -> str | None:
