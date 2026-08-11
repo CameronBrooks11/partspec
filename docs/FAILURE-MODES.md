@@ -3,18 +3,18 @@
 **Status:** v1 · 2026-08-08 · closes #24
 **Source:** the 2026-08-03–06 dogfood runs (partspec 0.1.0, 15 targets, 18-library
 OpenSCAD corpus plus community CadQuery/build123d models), distilled from the scratch
-workspace's `results.md`, preserved verbatim as `notes/dogfood-results.md`. Finding
+workspace's `results.md`, preserved verbatim as [`notes/dogfood-results.md`][dogfood-results]. Finding
 numbers (F5, F10, …) refer to that record.
 **Scope:** failure modes of *CAD-as-code itself* — the ways a part goes wrong while
 every tool in the chain reports success. partspec's own development bugs are deliberately
-excluded (the tracker and `notes/` carry those); this file is what an authoring agent
+excluded (the tracker and [`notes/`][notes] carry those); this file is what an authoring agent
 needs to have seen *before* writing a part.
 
 **Workspace ruling (#24's last acceptance box):** `docs/PLAN.md` records the dogfood
 workspace's untracked status as a deliberate call, and that call **stands** — it remains
 a scratch corpus of third-party code. What changes is that everything load-bearing now
 lives here: this catalogue is the shipped artifact, and the raw record is frozen at
-`notes/dogfood-results.md`.
+[`notes/dogfood-results.md`][dogfood-results].
 Entries below are marked **[repo]** when reproducible from this repository alone and
 **[corpus]** when they need the external library corpus.
 
@@ -190,3 +190,6 @@ nothing (entry 4).
 
 *Cross-references from the authoring skills (#22, #23) land with those skills; each
 entry above carries a stable heading for them to anchor to.*
+
+[dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
+[notes]: https://github.com/CameronBrooks11/partspec/tree/main/notes

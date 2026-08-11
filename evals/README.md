@@ -28,6 +28,23 @@ does an agent converge to a passing part within a bounded number of turns?
    brute-forces values is answering a different question.
 4. **Every trial runs in a throwaway copy.** `evals/cases/` is never mutated.
 
+> **The archived REPAIR-LOOP runs are not a comparable baseline.** Every repair
+> turn recorded here before 2026-08-11 offered the agent a report path that did
+> not exist: the driver built `outputs/spec-<part id>/report.json`, and partspec
+> derives that directory from the contract's filename and factory, which no case
+> has equal to its part id. The agent still received partspec's full console
+> output — the treatment property 3 describes — and the true path was visible
+> inside it, so the recorded convergence numbers stand for what they measure.
+> But the "you may read the full report" affordance was never actually
+> delivered, and it is delivered now. Repair-loop runs from here on see a ~3 KB
+> structured report where the archive saw a six-line summary; do not pool the
+> two.
+>
+> **`AUTHORING.md` is unaffected.** `AUTHORING_PROMPT` carries no report note by
+> design, and all 12 authoring trials converged on the first write without
+> taking a repair turn, so no authoring run was ever offered the dead path. That
+> before/after remains a valid baseline.
+
 ## Running it
 
 ```bash

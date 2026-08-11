@@ -467,6 +467,146 @@ def test_every_repo_path_the_specs_cite_can_be_opened():
     assert not missing, "cited paths no reader can open:\n  " + "\n  ".join(missing)
 
 
+def shipped_markdown() -> list[Path]:
+    """Every markdown file the sdist carries.
+
+    Recursive, and derived from one list rather than three. The first version
+    of this used depth-fixed globs (`skills/*/*.md`), which silently stopped
+    scanning the moment anyone nested a document one level deeper — a hole in a
+    test whose whole job is noticing unreachable references (PR #162 review,
+    LOW-H).
+    """
+    trees = ("docs", "skills", "examples")
+    found = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "CHANGELOG.md"]
+    for tree in trees:
+        found.extend(sorted((ROOT / tree).rglob("*.md")))
+    return [p for p in found if p.is_file()]
+
+
+def prose_of(text: str) -> str:
+    """`text` with fenced code blocks blanked out, line numbering preserved.
+
+    A citation inside a ```sh fence is a command someone types, not a reference
+    a reader follows, and a link definition inside one defines nothing. Both
+    directions bit the first version of these guards: a shell example produced
+    a false positive, and a definition moved into a fence let a heading render
+    as literal text while the test passed (PR #162 review, LOW-D and LOW-E).
+
+    Blanked rather than removed so reported line numbers still point at the
+    right line.
+    """
+    out, fenced = [], False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            out.append("")
+            continue
+        out.append("" if fenced else line)
+    return "\n".join(out)
+
+
+def test_every_repo_url_the_docs_link_to_can_be_opened():
+    """The same question as the test above, asked of absolute repo URLs.
+
+    `notes/` stopped shipping in the sdist at #150, so the citations naming it
+    dangled for anyone reading these files from PyPI rather than a checkout —
+    the reader `notes/README.md` argues hardest about. They are reference-style
+    links to `blob/main` now, which resolve from anywhere.
+
+    Not a duplicate of it. The link form writes the path down TWICE — once as
+    the backticked display text that test reads, once in a URL that nothing
+    read — so the two copies could drift apart and only one was checked. Both
+    halves need a reader: mutate the display text and the test above fails;
+    mutate the URL and, before this, nothing did.
+
+    Scans every shipped markdown surface, not just `docs/`. `skills/`,
+    `examples/`, `AGENTS.md` and `CHANGELOG.md` all ride in the sdist for the
+    same reason `docs/` does, and no test looked at any of them (PR #162
+    review, MEDIUM-1).
+    """
+    import subprocess
+
+    if not (ROOT / ".git").exists():
+        pytest.skip("asks what this checkout TRACKS; an unpacked sdist has no git")
+
+    tracked = set(
+        subprocess.run(
+            ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.split()
+    )
+    url = re.compile(r"https://github\.com/CameronBrooks11/partspec/(?:blob|tree)/main/([\w./-]+)")
+    missing = []
+    for doc in shipped_markdown():
+        for cited in url.findall(prose_of(doc.read_text())):
+            prefix = cited.rstrip("/")
+            if prefix in tracked or any(t.startswith(prefix + "/") for t in tracked):
+                continue
+            missing.append(f"{doc.relative_to(ROOT)} -> {cited}")
+    assert not missing, "linked paths no reader can open:\n  " + "\n  ".join(missing)
+
+
+def test_no_shipped_doc_cites_a_non_shipping_file_as_a_bare_path():
+    """The defect the two tests above do not catch, stated directly.
+
+    Both of them ask "is this path tracked?". Nothing asked "does it ship?" —
+    and `notes/` and `evals/` are tracked *and* excluded from the sdist, so a
+    bare `` `notes/GAPS.md` `` passes both while being unopenable for every
+    reader who came from PyPI. That is the whole of #162, and it survived one
+    line away from the citations that were fixed (`AGENTS.md`, PR #162 review
+    HIGH-2).
+
+    A citation of an excluded tree must therefore be a LINK, which resolves
+    from anywhere. Bare directory mentions (`` `notes/` ``) and prose naming
+    the tree are unaffected: this matches paths that name a file.
+
+    The excluded trees are read from `pyproject.toml` rather than listed here,
+    so shipping `notes/` again — or excluding a new tree — moves this test
+    with the packaging rather than leaving it asserting last year's layout.
+
+    A directory exclude is one with no dot in it. That heuristic would stop
+    policing a dotted directory silently, so `assert trees` at least refuses to
+    pass vacuously if the whole list ever becomes dotted.
+    """
+    import tomllib
+
+    excludes = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["hatch"]["build"][
+        "targets"
+    ]["sdist"]["exclude"]
+    # `re.escape`, because these are packaging globs, not a regex the author of
+    # this test controls: `notes/**` compiled straight in raises "multiple
+    # repeat" and fails the suite with an unrelated message (review LOW-G).
+    trees = sorted(
+        re.escape(e.strip("/").rstrip("*").rstrip("/")) for e in excludes if "." not in e
+    )
+    assert trees, "no excluded trees in the sdist config; this test has nothing to police"
+
+    cite = re.compile(r"`((?:" + "|".join(trees) + r")/[\w./-]*\.\w+)`")
+    # `[`path`][label]` and `[`path`](url)` are links; a lone code span is not.
+    # Whitespace is allowed between the two halves of a reference link because
+    # CommonMark allows it and this repo hard-wraps at ~90 columns, so a wrap
+    # landing there is a matter of time — and it would have failed the suite
+    # with a wrong diagnosis (review LOW-C).
+    closes = re.compile(r"\s*[(\[]")
+    bare = []
+    for doc in shipped_markdown():
+        text = prose_of(doc.read_text())
+        for m in cite.finditer(text):
+            after = text[m.end() : m.end() + 40]
+            linked = (
+                m.start() > 0
+                and text[m.start() - 1] == "["
+                and after.startswith("]")
+                and closes.match(after[1:]) is not None
+            )
+            if not linked:
+                line = text[: m.start()].count("\n") + 1
+                bare.append(f"{doc.relative_to(ROOT)}:{line} -> {m.group(1)}")
+    assert not bare, (
+        "these name a file the sdist does not carry, as a bare path rather than a link, "
+        "so a reader from PyPI cannot open them:\n  " + "\n  ".join(bare)
+    )
+
+
 def test_the_generated_doc_blocks_are_current():
     """`scripts/gen_docs.py --check`, run from the test suite.
 

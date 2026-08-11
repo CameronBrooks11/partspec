@@ -470,7 +470,7 @@ than trimesh's `body_count`.
 > computed directly over the exported triangles. `distinct_normals` is unaffected and the
 > reasoning above still stands for it.
 
-**Also corrected here:** the claim in `notes/survey/DIRECTION.md` and investigation 02 that a mesh
+**Also corrected here:** the claim in [`notes/survey/DIRECTION.md`][survey-direction] and investigation 02 that a mesh
 bounding box is *"exact and resolution-independent"*. It is exact — the polyhedron is
 measured exactly, per D15 — but **not invariant to facet settings**. The original spike used
 explicit `$fn` values, and OpenSCAD places a vertex on the +X axis for an explicit `$fn`, so
@@ -555,7 +555,7 @@ leaderboard (June 2026) it raised the same model's score 0.360 → 0.457 and CAD
 loop and the skill own visual review and manufacturing handoff."* Epics #2 and #4, as first
 filed, drifted toward that niche — where partspec would be a worse copy of a shipped tool
 with published gains. Nothing in the repo drew the line, which is why the drift was
-invisible. (Citations: `notes/RESEARCH.md` §6, and a local clone of the upstream
+invisible. (Citations: [`notes/RESEARCH.md`][research] §6, and a local clone of the upstream
 `build123d-mcp` project — gitignored, so it is a pointer for whoever has it rather than
 something this repository carries.)
 
@@ -597,7 +597,7 @@ that opens the post-1.0 line, not a v1.0 item.
 **Reasoning.**
 
 1. **The value is concentrated where the vocabulary is thinnest.** The 2026 benchmarks
-   (Text2CAD-Bench, MUSE; `notes/RESEARCH.md` §1) find the same three-stage cascade —
+   (Text2CAD-Bench, MUSE; [`notes/RESEARCH.md`][research] §1) find the same three-stage cascade —
    executes → geometrically valid → intent-aligned — with the last stage worst (the best
    closed models land at ~39–54% intent-aligned) and **largely independent** of the first.
    partspec's stages 1–2 are built and dogfooded; its stage-3 vocabulary is seven mostly
@@ -623,3 +623,6 @@ patterns; the first real exercise of `approximate`, per `POST-V0.md` §4), keep-
 regions (#49); and `diff`, closing the known contract-weakening gap (`POST-V0.md` §2).
 Renders stay evidence (D18). Assemblies begin after that proves out, with `POST-V0.md` §1
 as the design basis.
+
+[survey-direction]: https://github.com/CameronBrooks11/partspec/blob/main/notes/survey/DIRECTION.md
+[research]: https://github.com/CameronBrooks11/partspec/blob/main/notes/RESEARCH.md

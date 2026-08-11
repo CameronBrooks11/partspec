@@ -5,6 +5,30 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The specs and skills cited `notes/` files that stopped shipping in the sdist
+  at #150, so 14 citations across eight documents dangled for anyone reading
+  them from PyPI rather than a checkout. They are reference-style links to
+  `blob/main` now, and a test asserts every linked path is tracked. The link
+  form puts the path in the document twice — once as display text, once in a
+  URL — and only the display copy was read by anything, so the two could drift
+  apart silently.
+- `AGENTS.md` cited [`evals/AUTHORING.md`][authoring-evals], which stopped shipping at #150 too;
+  `README.md` already linked the same file absolutely.
+- Every version heading in this file except `[0.7.0]` had a link definition,
+  so that one rendered as literal text while its neighbours were links, and
+  `[Unreleased]` still compared from `v0.6.0` — a range spanning all of 0.7.0.
+  A test now holds both.
+- The eval harness told the agent its report was at
+  `outputs/spec-<part id>/report.json`, but partspec derives that directory
+  from the contract's filename and factory, not the part id. No eval case has
+  the two equal, so the path was dead in every archived repair turn — four
+  lines below partspec's own output naming the real one. `run_check` already
+  found the true path and discarded it; it returns it now.
+
 ## [0.7.0] - 2026-08-11
 
 ### Fixed
@@ -265,8 +289,8 @@ catalogue, a source linter, and a recorded before/after on agent output.
   tray is also watertight, one solid, genus 0 (#112).
 - **`docs/FAILURE-MODES.md`** — the eight observed CAD-as-code failure modes from the
   dogfood corpus, each with symptom, root cause, detection, and what it looks like
-  when green; raw record frozen at `notes/dogfood-results.md` (#111).
-- **The authoring before/after, recorded** (`evals/AUTHORING.md`): guidance-present vs
+  when green; raw record frozen at [`notes/dogfood-results.md`][dogfood-results] (#111).
+- **The authoring before/after, recorded** ([`evals/AUTHORING.md`][authoring-evals]): guidance-present vs
   absent arms over exemplar-shaped tasks, 12 trials. Pass rate saturated (6/6 both
   arms); on the transfer tasks the guidance moved source quality from mixed to
   uniformly lint-clean (6 → 0 findings) while LoC rose — the added lines are the
@@ -641,7 +665,7 @@ callouts, and reports become comparable.
   same artifact the CLI writes, per the D18 boundary (#63, #66). `partspec render` emits
   canonical multi-view PNGs on the mesh tier, and the report references the renders it
   produced (#64, #65).
-- **The convergence eval, run and recorded** (`evals/CONVERGENCE.md`): 15/15 trials across
+- **The convergence eval, run and recorded** ([`evals/CONVERGENCE.md`][convergence-evals]): 15/15 trials across
   five defect classes, an agent taking a broken part to green with exactly one edit each and
   zero contract-weakening attempts (#67).
 - Tagged releases publish to PyPI via trusted publishing: tag/version assertion, build,
@@ -658,7 +682,12 @@ callouts, and reports become comparable.
   `measure` and `render` carry the same engine provenance as `check`; the OpenSCAD method
   scratch moved out of the source tree.
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.6.0...HEAD
+[authoring-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md
+[convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
+[dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
+
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/CameronBrooks11/partspec/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/CameronBrooks11/partspec/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/CameronBrooks11/partspec/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/CameronBrooks11/partspec/compare/v0.3.0...v0.4.0

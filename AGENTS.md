@@ -35,7 +35,7 @@ missing-wheel/environment origin, identifiable `measure` output, multi-target `c
 with module-cache invalidation, the claims pin (`--pin`/`--expect`, SPEC-report §7.1
 `expectation`), and the agent contract (`docs/AGENT-CONTRACT.md`); epic #3 shipped the craft — three tested skills, three worked exemplars, the failure catalogue
 (`docs/FAILURE-MODES.md`), `partspec lint` tier 1 (`docs/LINT.md`), and the recorded
-guidance before/after (`evals/AUTHORING.md`).
+guidance before/after ([`evals/AUTHORING.md`][authoring-evals]).
 What remains withheld, and why, is `docs/POST-V0.md`.
 
 ## Stack
@@ -121,6 +121,12 @@ Run the suite under both before touching `engines/openscad.py`.
   claim that can be **executed**: the skills' examples build, the README's example runs.
 - **Decisions live in `docs/DECISIONS.md`** (D1–D19), each with the reasoning that produced
   it. Do not relitigate a numbered decision; if it is wrong, add a superseding entry.
+- **Released `CHANGELOG.md` sections take form-only edits.** Rewriting a citation as a
+  link, or fixing a reference that no longer resolves, is allowed and expected: the
+  rendered claim is unchanged and a broken reference in a released section is a lie to
+  every reader who arrives later. Changing what an entry *claims* is not — that goes in a
+  new `[Unreleased]` entry correcting the old one, so "released sections are editable"
+  never becomes the reading.
 - **Status claims are part of the gate.** The "Status:" line here and in `README.md` say
   what does and does not work. Both were left asserting the backends were unimplemented for
   three phases after they shipped — in a project whose whole point is that a tool must not
@@ -176,3 +182,5 @@ Run the suite under both before touching `engines/openscad.py`.
   to differ from the gate.
 - Do not add a dependency without justification; the core is stdlib-only by design.
 - Do not commit secrets or credentials.
+
+[authoring-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md

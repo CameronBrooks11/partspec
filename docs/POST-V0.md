@@ -17,7 +17,7 @@ and printability (§6) are the substance now.
 
 ## 1. Assemblies — the largest item
 
-Everything below is from `notes/survey/03-cad-khana-absorption.md` and is deferred whole.
+Everything below is from [`notes/survey/03-cad-khana-absorption.md`][survey-absorption] and is deferred whole.
 **Scheduling decision, 2026-08-07:** D19 places assemblies after v1.0 — the v1.0 budget
 goes to part-level depth of intent. This section is the design basis for when they begin.
 
@@ -37,7 +37,7 @@ standalone sub-assembly run needs.
   shared datum is, in its own frame; the parent asserts the beliefs coincide after
   placement. Replaces mirror-constant + drift-assert pairs.
 - **Relational checks** — `clearance`, `interference`, `tangent_contact`, `allowed_contact`,
-  `expected_interference`. These were briefly listed as v0 in `notes/survey/DIRECTION.md` §5 because they
+  `expected_interference`. These were briefly listed as v0 in [`notes/survey/DIRECTION.md`][survey-direction] §5 because they
   are capability-portable; that was a category error (they take two bodies). The portability
   finding stands: `manifold3d.min_gap` returned exactly 7.5, and intersection volume was
   exact on both tiers.
@@ -152,3 +152,6 @@ Shipped with batch mode (#29). The normative rule is `SPEC-report.md` §6.2 (§5
 eviction machinery is `engines/pycad.py`'s module registry — whose two recorded ceilings
 (a same-second same-length edit defeating CPython's pyc validation, and the registry's
 refusal to sweep by directory) are the part worth remembering.
+
+[survey-absorption]: https://github.com/CameronBrooks11/partspec/blob/main/notes/survey/03-cad-khana-absorption.md
+[survey-direction]: https://github.com/CameronBrooks11/partspec/blob/main/notes/survey/DIRECTION.md

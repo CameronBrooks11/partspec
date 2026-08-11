@@ -222,7 +222,7 @@ difference*, which is a thing the tool should report loudly rather than absorb q
 
 ### 4.3 Deliberately NOT in v0
 
-- **`clearance` / `interference`** — `notes/survey/DIRECTION.md` §5 listed these as v0 because they are
+- **`clearance` / `interference`** — [`notes/survey/DIRECTION.md`][survey-direction] §5 listed these as v0 because they are
   *capability-portable* (exact on polyhedra via `manifold3d.min_gap`). **That was a
   category error: they take two bodies, and v0 is parts only (D11).** They move to post-v0
   with assemblies, where they have a subject. The portability finding stands and carries
@@ -942,3 +942,5 @@ No new machinery — a fragment is ordinary contract authoring, factored. Three 
    attributed the square to the standard, 25.6 µm off the AJ dimension the document states
    directly — the review caught it against the standard's own text, and the table now
    converts what the document says, inch figures in every note.
+
+[survey-direction]: https://github.com/CameronBrooks11/partspec/blob/main/notes/survey/DIRECTION.md
