@@ -5,6 +5,21 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- 0.7.1's release entry says the published wheel differs from 0.7.0's in "the
+  version string, and the README it embeds". Comparing the two wheels *as
+  published* — which is only possible after the fact — there is a third:
+  `WHEEL` carries `Generator: hatchling 1.31.0` against `1.32.0`, the build
+  backend CI resolved on the day. The containing claim holds and was verified
+  against the published artifacts (29 package files, same set, none differing;
+  every difference inside `.dist-info`), but the enumeration was two of three.
+  Recorded here rather than edited into the released section, per the rule in
+  `AGENTS.md`: a released entry takes form-only edits, and a changed claim
+  goes in a new entry.
+
 ## [0.7.1] - 2026-08-11
 
 **No code changed.** `src/` is byte-identical to 0.7.0, and so is every one of
