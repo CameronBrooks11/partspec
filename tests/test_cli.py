@@ -13,25 +13,12 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import decode_png, needs_openscad, needs_scad_tier, report_of
+from support import decode_png, needs_openscad, needs_scad_tier, report_of, scad_target
 
 from partspec.cli import main
 from partspec.status import Verdict, exit_code
 
 FIXTURES = Path(__file__).parent / "fixtures"
-
-
-def _contract(tmp_path: Path, scad: str, body: str) -> str:
-    """Write a contract module next to a copy of its source, return its target."""
-    shutil.copy(FIXTURES / scad, tmp_path / scad)
-    module = tmp_path / "spec.py"
-    module.write_text(
-        "from partspec import Part, openscad\n\n\ndef make():\n"
-        f"    p = Part('subject', openscad({scad!r}))\n"
-        f"{body}"
-        "    return p\n"
-    )
-    return f"{module}:make"
 
 
 def _measure(target: str, capsys) -> dict:
@@ -46,7 +33,7 @@ def _measure(target: str, capsys) -> dict:
 
 @needs_scad_tier
 def test_measure_reports_the_quantities_it_can_answer(tmp_path: Path, capsys):
-    doc = _measure(_contract(tmp_path, "block_with_hole.scad", ""), capsys)
+    doc = _measure(scad_target(tmp_path, source="block_with_hole.scad", claims=""), capsys)
     assert doc["engine"]["backend"] == "mesh"
     assert doc["measurements"]["volume"]["value"] == pytest.approx(30 * 20 * 10 - 6 * 6 * 10)
     assert "refused" not in doc, "a sound part refuses nothing"
@@ -66,7 +53,7 @@ def test_measure_says_why_it_refused_rather_than_omitting_the_quantity(tmp_path:
     before you decide which are intent. They would write a contract that
     declines to claim a volume, and the omission would have taught them that.
     """
-    doc = _measure(_contract(tmp_path, "open_box.scad", ""), capsys)
+    doc = _measure(scad_target(tmp_path, source="open_box.scad", claims=""), capsys)
 
     assert set(doc["refused"]) == {"volume", "center_of_mass", "genus"}
     for name, reason in doc["refused"].items():
@@ -81,7 +68,7 @@ def test_measure_says_why_it_refused_rather_than_omitting_the_quantity(tmp_path:
 def test_measure_shows_cavities(tmp_path: Path, capsys):
     """#113: the number distinguishing a sealed enclosure from an open tray
     was absent from the verb whose job is showing every claimable number."""
-    doc = _measure(_contract(tmp_path, "block_with_hole.scad", ""), capsys)
+    doc = _measure(scad_target(tmp_path, source="block_with_hole.scad", claims=""), capsys)
     assert doc["measurements"]["cavities"]["value"] == 0
 
 
@@ -94,7 +81,7 @@ def test_measure_separates_a_tier_gap_from_a_broken_part(tmp_path: Path, capsys)
     what to assert needs to tell "you need the OCCT tier for that" apart from
     "fix your model".
     """
-    doc = _measure(_contract(tmp_path, "open_box.scad", ""), capsys)
+    doc = _measure(scad_target(tmp_path, source="open_box.scad", claims=""), capsys)
     assert doc["unavailable"] == [
         "self_intersection_free",
         "min_wall",
@@ -112,7 +99,7 @@ def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
     `measure` asks no question, so it cannot answer one wrongly. The verdict
     machinery deliberately does not run.
     """
-    doc = _measure(_contract(tmp_path, "open_box.scad", ""), capsys)
+    doc = _measure(scad_target(tmp_path, source="open_box.scad", claims=""), capsys)
     assert "verdict" not in doc and "checks" not in doc
 
 
@@ -127,7 +114,7 @@ def test_measure_carries_the_same_identity_as_the_report(tmp_path: Path, capsys)
     drifting apart again (#73 was exactly that drift, in the engine block).
     A consumer turning measure output into checks must be able to say which
     file, which revision, and which parameters produced the numbers."""
-    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
     out = tmp_path / "out"
     assert main(["check", target, "--quiet", "--out", str(out)]) == 0
     report = report_of(out)
@@ -231,7 +218,7 @@ def test_check_exits_with_the_verdicts_code(tmp_path: Path, body: str, expected:
     The exit code is the only thing a CI job reads, so a report that is right
     while the process exits 0 anyway would defeat all of it.
     """
-    target = _contract(tmp_path, "block_with_hole.scad", body)
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims=body)
     assert main(["check", target, "--quiet"]) == exit_code(expected)
 
 
@@ -247,7 +234,7 @@ def test_an_empty_contract_says_so_on_the_console(tmp_path: Path, capsys):
     is built around; the operator has to be told in words, not just by an
     exit code they may not be reading.
     """
-    target = _contract(tmp_path, "block_with_hole.scad", "")
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
     assert main(["check", target, "--out", str(tmp_path / "out")]) == exit_code(Verdict.EMPTY)
     err = capsys.readouterr().err
     assert "declares no checks" in err
@@ -256,7 +243,7 @@ def test_an_empty_contract_says_so_on_the_console(tmp_path: Path, capsys):
 
 @needs_scad_tier
 def test_check_writes_the_report_where_it_says_it_did(tmp_path: Path, capsys):
-    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
     assert main(["check", target]) == 0
     printed = capsys.readouterr().err.strip().splitlines()[-1].strip()
     doc = json.loads(Path(printed).read_text())
@@ -430,7 +417,7 @@ def test_render_on_a_broken_python_model_is_an_artifact(tmp_path: Path, capsys):
 
 @needs_openscad
 def test_render_writes_the_views_or_reports_the_display(tmp_path: Path, capsys):
-    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
     code = main(["render", target])
     captured = capsys.readouterr()
     if code == 0:
@@ -445,7 +432,7 @@ def test_render_writes_the_views_or_reports_the_display(tmp_path: Path, capsys):
 
 @needs_scad_tier
 def test_check_render_records_the_views_in_the_report_or_fails_the_run(tmp_path: Path):
-    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
     out = tmp_path / "out"
     code = main(["check", target, "--quiet", "--render", "--out", str(out)])
     report = report_of(out)
@@ -466,7 +453,7 @@ def test_check_render_records_the_views_in_the_report_or_fails_the_run(tmp_path:
 
 @needs_scad_tier
 def test_a_report_without_render_carries_no_renders_key(tmp_path: Path):
-    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
     out = tmp_path / "out"
     assert main(["check", target, "--quiet", "--out", str(out)]) == 0
     assert "renders" not in report_of(out)
@@ -683,7 +670,7 @@ def test_render_leaves_its_payload_on_disk_for_a_later_vdiff(tmp_path: Path, cap
 
 @needs_openscad
 def test_check_render_records_the_bbox_in_the_report(tmp_path: Path):
-    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
     out = tmp_path / "out"
     code = main(["check", target, "--quiet", "--render", "--out", str(out)])
     report = report_of(out)
@@ -872,7 +859,7 @@ def test_measure_engine_block_matches_the_report_shape(tmp_path: Path, capsys):
     # measure and check had drifted (#73): wrong key order, no method. One
     # constructor now serves both, so a measure artifact answers the same
     # provenance questions a report does.
-    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
     payload = _measure(target, capsys)
     assert list(payload["engine"]) == [
         "kind",
@@ -910,7 +897,7 @@ def test_render_carries_the_same_identity_as_the_report(tmp_path: Path, capsys):
     """render was the last verb whose payload named its part with a bare id
     string (#103): no digests, no closure — its images could not be tied to
     the revision that produced them. Same pin as measure's (#47)."""
-    target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
     out = tmp_path / "out"
     assert main(["check", target, "--quiet", "--out", str(out)]) == 0
     report = report_of(out)

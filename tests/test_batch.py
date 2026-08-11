@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from support import needs_scad_tier, report_of
+from support import needs_scad_tier, py_target, report_of
 
 from partspec.cli import main
 from partspec.status import Verdict, exit_code
@@ -183,21 +183,22 @@ def test_render_refuses_a_batch(tmp_path: Path, monkeypatch, capsys):
 # --------------------------------------------------------------------------
 
 
-def _py_target(d: Path, size: float) -> str:
+def _closure_target(d: Path, size: float) -> str:
+    """A build123d part whose size comes from a sibling module it imports.
+
+    The helper and the model are the fixture — the import is what these tests
+    are about — so only the contract is boilerplate, and that goes through
+    `py_target`. Renamed off `_py_target` when that helper landed in
+    `support.py`: two names one underscore apart doing different things is a
+    reading hazard, and this one is named for the thing it sets up.
+    """
     d.mkdir(exist_ok=True)
     (d / "helper29.py").write_text(f"SIZE = {size}\n")
     (d / "model.py").write_text(
         "import helper29\nfrom build123d import Box\n\n\ndef make_part():\n"
         "    return Box(helper29.SIZE, 1, 1)\n"
     )
-    spec = d / "spec.py"
-    spec.write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('model.py'))\n"
-        "    p.volume(min=0.0)\n"
-        "    return p\n"
-    )
-    return f"{spec}:make"
+    return py_target(d, model="model.py", claims="    p.volume(min=0.0)\n")
 
 
 def _measured_volume(out: Path) -> float:
@@ -211,7 +212,7 @@ def test_an_edited_helper_reaches_the_second_run_in_one_process(tmp_path: Path):
     measured the FIRST run's geometry — a stale build reported as fresh, with
     a closure digest taken from the edited file that never got imported."""
     pytest.importorskip("build123d", reason="occt extra not installed")
-    target = _py_target(tmp_path / "m", 1.0)
+    target = _closure_target(tmp_path / "m", 1.0)
     out1, out2 = tmp_path / "o1", tmp_path / "o2"
     assert main(["check", target, "--quiet", "--out", str(out1)]) == 0
     assert _measured_volume(out1) == pytest.approx(1.0)
@@ -220,7 +221,7 @@ def test_an_edited_helper_reaches_the_second_run_in_one_process(tmp_path: Path):
     # (mtime seconds, size), so a same-length edit within one second serves
     # stale bytecode to any interpreter — a ceiling beneath this tool's reach,
     # noted on `invalidate_model_modules`.
-    _py_target(tmp_path / "m", 12.5)
+    _closure_target(tmp_path / "m", 12.5)
     assert main(["check", target, "--quiet", "--out", str(out2)]) == 0
     assert _measured_volume(out2) == pytest.approx(12.5), "the edited helper must be re-imported"
 
@@ -281,7 +282,7 @@ def test_an_interrupt_leaves_no_stale_pass_behind_it(tmp_path: Path):
     three's previous pass sitting untouched would be a stale artifact reading
     as current. Placeholders for every target go down before any runs."""
     pytest.importorskip("build123d", reason="occt extra not installed")
-    calm = _py_target(tmp_path / "calm", 1.0)
+    calm = _closure_target(tmp_path / "calm", 1.0)
     assert main(["check", calm, "--quiet"]) == 0
 
     interrupting = tmp_path / "interrupting.py"
@@ -295,8 +296,8 @@ def test_batch_of_two_python_models_each_measures_its_own(tmp_path: Path):
     """PR #101's review demonstrated the cross live: model B built with model
     A's cached helper. In one batch invocation each part must measure its own."""
     pytest.importorskip("build123d", reason="occt extra not installed")
-    a = _py_target(tmp_path / "a", 1.0)
-    b = _py_target(tmp_path / "b", 3.0)
+    a = _closure_target(tmp_path / "a", 1.0)
+    b = _closure_target(tmp_path / "b", 3.0)
     assert main(["check", a, b, "--quiet"]) == 0
     vol_a = _measured_volume(tmp_path / "a" / "outputs" / "spec-make")
     vol_b = _measured_volume(tmp_path / "b" / "outputs" / "spec-make")

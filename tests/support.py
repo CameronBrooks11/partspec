@@ -26,6 +26,7 @@ __all__ = [
     "needs_openscad",
     "needs_scad_tier",
     "openscad_supports_backend_flag",
+    "py_target",
     "refused",
     "report_of",
     "scad_target",
@@ -123,6 +124,30 @@ def scad_target(
     spec.write_text(
         "from partspec import Part, openscad\n\n\ndef make():\n"
         f"    p = Part({part_id!r}, openscad({name!r}))\n"
+        f"{claims}"
+        "    return p\n"
+    )
+    return f"{spec}:make"
+
+
+def py_target(
+    tmp_path: Path, *, model: str = "m.py", claims: str = "", part_id: str = "subject"
+) -> str:
+    """The build123d equivalent of `scad_target`, for a model the test wrote.
+
+    Deliberately NOT a mirror: `scad_target` copies a `.scad` out of
+    `tests/fixtures`, while a build123d test almost always authors its model
+    inline, because the model body IS the thing under test. So this writes the
+    contract only and takes the model's filename.
+
+    Written once for the occt half of #153 and then deleted unused, on the
+    grounds that shipping a helper nothing calls is the slop that slice was
+    removing. It is back with nine real callers.
+    """
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, build123d\n\n\ndef make():\n"
+        f"    p = Part({part_id!r}, build123d({model!r}))\n"
         f"{claims}"
         "    return p\n"
     )

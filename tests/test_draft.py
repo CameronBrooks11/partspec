@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 
 import pytest
-from support import check_of, needs_mesh, needs_openscad, report_of, scad_target
+from support import check_of, needs_mesh, needs_openscad, py_target, report_of, scad_target
 
 from partspec.contract import ContractError, Part
 from partspec.status import Status
@@ -170,14 +170,12 @@ def test_the_report_names_the_failing_faces_and_the_claim(tmp_path):
     (tmp_path / "m.py").write_text(
         "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
     )
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.draft_angle(min=2.0)\n"
-        "    return p\n"
+    target = py_target(
+        tmp_path,
+        claims="    p.draft_angle(min=2.0)\n",
     )
     out = tmp_path / "out"
-    assert main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)]) == 1
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 1
     check = check_of(out, "draft_angle")
     assert check["status"] == "fail"
     assert check["direction"] == [0.0, 0.0, 1.0], "the claim's axis is in the artifact"
@@ -193,16 +191,11 @@ def test_a_drafted_part_passes(tmp_path):
         "from build123d import Plane, Rectangle, extrude\n\n\ndef make_part():\n"
         "    return extrude(Plane.XY * Rectangle(20, 10), 6, taper=3)\n"
     )
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.draft_angle(min=2.0)\n"
-        "    return p\n"
+    target = py_target(
+        tmp_path,
+        claims="    p.draft_angle(min=2.0)\n",
     )
-    assert (
-        main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(tmp_path / "o")])
-        == 0
-    )
+    assert main(["check", target, "--quiet", "--out", str(tmp_path / "o")]) == 0
 
 
 @needs_openscad
@@ -250,14 +243,12 @@ def test_an_unattributed_draft_min_draws_the_warning(tmp_path):
 
     model = "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
     (tmp_path / "m.py").write_text(model)
-    (tmp_path / "spec.py").write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.draft_angle(min=2.0)\n"
-        "    return p\n"
+    target = py_target(
+        tmp_path,
+        claims="    p.draft_angle(min=2.0)\n",
     )
     out = tmp_path / "out"
-    main(["check", f"{tmp_path / 'spec.py'}:make", "--quiet", "--out", str(out)])
+    main(["check", target, "--quiet", "--out", str(out)])
     report = report_of(out)
     assert report["attribution"]["dimensional"] == 1
     assert report["attribution"]["attributed"] == 0
