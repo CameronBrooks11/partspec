@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-np = pytest.importorskip("numpy", reason="occt extra not installed")
+np = pytest.importorskip("numpy", reason="numpy (a trimesh dependency) not installed")
 
 from support import decode_png  # noqa: E402
 

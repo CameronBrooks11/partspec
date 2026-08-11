@@ -86,8 +86,11 @@ exports an STL and `backends/mesh.py` measures it, so the scad tier needs
 mesh extra — `pip install partspec`, the first minute of use — 23 tests marked
 only `needs_openscad` did not skip. They ran, got exit 4, and FAILED.
 
-CI never saw it because CI installs every extra, so the one environment that
-would show it is the one nobody tests in. `just test-no-extras` does now.
+CI never saw it because no job ran the WHOLE suite without extras: `check` and
+`test` install all of them, and `mesh-only`/`mcp-only` ran a single module
+each. So the one environment that would show it was the one nothing ran in.
+`just test-no-extras` runs everything there now, and `just test-mesh-only`
+was widened to the whole suite for the same reason.
 
 Use `needs_openscad` alone only for a test that stops at the engine — a build
 error, a usage refusal — and never reaches a measurement.

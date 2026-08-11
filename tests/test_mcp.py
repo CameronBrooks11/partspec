@@ -2,9 +2,9 @@
 artifact the CLI writes (D18).
 
 Everything here runs without a CAD engine except the green end-to-end case,
-which is guarded like every other engine test. The `importorskip` is the local
-behaviour; `conftest.py` turns the skip into a hard failure wherever `mcp` is
-declared in `PARTSPEC_REQUIRE_ENGINES`.
+which is guarded like every other engine test. The `mcp` importorskip is the
+local behaviour; `conftest.py` turns the skip into a hard failure wherever
+`mcp` is declared in `PARTSPEC_REQUIRE_ENGINES`.
 """
 
 from __future__ import annotations
@@ -19,9 +19,20 @@ from typing import Any
 import pytest
 from support import OPENSCAD, needs_openscad
 
-from partspec.mcp import build_server
-
+# BEFORE the `partspec.mcp` import below, and before `anyio`. Every test in
+# this module drives the adapter, so a whole-module skip is the honest answer
+# here — unlike the nine gates removed in this change, which stood in front of
+# tests that needed nothing.
+#
+# `anyio` alone is NOT a substitute, and briefly replacing this with it was a
+# real regression: `anyio` arrives transitively with httpx, starlette and much
+# else, so in any environment carrying one of those the module collected and
+# eight tests failed instead of skipping. A gate must name the dependency its
+# tests actually use.
+pytest.importorskip("mcp", reason="mcp extra not installed")
 anyio = pytest.importorskip("anyio", reason="mcp extra not installed")
+
+from partspec.mcp import build_server  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -327,7 +327,11 @@ def test_the_ok_gate_waits_for_every_job_in_the_workflow():
     text = (REPO / ".github" / "workflows" / "ci.yml").read_text()
     body = text.split("\njobs:\n", 1)
     assert len(body) == 2, "ci.yml no longer has a top-level `jobs:` block"
-    jobs = re.findall(r"^  ([a-z][\w-]*):$", body[1], re.M)
+    # A GitHub job id may start with any letter or `_`, and this file comments
+    # heavily around job keys. Anchoring to lowercase-and-`:$` made `Build:` or
+    # `  mutant:  # new` invisible — a gate-checker reading as success for an
+    # unguarded job, which is the failure it exists to prevent (review M4/M5).
+    jobs = re.findall(r"^  ([A-Za-z_][\w-]*):\s*(?:#.*)?$", body[1], re.M)
     assert "ok" in jobs, "the gate job is named `ok` everywhere else that matters"
 
     gate = re.search(r"^  ok:$.*?^    needs: \[([^\]]+)\]", body[1], re.M | re.S)
