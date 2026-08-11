@@ -28,6 +28,17 @@ does an agent converge to a passing part within a bounded number of turns?
    brute-forces values is answering a different question.
 4. **Every trial runs in a throwaway copy.** `evals/cases/` is never mutated.
 
+> **The archived runs are not a comparable baseline.** Every run recorded here
+> before 2026-08-11 offered the agent a report path that did not exist: the
+> driver built `outputs/spec-<part id>/report.json`, and partspec derives that
+> directory from the contract's filename and factory, which no case has equal
+> to its part id. The agent still received partspec's full console output — the
+> treatment property 3 describes — and the true path was visible inside it, so
+> the recorded convergence numbers stand for what they measure. But the "you
+> may read the full report" affordance was never actually delivered, and it is
+> delivered now. Runs from here on see a ~3 KB structured report where the
+> archive saw a six-line summary; do not pool the two.
+
 ## Running it
 
 ```bash

@@ -310,6 +310,40 @@ def test_the_sdist_leaves_out_what_a_consumer_cannot_use(sdist_names: set[str]):
     assert "README.md" in sdist_names
 
 
+def test_every_changelog_version_is_a_link_and_unreleased_starts_at_the_last_one():
+    """Keep a Changelog renders each version heading as a link to its diff.
+
+    A heading whose definition is missing does not fail — it renders as the
+    literal text `[0.7.0]`, sitting between neighbours that are links, on the
+    file `pyproject.toml` advertises as the project's Changelog URL. That is
+    what v0.7.0 shipped, and it is this repo's own failure mode: the broken
+    thing looks like the working thing.
+
+    The `Unreleased` range is checked too, because it is wrong by default. It
+    keeps whatever tag it was written with, so the release that adds a version
+    heading and forgets this line leaves `Unreleased` spanning the release it
+    just cut — v0.7.0 shipped `v0.6.0...HEAD` (PR #162 review, HIGH-3).
+    """
+    text = (REPO / "CHANGELOG.md").read_text()
+    headings = re.findall(r"^## \[([^\]]+)\]", text, re.M)
+    defined = dict(re.findall(r"^\[([^\]]+)\]: (\S+)$", text, re.M))
+
+    undefined = [h for h in headings if h not in defined]
+    assert not undefined, (
+        f"these headings render as literal text, not links: {undefined}. "
+        f"Add a definition at the foot of CHANGELOG.md."
+    )
+
+    versions = [h for h in headings if h != "Unreleased"]
+    assert versions, "a changelog with no released version is not one this test understands"
+    if "Unreleased" in headings:
+        newest = versions[0]
+        assert defined["Unreleased"].endswith(f"compare/v{newest}...HEAD"), (
+            f"[Unreleased] compares from {defined['Unreleased'].rsplit('/', 1)[-1]}, but the "
+            f"newest released version is {newest}; the range spans a release already cut"
+        )
+
+
 def test_the_project_urls_point_at_things_that_exist():
     """Presence of the keys is not the claim; the claim is that a reader
     following them arrives somewhere. The two that name in-repo files are

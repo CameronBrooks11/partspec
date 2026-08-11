@@ -475,13 +475,16 @@ def test_every_repo_url_the_docs_link_to_can_be_opened():
     the reader `notes/README.md` argues hardest about. They are reference-style
     links to `blob/main` now, which resolve from anywhere.
 
-    That form moves the path out of the backticks the test above matches and
-    into a URL nothing read, so this closes the hole rather than duplicating
-    it: a typo'd or renamed target would otherwise 404 silently, which is the
-    same "cited but unopenable" loss in a new spelling.
+    Not a duplicate of it. The link form writes the path down TWICE — once as
+    the backticked display text that test reads, once in a URL that nothing
+    read — so the two copies could drift apart and only one was checked. Both
+    halves need a reader: mutate the display text and the test above fails;
+    mutate the URL and, before this, nothing did.
 
-    Scans `skills/` as well. It ships for the same reason `docs/` does, and the
-    test above never looked at it.
+    Scans every shipped markdown surface, not just `docs/`. `skills/`,
+    `examples/`, `AGENTS.md` and `CHANGELOG.md` all ride in the sdist for the
+    same reason `docs/` does, and no test looked at any of them (PR #162
+    review, MEDIUM-1).
     """
     import subprocess
 
@@ -494,7 +497,14 @@ def test_every_repo_url_the_docs_link_to_can_be_opened():
         ).stdout.split()
     )
     url = re.compile(r"https://github\.com/CameronBrooks11/partspec/(?:blob|tree)/main/([\w./-]+)")
-    sources = [*sorted(DOCS.glob("*.md")), README, *sorted(ROOT.glob("skills/*/*.md"))]
+    sources = [
+        *sorted(DOCS.glob("*.md")),
+        README,
+        ROOT / "AGENTS.md",
+        ROOT / "CHANGELOG.md",
+        *sorted(ROOT.glob("skills/*/*.md")),
+        *sorted(ROOT.glob("examples/*/*.md")),
+    ]
     missing = []
     for doc in sources:
         for cited in url.findall(doc.read_text()):
@@ -503,6 +513,63 @@ def test_every_repo_url_the_docs_link_to_can_be_opened():
                 continue
             missing.append(f"{doc.relative_to(ROOT)} -> {cited}")
     assert not missing, "linked paths no reader can open:\n  " + "\n  ".join(missing)
+
+
+def test_no_shipped_doc_cites_a_non_shipping_file_as_a_bare_path():
+    """The defect the two tests above do not catch, stated directly.
+
+    Both of them ask "is this path tracked?". Nothing asked "does it ship?" —
+    and `notes/` and `evals/` are tracked *and* excluded from the sdist, so a
+    bare `` `notes/GAPS.md` `` passes both while being unopenable for every
+    reader who came from PyPI. That is the whole of #162, and it survived one
+    line away from the citations that were fixed (`AGENTS.md`, PR #162 review
+    HIGH-2).
+
+    A citation of an excluded tree must therefore be a LINK, which resolves
+    from anywhere. Bare directory mentions (`` `notes/` ``) and prose naming
+    the tree are unaffected: this matches paths that name a file.
+
+    The excluded trees are read from `pyproject.toml` rather than listed here,
+    so shipping `notes/` again — or excluding a new tree — moves this test
+    with the packaging rather than leaving it asserting last year's layout.
+    """
+    import tomllib
+
+    excludes = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["hatch"]["build"][
+        "targets"
+    ]["sdist"]["exclude"]
+    trees = sorted(e.strip("/") for e in excludes if "." not in e)
+    assert trees, "no excluded trees in the sdist config; this test has nothing to police"
+
+    cite = re.compile(r"`((?:" + "|".join(trees) + r")/[\w./-]*\.\w+)`")
+    sources = [
+        *sorted(DOCS.glob("*.md")),
+        README,
+        ROOT / "AGENTS.md",
+        ROOT / "CHANGELOG.md",
+        *sorted(ROOT.glob("skills/*/*.md")),
+        *sorted(ROOT.glob("examples/*/*.md")),
+    ]
+    bare = []
+    for doc in sources:
+        text = doc.read_text()
+        for m in cite.finditer(text):
+            # `[`path`][label]` and `[`path`](url)` are links; a lone code span
+            # is not. Checked by position rather than a lookaround so both
+            # reference and inline forms are recognised.
+            linked = (
+                m.start() > 0
+                and text[m.start() - 1] == "["
+                and text[m.end() : m.end() + 2][:1] == "]"
+                and text[m.end() : m.end() + 2][1:2] in "(["
+            )
+            if not linked:
+                line = text[: m.start()].count("\n") + 1
+                bare.append(f"{doc.relative_to(ROOT)}:{line} -> {m.group(1)}")
+    assert not bare, (
+        "these name a file the sdist does not carry, as a bare path rather than a link, "
+        "so a reader from PyPI cannot open them:\n  " + "\n  ".join(bare)
+    )
 
 
 def test_the_generated_doc_blocks_are_current():
