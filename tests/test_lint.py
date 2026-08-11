@@ -120,6 +120,22 @@ def test_a_named_argument_is_not_an_assignment_statement(tmp_path: Path):
     )
     assert len([f for f in lint_path(call) if f.rule == "scad-magic-number"]) == 3
 
+    # A module-local constant is an assignment statement too. Counting braces in
+    # the depth tally made the exemption top-level-only, so a table wrapped
+    # inside a module drew the findings `docs/LINT.md` says it does not. Parens
+    # and brackets are the right counters: an assignment can sit at any brace
+    # depth but never inside `(` or `[`, which is exactly where a named argument
+    # and a signature default live (PR #160 review, R1).
+    local = tmp_path / "local.scad"
+    local.write_text("module plate() {\n  spec = [\n    60, 40, 400\n  ];\n  cube(spec);\n}\n")
+    assert [f for f in lint_path(local) if f.rule == "scad-magic-number"] == []
+
+    unwrapped_local = tmp_path / "local_one.scad"
+    unwrapped_local.write_text("module plate() {\n  spec = [60, 40, 400];\n  cube(spec);\n}\n")
+    assert [f for f in lint_path(unwrapped_local) if f.rule == "scad-magic-number"] == [], (
+        "the same constant unwrapped — both must answer the same"
+    )
+
     # An assignment that never terminates must not silence the rest of the file.
     unterminated = tmp_path / "unterminated.scad"
     unterminated.write_text("x = 5\ncube([100, 200, 300]);\n")

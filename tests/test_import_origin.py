@@ -228,6 +228,21 @@ def test_an_engine_rejecting_an_option_is_an_environment_fault(tmp_path: Path):
     assert not _is_unknown_option(
         "ERROR: Parser error\nUsage: openscad [options]\n  --backend arg  unrecognised option"
     )
+    # Bookkeeping the engine prints BEFORE its diagnosis must not hide the
+    # rejection: both binaries print `Geometries in cache:` first, and reading a
+    # raw `lines[0]` classified that as a model fault while the hint still named
+    # the option — origin and hint disagreeing, which is the bug this branch is
+    # for (PR #160 review).
+    assert _is_unknown_option("Geometries in cache: 3\nunrecognised option '--export-format'")
+    # Nor may the usage dump reach the decision. Delegating wholesale to
+    # `_first_error_line` briefly did, and it prefers an ERROR/WARNING line
+    # ANYWHERE in stderr: today's 58-line 2021.01 dump survives on letter case
+    # alone ("Stop on the first warning", lowercase), so an engine that
+    # capitalised it would flip the origin back to `model` (review R2).
+    assert _is_unknown_option(
+        "unrecognised option '--backend=CGAL'\nUsage: openscad [options]\n"
+        "  --hardwarnings  Stop on the first WARNING"
+    )
 
 
 @needs_openscad

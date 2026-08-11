@@ -599,6 +599,20 @@ statistic as the hint — confidently irrelevant — while `Current top level
 object is empty.` sat one line down (#37)."""
 
 
+def _signal_lines(stderr: str) -> list[str]:
+    """stderr with blanks and known bookkeeping removed, in order.
+
+    Factored out so the origin and the hint filter noise through ONE list.
+    `_first_error_line` then applies its ERROR/WARNING preference over these;
+    `_is_unknown_option` takes the first, deliberately not the preference.
+    """
+    return [
+        line.strip()
+        for line in stderr.splitlines()
+        if line.strip() and not _NOISE.match(line.strip())
+    ]
+
+
 _UNKNOWN_OPTION = re.compile(r"unrecognised option|unrecognized option|unknown option", re.I)
 """The engine rejecting a FLAG rather than the source.
 
@@ -618,15 +632,26 @@ which is the whole class that must not be blamed on the part."""
 def _is_unknown_option(stderr: str) -> bool:
     """Whether the engine rejected an option rather than the model.
 
-    Asks `_first_error_line`, so the origin is decided from the same line the
-    hint reports. Taking `lines[0]` raw let them disagree silently: the cache
+    Shares `_first_error_line`'s NOISE FILTER — one list, kept in step by being
+    one list — and then takes the first line, which is not what that function
+    does. Reading `lines[0]` raw let the two disagree silently: the cache
     statistics both binaries print FIRST would push a rejection to line two,
     reverting the classification to `model` while the hint still named the
-    option — reinstating the exact bug this fixes (PR #160 review).
+    option, which is the bug this branch fixes.
 
-    That coupling is the property, not immunity to noise. A line `_NOISE` does
-    not know — a Mesa/libEGL warning on a headless box, say — still displaces
-    the rejection, but it now displaces the hint with it, so the report stays
+    But delegating to `_first_error_line` wholesale was worse, and briefly
+    shipped on this branch: it prefers a line containing `ERROR`/`WARNING`
+    ANYWHERE in stderr, so a 58-line usage dump came into scope. Today's
+    2021.01 dump survives on letter case alone — it contains "errors)" and
+    "Stop on the first warning", both lowercase — and an engine that
+    capitalised either word would flip the origin back to `model` with nothing
+    to show for it (PR #160 review, R2). A CLI-level rejection is printed
+    before any compilation output, so the first signal line is the whole
+    question and the dump is never in scope.
+
+    Coupling the filter is the property, not immunity to noise. A line `_NOISE`
+    does not know — a Mesa/libEGL warning on a headless box, say — still
+    displaces the rejection, and displaces the hint with it, so the report stays
     self-consistent and `build_stderr` carries the whole text either way. The
     fix for such a line is to teach `_NOISE` about it once it is observed;
     guessing at the list here would be a second filter to keep in step.
@@ -637,8 +662,8 @@ def _is_unknown_option(stderr: str) -> bool:
     usage dump as an engine fault, which is an ordinary compile failure blamed
     on the machine. Both directions are pinned by test.
     """
-    first = _first_error_line(stderr)
-    return first is not None and _UNKNOWN_OPTION.search(first) is not None
+    lines = _signal_lines(stderr)
+    return bool(lines) and _UNKNOWN_OPTION.search(lines[0]) is not None
 
 
 def _first_error_line(stderr: str) -> str | None:
@@ -656,11 +681,7 @@ def _first_error_line(stderr: str) -> str | None:
     would return a fragment of the dump. Known noise is filtered before
     selection instead, which needs no special-casing of any message.
     """
-    lines = [
-        line.strip()
-        for line in stderr.splitlines()
-        if line.strip() and not _NOISE.match(line.strip())
-    ]
+    lines = _signal_lines(stderr)
     for line in lines:
         if "ERROR" in line or "WARNING" in line:
             return line

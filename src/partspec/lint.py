@@ -223,7 +223,22 @@ def _lint_scad(path: Path) -> list[Finding]:
         # follows.
         opens = depth == 0 and not in_assignment and looks_like_assignment
         skip = looks_like_assignment or in_assignment
-        depth += sum(line_text.count(b) for b in "{([") - sum(line_text.count(b) for b in "})]")
+        # Parens and brackets ONLY, unlike `_entry_top_level` above, which also
+        # counts braces because it wants the file's top-level names. The
+        # question here is different: an assignment STATEMENT is legal at any
+        # brace depth — a module-local constant is ordinary OpenSCAD — but can
+        # never appear inside `(` or `[`, which is exactly where a named
+        # argument and a signature default live. So paren/bracket depth IS the
+        # predicate, and counting braces made the exemption top-level-only:
+        #
+        #     module plate() { spec = [
+        #         60, 40, 400
+        #       ]; cube(spec); }        -> 3 findings on a named constant
+        #
+        # which `docs/LINT.md` says cannot happen. A stray `}` also drove the
+        # counter negative and disabled the exemption for the rest of the file
+        # (PR #160 review, R1).
+        depth += sum(line_text.count(b) for b in "([") - sum(line_text.count(b) for b in ")]")
         if skip:
             # Closed by its `;`, and abandoned once brackets rebalance, so a
             # statement that never terminates cannot silence the rest of the
