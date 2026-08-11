@@ -17,18 +17,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-from support import needs_build123d, needs_openscad
+from support import needs_build123d, needs_openscad, needs_scad_tier
 
 from partspec import Measurement, Part, Status, openscad, run
-
-pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BLOCK = FIXTURES / "block_with_hole.scad"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_failing_envelope_names_the_failing_axis(tmp_path: Path):
     """The block is 30x20x10. Only z breaks its bound, and the report must say
     so as data — an agent acting on 'envelope failed' has to bisect; one acting
@@ -41,7 +38,7 @@ def test_a_failing_envelope_names_the_failing_axis(tmp_path: Path):
     assert check.detail == "z=10 outside max=5"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_components_are_recorded_on_pass_too(tmp_path: Path):
     """The 7.2 principle applied to attribution: drift analysis needs the
     passing shape as much as the failing one."""

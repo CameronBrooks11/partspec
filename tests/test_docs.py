@@ -32,7 +32,7 @@ import re
 from pathlib import Path
 
 import pytest
-from support import measured, needs_openscad
+from support import measured, needs_scad_tier
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
@@ -162,7 +162,7 @@ def test_readme_links_survive_pypi():
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 def test_the_hole_becomes_notch_essence_is_reproducible_here(tmp_path: Path):
     """Catalogue entry 3's [repo] claim, executed: a slot swept across the
     plate edge drops the genus while every other check holds still — the
@@ -265,7 +265,7 @@ def _scad_blocks() -> dict[str, str]:
     return blocks
 
 
-@needs_openscad
+@needs_scad_tier
 def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path):
     """Acceptance (#22): the examples in the skill actually build and satisfy
     what they claim — executed, per rule, not asserted in prose."""

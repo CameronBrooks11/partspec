@@ -13,12 +13,10 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import decode_png, needs_openscad, report_of
+from support import decode_png, needs_openscad, needs_scad_tier, report_of
 
 from partspec.cli import main
 from partspec.status import Verdict, exit_code
-
-pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -46,7 +44,7 @@ def _measure(target: str, capsys) -> dict:
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 def test_measure_reports_the_quantities_it_can_answer(tmp_path: Path, capsys):
     doc = _measure(_contract(tmp_path, "block_with_hole.scad", ""), capsys)
     assert doc["engine"]["backend"] == "mesh"
@@ -54,7 +52,7 @@ def test_measure_reports_the_quantities_it_can_answer(tmp_path: Path, capsys):
     assert "refused" not in doc, "a sound part refuses nothing"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_measure_says_why_it_refused_rather_than_omitting_the_quantity(tmp_path: Path, capsys):
     """The bug this replaced, and the reason it mattered.
 
@@ -79,7 +77,7 @@ def test_measure_says_why_it_refused_rather_than_omitting_the_quantity(tmp_path:
     assert doc["measurements"]["area"]["value"] == pytest.approx(500.0)
 
 
-@needs_openscad
+@needs_scad_tier
 def test_measure_shows_cavities(tmp_path: Path, capsys):
     """#113: the number distinguishing a sealed enclosure from an open tray
     was absent from the verb whose job is showing every claimable number."""
@@ -87,7 +85,7 @@ def test_measure_shows_cavities(tmp_path: Path, capsys):
     assert doc["measurements"]["cavities"]["value"] == 0
 
 
-@needs_openscad
+@needs_scad_tier
 def test_measure_separates_a_tier_gap_from_a_broken_part(tmp_path: Path, capsys):
     """Two different silences, and conflating them is what went wrong before.
 
@@ -107,7 +105,7 @@ def test_measure_separates_a_tier_gap_from_a_broken_part(tmp_path: Path, capsys)
     assert "topology_counts" not in doc["refused"]
 
 
-@needs_openscad
+@needs_scad_tier
 def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
     """Exit 0 on an open box is correct here and would be a bug in `check`.
 
@@ -123,7 +121,7 @@ def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 def test_measure_carries_the_same_identity_as_the_report(tmp_path: Path, capsys):
     """One builder serves both verbs, and this pin is what keeps them from
     drifting apart again (#73 was exactly that drift, in the engine block).
@@ -153,7 +151,7 @@ def test_measure_carries_the_same_identity_as_the_report(tmp_path: Path, capsys)
     ]
 
 
-@needs_openscad
+@needs_scad_tier
 def test_measure_records_the_parameters_that_produced_the_numbers(tmp_path: Path, capsys):
     shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
     module = tmp_path / "spec.py"
@@ -217,7 +215,7 @@ def test_measure_python_closure_appears_after_the_build(tmp_path: Path, capsys):
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 @pytest.mark.parametrize(
     ("body", "expected"),
     [
@@ -237,7 +235,7 @@ def test_check_exits_with_the_verdicts_code(tmp_path: Path, body: str, expected:
     assert main(["check", target, "--quiet"]) == exit_code(expected)
 
 
-@needs_openscad
+@needs_scad_tier
 def test_an_empty_contract_says_so_on_the_console(tmp_path: Path, capsys):
     """The human-facing half of the vacuous-green thesis, and it had no test:
     every EMPTY-verdict case ran with `--quiet`, so `if report.verdict is
@@ -256,7 +254,7 @@ def test_an_empty_contract_says_so_on_the_console(tmp_path: Path, capsys):
     assert "not a passing design" in err
 
 
-@needs_openscad
+@needs_scad_tier
 def test_check_writes_the_report_where_it_says_it_did(tmp_path: Path, capsys):
     target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
     assert main(["check", target]) == 0
@@ -294,7 +292,7 @@ def test_no_arguments_prints_help(capsys):
     assert "usage:" in capsys.readouterr().out
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_contract_that_raises_does_not_leave_the_previous_verdict(tmp_path: Path):
     """The regression this ordering exists to prevent.
 
@@ -445,7 +443,7 @@ def test_render_writes_the_views_or_reports_the_display(tmp_path: Path, capsys):
         assert "display" in captured.err
 
 
-@needs_openscad
+@needs_scad_tier
 def test_check_render_records_the_views_in_the_report_or_fails_the_run(tmp_path: Path):
     target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
     out = tmp_path / "out"
@@ -466,7 +464,7 @@ def test_check_render_records_the_views_in_the_report_or_fails_the_run(tmp_path:
         assert report["verdict"] == "pass"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_report_without_render_carries_no_renders_key(tmp_path: Path):
     target = _contract(tmp_path, "block_with_hole.scad", "    p.watertight()\n")
     out = tmp_path / "out"
@@ -869,7 +867,7 @@ def test_the_two_python_engines_render_comparable_images(tmp_path: Path):
         assert a == b, f"the {view} view differs between engines"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_measure_engine_block_matches_the_report_shape(tmp_path: Path, capsys):
     # measure and check had drifted (#73): wrong key order, no method. One
     # constructor now serves both, so a measure artifact answers the same
@@ -907,7 +905,7 @@ def test_render_engine_block_states_the_method(tmp_path: Path, capsys):
         assert code == 4  # no display; the refusal path is asserted elsewhere
 
 
-@needs_openscad
+@needs_scad_tier
 def test_render_carries_the_same_identity_as_the_report(tmp_path: Path, capsys):
     """render was the last verb whose payload named its part with a bare id
     string (#103): no digests, no closure — its images could not be tied to

@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 import pytest
-from support import report_of
+from support import needs_mesh, report_of
 
 from partspec.report import SCHEMA_VERSION, CheckResult, Report, write_placeholder
 from partspec.status import Limit, Measurement, Status, Verdict
@@ -276,6 +276,7 @@ def test_placeholder_is_replaced_by_the_real_report(tmp_path: Path):
     assert report_of(tmp_path)["verdict"] == "pass"
 
 
+@needs_mesh
 def test_packages_are_not_quarantined_from_comparison():
     """environment.packages distinguishes 'a dependency upgrade moved this
     number' from 'the design changed' — so it must be present and comparable.
@@ -283,6 +284,14 @@ def test_packages_are_not_quarantined_from_comparison():
     Presence alone was the whole assertion, and an empty dict satisfied it
     while defeating the purpose: `_installed_versions()` -> `{}` passed the
     suite. The content is the claim.
+
+    `needs_mesh`, not `needs_scad_tier`: this drives no OpenSCAD part and does
+    not want the binary. What it needs is for at least one of the packages
+    `_installed_versions()` enumerates to BE installed, since a base install
+    yields `{}` and fails the assertion above. Marking it on the binary too
+    would silence it in every `partspec[mesh]` install without OpenSCAD, where
+    it passes — over-skipping being the same sin as the under-skipping this
+    change is about (PR #163 review).
     """
     from importlib.metadata import PackageNotFoundError, version
 

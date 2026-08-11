@@ -182,6 +182,11 @@ jobs:
   # mesh-tier dependency on it passes every other job here and breaks everyone
   # who installed `partspec[mesh]`. This job is the only place that install
   # exists.
+  #
+  # It runs the WHOLE suite now, not just the mesh backend's own module. A
+  # module gated on a proxy dependency — `numpy`, which arrives with trimesh —
+  # collects in this environment and no other, so the narrow version left the
+  # space between "no extras" and "all extras" uncovered. See the recipe.
   mesh-only:
     name: Mesh-only install
     runs-on: ubuntu-latest
@@ -220,10 +225,39 @@ jobs:
       - name: Test
         run: just test-mcp-only
 
+  # No extras at all: the base install a `pip install partspec` produces.
+  # `check` and `test` install every extra and `mesh-only`/`mcp-only` install a
+  # subset, so this is the only job that can see a test whose engine dependency
+  # is undeclared in a bare environment — it does not skip, it FAILS.
+  # 23 did, and 392 more never collected, because a top-level `importorskip`
+  # collapses its whole module to one skip line. Deliberately ungated by
+  # `changes`: it is cheap, and the failure mode is invisible everywhere else.
+  no-extras:
+    name: No-extras install
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install OpenSCAD (apt)
+        # The binary is a SYSTEM dependency, not an extra, so it belongs in the
+        # base environment. Installing it is also what makes this job sharp:
+        # with the binary present and the mesh extra absent, a scad-tier test
+        # marked only `needs_openscad` runs and fails instead of skipping,
+        # which is exactly the gap that shipped.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openscad
+      - name: Test
+        run: just test-no-extras
+
   ok:
     name: ok
     if: always()
-    needs: [changes, check, test, mesh-only, mcp-only]
+    needs: [changes, check, test, mesh-only, mcp-only, no-extras]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

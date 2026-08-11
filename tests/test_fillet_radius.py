@@ -10,11 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from support import needs_build123d, needs_openscad
+from support import needs_build123d, needs_scad_tier
 
 from partspec import Part, Status, Verdict, openscad, run
-
-pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BLOCK = FIXTURES / "block_with_hole.scad"
@@ -110,7 +108,7 @@ def test_a_slot_end_counts_as_a_blend(tmp_path: Path):
     assert 4.0 in check.measurement.value, "the slot-end radius is a blend candidate"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_fillet_radius_is_refused_on_the_mesh_tier(tmp_path: Path):
     p = Part("block", openscad(BLOCK)).fillet_radius(min=1.0)
     report = run(p, out_dir=tmp_path)

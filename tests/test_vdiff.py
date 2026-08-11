@@ -15,9 +15,9 @@ import zlib
 from pathlib import Path
 
 import pytest
+from support import needs_build123d
 
-np = pytest.importorskip("numpy", reason="occt extra not installed")
-pytest.importorskip("build123d", reason="occt extra not installed")
+np = pytest.importorskip("numpy", reason="numpy (a trimesh dependency) not installed")
 
 from partspec.cli import main  # noqa: E402
 from partspec.vdiff import VdiffUsageError, read_png  # noqa: E402
@@ -60,6 +60,7 @@ def _vdiff(capsys, old: Path, new: Path, out: Path) -> tuple[int, dict]:
     return code, json.loads(capsys.readouterr().out)
 
 
+@needs_build123d
 def test_identical_geometry_is_an_empty_diff(runs, tmp_path: Path, capsys):
     """The acceptance criterion canonical framing bought: two runs of the
     same part, byte-equal images, zero magnitude, exit 0."""
@@ -73,6 +74,7 @@ def test_identical_geometry_is_an_empty_diff(runs, tmp_path: Path, capsys):
         assert not (img == _HIGHLIGHT).all(axis=2).any(), "an empty diff highlights nothing"
 
 
+@needs_build123d
 def test_a_moved_bore_is_a_nonzero_diff_where_it_moved(runs, tmp_path: Path, capsys):
     """The F16 regression arm: a real geometry change must not diff to zero
     — and it localises: the bore moved in x, so top and iso change while
@@ -87,6 +89,7 @@ def test_a_moved_bore_is_a_nonzero_diff_where_it_moved(runs, tmp_path: Path, cap
     assert (img == _HIGHLIGHT).all(axis=2).sum() == doc["views"]["top"]["pixels_changed"]
 
 
+@needs_build123d
 def test_pure_scale_is_caught_by_the_bbox_not_missed_by_the_pixels(runs, tmp_path, capsys):
     """The audit criterion verbatim: a 20 vs 20.4 mm cube renders
     byte-identical (framing scales with the part), and the recorded bbox is
@@ -100,6 +103,7 @@ def test_pure_scale_is_caught_by_the_bbox_not_missed_by_the_pixels(runs, tmp_pat
     assert "measure" in doc["note"]
 
 
+@needs_build123d
 def test_differing_image_sizes_are_refused_not_rescaled(runs, tmp_path: Path, capsys):
     from partspec.raster import write_png
 
@@ -113,6 +117,7 @@ def test_differing_image_sizes_are_refused_not_rescaled(runs, tmp_path: Path, ca
     assert "rescaling" in doc["refused"]["reason"]
 
 
+@needs_build123d
 def test_a_cross_version_pair_is_refused_as_noise_not_scored_as_change(
     runs, tmp_path: Path, capsys
 ):
@@ -131,6 +136,7 @@ def test_a_cross_version_pair_is_refused_as_noise_not_scored_as_change(
     assert "7.68" in doc["refused"]["hint"]
 
 
+@needs_build123d
 def test_different_parts_are_refused(runs, tmp_path: Path, capsys):
     clone = tmp_path / "clone"
     shutil.copytree(runs["base"], clone)
@@ -142,6 +148,7 @@ def test_different_parts_are_refused(runs, tmp_path: Path, capsys):
     assert "different parts" in doc["refused"]["reason"]
 
 
+@needs_build123d
 def test_mismatched_view_sets_are_refused(runs, tmp_path: Path, capsys):
     clone = tmp_path / "clone"
     shutil.copytree(runs["base"], clone)
@@ -161,6 +168,7 @@ def test_unusable_inputs_are_usage_not_a_verdict(tmp_path: Path, capsys):
     assert main(["vdiff", str(tmp_path / "gone"), str(empty)]) == 64
 
 
+@needs_build123d
 def test_a_missing_image_is_refused_by_name(runs, tmp_path: Path, capsys):
     clone = tmp_path / "clone"
     shutil.copytree(runs["base"], clone)
@@ -170,6 +178,7 @@ def test_a_missing_image_is_refused_by_name(runs, tmp_path: Path, capsys):
     assert "front.png" in doc["refused"]["reason"]
 
 
+@needs_build123d
 def test_a_sub_rounding_bbox_move_is_still_different(runs, tmp_path: Path, capsys):
     """PR #131 review, F1: the outcome derived from the display-ROUNDED
     magnitude while the note derived from the raw delta — a 5e-6 mm recorded
@@ -189,6 +198,7 @@ def test_a_sub_rounding_bbox_move_is_still_different(runs, tmp_path: Path, capsy
     assert "note" in doc
 
 
+@needs_build123d
 def test_a_corrupt_image_is_unusable_input_not_a_partspec_failure(runs, tmp_path: Path, capsys):
     """PR #131 review, F2: a truncated PNG escaped as a zlib traceback at
     exit 4 — 'this is a partspec failure' — when the input is what is
@@ -219,6 +229,7 @@ def test_a_corrupt_image_is_unusable_input_not_a_partspec_failure(runs, tmp_path
     assert "truncated in the header" in capsys.readouterr().err
 
 
+@needs_build123d
 def test_an_absent_bbox_witness_is_stated_never_scored(runs, tmp_path: Path, capsys):
     """PR #131 review, F3: a pre-draft-12 artifact carries no render_bbox,
     and the 20 vs 20.4 scale case read 'identical — bbox unchanged' with a
@@ -251,6 +262,7 @@ def test_an_absent_bbox_witness_is_stated_never_scored(runs, tmp_path: Path, cap
     assert "bbox_unavailable" in doc
 
 
+@needs_build123d
 def test_a_failed_resolve_clears_the_stale_render_json(tmp_path: Path, capsys):
     """PR #131 review, F4: a failed resolve exited before the post-resolve
     unlink, leaving the previous run's render.json to answer a later vdiff

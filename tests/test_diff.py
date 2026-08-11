@@ -394,9 +394,7 @@ def test_two_reports_with_no_closure_at_all_are_not_identical():
 # end to end, on real runs
 # --------------------------------------------------------------------------
 
-from support import needs_build123d, needs_openscad  # noqa: E402
-
-pytest.importorskip("trimesh", reason="mesh extra not installed")
+from support import needs_build123d, needs_scad_tier  # noqa: E402
 
 
 def _run_cli(*argv: str) -> tuple[int, str, str]:
@@ -415,7 +413,7 @@ def _run_cli(*argv: str) -> tuple[int, str, str]:
     return code, out.getvalue(), err.getvalue()
 
 
-@needs_openscad
+@needs_scad_tier
 def test_cli_diff_on_two_real_runs(tmp_path: Path):
     """Same source, same contract, run twice -> identical exit 0 (the OpenSCAD
     closure is complete, so the claim is earned). Then the plate grows and the

@@ -25,11 +25,9 @@ import json
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import needs_scad_tier
 
 from partspec import Measurement, Part, Status, Unsupported, Verdict, openscad, run
-
-pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PLATE = FIXTURES / "parametric_plate.scad"
@@ -195,7 +193,7 @@ def test_a_skipped_region_check_still_records_its_claim(tmp_path: Path):
     }
 
 
-@needs_openscad
+@needs_scad_tier
 def test_region_checks_run_end_to_end_on_the_mesh_tier(tmp_path: Path):
     """A clearance hole passes its keep_out and a boss its keep_in, and the
     written report carries the declared regions (#49 acceptance, mesh side)."""
@@ -226,7 +224,7 @@ def test_region_checks_run_end_to_end_on_the_mesh_tier(tmp_path: Path):
     assert bolt["measurement"]["value"][0] == 0.0
 
 
-@needs_openscad
+@needs_scad_tier
 def test_an_oversize_hole_fails_its_keep_out_on_the_mesh_tier(tmp_path: Path):
     """The region is empty — the naive check would pass — but the clearance
     exceeds the shell everywhere, so nothing surrounds the declared hole."""

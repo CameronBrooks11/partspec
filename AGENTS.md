@@ -91,6 +91,7 @@ just run -- --version
 just setup-mesh      # light path: mesh tier only. NOT what CI runs
 just test-mesh-only  # mesh tests against a throwaway scipy-free [mesh] install (CI runs this)
 just test-mcp-only   # MCP tests against a throwaway engine-free [mcp] install (CI runs this)
+just test-no-extras  # the WHOLE suite against a no-extras install (CI runs this)
 just ocp-guard       # assert exactly one OCP provider is installed
 ```
 

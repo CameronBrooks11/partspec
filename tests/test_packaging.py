@@ -310,6 +310,40 @@ def test_the_sdist_leaves_out_what_a_consumer_cannot_use(sdist_names: set[str]):
     assert "README.md" in sdist_names
 
 
+def test_the_ok_gate_waits_for_every_job_in_the_workflow():
+    """`ok` is the branch-protection gate, so a job missing from its `needs`
+    is a job that cannot block a merge.
+
+    Nothing checked this, and it is silent in the worst way: the absent job
+    still runs, still goes red on the PR page, and the merge button still
+    turns green because the one required check passed without waiting for it.
+    A job that cannot fail the gate is a job that reads as success — this
+    repo's thesis, applied to its own CI (found adding `no-extras`).
+
+    Parsed with a regex rather than PyYAML on purpose: `yaml` is not in the
+    dependency tree, and this suite must pass in a no-extras install, which
+    the `no-extras` job itself now proves.
+    """
+    text = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+    body = text.split("\njobs:\n", 1)
+    assert len(body) == 2, "ci.yml no longer has a top-level `jobs:` block"
+    # A GitHub job id may start with any letter or `_`, and this file comments
+    # heavily around job keys. Anchoring to lowercase-and-`:$` made `Build:` or
+    # `  mutant:  # new` invisible — a gate-checker reading as success for an
+    # unguarded job, which is the failure it exists to prevent (review M4/M5).
+    jobs = re.findall(r"^  ([A-Za-z_][\w-]*):\s*(?:#.*)?$", body[1], re.M)
+    assert "ok" in jobs, "the gate job is named `ok` everywhere else that matters"
+
+    gate = re.search(r"^  ok:$.*?^    needs: \[([^\]]+)\]", body[1], re.M | re.S)
+    assert gate is not None, "`ok` has no `needs:` list; it gates nothing"
+    waited_for = {n.strip() for n in gate.group(1).split(",")}
+
+    unguarded = sorted(set(jobs) - waited_for - {"ok"})
+    assert not unguarded, (
+        f"these jobs run but cannot block a merge: {unguarded}. Add them to `ok`'s `needs:` list."
+    )
+
+
 def test_every_changelog_version_is_a_link_and_unreleased_starts_at_the_last_one():
     """Keep a Changelog renders each version heading as a link to its diff.
 

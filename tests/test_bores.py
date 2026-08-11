@@ -14,11 +14,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from support import needs_build123d, needs_openscad
+from support import needs_build123d, needs_scad_tier
 
 from partspec import Part, Status, Verdict, openscad, run
-
-pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BLOCK = FIXTURES / "block_with_hole.scad"
@@ -115,7 +113,7 @@ def test_the_same_hole_contract_holds_on_cadquery(tmp_path: Path):
     assert report.engine["adopted_via"] == "wrapped"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_hole_diameter_is_refused_on_the_mesh_tier_with_the_pointer(tmp_path: Path):
     """A 64-gon bore is a real 64-sided prism; answering Ø8 for it is the
     PartCAD failure. The refusal is structural — the capability is absent —
@@ -234,7 +232,7 @@ def test_two_bolt_flanges_claim_centre_distance(tmp_path: Path):
     assert check.measurement.value == pytest.approx(40.0)
 
 
-@needs_openscad
+@needs_scad_tier
 def test_bolt_circle_is_refused_on_the_mesh_tier(tmp_path: Path):
     p = Part("block", openscad(BLOCK)).bolt_circle(5.0, count=4, bcd=40.0)
     report = run(p, out_dir=tmp_path)

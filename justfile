@@ -78,13 +78,25 @@ test:
 test-reverse:
     uv run pytest $(find tests -name 'test_*.py' | sort -r)
 
-# Run the mesh tests against a mesh-ONLY install, in a throwaway environment.
+# Run the WHOLE suite against a mesh-ONLY install, in a throwaway environment.
 #
 # Because `setup` installs all extras, the mesh-only install is exercised
 # nowhere else — and scipy reaches this machine only via build123d/cadquery, so
 # a mesh-tier code path that quietly depends on it passes locally and in CI and
 # breaks for anyone who installed just `partspec[mesh]`. trimesh's `body_count`
 # is exactly such a path, which is why the backend counts bodies itself.
+#
+# It ran only `tests/test_mesh_backend.py` until this change, which left the
+# gap between "no extras" and "all extras" uncovered: a module gated on a
+# PROXY dependency (`numpy` standing in for build123d — numpy arrives with
+# trimesh) collects here and nowhere else. That is not hypothetical. The
+# commit that added `test-no-extras` broke `test_vdiff.py` in exactly this
+# way — 1 failed, 11 errors on `pip install partspec[mesh]` — and every gate
+# in this repo stayed green, because the only recipe running the whole suite
+# sat in the one environment where the proxy was absent too.
+#
+# So it runs everything now. Tests needing build123d skip, which is correct:
+# their absence is what this environment exists to prove.
 test-mesh-only:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -93,7 +105,7 @@ test-mesh-only:
     uv venv --quiet "$env"
     uv pip install --quiet --python "$env/bin/python" -e '.[mesh]' pytest
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("scipy") is None, "scipy leaked in — this recipe no longer proves anything"'
-    "$env/bin/python" -m pytest tests/test_mesh_backend.py -q
+    "$env/bin/python" -m pytest tests/ -q
 
 # Run the MCP tests against an mcp-ONLY install, in a throwaway environment.
 #
@@ -110,6 +122,37 @@ test-mcp-only:
     uv pip install --quiet --python "$env/bin/python" -e '.[mcp]' pytest
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None and u.find_spec("build123d") is None, "a CAD engine leaked in — this recipe no longer proves anything"'
     PARTSPEC_REQUIRE_ENGINES=mcp "$env/bin/python" -m pytest tests/test_mcp.py -q
+
+# Run the WHOLE suite against a no-extras install, in a throwaway environment.
+#
+# The claim is ZERO FAILURES: without any extra, every test that needs an
+# engine must SKIP, and the rest must pass. That is the tool's own thesis
+# applied to its suite — an absent engine is a decision, not a failure, and a
+# failure must mean the code is wrong.
+#
+# It was false. On a base install this reported 23 failed / 317 passed, and
+# 392 tests did not collect at all: modules gated by a top-level
+# `importorskip` collapsed to a single skip line, so `test_diff.py` — 32 of
+# whose 34 tests need no engine whatsoever — reported literally "1 skipped".
+#
+# No CI job could catch it: `check` and `test` install every extra, and
+# `mesh-only`/`mcp-only` ran a single module each — so no job ran the WHOLE
+# suite anywhere an extra was missing, and the environment that shows the
+# defect is the one nothing ran in. That is also why the sdist claim in
+# `pyproject.toml` — that a downstream packager can run the shipped suite —
+# held only in a full dev environment.
+#
+# `PARTSPEC_REQUIRE_ENGINES` is deliberately NOT set: here the absence of every
+# engine is the thing being proved, so skips are the correct outcome.
+test-no-extras:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env="$(mktemp -d)/venv"
+    trap 'rm -rf "$(dirname "$env")"' EXIT
+    uv venv --quiet "$env"
+    uv pip install --quiet --python "$env/bin/python" -e '.' pytest
+    "$env/bin/python" -c 'import importlib.util as u; assert all(u.find_spec(n) is None for n in ("trimesh", "build123d", "cadquery", "mcp")), "an extra leaked in — this recipe no longer proves anything"'
+    "$env/bin/python" -m pytest tests/ -q
 
 # Run main entrypoint
 run *ARGS:
