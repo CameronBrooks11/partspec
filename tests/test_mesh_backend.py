@@ -334,6 +334,28 @@ def test_a_rejected_manifold_is_never_read(open_cube):
     assert isinstance(_manifold(open_cube), Unsupported), "so the wrapper must refuse"
 
 
+def test_an_inside_out_mesh_has_no_volume(backend: MeshBackend):
+    """Consistent winding is not correct winding. A uniformly inverted mesh is
+    perfectly consistent and encloses *negative* volume: an inside-out cube
+    measured -1000.0 mm3, flagged exact, and `volume(max=...)` passed on it
+    because every negative number is below every positive bound.
+
+    Refused rather than corrected with abs(): the sign is information. It says
+    the normals point inward, which is a real defect in the exported artifact
+    that a silent absolute value would hide.
+    """
+    inverted = trimesh.creation.box(extents=(10, 10, 10))
+    inverted.invert()
+    assert "inside-out" in refused(backend.volume(inverted)).reason
+    assert "inside-out" in refused(backend.center_of_mass(inverted)).reason
+
+
+def test_a_sealed_cavity_still_has_a_volume(backend: MeshBackend):
+    """The counterpart: an inward-wound *component* is normal in a solid with a
+    void, so the orientation gate must look at the part, not at any one shell."""
+    assert measured(backend.volume(_block_with_sealed_cavity())).value == pytest.approx(7000.0)
+
+
 # --------------------------------------------------------------------------
 # D15 — measuring the artifact as exported, not a library's rebuild of it
 # --------------------------------------------------------------------------
@@ -426,51 +448,6 @@ def test_intersect_volume_is_exact_on_polyhedra(backend: MeshBackend):
     assert measured(backend.intersect_volume(a, b)).value == pytest.approx(500.0, rel=1e-3)
 
 
-# --------------------------------------------------------------------------
-# provenance
-# --------------------------------------------------------------------------
-
-
-def test_distinct_normals_track_facet_resolution(backend: MeshBackend):
-    """The identity signal: a cylinder at $fn=n has n+2 distinct normals."""
-    for sections in (16, 32, 64):
-        mesh = trimesh.creation.cylinder(radius=5, height=10, sections=sections)
-        assert backend.provenance(mesh)["distinct_normals"] == sections + 2
-
-
-def test_distinct_normals_survive_retriangulation(backend: MeshBackend):
-    """Why it is the identity signal and `triangles` is not: subdividing changes
-    the triangle count without changing the design."""
-    cube = trimesh.creation.box(extents=(10, 20, 30))
-    coarse = backend.provenance(cube)
-    fine = backend.provenance(cube.subdivide())
-
-    assert fine["triangles"] > coarse["triangles"]
-    assert fine["distinct_normals"] == coarse["distinct_normals"] == 6
-
-
-def test_an_inside_out_mesh_has_no_volume(backend: MeshBackend):
-    """Consistent winding is not correct winding. A uniformly inverted mesh is
-    perfectly consistent and encloses *negative* volume: an inside-out cube
-    measured -1000.0 mm3, flagged exact, and `volume(max=...)` passed on it
-    because every negative number is below every positive bound.
-
-    Refused rather than corrected with abs(): the sign is information. It says
-    the normals point inward, which is a real defect in the exported artifact
-    that a silent absolute value would hide.
-    """
-    inverted = trimesh.creation.box(extents=(10, 10, 10))
-    inverted.invert()
-    assert "inside-out" in refused(backend.volume(inverted)).reason
-    assert "inside-out" in refused(backend.center_of_mass(inverted)).reason
-
-
-def test_a_sealed_cavity_still_has_a_volume(backend: MeshBackend):
-    """The counterpart: an inward-wound *component* is normal in a solid with a
-    void, so the orientation gate must look at the part, not at any one shell."""
-    assert measured(backend.volume(_block_with_sealed_cavity())).value == pytest.approx(7000.0)
-
-
 def test_the_mesh_tier_does_not_declare_a_capability_it_cannot_honour():
     """`raycast` was in `CAPABILITIES` while `trimesh`'s default ray path
     indexes through `rtree`, which the `mesh` extra does not carry — so the
@@ -492,6 +469,29 @@ def test_the_mesh_tier_does_not_declare_a_capability_it_cannot_honour():
     assert isinstance(outcome, list | Unsupported)
     if isinstance(outcome, Unsupported):
         assert "ray engine is unavailable" in outcome.reason
+
+
+# --------------------------------------------------------------------------
+# provenance
+# --------------------------------------------------------------------------
+
+
+def test_distinct_normals_track_facet_resolution(backend: MeshBackend):
+    """The identity signal: a cylinder at $fn=n has n+2 distinct normals."""
+    for sections in (16, 32, 64):
+        mesh = trimesh.creation.cylinder(radius=5, height=10, sections=sections)
+        assert backend.provenance(mesh)["distinct_normals"] == sections + 2
+
+
+def test_distinct_normals_survive_retriangulation(backend: MeshBackend):
+    """Why it is the identity signal and `triangles` is not: subdividing changes
+    the triangle count without changing the design."""
+    cube = trimesh.creation.box(extents=(10, 20, 30))
+    coarse = backend.provenance(cube)
+    fine = backend.provenance(cube.subdivide())
+
+    assert fine["triangles"] > coarse["triangles"]
+    assert fine["distinct_normals"] == coarse["distinct_normals"] == 6
 
 
 # --------------------------------------------------------------------------

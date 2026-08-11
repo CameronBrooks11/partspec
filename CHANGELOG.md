@@ -14,15 +14,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   37 of its 75 tests, 496 of its 1100 lines. Those are
   `tests/test_openscad_engine.py` now. Not only tidiness: the old file binds
   `trimesh` at import, so tests that never measure a mesh could not run
-  without the mesh extra — a base install goes from 406 to **450 passing** on
-  the split alone. Both figures assume the OpenSCAD binary, a system
-  dependency rather than an extra; with no binary either, it is 384 to 416,
-  since 13 of the 44 freed tests still need the engine.
+  without the mesh extra. A base install goes from 406 to **451 passing**
+  across this release, 44 of which is the split; with no OpenSCAD binary
+  either — a system dependency rather than an extra — it is 384 to **416**,
+  since 13 of the 44 freed still need the engine. Both pairs measured at the
+  same commit.
 - `tests/test_cli.py` carried a private `_contract()` byte-identical in output
   to `support.scad_target()`; proved equivalent, deleted, and its 15 call
   sites moved. `support.py` gains `py_target`, the build123d counterpart,
   written for #153 and then deleted unused because a helper nothing calls is
-  the slop that slice was removing — it returns with nine callers.
+  the slop that slice was removing — it returns with 15 callers.
+
+### Fixed
+
+- `_write_json` documented an atomic write-and-rename and nothing held it to
+  that (#153). Replacing the temp-file dance with a direct truncating open
+  left the whole suite green. Two properties are pinned now: a failed write
+  leaves the previous report byte-identical, and a successful one replaces the
+  file by rename rather than writing in place — checked by inode, because a
+  writer that copies a temp file over the destination satisfies the first and
+  still lets a reader observe a half-written report.
 
 ### Fixed
 
