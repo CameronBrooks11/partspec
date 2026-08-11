@@ -60,6 +60,40 @@ def test_field_order_is_fixed():
     ]
 
 
+def test_the_spec_example_carries_the_same_fields_in_the_same_order():
+    """§8 rule 1 says keys MUST be emitted in the order §7 gives — so §7's
+    example has to be able to answer what that order IS.
+
+    It could not: `attribution` and `build_origin` were emitted by every report
+    since v0.4.0 and appeared nowhere in the canonical block, so a consumer
+    building against the document would have found two unexpected keys and no
+    stated position for them. Found by the v0.7.0 pre-tag audit.
+
+    Compared as a SUBSEQUENCE rather than for equality: the example is a `check`
+    report, and `renders`/`render_tessellation` belong to the render payloads
+    §7 also documents. Every key the example shows must appear in the emitted
+    order, and none may be missing from the example.
+    """
+    import re
+
+    spec = (Path(__file__).resolve().parent.parent / "docs" / "SPEC-report.md").read_text()
+    start = spec.index("```jsonc", spec.index("## 7."))
+    block = spec[start : spec.index("```", start + 8)]
+    example = re.findall(r'^  "(\w+)"', block, re.M)
+
+    emitted = list(_report().to_json())
+    render_only = {"renders", "render_tessellation"}
+    documented = [k for k in example if k not in render_only]
+
+    assert set(documented) == set(emitted), (
+        f"documented but never emitted: {sorted(set(documented) - set(emitted))}; "
+        f"emitted but undocumented: {sorted(set(emitted) - set(documented))}"
+    )
+    assert documented == [k for k in emitted if k in set(documented)], (
+        f"§7's example orders keys {documented}, the writer emits {emitted}"
+    )
+
+
 def test_counts_are_the_per_status_tally_not_merely_a_sum():
     """The deslop audit's V1: this asserted only that the tally summed, so
     `tally[c.status.value] += 1` -> `tally["pass"] += 1` survived the whole
@@ -296,6 +330,32 @@ def test_spec_example_satisfies_its_own_counts_rule():
     counts = doc["counts"]
     assert counts["total"] == len(doc["checks"])
     assert sum(v for k, v in counts.items() if k != "total") == counts["total"]
+
+
+def test_spec_example_attribution_is_what_its_own_checks_compute():
+    """The example says it is conformant, so its `attribution` must be the
+    value `Report.attribution()` would produce for those checks.
+
+    Added with the field itself and got it wrong on the first pass: I wrote
+    `attributed: 1` when no check in the example carries a `source` citation at
+    all — the only `"source"` in the block is `part.source`, the file path. The
+    honest value is 0, which makes the example an instance of `dimensional > 0
+    && attributed == 0`: exactly the circular-contract shape §6's warning
+    exists to flag. Depicting that as clean, in the document that defines the
+    warning, is worse than omitting the field (PR #160 review).
+
+    Derived here rather than asserted, so the next edit to the example's checks
+    cannot leave the summary behind.
+    """
+    from partspec.contract import DIMENSIONAL_KINDS
+
+    doc = _spec_example()
+    dimensional = [c for c in doc["checks"] if c["kind"] in DIMENSIONAL_KINDS]
+    attributed = [c for c in dimensional if c.get("source")]
+    assert doc["attribution"] == {
+        "dimensional": len(dimensional),
+        "attributed": len(attributed),
+    }, "the example's summary must match the example's checks"
 
 
 def test_spec_example_statuses_match_its_counts():

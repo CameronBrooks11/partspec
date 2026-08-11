@@ -187,8 +187,65 @@ def _lint_scad(path: Path) -> list[Finding]:
     # Whole scientific literals match as one number (1e-3 is 0.001, not a
     # magic 3 — PR #119, F5); a bare digit right after e/E is never a number.
     number = re.compile(r"(?<![\w.])(?<![eE])(?<![eE][+-])-?\d+\.?\d*(?:[eE][+-]?\d+)?(?![\w.])")
+
+    # The exemption is the STATEMENT's, not the line's. This matched
+    # `^\s*\w+\s*=` per line, so an assignment wrapped across lines — the normal
+    # formatting for a lookup table — was exempt on its first line and flagged
+    # on every other:
+    #
+    #     plate = [60, 40, 4];        -> 0 findings
+    #     plate = [                   -> 3 findings
+    #       60, 40, 4                    (same constant, same name)
+    #     ];
+    #
+    # The rule's own rationale is that a magic number is *unnameable*; these are
+    # named, so the code was wrong rather than the doc (v0.7.0 pre-tag audit).
+    #
+    # Opening only at `depth == 0`, exactly as `_entry_top_level` does above and
+    # for the same reason. `name =` inside brackets is a NAMED ARGUMENT or a
+    # module signature default, not an assignment statement, and treating one as
+    # an opener suppressed everything up to the next `;`. Measured on the repo's
+    # own `tests/fixtures/open_box.scad`, whose `points = [` is an argument of
+    # `polyhedron(`: all 28 findings vanished (PR #160 review). That is the
+    # third time this fixture has caught a brace-blind scan; the depth counter
+    # exists because of the first two.
+    #
+    # An assignment then runs to its terminating `;`, which is how OpenSCAD
+    # parses it — but only while brackets are balanced, so a statement that
+    # never terminates cannot silence the rest of the file.
+    depth = 0
+    in_assignment = False
     for i, line_text in enumerate(stripped.splitlines(), start=1):
-        if assignment.match(line_text) or re.match(r"\s*(include|use)\b", line_text):
+        looks_like_assignment = bool(assignment.match(line_text))
+        # Only a TOP-LEVEL one continues onto later lines. A `name =` inside
+        # brackets exempts its own line, as it always has — that is the named
+        # argument and signature-default case — but claims nothing about what
+        # follows.
+        opens = depth == 0 and not in_assignment and looks_like_assignment
+        skip = looks_like_assignment or in_assignment
+        # Parens and brackets ONLY, unlike `_entry_top_level` above, which also
+        # counts braces because it wants the file's top-level names. The
+        # question here is different: an assignment STATEMENT is legal at any
+        # brace depth — a module-local constant is ordinary OpenSCAD — but can
+        # never appear inside `(` or `[`, which is exactly where a named
+        # argument and a signature default live. So paren/bracket depth IS the
+        # predicate, and counting braces made the exemption top-level-only:
+        #
+        #     module plate() { spec = [
+        #         60, 40, 400
+        #       ]; cube(spec); }        -> 3 findings on a named constant
+        #
+        # which `docs/LINT.md` says cannot happen. A stray `}` also drove the
+        # counter negative and disabled the exemption for the rest of the file
+        # (PR #160 review, R1).
+        depth += sum(line_text.count(b) for b in "([") - sum(line_text.count(b) for b in ")]")
+        if skip:
+            # Closed by its `;`, and abandoned once brackets rebalance, so a
+            # statement that never terminates cannot silence the rest of the
+            # file (`x = 5` with no semicolon did, briefly).
+            in_assignment = (opens or in_assignment) and ";" not in line_text and depth > 0
+            continue
+        if re.match(r"\s*(include|use)\b", line_text):
             continue
         for m in number.finditer(line_text):
             value = float(m.group(0))

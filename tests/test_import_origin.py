@@ -14,11 +14,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from support import report_of
+from support import needs_openscad, openscad_supports_backend_flag, report_of
 
 from partspec.backend import BuildError
 from partspec.cli import main
 from partspec.engines.pycad import _missing_module_error
+from partspec.status import Verdict
 
 # --------------------------------------------------------------------------
 # the classifier, engine-free
@@ -198,3 +199,121 @@ def test_the_registry_never_records_partspec_itself():
         )
     finally:
         _LOADED_MODEL_MODULES.pop(str(repo_root), None)
+
+
+def test_an_engine_rejecting_an_option_is_an_environment_fault(tmp_path: Path):
+    """A binary that predates a flag is a fact about the MACHINE.
+
+    The 2021.01 case is `backend=`: render backends arrived later, and Debian
+    and Ubuntu ship 2021.01, so a contract written against a newer engine meets
+    this on an ordinary machine. Measured before the fix (v0.7.0 pre-tag audit):
+    `verdict: fail`, `build_origin: "model"`, hint `unrecognised option
+    '--backend'` — the hint right and the origin wrong, which is the worse half,
+    because `build_origin` is what AGENT-CONTRACT §2.3 routes on. An agent was
+    sent to "fix the source" over a machine that simply predates the flag,
+    against SPEC-report §6.1.
+
+    Driven through the classifier rather than a real old binary: CI installs
+    2026.08.01 on one leg, where `--backend` is accepted, so a test needing a
+    rejection could only skip there.
+    """
+    from partspec.engines.openscad import _is_unknown_option
+
+    assert _is_unknown_option("unrecognised option '--backend=CGAL'\n\nUsage: openscad ...")
+    assert _is_unknown_option("unrecognized option '--backend'")
+    assert not _is_unknown_option("ERROR: Parser error: syntax error in file m.scad, line 3")
+    # The usage dump lists every option the engine DOES take, including the
+    # word this predicate looks for in other builds' help text; scanning the
+    # whole of stderr would classify a compile failure as an engine fault.
+    assert not _is_unknown_option(
+        "ERROR: Parser error\nUsage: openscad [options]\n  --backend arg  unrecognised option"
+    )
+    # Bookkeeping the engine prints BEFORE its diagnosis must not hide the
+    # rejection: both binaries print `Geometries in cache:` first, and reading a
+    # raw `lines[0]` classified that as a model fault while the hint still named
+    # the option — origin and hint disagreeing, which is the bug this branch is
+    # for (PR #160 review).
+    assert _is_unknown_option("Geometries in cache: 3\nunrecognised option '--export-format'")
+    # Nor may the usage dump reach the decision. Delegating wholesale to
+    # `_first_error_line` briefly did, and it prefers an ERROR/WARNING line
+    # ANYWHERE in stderr: today's 58-line 2021.01 dump survives on letter case
+    # alone ("Stop on the first warning", lowercase), so an engine that
+    # capitalised it would flip the origin back to `model` (review R2).
+    assert _is_unknown_option(
+        "unrecognised option '--backend=CGAL'\nUsage: openscad [options]\n"
+        "  --hardwarnings  Stop on the first WARNING"
+    )
+
+
+@needs_openscad
+def test_a_rejected_option_reaches_the_report_as_environment(tmp_path: Path):
+    """The end-to-end half, on whichever engine is installed.
+
+    Asserted as an implication rather than a fixed verdict: on 2021.01 the flag
+    is refused and the origin must be `environment`; on 2026.08.01 it is
+    accepted and the part builds. A test demanding one answer would fail on the
+    other leg of the matrix, and the claim is about the CLASSIFICATION, not
+    about which engines exist.
+    """
+
+    from partspec import Part, openscad
+    from partspec.runner import run
+
+    (tmp_path / "m.scad").write_text("cube([10, 10, 10]);\n")
+    p = Part("subject", openscad(tmp_path / "m.scad", backend="CGAL"))
+    p.watertight()
+    report = run(p, out_dir=tmp_path / "out")
+
+    if openscad_supports_backend_flag():
+        assert report.build_origin != "environment", "the flag is accepted on this engine"
+        return
+    assert report.build_origin == "environment", (
+        "an engine that predates the flag is a machine fault, not a claim about the part"
+    )
+    assert report.verdict is Verdict.ERROR
+    # Against the option the ENGINE named, recovered from its own stderr — not
+    # against the hint's fixed wording, which contained both substrings however
+    # the hint was built and so could not fail (PR #160 review).
+    rejected = [ln for ln in (report.build_stderr or "").splitlines() if "option" in ln]
+    assert rejected, "the engine must have said which option it refused"
+    assert "--backend" in rejected[0], f"unexpected rejection: {rejected[0]}"
+    assert "--backend" in (report.hint or ""), (
+        f"the hint must name the option the engine rejected; got {report.hint!r}"
+    )
+
+
+def test_a_missing_mesh_wheel_is_an_environment_fault_not_a_traceback():
+    """`pip install partspec` then run an OpenSCAD part — the onboarding path.
+
+    Measured before the fix (v0.7.0 pre-tag audit), from a cold wheel with no
+    extras: a bare `ModuleNotFoundError: No module named 'trimesh'` traceback,
+    `build_origin: None`, and a run-level hint blaming "a native segfault/OOM in
+    the CAD kernel" — a machine fault reported as a crash inside an engine that
+    was never installed. The OCCT tier has classified this correctly since
+    v0.4.0 (`pycad._engine_import_error`); this pins the mesh tier's half.
+
+    Driven by hiding the module rather than building a venv: the claim is about
+    the classification, and a test that provisioned an install would be slow
+    enough to be skipped and would then pin nothing.
+    """
+    import builtins
+
+    from partspec.backends.mesh import MeshBackend
+
+    real_import = builtins.__import__
+
+    def no_trimesh(name, *args, **kwargs):
+        if name == "trimesh":
+            raise ModuleNotFoundError("No module named 'trimesh'")
+        return real_import(name, *args, **kwargs)
+
+    builtins.__import__ = no_trimesh
+    try:
+        result = MeshBackend().load(Path("unused.stl"))
+    finally:
+        builtins.__import__ = real_import
+
+    assert isinstance(result, BuildError)
+    assert result.origin == "environment", "a missing wheel is the machine, not the part"
+    assert "partspec[mesh]" in (result.hint or ""), "the hint must name the fix"
+    assert "trimesh" in result.message

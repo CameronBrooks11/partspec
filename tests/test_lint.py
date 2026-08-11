@@ -57,6 +57,91 @@ def test_magic_numbers_flag_the_before_form_and_pass_the_after(tmp_path: Path):
     assert lint_path(after) == []
 
 
+def test_an_assignment_is_exempt_however_it_is_wrapped(tmp_path: Path):
+    """The exemption belongs to the STATEMENT, not to one line of it.
+
+    The rule matched `^\\s*\\w+\\s*=` per line, so an assignment spread over
+    several lines — the normal formatting for a lookup table — was exempt on its
+    first line and flagged on every other. Measured before the fix (v0.7.0
+    pre-tag audit): the same named constant gave 0 findings on one line and 3
+    across four.
+
+    The rule's own rationale is that a magic number is *unnameable*. These are
+    named, so the code was the defect rather than `docs/LINT.md`.
+    """
+    one_line = tmp_path / "one.scad"
+    one_line.write_text("plate = [60, 40, 4];\ncube(plate);\n")
+    assert lint_path(one_line) == []
+
+    wrapped = tmp_path / "wrapped.scad"
+    wrapped.write_text("plate = [\n  60, 40, 4\n];\ncube(plate);\n")
+    assert lint_path(wrapped) == [], "the same constant, wrapped, is the same claim"
+
+    # A table that IS read, so the only rule in play is the one under test —
+    # an unread one also draws `scad-unused`, which is correct and beside the
+    # point.
+    table = tmp_path / "table.scad"
+    table.write_text(
+        "holes = [[10,10],\n  [30,10],\n  [30,30]];\n"
+        "for (h = holes) translate(h) cube([60,40,4]);\n"
+    )
+    magic = [f for f in lint_path(table) if f.rule == "scad-magic-number"]
+    assert len(magic) == 3, "the named table is exempt; the unnamed cube literals are not"
+    assert all(f.line == 4 for f in magic), "and they are the cube's line, not the table's"
+
+
+def test_a_named_argument_is_not_an_assignment_statement(tmp_path: Path):
+    """`name =` INSIDE brackets exempts its own line and claims nothing about
+    the next one.
+
+    The first version of the statement-scoped exemption opened on any line
+    matching `^\\s*\\w+\\s*=` and then skipped everything up to the next `;`.
+    A named argument in a multi-line call matches that, so it suppressed the
+    whole call: `tests/fixtures/open_box.scad`, whose `points = [` is an
+    argument of `polyhedron(`, lost all 28 of its findings (PR #160 review).
+
+    This is the third time that fixture has caught a brace-blind scan —
+    `_entry_top_level`'s depth counter exists because of the first two — so
+    the cases below are pinned rather than left to it.
+    """
+    box = Path(__file__).resolve().parent / "fixtures" / "open_box.scad"
+    assert len([f for f in lint_path(box) if f.rule == "scad-magic-number"]) == 28, (
+        "a named argument inside polyhedron() must not silence the call"
+    )
+
+    signature = tmp_path / "sig.scad"
+    signature.write_text("module plate(\n  w = 60,\n  h = 40\n) { cube([w, h, 100]); }\n")
+    magic = [f for f in lint_path(signature) if f.rule == "scad-magic-number"]
+    assert [f.line for f in magic] == [4], "signature defaults are named; the 100 is not"
+
+    call = tmp_path / "call.scad"
+    call.write_text(
+        "linear_extrude(\n  height = 3,\n  twist = 0)\n  polygon([[0,0],[100,0],[100,60]]);\n"
+    )
+    assert len([f for f in lint_path(call) if f.rule == "scad-magic-number"]) == 3
+
+    # A module-local constant is an assignment statement too. Counting braces in
+    # the depth tally made the exemption top-level-only, so a table wrapped
+    # inside a module drew the findings `docs/LINT.md` says it does not. Parens
+    # and brackets are the right counters: an assignment can sit at any brace
+    # depth but never inside `(` or `[`, which is exactly where a named argument
+    # and a signature default live (PR #160 review, R1).
+    local = tmp_path / "local.scad"
+    local.write_text("module plate() {\n  spec = [\n    60, 40, 400\n  ];\n  cube(spec);\n}\n")
+    assert [f for f in lint_path(local) if f.rule == "scad-magic-number"] == []
+
+    unwrapped_local = tmp_path / "local_one.scad"
+    unwrapped_local.write_text("module plate() {\n  spec = [60, 40, 400];\n  cube(spec);\n}\n")
+    assert [f for f in lint_path(unwrapped_local) if f.rule == "scad-magic-number"] == [], (
+        "the same constant unwrapped — both must answer the same"
+    )
+
+    # An assignment that never terminates must not silence the rest of the file.
+    unterminated = tmp_path / "unterminated.scad"
+    unterminated.write_text("x = 5\ncube([100, 200, 300]);\n")
+    assert len([f for f in lint_path(unterminated) if f.rule == "scad-magic-number"]) == 3
+
+
 def test_the_overshoot_idiom_is_never_magic(tmp_path: Path):
     """|value| <= 2 exemption: the -1/+2 idiom the repo's own skills teach
     must not be flagged by the repo's own lint."""

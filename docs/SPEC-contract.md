@@ -531,7 +531,7 @@ outstanding and recorded.)
 **The default `tol` is calibrated, not chosen** — and recalibrated by execution: most
 healthy families (booleans, fillets, lofts, text, 100-hole grids, 1e-3 to 1e6 mm scales)
 round-trip below ~4e-13 relative, but the THREAD family — a helical sweep fused to a
-cylinder, the canonical threaded rod — measures ~1.9e-8 (PR #143 review, F1). Real
+cylinder, the canonical threaded rod — measures ~6e-9 on build123d 0.11.1 / cadquery-ocp 7.9.3.1.1 (PR #143 review, F1; re-measured for v0.7.0, where the recorded ~1.9e-8 no longer reproduced — the figure moves with the kernel, so it is named with its toolchain). Real
 degradation — an ill-formed open shell forced into a solid, which the reader's healing
 silently drops — loses its ENTIRE volume (`volume_rel = 1.0`, solids 1 → 0, the executed
 degrader in the test suite). 1e-6 sits ~50x above the worst healthy citizen and six
@@ -639,10 +639,15 @@ adjacent) and FAILS with the empty-set detail; and **filleting a knife edge flip
 feature to wall** — the fillet band no longer shares an edge with both flanks, so the
 real material behind it (0.6 mm for an r=0.3 fillet on a thin wedge) is measured and may
 fail where the sharp edge passed. That is the material's truth, stated so nobody is
-surprised by it. Since #145 the flip also **fails conclusively rather than straddling**: a
-fillet band is a closed analytic face, so the chord witness collapses the upper end onto
-twice the fillet radius, and a rounded Ø20 boss that used to report `[1.414, 20.0]` and
-shrug at a `min=3` claim now reports `[1.414, 2.0]` and fails it. Correct within the
+surprised by it. Since #145 the flip **fails conclusively rather than straddling where the
+filleted edge is CLOSED**: a fillet band on a full-revolution edge is a closed analytic
+face, so the chord witness collapses the upper end onto twice the fillet radius, and a
+rounded Ø20 boss that used to report `[1.414, 20.0]` and shrug at a `min=3` claim now
+reports `[1.414, 2.0]` and fails it. A fillet along a **straight** edge is an open strip
+with no diametric certificate, so it still straddles — including the knife-edge-on-a-wedge
+case this paragraph opens with, measured at `[0.599255, 1.167914]`, `approximate`, exit 2.
+Both halves are stated because an earlier draft claimed the conclusive verdict for "the
+documented fillet-flip" generally, which is the one example above that it does not cover. Correct within the
 measurand — the 1.414 mm span is real — but a stronger verdict than "may fail", and
 recorded here for that reason.
 

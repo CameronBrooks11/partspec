@@ -307,9 +307,40 @@ def render(
             )
 
         if proc.returncode != 0:
+            reason = _first_error_line(proc.stderr)
+            if _is_unknown_option(proc.stderr):
+                # The engine rejected an option partspec passed, which is a
+                # statement about the ENGINE, not the part. The 2021.01 case is
+                # `backend=`: render backends arrived later, and Debian and
+                # Ubuntu ship 2021.01, so this is the ordinary experience of a
+                # contract written against a newer engine, not an exotic one.
+                #
+                # Measured before this branch existed: `verdict: fail`,
+                # `build_origin: "model"`, hint `unrecognised option
+                # '--backend'`. The hint was right and the origin was wrong,
+                # and the origin is what AGENT-CONTRACT §2.3 routes on — so an
+                # agent was sent to §2.1 "fix the source" over a machine that
+                # simply predates the flag. SPEC-report §6.1 forbids exactly
+                # that: an environment fault MUST NOT be reported as a
+                # statement about the part.
+                # The hint names the option the ENGINE named, never a literal.
+                # It read "(2021.01 has no --backend)", which is true of the
+                # case that prompted this branch and false of every other:
+                # `--export-format` is passed on every render and arrived in
+                # 2021.01, so on an older binary every build lands here and the
+                # hint would have told the reader to drop a flag they never
+                # passed (PR #160 review).
+                return BuildError(
+                    f"the openscad binary rejected an option partspec passed: {reason}",
+                    hint=f"this engine does not accept it — {reason}. Upgrade openscad, or "
+                    f"drop the contract argument that needs it (`backend=` needs a build "
+                    f"newer than 2021.01)",
+                    origin="environment",
+                    stderr=proc.stderr,
+                )
             return BuildError(
                 f"openscad exited {proc.returncode}",
-                hint=_first_error_line(proc.stderr),
+                hint=reason,
                 stderr=proc.stderr,
             )
         # OpenSCAD exits 0 on some degenerate input while writing nothing useful,
@@ -568,6 +599,73 @@ statistic as the hint — confidently irrelevant — while `Current top level
 object is empty.` sat one line down (#37)."""
 
 
+def _signal_lines(stderr: str) -> list[str]:
+    """stderr with blanks and known bookkeeping removed, in order.
+
+    Factored out so the origin and the hint filter noise through ONE list.
+    `_first_error_line` then applies its ERROR/WARNING preference over these;
+    `_is_unknown_option` takes the first, deliberately not the preference.
+    """
+    return [
+        line.strip()
+        for line in stderr.splitlines()
+        if line.strip() and not _NOISE.match(line.strip())
+    ]
+
+
+_UNKNOWN_OPTION = re.compile(r"unrecognised option|unrecognized option|unknown option", re.I)
+"""The engine rejecting a FLAG rather than the source.
+
+Measured on the apt 2021.01 binary, which is what Debian and Ubuntu ship:
+
+    $ openscad --backend=CGAL -o out.stl m.scad
+    unrecognised option '--backend=CGAL'
+    Usage: openscad [options] file.scad
+
+Both British and American spellings are matched because the message comes from
+boost::program_options in one version and the engine's own parser in another,
+and neither is a spelling this project controls. Deliberately narrow: it names
+only the failure mode where the ENGINE could not accept what partspec passed,
+which is the whole class that must not be blamed on the part."""
+
+
+def _is_unknown_option(stderr: str) -> bool:
+    """Whether the engine rejected an option rather than the model.
+
+    Shares `_first_error_line`'s NOISE FILTER — one list, kept in step by being
+    one list — and then takes the first line, which is not what that function
+    does. Reading `lines[0]` raw let the two disagree silently: the cache
+    statistics both binaries print FIRST would push a rejection to line two,
+    reverting the classification to `model` while the hint still named the
+    option, which is the bug this branch fixes.
+
+    But delegating to `_first_error_line` wholesale was worse, and briefly
+    shipped on this branch: it prefers a line containing `ERROR`/`WARNING`
+    ANYWHERE in stderr, so a 58-line usage dump came into scope. Today's
+    2021.01 dump survives on letter case alone — it contains "errors)" and
+    "Stop on the first warning", both lowercase — and an engine that
+    capitalised either word would flip the origin back to `model` with nothing
+    to show for it (PR #160 review, R2). A CLI-level rejection is printed
+    before any compilation output, so the first signal line is the whole
+    question and the dump is never in scope.
+
+    Coupling the filter is the property, not immunity to noise. A line `_NOISE`
+    does not know — a Mesa/libEGL warning on a headless box, say — still
+    displaces the rejection, and displaces the hint with it, so the report stays
+    self-consistent and `build_stderr` carries the whole text either way. The
+    fix for such a line is to teach `_NOISE` about it once it is observed;
+    guessing at the list here would be a second filter to keep in step.
+
+    One line, not a window. Anything looser reads the `Usage:` dump that
+    follows, which lists every allowed option and on some builds contains this
+    very phrase: a three-line window classified `ERROR: Parser error` plus a
+    usage dump as an engine fault, which is an ordinary compile failure blamed
+    on the machine. Both directions are pinned by test.
+    """
+    lines = _signal_lines(stderr)
+    return bool(lines) and _UNKNOWN_OPTION.search(lines[0]) is not None
+
+
 def _first_error_line(stderr: str) -> str | None:
     """The engine's own diagnosis, preferring its ERROR/WARNING lines.
 
@@ -583,11 +681,7 @@ def _first_error_line(stderr: str) -> str | None:
     would return a fragment of the dump. Known noise is filtered before
     selection instead, which needs no special-casing of any message.
     """
-    lines = [
-        line.strip()
-        for line in stderr.splitlines()
-        if line.strip() and not _NOISE.match(line.strip())
-    ]
+    lines = _signal_lines(stderr)
     for line in lines:
         if "ERROR" in line or "WARNING" in line:
             return line

@@ -53,13 +53,19 @@ build-backend = "hatchling.build"
 
 # The sdist shipped everything not gitignored, including `uv.lock` — which
 # pins this repo's dev environment, not the package's requirements, so a
-# consumer cannot use it. Building both ways, it costs ~160 KiB — about 23% of
-# the shipped tarball. NOT "half a megabyte", as this comment claimed: the lock
-# is 511 KiB on disk and gzip does most of the work on a file that repetitive,
-# so the number to quote is the one measured on the artifact that ships. No
-# absolute tarball sizes here on purpose: four measurements during this PR gave
-# four different answers, because every line of prose added to the repo lands in
-# the tarball. The delta and the share do not move.
+# consumer cannot use it. Building both ways, it costs ~160 KiB. NOT "half a
+# megabyte", as this comment claimed: the lock is 511 KiB on disk and gzip does
+# most of the work on a file that repetitive, so the number to quote is the one
+# measured on the artifact that ships. No absolute tarball sizes here on
+# purpose: four measurements during one PR gave four different answers, because
+# every line of prose added to the repo lands in the tarball.
+#
+# And no SHARES either. This said "about 23% of the shipped tarball" and
+# claimed "the delta and the share do not move" in the same breath — but a
+# share has the moving total in its denominator, so it moves by construction,
+# and by v0.7.0 that one had. Only the delta holds still, so only the delta is
+# written down. (Re-measure with `uv build --sdist` before and after toggling
+# an exclude entry; do not write the answer here.)
 #
 # What is NOT excluded is the more considered half. `tests/` ships because a
 # downstream packager runs the suite from an sdist, and that claim only holds

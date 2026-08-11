@@ -94,8 +94,28 @@ class MeshBackend:
         for a multi-body file, which has different semantics for the same
         attribute names. A silent type change is not something a measurement
         layer should be exposed to.
+
+        The import is guarded because this is the first line of the mesh tier a
+        `pip install partspec` user reaches, and it is the whole onboarding
+        path. Unguarded it raised `ModuleNotFoundError: No module named
+        'trimesh'` as a bare traceback, wrote no origin, and the run's generic
+        hint blamed "a native segfault/OOM in the CAD kernel" — a machine fault
+        described as a crash in an engine that was never installed. The OCCT
+        tier has classified this correctly since v0.4.0
+        (`pycad._engine_import_error`); this is the mesh tier catching up.
+
+        `origin="environment"` is the load-bearing part: SPEC-report §6.1 says
+        an environment fault MUST NOT be reported as a statement about the
+        part, and `build_origin` is the key `AGENT-CONTRACT.md` §2.3 routes on.
         """
-        import trimesh
+        try:
+            import trimesh
+        except ImportError as exc:
+            return BuildError(
+                f"the mesh tier is not importable: {exc}",
+                hint="pip install 'partspec[mesh]'",
+                origin="environment",
+            )
 
         mesh = trimesh.load_mesh(stl)
         if getattr(mesh, "faces", None) is None or len(mesh.faces) == 0:
