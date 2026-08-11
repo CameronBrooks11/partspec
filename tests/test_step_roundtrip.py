@@ -3,7 +3,7 @@
 The degrader is executed, not assumed: an open shell forced into a solid
 loses its entire volume through STEP (the reader's healing drops the
 ill-formed solid). Healthy families mostly round-trip below 4e-13; the
-worst healthy citizen is the thread family at ~1.9e-8, which is what
+worst healthy citizen is the thread family at ~6e-9, which is what
 calibrates the 1e-6 default (PR #143 review, F1).
 """
 
@@ -125,9 +125,19 @@ def test_the_tol_is_never_epsilon_widened():
 
 def test_a_threaded_rod_calibrates_the_default():
     """PR #143 review, F1: the thread family is the worst healthy citizen —
-    a fused helical sweep round-trips near 1.9e-8, far over the old 1e-9
-    default and comfortably under the recalibrated 1e-6. Both halves are
-    pinned so the calibration story stays executed fact."""
+    a fused helical sweep round-trips far over the old 1e-9 default and
+    comfortably under the recalibrated 1e-6, which is why the default is 1e-6.
+
+    The BAND is what is pinned, not a point value. The recorded figure was
+    ~1.9e-8; on build123d 0.11.1 / cadquery-ocp 7.9.3.1.1 the same fixture
+    measures 6.1e-9, and the old `> 1e-10` floor was two orders too loose to
+    notice the drift (v0.7.0 pre-tag audit). A round-trip error is a property
+    of the kernel's STEP writer and reader, so it moves under us; the floor is
+    now tight enough that the next move is visible while still leaving the
+    calibration argument intact.
+
+    If this fails at the bottom, exchange fidelity improved and the 1e-6
+    default should be re-derived rather than the floor lowered."""
     helix = bd.Helix(2, 10, 5)
     thread = bd.sweep(
         bd.Plane(origin=helix @ 0, z_dir=helix % 0) * bd.Circle(0.8), helix
@@ -135,9 +145,10 @@ def test_a_threaded_rod_calibrates_the_default():
     outcome = OcctBackend().step_roundtrip(thread)
     assert not isinstance(outcome, Unsupported)
     assert outcome["volume_rel"] < 1e-6, "healthy threads must pass the default"
-    assert outcome["volume_rel"] > 1e-10, (
-        "the thread family is why the default is 1e-6, not 1e-9; if exchange "
-        "fidelity improved this much, recalibrate the spec downward"
+    assert outcome["volume_rel"] > 1e-9, (
+        f"the thread family is why the default is 1e-6, not 1e-9; measured "
+        f"{outcome['volume_rel']:.3g}. If exchange fidelity improved this much, "
+        f"re-derive the default rather than lowering this floor"
     )
 
 

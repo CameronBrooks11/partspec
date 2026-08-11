@@ -58,9 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   above — an inward normal ray, or a diametric chord certified material end
   to end by exact boolean, which is what makes every closed analytic family
   exact and answers a frustum whose every normal exits through an adjacent
-  cap (#145). One consequence to know: a fillet band is a closed analytic
-  face, so the documented fillet-flip now FAILS conclusively where it used
-  to straddle. A crossing thinner than the bound refuses the check as
+  cap (#145). One consequence to know: a fillet band on a CLOSED
+  (full-revolution) edge is a closed analytic face, so the chord witness
+  collapses the upper end onto twice the fillet radius — a rounded Ø20 boss
+  that used to report `[1.414, 20.0]` and shrug at a `min=3` claim now reports
+  `[1.414, 2.0]` and fails it. A fillet along a straight edge is an open strip
+  with no diametric certificate and still straddles, including §4.11's
+  knife-edge-on-a-wedge example (`[0.599255, 1.167914]`, `approximate`). A crossing thinner than the bound refuses the check as
   self-contradictory, and a straddling limit adjudicates `approximate` —
   the first genuine exercise of the interval machinery, closing POST-V0's
   outstanding obligation. Gap-limited claims straddle honestly (never
@@ -72,7 +76,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `p.step_roundtrip(tol=)` — the part survives its own exchange format,
   OCCT tier (#139): written to STEP and read back, volume/area within a
   calibrated relative tolerance (default 1e-6: most families measure below
-  4e-13, threaded parts ~1.9e-8, the executed degrader loses everything)
+  4e-13, threaded parts ~6e-9 on build123d 0.11.1 / cadquery-ocp 7.9.3.1.1 —
+  the figure moves with the kernel, so it is named with its toolchain — and
+  the executed degrader loses everything)
   and topology counts unchanged at any tolerance. Plain membership — the
   tol is never epsilon-widened. The writer schema rides on the check
   (`checks[].step.schema`). SPEC-contract 4.10.
