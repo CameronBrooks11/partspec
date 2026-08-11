@@ -2,7 +2,7 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.6.0 is on PyPI.** It
+> **Status: pre-alpha; v0.7.0 is on PyPI.** It
 > runs end to end — `check`, `measure` and `render` across all three engines (with
 > `--section` cuts on both tiers), `diff` on the reports and `vdiff` on
 > the renders they produce — and is dogfooded on real
@@ -24,7 +24,10 @@ Verify CAD-as-code parts against declared engineering intent.
 > [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is still withheld and why.
 > Expect the Python API to move: the stable surface is the report schema plus the exit
 > codes. `partspec.run()` is internal: it is importable, and it is not in `__all__`, and
-> its signature may change without a major bump.
+> its signature may change without a major bump. The package is fully annotated and ships
+> a `py.typed` marker, so a consumer type-checks against it rather than being handed
+> `Any` — before v0.7.0 it shipped none, which gave downstream not weaker checking but
+> silently none at all.
 
 ## What it is for
 
@@ -140,8 +143,9 @@ statuses and **only one of them is green**:
 | `unsupported` | this backend cannot evaluate this check on this geometry at all |
 | `skipped` | not evaluated |
 
-A part whose checks were mostly unavailable exits `2`, not `0`. A contract that asserts
-nothing exits `3`. Neither is a pass, because neither established anything.
+A part with **even one** unavailable check exits `2`, not `0` — `verdict_of` folds any
+non-pass to `incomplete`, so this is not a threshold. A contract that asserts nothing exits
+`3`. Neither is a pass, because neither established anything.
 
 This matters most across engines. OpenSCAD emits a triangle mesh, which has no cylindrical
 faces — so a hole diameter is genuinely unanswerable there, and `partspec` says so instead
