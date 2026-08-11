@@ -25,9 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The eval harness told the agent its report was at
   `outputs/spec-<part id>/report.json`, but partspec derives that directory
   from the contract's filename and factory, not the part id. No eval case has
-  the two equal, so the path was dead in every archived run — two lines below
-  partspec's own output naming the real one. `run_check` already found the
-  true path and discarded it; it returns it now.
+  the two equal, so the path was dead in every archived repair turn — four
+  lines below partspec's own output naming the real one. `run_check` already
+  found the true path and discarded it; it returns it now.
 
 ## [0.7.0] - 2026-08-11
 

@@ -324,9 +324,24 @@ def test_every_changelog_version_is_a_link_and_unreleased_starts_at_the_last_one
     heading and forgets this line leaves `Unreleased` spanning the release it
     just cut — v0.7.0 shipped `v0.6.0...HEAD` (PR #162 review, HIGH-3).
     """
-    text = (REPO / "CHANGELOG.md").read_text()
+    # Fenced code is stripped first, in both directions. A heading inside a
+    # fence is an example, not a section; a DEFINITION inside one defines
+    # nothing, and counting it would let the very defect this test exists to
+    # catch pass (PR #162 review, LOW-E).
+    raw = (REPO / "CHANGELOG.md").read_text()
+    lines, fenced = [], False
+    for line in raw.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            lines.append("")
+            continue
+        lines.append("" if fenced else line)
+    text = "\n".join(lines)
+
     headings = re.findall(r"^## \[([^\]]+)\]", text, re.M)
-    defined = dict(re.findall(r"^\[([^\]]+)\]: (\S+)$", text, re.M))
+    # The URL may carry an optional title (`[x]: <url> "title"`), which is
+    # valid CommonMark; `(\S+)$` rejected it and failed a correct file.
+    defined = dict(re.findall(r'^\[([^\]]+)\]: *(\S+)(?: +["\'(].*)?$', text, re.M))
 
     undefined = [h for h in headings if h not in defined]
     assert not undefined, (
@@ -337,7 +352,15 @@ def test_every_changelog_version_is_a_link_and_unreleased_starts_at_the_last_one
     versions = [h for h in headings if h != "Unreleased"]
     assert versions, "a changelog with no released version is not one this test understands"
     if "Unreleased" in headings:
-        newest = versions[0]
+        # Highest, not first. Reading position assumes the file is in reverse
+        # chronological order, and a version inserted in the wrong place would
+        # then be compared against — so the ordering is derived rather than
+        # trusted (review LOW-F).
+        def key(v: str) -> tuple:
+            head = v.split("-")[0]
+            return tuple(int(p) if p.isdigit() else 0 for p in head.split("."))
+
+        newest = max(versions, key=key)
         assert defined["Unreleased"].endswith(f"compare/v{newest}...HEAD"), (
             f"[Unreleased] compares from {defined['Unreleased'].rsplit('/', 1)[-1]}, but the "
             f"newest released version is {newest}; the range spans a release already cut"

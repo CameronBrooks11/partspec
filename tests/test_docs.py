@@ -467,6 +467,44 @@ def test_every_repo_path_the_specs_cite_can_be_opened():
     assert not missing, "cited paths no reader can open:\n  " + "\n  ".join(missing)
 
 
+def shipped_markdown() -> list[Path]:
+    """Every markdown file the sdist carries.
+
+    Recursive, and derived from one list rather than three. The first version
+    of this used depth-fixed globs (`skills/*/*.md`), which silently stopped
+    scanning the moment anyone nested a document one level deeper — a hole in a
+    test whose whole job is noticing unreachable references (PR #162 review,
+    LOW-H).
+    """
+    trees = ("docs", "skills", "examples")
+    found = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "CHANGELOG.md"]
+    for tree in trees:
+        found.extend(sorted((ROOT / tree).rglob("*.md")))
+    return [p for p in found if p.is_file()]
+
+
+def prose_of(text: str) -> str:
+    """`text` with fenced code blocks blanked out, line numbering preserved.
+
+    A citation inside a ```sh fence is a command someone types, not a reference
+    a reader follows, and a link definition inside one defines nothing. Both
+    directions bit the first version of these guards: a shell example produced
+    a false positive, and a definition moved into a fence let a heading render
+    as literal text while the test passed (PR #162 review, LOW-D and LOW-E).
+
+    Blanked rather than removed so reported line numbers still point at the
+    right line.
+    """
+    out, fenced = [], False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            out.append("")
+            continue
+        out.append("" if fenced else line)
+    return "\n".join(out)
+
+
 def test_every_repo_url_the_docs_link_to_can_be_opened():
     """The same question as the test above, asked of absolute repo URLs.
 
@@ -497,17 +535,9 @@ def test_every_repo_url_the_docs_link_to_can_be_opened():
         ).stdout.split()
     )
     url = re.compile(r"https://github\.com/CameronBrooks11/partspec/(?:blob|tree)/main/([\w./-]+)")
-    sources = [
-        *sorted(DOCS.glob("*.md")),
-        README,
-        ROOT / "AGENTS.md",
-        ROOT / "CHANGELOG.md",
-        *sorted(ROOT.glob("skills/*/*.md")),
-        *sorted(ROOT.glob("examples/*/*.md")),
-    ]
     missing = []
-    for doc in sources:
-        for cited in url.findall(doc.read_text()):
+    for doc in shipped_markdown():
+        for cited in url.findall(prose_of(doc.read_text())):
             prefix = cited.rstrip("/")
             if prefix in tracked or any(t.startswith(prefix + "/") for t in tracked):
                 continue
@@ -532,36 +562,41 @@ def test_no_shipped_doc_cites_a_non_shipping_file_as_a_bare_path():
     The excluded trees are read from `pyproject.toml` rather than listed here,
     so shipping `notes/` again — or excluding a new tree — moves this test
     with the packaging rather than leaving it asserting last year's layout.
+
+    A directory exclude is one with no dot in it. That heuristic would stop
+    policing a dotted directory silently, so `assert trees` at least refuses to
+    pass vacuously if the whole list ever becomes dotted.
     """
     import tomllib
 
     excludes = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["hatch"]["build"][
         "targets"
     ]["sdist"]["exclude"]
-    trees = sorted(e.strip("/") for e in excludes if "." not in e)
+    # `re.escape`, because these are packaging globs, not a regex the author of
+    # this test controls: `notes/**` compiled straight in raises "multiple
+    # repeat" and fails the suite with an unrelated message (review LOW-G).
+    trees = sorted(
+        re.escape(e.strip("/").rstrip("*").rstrip("/")) for e in excludes if "." not in e
+    )
     assert trees, "no excluded trees in the sdist config; this test has nothing to police"
 
     cite = re.compile(r"`((?:" + "|".join(trees) + r")/[\w./-]*\.\w+)`")
-    sources = [
-        *sorted(DOCS.glob("*.md")),
-        README,
-        ROOT / "AGENTS.md",
-        ROOT / "CHANGELOG.md",
-        *sorted(ROOT.glob("skills/*/*.md")),
-        *sorted(ROOT.glob("examples/*/*.md")),
-    ]
+    # `[`path`][label]` and `[`path`](url)` are links; a lone code span is not.
+    # Whitespace is allowed between the two halves of a reference link because
+    # CommonMark allows it and this repo hard-wraps at ~90 columns, so a wrap
+    # landing there is a matter of time — and it would have failed the suite
+    # with a wrong diagnosis (review LOW-C).
+    closes = re.compile(r"\s*[(\[]")
     bare = []
-    for doc in sources:
-        text = doc.read_text()
+    for doc in shipped_markdown():
+        text = prose_of(doc.read_text())
         for m in cite.finditer(text):
-            # `[`path`][label]` and `[`path`](url)` are links; a lone code span
-            # is not. Checked by position rather than a lookaround so both
-            # reference and inline forms are recognised.
+            after = text[m.end() : m.end() + 40]
             linked = (
                 m.start() > 0
                 and text[m.start() - 1] == "["
-                and text[m.end() : m.end() + 2][:1] == "]"
-                and text[m.end() : m.end() + 2][1:2] in "(["
+                and after.startswith("]")
+                and closes.match(after[1:]) is not None
             )
             if not linked:
                 line = text[: m.start()].count("\n") + 1
