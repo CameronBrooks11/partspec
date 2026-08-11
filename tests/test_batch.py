@@ -376,14 +376,8 @@ def test_running_a_part_evicts_the_models_own_siblings(tmp_path: Path):
         "from build123d import Box\nfrom geo_helper import SIZE\n\n\n"
         "def make_part():\n    return Box(SIZE, SIZE, SIZE)\n"
     )
-    (d / "spec.py").write_text(
-        "from partspec import Part, build123d\n\n\n"
-        "def make():\n"
-        "    p = Part('m', build123d('model.py'))\n"
-        "    p.watertight()\n"
-        "    return p\n"
-    )
-    part, target = resolve(f"{d / 'spec.py'}:make")
+    spec = py_target(d, model="model.py", part_id="m", claims="    p.watertight()\n")
+    part, target = resolve(spec)
     report = run(part, out_dir=tmp_path / "out")
     # The build succeeding IS the proof that `geo_helper` was imported: the
     # model reads SIZE from it. So an absent module after the run means it

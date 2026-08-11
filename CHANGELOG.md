@@ -34,9 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file by rename rather than writing in place — checked by inode, because a
   writer that copies a temp file over the destination satisfies the first and
   still lets a reader observe a half-written report.
-
-### Fixed
-
 - The suite did not degrade honestly without extras, and no CI job ran the
   whole suite in an environment that could show it: `check` and `test` install
   every extra, and `mesh-only`/`mcp-only` each ran a single module. On a base
@@ -45,9 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `needs_openscad` alone, so they ran and errored instead of skipping. A
   further **392 tests never collected**, because a module-level
   `importorskip` collapses its whole file to one skip line — `test_diff.py`
-  reported `1 skipped` for 34 tests, 32 of which need no engine at all. It is
-  406 passed / 137 skipped / **0 failed** now, and `just test-no-extras`
-  holds it, in a CI job that cannot be skipped by the path filter.
+  reported `1 skipped` for 34 tests, 32 of which need no engine at all. Zero
+  failures now, and `just test-no-extras` holds it, in a CI job that cannot
+  be skipped by the path filter. (The passing count for this release is in
+  the Changed section above; stating it twice is how the two drifted apart.)
 - `just test-mesh-only` ran one module, so nothing covered the space between
   "no extras" and "all extras". It runs the whole suite now — which caught a
   regression in this very change: a module gated on a *proxy* dependency
