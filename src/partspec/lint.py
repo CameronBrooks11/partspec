@@ -200,15 +200,35 @@ def _lint_scad(path: Path) -> list[Finding]:
     #
     # The rule's own rationale is that a magic number is *unnameable*; these are
     # named, so the code was wrong rather than the doc (v0.7.0 pre-tag audit).
-    # An assignment stays open until its terminating `;`, which is also how
-    # OpenSCAD parses it.
+    #
+    # Opening only at `depth == 0`, exactly as `_entry_top_level` does above and
+    # for the same reason. `name =` inside brackets is a NAMED ARGUMENT or a
+    # module signature default, not an assignment statement, and treating one as
+    # an opener suppressed everything up to the next `;`. Measured on the repo's
+    # own `tests/fixtures/open_box.scad`, whose `points = [` is an argument of
+    # `polyhedron(`: all 28 findings vanished (PR #160 review). That is the
+    # third time this fixture has caught a brace-blind scan; the depth counter
+    # exists because of the first two.
+    #
+    # An assignment then runs to its terminating `;`, which is how OpenSCAD
+    # parses it — but only while brackets are balanced, so a statement that
+    # never terminates cannot silence the rest of the file.
+    depth = 0
     in_assignment = False
     for i, line_text in enumerate(stripped.splitlines(), start=1):
-        opens = bool(assignment.match(line_text))
-        if in_assignment or opens:
-            # `;` closes it. Counting on the raw line is safe here because
-            # `stripped` has already had comments and strings removed.
-            in_assignment = ";" not in line_text
+        looks_like_assignment = bool(assignment.match(line_text))
+        # Only a TOP-LEVEL one continues onto later lines. A `name =` inside
+        # brackets exempts its own line, as it always has — that is the named
+        # argument and signature-default case — but claims nothing about what
+        # follows.
+        opens = depth == 0 and not in_assignment and looks_like_assignment
+        skip = looks_like_assignment or in_assignment
+        depth += sum(line_text.count(b) for b in "{([") - sum(line_text.count(b) for b in "})]")
+        if skip:
+            # Closed by its `;`, and abandoned once brackets rebalance, so a
+            # statement that never terminates cannot silence the rest of the
+            # file (`x = 5` with no semicolon did, briefly).
+            in_assignment = (opens or in_assignment) and ";" not in line_text and depth > 0
             continue
         if re.match(r"\s*(include|use)\b", line_text):
             continue

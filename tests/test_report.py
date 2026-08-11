@@ -332,6 +332,32 @@ def test_spec_example_satisfies_its_own_counts_rule():
     assert sum(v for k, v in counts.items() if k != "total") == counts["total"]
 
 
+def test_spec_example_attribution_is_what_its_own_checks_compute():
+    """The example says it is conformant, so its `attribution` must be the
+    value `Report.attribution()` would produce for those checks.
+
+    Added with the field itself and got it wrong on the first pass: I wrote
+    `attributed: 1` when no check in the example carries a `source` citation at
+    all — the only `"source"` in the block is `part.source`, the file path. The
+    honest value is 0, which makes the example an instance of `dimensional > 0
+    && attributed == 0`: exactly the circular-contract shape §6's warning
+    exists to flag. Depicting that as clean, in the document that defines the
+    warning, is worse than omitting the field (PR #160 review).
+
+    Derived here rather than asserted, so the next edit to the example's checks
+    cannot leave the summary behind.
+    """
+    from partspec.contract import DIMENSIONAL_KINDS
+
+    doc = _spec_example()
+    dimensional = [c for c in doc["checks"] if c["kind"] in DIMENSIONAL_KINDS]
+    attributed = [c for c in dimensional if c.get("source")]
+    assert doc["attribution"] == {
+        "dimensional": len(dimensional),
+        "attributed": len(attributed),
+    }, "the example's summary must match the example's checks"
+
+
 def test_spec_example_statuses_match_its_counts():
     doc = _spec_example()
     tally: dict[str, int] = {}

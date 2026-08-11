@@ -256,7 +256,15 @@ def test_a_rejected_option_reaches_the_report_as_environment(tmp_path: Path):
         "an engine that predates the flag is a machine fault, not a claim about the part"
     )
     assert report.verdict is Verdict.ERROR
-    assert "--backend" in (report.hint or "") or "predates" in (report.hint or "")
+    # Against the option the ENGINE named, recovered from its own stderr — not
+    # against the hint's fixed wording, which contained both substrings however
+    # the hint was built and so could not fail (PR #160 review).
+    rejected = [ln for ln in (report.build_stderr or "").splitlines() if "option" in ln]
+    assert rejected, "the engine must have said which option it refused"
+    assert "--backend" in rejected[0], f"unexpected rejection: {rejected[0]}"
+    assert "--backend" in (report.hint or ""), (
+        f"the hint must name the option the engine rejected; got {report.hint!r}"
+    )
 
 
 def test_a_missing_mesh_wheel_is_an_environment_fault_not_a_traceback():

@@ -497,7 +497,9 @@ an unknown major version rather than best-effort parse it.
   "verdict": "incomplete",
   "counts": { "total": 5, "pass": 3, "fail": 0,
               "approximate": 0, "unsupported": 1, "skipped": 1 },
-  "attribution": { "dimensional": 2, "attributed": 1 },
+  "attribution": { "dimensional": 2, "attributed": 0 },   // envelope + hole_diameter,
+                                                         // neither citing a source: this
+                                                         // example draws the §6 warning
 
   "checks": [
     {
@@ -668,11 +670,6 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   tells an agent to read, and it was emitted by every report since v0.4.0 while appearing in
   this document only in passing; the omission is what let two faults ship misclassified into
   the v0.7.0 audit.
-- **`attribution`** — `{"dimensional": N, "attributed": M}`: how many of the run's checks
-  carry a limit an author chose (`DIMENSIONAL_KINDS`), and how many of those cited a source
-  (§10). The pair is what the vacuous-green warning (§6) ranges over — `M == 0` with `N > 0`
-  draws it — and a consumer can compute the disclosure itself rather than parse a warning
-  line. Emitted on every report.
 - **`checks[].requires`** — present only on `unsupported`, naming the tier that would answer
   **for an equivalent part**. The hedge is load-bearing: porting a 16-gon bore to build123d
   does not merely enable the check, it **changes the part** (investigation 04 §4). This is

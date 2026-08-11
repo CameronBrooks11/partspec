@@ -62,9 +62,10 @@ build-backend = "hatchling.build"
 #
 # And no SHARES either. This said "about 23% of the shipped tarball" and
 # claimed "the delta and the share do not move" in the same breath — but a
-# share has the moving total in its denominator, so it moves by construction.
-# Measured for v0.7.0: 26.2%. Only the delta holds still, so only the delta is
-# written down.
+# share has the moving total in its denominator, so it moves by construction,
+# and by v0.7.0 that one had. Only the delta holds still, so only the delta is
+# written down. (Re-measure with `uv build --sdist` before and after toggling
+# an exclude entry; do not write the answer here.)
 #
 # What is NOT excluded is the more considered half. `tests/` ships because a
 # downstream packager runs the suite from an sdist, and that claim only holds

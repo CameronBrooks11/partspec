@@ -91,10 +91,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   agent transcripts in front of every PyPI consumer so a test could assert a
   phrase appeared in prose. Those tests are deleted rather than skip-guarded, so
   nothing reads those trees and the question does not arise. The tarball loses
-  105 KiB. (No share: this said "20% of its size" and the measured figures
-  are 18.7% of the larger tarball or 23.0% of the shipped one, neither of
-  which is 20% and both of which move as prose is added. The delta does
-  not.) `tests/`, `docs/`, `examples/`, `skills/` and
+  105 KiB. (A delta, not a share: the share depends on which tarball is the
+  denominator and moves as prose is added to the repo, which is how the
+  figure this replaces came to be wrong.) `tests/`, `docs/`, `examples/`, `skills/` and
   `.github/` still ship, and the suite still passes from an unpacked sdist.
 - The mechanical enumerations in the specs are **generated** from the code
   (`scripts/gen_docs.py`, run by `just fmt`, gated by `just check`): the §4.1/§4.2

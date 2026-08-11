@@ -90,6 +90,42 @@ def test_an_assignment_is_exempt_however_it_is_wrapped(tmp_path: Path):
     assert all(f.line == 4 for f in magic), "and they are the cube's line, not the table's"
 
 
+def test_a_named_argument_is_not_an_assignment_statement(tmp_path: Path):
+    """`name =` INSIDE brackets exempts its own line and claims nothing about
+    the next one.
+
+    The first version of the statement-scoped exemption opened on any line
+    matching `^\\s*\\w+\\s*=` and then skipped everything up to the next `;`.
+    A named argument in a multi-line call matches that, so it suppressed the
+    whole call: `tests/fixtures/open_box.scad`, whose `points = [` is an
+    argument of `polyhedron(`, lost all 28 of its findings (PR #160 review).
+
+    This is the third time that fixture has caught a brace-blind scan —
+    `_entry_top_level`'s depth counter exists because of the first two — so
+    the cases below are pinned rather than left to it.
+    """
+    box = Path(__file__).resolve().parent / "fixtures" / "open_box.scad"
+    assert len([f for f in lint_path(box) if f.rule == "scad-magic-number"]) == 28, (
+        "a named argument inside polyhedron() must not silence the call"
+    )
+
+    signature = tmp_path / "sig.scad"
+    signature.write_text("module plate(\n  w = 60,\n  h = 40\n) { cube([w, h, 100]); }\n")
+    magic = [f for f in lint_path(signature) if f.rule == "scad-magic-number"]
+    assert [f.line for f in magic] == [4], "signature defaults are named; the 100 is not"
+
+    call = tmp_path / "call.scad"
+    call.write_text(
+        "linear_extrude(\n  height = 3,\n  twist = 0)\n  polygon([[0,0],[100,0],[100,60]]);\n"
+    )
+    assert len([f for f in lint_path(call) if f.rule == "scad-magic-number"]) == 3
+
+    # An assignment that never terminates must not silence the rest of the file.
+    unterminated = tmp_path / "unterminated.scad"
+    unterminated.write_text("x = 5\ncube([100, 200, 300]);\n")
+    assert len([f for f in lint_path(unterminated) if f.rule == "scad-magic-number"]) == 3
+
+
 def test_the_overshoot_idiom_is_never_magic(tmp_path: Path):
     """|value| <= 2 exemption: the -1/+2 idiom the repo's own skills teach
     must not be flagged by the repo's own lint."""

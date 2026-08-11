@@ -323,10 +323,18 @@ def render(
                 # simply predates the flag. SPEC-report §6.1 forbids exactly
                 # that: an environment fault MUST NOT be reported as a
                 # statement about the part.
+                # The hint names the option the ENGINE named, never a literal.
+                # It read "(2021.01 has no --backend)", which is true of the
+                # case that prompted this branch and false of every other:
+                # `--export-format` is passed on every render and arrived in
+                # 2021.01, so on an older binary every build lands here and the
+                # hint would have told the reader to drop a flag they never
+                # passed (PR #160 review).
                 return BuildError(
                     f"the openscad binary rejected an option partspec passed: {reason}",
-                    hint="this engine predates the option; upgrade openscad, or drop the "
-                    "argument that needs it (2021.01 has no --backend)",
+                    hint=f"this engine does not accept it — {reason}. Upgrade openscad, or "
+                    f"drop the contract argument that needs it (`backend=` needs a build "
+                    f"newer than 2021.01)",
                     origin="environment",
                     stderr=proc.stderr,
                 )
@@ -610,16 +618,27 @@ which is the whole class that must not be blamed on the part."""
 def _is_unknown_option(stderr: str) -> bool:
     """Whether the engine rejected an option rather than the model.
 
-    Scoped to the FIRST non-empty line, which is where a CLI-level rejection is
-    printed — before any compilation output, because the engine never got as far
-    as compiling. Anything looser reads the `Usage:` dump that follows, which
-    lists every allowed option and, on some builds, the phrase this looks for:
-    a three-line window classified `ERROR: Parser error` + a usage dump as an
-    engine fault, which is an ordinary compile failure blamed on the machine —
-    the mirror of the bug this predicate fixes. Caught by the test below.
+    Asks `_first_error_line`, so the origin is decided from the same line the
+    hint reports. Taking `lines[0]` raw let them disagree silently: the cache
+    statistics both binaries print FIRST would push a rejection to line two,
+    reverting the classification to `model` while the hint still named the
+    option — reinstating the exact bug this fixes (PR #160 review).
+
+    That coupling is the property, not immunity to noise. A line `_NOISE` does
+    not know — a Mesa/libEGL warning on a headless box, say — still displaces
+    the rejection, but it now displaces the hint with it, so the report stays
+    self-consistent and `build_stderr` carries the whole text either way. The
+    fix for such a line is to teach `_NOISE` about it once it is observed;
+    guessing at the list here would be a second filter to keep in step.
+
+    One line, not a window. Anything looser reads the `Usage:` dump that
+    follows, which lists every allowed option and on some builds contains this
+    very phrase: a three-line window classified `ERROR: Parser error` plus a
+    usage dump as an engine fault, which is an ordinary compile failure blamed
+    on the machine. Both directions are pinned by test.
     """
-    lines = [line for line in stderr.splitlines() if line.strip()]
-    return bool(lines) and _UNKNOWN_OPTION.search(lines[0]) is not None
+    first = _first_error_line(stderr)
+    return first is not None and _UNKNOWN_OPTION.search(first) is not None
 
 
 def _first_error_line(stderr: str) -> str | None:
