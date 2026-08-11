@@ -449,6 +449,51 @@ def test_distinct_normals_survive_retriangulation(backend: MeshBackend):
     assert fine["distinct_normals"] == coarse["distinct_normals"] == 6
 
 
+def test_an_inside_out_mesh_has_no_volume(backend: MeshBackend):
+    """Consistent winding is not correct winding. A uniformly inverted mesh is
+    perfectly consistent and encloses *negative* volume: an inside-out cube
+    measured -1000.0 mm3, flagged exact, and `volume(max=...)` passed on it
+    because every negative number is below every positive bound.
+
+    Refused rather than corrected with abs(): the sign is information. It says
+    the normals point inward, which is a real defect in the exported artifact
+    that a silent absolute value would hide.
+    """
+    inverted = trimesh.creation.box(extents=(10, 10, 10))
+    inverted.invert()
+    assert "inside-out" in refused(backend.volume(inverted)).reason
+    assert "inside-out" in refused(backend.center_of_mass(inverted)).reason
+
+
+def test_a_sealed_cavity_still_has_a_volume(backend: MeshBackend):
+    """The counterpart: an inward-wound *component* is normal in a solid with a
+    void, so the orientation gate must look at the part, not at any one shell."""
+    assert measured(backend.volume(_block_with_sealed_cavity())).value == pytest.approx(7000.0)
+
+
+def test_the_mesh_tier_does_not_declare_a_capability_it_cannot_honour():
+    """`raycast` was in `CAPABILITIES` while `trimesh`'s default ray path
+    indexes through `rtree`, which the `mesh` extra does not carry — so the
+    primitive raised `ModuleNotFoundError` on the smallest install that
+    declares it. SPEC-backend §3.2 exists to prevent exactly that, and
+    nothing in the suite referenced `raycast` at all, so re-declaring it
+    would have restored the defect with every test green.
+
+    The method stays: undeclared-and-works-when-available is honest.
+    """
+    from partspec.backends.mesh import CAPABILITIES
+
+    assert "raycast" not in CAPABILITIES
+
+    trimesh = pytest.importorskip("trimesh", reason="mesh extra not installed")
+    box = trimesh.creation.box(extents=(2.0, 2.0, 2.0))
+    outcome = MeshBackend().raycast(box, Vec3(0.0, 0.0, -5.0), Vec3(0.0, 0.0, 1.0))
+    # Either it answers (rtree present) or it refuses by name. Never raises.
+    assert isinstance(outcome, list | Unsupported)
+    if isinstance(outcome, Unsupported):
+        assert "ray engine is unavailable" in outcome.reason
+
+
 # --------------------------------------------------------------------------
 # engine — needs the OpenSCAD binary
 # --------------------------------------------------------------------------
@@ -557,48 +602,3 @@ def test_curved_geometry_is_still_exact_for_the_polyhedron(backend: MeshBackend,
     assert volume.value == pytest.approx(prism_volume, rel=1e-4)
     assert volume.value < math.pi * r**2 * h, "inscribed prism reads low"
     assert volume.exact
-
-
-def test_an_inside_out_mesh_has_no_volume(backend: MeshBackend):
-    """Consistent winding is not correct winding. A uniformly inverted mesh is
-    perfectly consistent and encloses *negative* volume: an inside-out cube
-    measured -1000.0 mm3, flagged exact, and `volume(max=...)` passed on it
-    because every negative number is below every positive bound.
-
-    Refused rather than corrected with abs(): the sign is information. It says
-    the normals point inward, which is a real defect in the exported artifact
-    that a silent absolute value would hide.
-    """
-    inverted = trimesh.creation.box(extents=(10, 10, 10))
-    inverted.invert()
-    assert "inside-out" in refused(backend.volume(inverted)).reason
-    assert "inside-out" in refused(backend.center_of_mass(inverted)).reason
-
-
-def test_a_sealed_cavity_still_has_a_volume(backend: MeshBackend):
-    """The counterpart: an inward-wound *component* is normal in a solid with a
-    void, so the orientation gate must look at the part, not at any one shell."""
-    assert measured(backend.volume(_block_with_sealed_cavity())).value == pytest.approx(7000.0)
-
-
-def test_the_mesh_tier_does_not_declare_a_capability_it_cannot_honour():
-    """`raycast` was in `CAPABILITIES` while `trimesh`'s default ray path
-    indexes through `rtree`, which the `mesh` extra does not carry — so the
-    primitive raised `ModuleNotFoundError` on the smallest install that
-    declares it. SPEC-backend §3.2 exists to prevent exactly that, and
-    nothing in the suite referenced `raycast` at all, so re-declaring it
-    would have restored the defect with every test green.
-
-    The method stays: undeclared-and-works-when-available is honest.
-    """
-    from partspec.backends.mesh import CAPABILITIES
-
-    assert "raycast" not in CAPABILITIES
-
-    trimesh = pytest.importorskip("trimesh", reason="mesh extra not installed")
-    box = trimesh.creation.box(extents=(2.0, 2.0, 2.0))
-    outcome = MeshBackend().raycast(box, Vec3(0.0, 0.0, -5.0), Vec3(0.0, 0.0, 1.0))
-    # Either it answers (rtree present) or it refuses by name. Never raises.
-    assert isinstance(outcome, list | Unsupported)
-    if isinstance(outcome, Unsupported):
-        assert "ray engine is unavailable" in outcome.reason

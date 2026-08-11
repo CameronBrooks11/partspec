@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `tests/test_mesh_backend.py` was ~40% coverage of `engines/openscad.py`
-  under a filename naming a different module (#153). Those 37 tests are
+- `tests/test_mesh_backend.py` was nearly half coverage of
+  `engines/openscad.py` under a filename naming a different module (#153) —
+  37 of its 75 tests, 496 of its 1100 lines. Those are
   `tests/test_openscad_engine.py` now. Not only tidiness: the old file binds
-  `trimesh` at import, so tests that never touch a mesh could not run without
-  the mesh extra — a base install goes from 406 to **450 passing** on the
-  split alone.
+  `trimesh` at import, so tests that never measure a mesh could not run
+  without the mesh extra — a base install goes from 406 to **450 passing** on
+  the split alone. Both figures assume the OpenSCAD binary, a system
+  dependency rather than an extra; with no binary either, it is 384 to 416,
+  since 13 of the 44 freed tests still need the engine.
 - `tests/test_cli.py` carried a private `_contract()` byte-identical in output
   to `support.scad_target()`; proved equivalent, deleted, and its 15 call
   sites moved. `support.py` gains `py_target`, the build123d counterpart,

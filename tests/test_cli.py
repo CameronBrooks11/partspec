@@ -13,7 +13,14 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import decode_png, needs_openscad, needs_scad_tier, report_of, scad_target
+from support import (
+    decode_png,
+    needs_openscad,
+    needs_scad_tier,
+    py_target,
+    report_of,
+    scad_target,
+)
 
 from partspec.cli import main
 from partspec.status import Verdict, exit_code
@@ -467,15 +474,9 @@ def test_check_render_on_the_occt_tier_records_the_views(tmp_path: Path):
     (tmp_path / "m.py").write_text(
         "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
     )
-    module = tmp_path / "spec.py"
-    module.write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.volume(min=0.0)\n"
-        "    return p\n"
-    )
+    target = py_target(tmp_path, claims="    p.volume(min=0.0)\n")
     out = tmp_path / "out"
-    assert main(["check", f"{module}:make", "--render", "--quiet", "--out", str(out)]) == 0
+    assert main(["check", target, "--render", "--quiet", "--out", str(out)]) == 0
     report = report_of(out)
     assert set(report["renders"]) == {"iso", "front", "top", "right"}
     for rel in report["renders"].values():
@@ -751,15 +752,9 @@ def test_check_render_builds_the_model_exactly_once(tmp_path: Path):
         "    COUNTER.write_text(str(n + 1))\n"
         "    return Box(20, 10, 6)\n"
     )
-    module = tmp_path / "spec.py"
-    module.write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.watertight()\n"
-        "    return p\n"
-    )
+    target = py_target(tmp_path, claims="    p.watertight()\n")
     out = tmp_path / "out"
-    assert main(["check", f"{module}:make", "--render", "--quiet", "--out", str(out)]) == 0
+    assert main(["check", target, "--render", "--quiet", "--out", str(out)]) == 0
     assert (tmp_path / "builds.txt").read_text() == "1", "one run, one build"
     report = report_of(out)
     assert set(report["renders"]) == {"iso", "front", "top", "right"}
@@ -779,15 +774,9 @@ def test_check_render_never_rebuilds_a_failing_build_for_pictures(tmp_path: Path
         "    COUNTER.write_text(str(n + 1))\n"
         "    return Box(2, 2, 2) - Box(8, 8, 8)\n"
     )
-    module = tmp_path / "spec.py"
-    module.write_text(
-        "from partspec import Part, build123d\n\n\ndef make():\n"
-        "    p = Part('subject', build123d('m.py'))\n"
-        "    p.watertight()\n"
-        "    return p\n"
-    )
+    target = py_target(tmp_path, claims="    p.watertight()\n")
     out = tmp_path / "out"
-    code = main(["check", f"{module}:make", "--render", "--quiet", "--out", str(out)])
+    code = main(["check", target, "--render", "--quiet", "--out", str(out)])
     assert (tmp_path / "builds.txt").read_text() == "1", (
         "a failed build is not retried for pictures"
     )
@@ -795,7 +784,7 @@ def test_check_render_never_rebuilds_a_failing_build_for_pictures(tmp_path: Path
     assert "renders" not in report
     # The exit is the report's own, not a render-failure 4 layered on top.
     (tmp_path / "builds.txt").unlink()
-    assert main(["check", f"{module}:make", "--quiet", "--out", str(tmp_path / "o2")]) == code
+    assert main(["check", target, "--quiet", "--out", str(tmp_path / "o2")]) == code
 
 
 def test_check_render_does_not_build_past_a_parameter_blocker(tmp_path: Path):

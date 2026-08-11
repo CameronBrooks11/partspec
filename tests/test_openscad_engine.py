@@ -1,10 +1,15 @@
 """`engines/openscad.py`: the source model, the closure, and the build.
 
-Split out of `test_mesh_backend.py`, which was ~40% coverage of this module
-under a filename that named a different one (#153). The move is not only
-tidiness: that file binds `trimesh` at import, so these tests — most of which
-never touch a mesh — could not run in an install without the mesh extra. Here
-they do, and only the ones that build through the mesh tier are marked.
+Split out of `test_mesh_backend.py`, which was nearly half coverage of this
+module under a filename that named a different one (#153). The move is not
+only tidiness: that file binds `trimesh` at import, so these tests — none of
+which measures a mesh — could not run in an install without the mesh extra.
+Here they do.
+
+The markers are `needs_openscad`, and they track the BINARY, not the mesh
+tier: nothing here reaches a measurement. The three tests that touch
+`MeshBackend` all assert a `BuildError`, which is why they pass with no extras
+installed at all.
 
 What stays next door is what the name says: measurement of a mesh. What lives
 here is everything about turning a `.scad` into an artifact — the literal, the
@@ -28,6 +33,15 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 @pytest.fixture
 def backend() -> MeshBackend:
+    """Unguarded on purpose, and only safe while every consumer stops short of
+    a measurement.
+
+    This module has no `trimesh` gate — that is the point of the split. A test
+    added here that drives this fixture all the way to a number will therefore
+    FAIL rather than skip on `pip install partspec`, which is exactly the
+    regression `support.needs_scad_tier` was written for. Mark such a test
+    `needs_scad_tier`, or measure it next door in `test_mesh_backend.py`.
+    """
     return MeshBackend()
 
 

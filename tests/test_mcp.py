@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from support import OPENSCAD, needs_openscad
+from support import OPENSCAD, needs_openscad, scad_target
 
 # BEFORE the `partspec.mcp` import below, and before `anyio`. Every test in
 # this module drives the adapter, so a whole-module skip is the honest answer
@@ -145,16 +145,9 @@ def test_render_on_a_missing_contract_reports_usage_and_the_stderr(tmp_path: Pat
 
 @needs_mesh_tier
 def test_check_returns_the_same_artifact_the_cli_writes(tmp_path: Path):
-    shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
-    module = tmp_path / "spec.py"
-    module.write_text(
-        "from partspec import Part, openscad\n\n\ndef make():\n"
-        "    p = Part('subject', openscad('block_with_hole.scad'))\n"
-        "    p.watertight()\n"
-        "    return p\n"
-    )
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
 
-    payload = _call("check", {"target": f"{module}:make", "out": str(tmp_path / "out")})
+    payload = _call("check", {"target": target, "out": str(tmp_path / "out")})
 
     assert payload["exit_code"] == 0
     assert payload["report"]["verdict"] == "pass"
@@ -188,17 +181,8 @@ def test_render_tool_returns_the_payload_or_the_display_refusal(tmp_path: Path):
 
 @needs_mesh_tier
 def test_check_with_render_records_the_views_in_the_returned_report(tmp_path: Path):
-    shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
-    module = tmp_path / "spec.py"
-    module.write_text(
-        "from partspec import Part, openscad\n\n\ndef make():\n"
-        "    p = Part('subject', openscad('block_with_hole.scad'))\n"
-        "    p.watertight()\n"
-        "    return p\n"
-    )
-    payload = _call(
-        "check", {"target": f"{module}:make", "out": str(tmp_path / "out"), "render": True}
-    )
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
+    payload = _call("check", {"target": target, "out": str(tmp_path / "out"), "render": True})
     if payload["exit_code"] == 0:
         assert set(payload["report"]["renders"]) == {"iso", "front", "top", "right"}
     else:
