@@ -270,7 +270,7 @@ Still withheld and still reasoned: assemblies with `clearance`/`interference`
 ## 6. What promotes out of this directory
 
 To `partspec/docs/`: `DECISIONS.md` (renumbered from D1), the three specs, `POST-V0.md`.
-Archived here: the investigations, `SYNTHESIS.md`, `TRIAGE.md`, `notes/survey/DIRECTION.md` — the
+Archived here: the investigations, `SYNTHESIS.md`, `TRIAGE.md`, [`notes/survey/DIRECTION.md`][survey-direction] — the
 reasoning trail, per D7 of the scadman precedent (*"only its stable outputs are promoted"*).
 
 ---
@@ -334,3 +334,5 @@ F15 and F16 come from the same collection by the same curator — so the pattern
 beyond it. What is well established is the negative claim, and it is the one the profile
 line turns on: **a part that renders cleanly, exits 0 and looks right is not thereby
 correct**, and four of the five findings above were found no other way.
+
+[survey-direction]: https://github.com/CameronBrooks11/partspec/blob/main/notes/survey/DIRECTION.md

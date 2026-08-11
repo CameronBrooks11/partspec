@@ -41,7 +41,7 @@ about. A target that never resolves has no identity to emit: those failures are 
 exit code only (for `check`, the placeholder artifact covers that window; `measure` and
 `render` write no artifact).
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
-**Backing:** `DECISIONS.md` D5, D10, D13; `notes/survey/04-kernel-capability.md`.
+**Backing:** `DECISIONS.md` D5, D10, D13; [`notes/survey/04-kernel-capability.md`][survey-capability].
 
 ---
 
@@ -958,3 +958,5 @@ the unit table. See `SPEC-contract.md` §5.
 *Resolved post-v0.1:* Q8 — per-component statuses are recorded in `checks[].components`
 (§7.1), not left to `detail`: prose is for humans, and the failing axis is data an agent
 acts on.
+
+[survey-capability]: https://github.com/CameronBrooks11/partspec/blob/main/notes/survey/04-kernel-capability.md

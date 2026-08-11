@@ -5,7 +5,7 @@ description: Write OpenSCAD an agent loop can verify — parameterise, build fro
 
 # Writing OpenSCAD that survives verification
 
-The observed symptom this skill attacks (`notes/GAPS.md` A1–A7): agent-written OpenSCAD
+The observed symptom this skill attacks ([`notes/GAPS.md`][gaps] A1–A7): agent-written OpenSCAD
 is bloated, hardcoded, and structurally broken in ways that render fine. Every rule
 below is concrete and checkable, carries a worked before/after, and cites the failure
 it prevents in `docs/FAILURE-MODES.md`. The fenced examples are executed by
@@ -170,3 +170,5 @@ the envelope claim from theory so the version that breaks the part fails the che
 Contract-side guidance is `skills/contract-authoring/SKILL.md`; the evidence base is
 `docs/FAILURE-MODES.md`; worked parts are under `examples/` (the `enclosure` and
 `bearing-block` exemplars are OpenSCAD).
+
+[gaps]: https://github.com/CameronBrooks11/partspec/blob/main/notes/GAPS.md

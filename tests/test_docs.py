@@ -467,6 +467,44 @@ def test_every_repo_path_the_specs_cite_can_be_opened():
     assert not missing, "cited paths no reader can open:\n  " + "\n  ".join(missing)
 
 
+def test_every_repo_url_the_docs_link_to_can_be_opened():
+    """The same question as the test above, asked of absolute repo URLs.
+
+    `notes/` stopped shipping in the sdist at #150, so the citations naming it
+    dangled for anyone reading these files from PyPI rather than a checkout —
+    the reader `notes/README.md` argues hardest about. They are reference-style
+    links to `blob/main` now, which resolve from anywhere.
+
+    That form moves the path out of the backticks the test above matches and
+    into a URL nothing read, so this closes the hole rather than duplicating
+    it: a typo'd or renamed target would otherwise 404 silently, which is the
+    same "cited but unopenable" loss in a new spelling.
+
+    Scans `skills/` as well. It ships for the same reason `docs/` does, and the
+    test above never looked at it.
+    """
+    import subprocess
+
+    if not (ROOT / ".git").exists():
+        pytest.skip("asks what this checkout TRACKS; an unpacked sdist has no git")
+
+    tracked = set(
+        subprocess.run(
+            ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.split()
+    )
+    url = re.compile(r"https://github\.com/CameronBrooks11/partspec/(?:blob|tree)/main/([\w./-]+)")
+    sources = [*sorted(DOCS.glob("*.md")), README, *sorted(ROOT.glob("skills/*/*.md"))]
+    missing = []
+    for doc in sources:
+        for cited in url.findall(doc.read_text()):
+            prefix = cited.rstrip("/")
+            if prefix in tracked or any(t.startswith(prefix + "/") for t in tracked):
+                continue
+            missing.append(f"{doc.relative_to(ROOT)} -> {cited}")
+    assert not missing, "linked paths no reader can open:\n  " + "\n  ".join(missing)
+
+
 def test_the_generated_doc_blocks_are_current():
     """`scripts/gen_docs.py --check`, run from the test suite.
 

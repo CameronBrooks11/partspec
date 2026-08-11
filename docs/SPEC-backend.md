@@ -7,7 +7,7 @@ MUSTs and the stated in-process enforcement ceiling
 `exactness`, `bounds` and capability gating are determined.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
 **Backing:** D3 (two backends), D13 (ignore `--summary`), D14 (trimesh + manifold3d),
-D15 (measurand), `notes/survey/03-cad-khana-absorption.md` §2, `notes/survey/04-kernel-capability.md`.
+D15 (measurand), [`notes/survey/03-cad-khana-absorption.md`][survey-absorption] §2, [`notes/survey/04-kernel-capability.md`][survey-capability].
 
 ---
 
@@ -471,3 +471,6 @@ difference.
 
 This is the substitutability proof. Without it, "one contract, evaluated identically
 wherever it can be" is an assertion rather than a property.
+
+[survey-absorption]: https://github.com/CameronBrooks11/partspec/blob/main/notes/survey/03-cad-khana-absorption.md
+[survey-capability]: https://github.com/CameronBrooks11/partspec/blob/main/notes/survey/04-kernel-capability.md

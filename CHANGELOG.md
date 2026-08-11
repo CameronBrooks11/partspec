@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The specs and skills cited `notes/` files that stopped shipping in the sdist
+  at #150, so 14 citations across eight documents dangled for anyone reading
+  them from PyPI rather than a checkout. They are reference-style links to
+  `blob/main` now, and a test asserts every linked path is tracked — the URL
+  form moved the path out of the backticks the existing citation guard
+  matched, so the guard would not have caught a rename.
+- The eval harness told the agent its report was at
+  `outputs/spec-<part id>/report.json`, but partspec derives that directory
+  from the contract's filename and factory, not the part id. No eval case has
+  the two equal, so the path was dead in every archived run — two lines below
+  partspec's own output naming the real one. `run_check` already found the
+  true path and discarded it; it returns it now.
+
 ## [0.7.0] - 2026-08-11
 
 ### Fixed
