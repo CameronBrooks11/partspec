@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The suite did not degrade honestly without extras, and no environment
+  existed that could show it — every CI job installs every engine. On a base
+  install it reported **23 failed / 315 passed**: those tests drive an
+  OpenSCAD part, which is measured *through* the mesh tier, and were marked
+  `needs_openscad` alone, so they ran and errored instead of skipping. A
+  further **392 tests never collected**, because a module-level
+  `importorskip` collapses its whole file to one skip line — `test_diff.py`
+  reported `1 skipped` for 34 tests, 32 of which need no engine at all. It is
+  405 passed / 137 skipped / **0 failed** now, and `just test-no-extras`
+  holds it, in a CI job that cannot be skipped by the path filter.
+- `ok`, the branch-protection gate, listed its upstream jobs by hand and
+  nothing checked the list. A job missing from it still runs and still goes
+  red, while the merge button turns green because the one required check
+  never waited for it — a job that cannot fail the gate reads as success.
+
 - The specs and skills cited `notes/` files that stopped shipping in the sdist
   at #150, so 14 citations across eight documents dangled for anyone reading
   them from PyPI rather than a checkout. They are reference-style links to

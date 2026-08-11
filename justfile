@@ -111,6 +111,35 @@ test-mcp-only:
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None and u.find_spec("build123d") is None, "a CAD engine leaked in — this recipe no longer proves anything"'
     PARTSPEC_REQUIRE_ENGINES=mcp "$env/bin/python" -m pytest tests/test_mcp.py -q
 
+# Run the WHOLE suite against a no-extras install, in a throwaway environment.
+#
+# The claim is ZERO FAILURES: without any extra, every test that needs an
+# engine must SKIP, and the rest must pass. That is the tool's own thesis
+# applied to its suite — an absent engine is a decision, not a failure, and a
+# failure must mean the code is wrong.
+#
+# It was false. On a base install this reported 23 failed / 315 passed, and
+# 392 tests did not collect at all: modules gated by a top-level
+# `importorskip` collapsed to a single skip line, so `test_diff.py` — 32 of
+# whose 34 tests need no engine whatsoever — reported literally "1 skipped".
+#
+# CI cannot catch this, by construction: every CI job installs all extras, so
+# the one environment that shows the defect is the one nothing ran in. That is
+# also why the sdist claim in `pyproject.toml` — that a downstream packager can
+# run the shipped suite — held only in a full dev environment.
+#
+# `PARTSPEC_REQUIRE_ENGINES` is deliberately NOT set: here the absence of every
+# engine is the thing being proved, so skips are the correct outcome.
+test-no-extras:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env="$(mktemp -d)/venv"
+    trap 'rm -rf "$(dirname "$env")"' EXIT
+    uv venv --quiet "$env"
+    uv pip install --quiet --python "$env/bin/python" -e '.' pytest
+    "$env/bin/python" -c 'import importlib.util as u; assert all(u.find_spec(n) is None for n in ("trimesh", "build123d", "cadquery", "mcp")), "an extra leaked in — this recipe no longer proves anything"'
+    "$env/bin/python" -m pytest tests/ -q
+
 # Run main entrypoint
 run *ARGS:
     uv run partspec {{ARGS}}

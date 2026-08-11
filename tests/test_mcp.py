@@ -21,7 +21,6 @@ from support import OPENSCAD, needs_openscad
 
 from partspec.mcp import build_server
 
-pytest.importorskip("mcp", reason="mcp extra not installed")
 anyio = pytest.importorskip("anyio", reason="mcp extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"

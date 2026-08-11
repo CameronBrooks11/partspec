@@ -220,10 +220,38 @@ jobs:
       - name: Test
         run: just test-mcp-only
 
+  # No extras at all: the base install a `pip install partspec` produces. Every
+  # other job here installs engines, so this is the only one that can see a
+  # test whose engine dependency is undeclared — it does not skip, it FAILS.
+  # 23 did, and 392 more never collected, because a top-level `importorskip`
+  # collapses its whole module to one skip line. Deliberately ungated by
+  # `changes`: it is cheap, and the failure mode is invisible everywhere else.
+  no-extras:
+    name: No-extras install
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install OpenSCAD (apt)
+        # The binary is a SYSTEM dependency, not an extra, so it belongs in the
+        # base environment. Installing it is also what makes this job sharp:
+        # with the binary present and the mesh extra absent, a scad-tier test
+        # marked only `needs_openscad` runs and fails instead of skipping,
+        # which is exactly the gap that shipped.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openscad
+      - name: Test
+        run: just test-no-extras
+
   ok:
     name: ok
     if: always()
-    needs: [changes, check, test, mesh-only, mcp-only]
+    needs: [changes, check, test, mesh-only, mcp-only, no-extras]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

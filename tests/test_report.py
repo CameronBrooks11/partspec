@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 import pytest
-from support import report_of
+from support import needs_scad_tier, report_of
 
 from partspec.report import SCHEMA_VERSION, CheckResult, Report, write_placeholder
 from partspec.status import Limit, Measurement, Status, Verdict
@@ -276,6 +276,7 @@ def test_placeholder_is_replaced_by_the_real_report(tmp_path: Path):
     assert report_of(tmp_path)["verdict"] == "pass"
 
 
+@needs_scad_tier
 def test_packages_are_not_quarantined_from_comparison():
     """environment.packages distinguishes 'a dependency upgrade moved this
     number' from 'the design changed' — so it must be present and comparable.

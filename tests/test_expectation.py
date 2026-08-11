@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
-from support import needs_openscad, report_of
+from support import needs_openscad, needs_scad_tier, report_of
 
 from partspec.cli import main
 from partspec.expectation import LockError, compare, read_lock
@@ -92,7 +92,7 @@ def _target(tmp_path: Path, body: str) -> str:
 STRICT = "    p.envelope(max=(31, 21, 11))\n    p.watertight()\n"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_pin_then_expect_round_trips_green(tmp_path: Path):
     target = _target(tmp_path, STRICT)
     lock = tmp_path / "claims.lock"
@@ -106,7 +106,7 @@ def test_pin_then_expect_round_trips_green(tmp_path: Path):
     assert list(report)[7:10] == ["counts", "attribution", "expectation"]
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_deleted_check_fails_with_its_name(tmp_path: Path):
     target = _target(tmp_path, STRICT)
     lock = tmp_path / "claims.lock"
@@ -126,7 +126,7 @@ def test_a_deleted_check_fails_with_its_name(tmp_path: Path):
     assert "--pin" in report["hint"], "the deliberate-update path is named"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_loosened_limit_fails_showing_both_slugs(tmp_path: Path):
     target = _target(tmp_path, STRICT)
     lock = tmp_path / "claims.lock"
@@ -140,7 +140,7 @@ def test_a_loosened_limit_fails_showing_both_slugs(tmp_path: Path):
     assert "31" in report["error"] and "500" in report["error"], "both slugs shown"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_an_added_check_is_a_difference_too(tmp_path: Path):
     """A pin is an exact statement: an addition nobody re-pinned is still a
     contract that is not the one reviewed."""
@@ -164,7 +164,7 @@ def test_an_unpinned_part_does_not_pass_on_someone_elses_pin(tmp_path: Path):
     assert all(d.startswith("added:") for d in report["expectation"]["differences"])
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_deliberate_change_repins_in_one_flag(tmp_path: Path):
     target = _target(tmp_path, STRICT)
     lock = tmp_path / "claims.lock"
@@ -192,7 +192,7 @@ def test_pin_and_expect_together_are_refused(tmp_path: Path):
     assert excinfo.value.code == 64
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_pinned_part_dropped_from_the_invocation_is_not_green(tmp_path: Path, capsys):
     """PR #105's review, F1 — the one defeat inside the pin's own charter:
     'delete the check' at part granularity. Pin two parts, invoke --expect
@@ -223,7 +223,7 @@ def test_a_pinned_part_dropped_from_the_invocation_is_not_green(tmp_path: Path, 
     assert main(["check", *targets, "--quiet", "--expect", str(lock)]) == 0
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_report_without_expect_carries_no_expectation_key(tmp_path: Path):
     target = _target(tmp_path, STRICT)
     out = tmp_path / "out"
@@ -231,7 +231,7 @@ def test_a_report_without_expect_carries_no_expectation_key(tmp_path: Path):
     assert "expectation" not in report_of(out)
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_stripped_citation_is_a_named_difference(tmp_path: Path):
     """Laundering an attributed bound into an authorless one must not slip
     the pin — `source` participates in the slug the way it does in diff."""

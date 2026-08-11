@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from support import needs_openscad, report_of
+from support import needs_scad_tier, report_of
 
 from partspec.cli import main
 
@@ -41,7 +41,7 @@ def test_the_bearing_family_follows_the_standard(tmp_path: Path):
     assert seat["source"]["d"]["standard"] == "ISO 15"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_the_scad_leg_warns_about_its_unattributed_envelope(tmp_path: Path, capsys):
     """The exemplar shows the disclosure instead of hiding it: this leg's only
     dimensional bound is derived from the design's own numbers, and the README
@@ -52,7 +52,7 @@ def test_the_scad_leg_warns_about_its_unattributed_envelope(tmp_path: Path, caps
     assert report_of(tmp_path)["attribution"] == {"dimensional": 1, "attributed": 0}
 
 
-@needs_openscad
+@needs_scad_tier
 def test_the_enclosure_family_is_green_and_the_contradiction_is_not(tmp_path: Path):
     spec = EXAMPLES / "enclosure" / "spec.py"
     ok = [f"{spec}:small", f"{spec}:deep", f"{spec}:thickwall"]

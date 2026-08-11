@@ -17,7 +17,6 @@ from pathlib import Path
 import pytest
 
 np = pytest.importorskip("numpy", reason="occt extra not installed")
-pytest.importorskip("build123d", reason="occt extra not installed")
 
 from partspec.cli import main  # noqa: E402
 from partspec.vdiff import VdiffUsageError, read_png  # noqa: E402

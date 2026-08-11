@@ -24,6 +24,7 @@ __all__ = [
     "needs_build123d",
     "needs_mesh",
     "needs_openscad",
+    "needs_scad_tier",
     "openscad_supports_backend_flag",
     "refused",
     "report_of",
@@ -72,6 +73,25 @@ def refused(result: Measurement | Unsupported) -> Unsupported:
     assert isinstance(result, Unsupported), f"expected a refusal, got {result!r}"
     return result
 
+
+needs_scad_tier = pytest.mark.skipif(
+    OPENSCAD is None or importlib.util.find_spec("trimesh") is None,
+    reason="the scad tier needs the openscad binary AND the mesh extra",
+)
+"""For a test that drives an OpenSCAD part all the way to a measurement.
+
+`needs_openscad` alone is not enough, and the gap was invisible: OpenSCAD
+exports an STL and `backends/mesh.py` measures it, so the scad tier needs
+`trimesh` as much as it needs the binary. On a machine with the binary and no
+mesh extra — `pip install partspec`, the first minute of use — 23 tests marked
+only `needs_openscad` did not skip. They ran, got exit 4, and FAILED.
+
+CI never saw it because CI installs every extra, so the one environment that
+would show it is the one nobody tests in. `just test-no-extras` does now.
+
+Use `needs_openscad` alone only for a test that stops at the engine — a build
+error, a usage refusal — and never reaches a measurement.
+"""
 
 needs_build123d = pytest.mark.skipif(
     importlib.util.find_spec("build123d") is None, reason="occt extra not installed"

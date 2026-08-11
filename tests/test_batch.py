@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from support import needs_openscad, report_of
+from support import needs_scad_tier, report_of
 
 from partspec.cli import main
 from partspec.status import Verdict, exit_code
@@ -77,7 +77,7 @@ def _report(target: str) -> dict:
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_batch_writes_every_report_and_exits_the_worst_verdict(tmp_path: Path):
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
     bad = _scad_target(tmp_path, "bad", "    p.envelope(max=(1, 1, 1))\n")
@@ -86,7 +86,7 @@ def test_a_batch_writes_every_report_and_exits_the_worst_verdict(tmp_path: Path)
     assert _report(bad)["verdict"] == "fail"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_an_erroring_part_does_not_stop_the_rest(tmp_path: Path):
     raising = tmp_path / "raising.py"
     raising.write_text("def make():\n    raise TypeError('broken contract')\n")
@@ -95,14 +95,14 @@ def test_an_erroring_part_does_not_stop_the_rest(tmp_path: Path):
     assert _report(good)["verdict"] == "pass", "SPEC-report 5.4: failures must not abort the batch"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_an_unresolvable_target_is_usage_and_the_rest_still_run(tmp_path: Path):
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
     assert main(["check", str(tmp_path / "nowhere.py") + ":make", good, "--quiet"]) == 64
     assert _report(good)["verdict"] == "pass"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_empty_outranks_fail_in_the_batch_exit(tmp_path: Path):
     """SPEC-report 6.1 precedence, pinned: the vacuous-green case is the more
     dangerous signal and must not hide behind a mere failure."""
@@ -111,7 +111,7 @@ def test_empty_outranks_fail_in_the_batch_exit(tmp_path: Path):
     assert main(["check", empty, bad, "--quiet"]) == exit_code(Verdict.EMPTY)
 
 
-@needs_openscad
+@needs_scad_tier
 def test_the_summary_names_the_tally_and_quiet_suppresses_it(tmp_path: Path, capsys):
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
     bad = _scad_target(tmp_path, "bad", "    p.envelope(max=(1, 1, 1))\n")
@@ -123,7 +123,7 @@ def test_the_summary_names_the_tally_and_quiet_suppresses_it(tmp_path: Path, cap
     assert "BATCH" not in capsys.readouterr().out
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_single_target_emits_no_batch_summary(tmp_path: Path, capsys):
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
     assert main(["check", good]) == 0
@@ -135,7 +135,7 @@ def test_a_single_target_emits_no_batch_summary(tmp_path: Path, capsys):
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 def test_explicit_out_gets_a_subdirectory_per_part(tmp_path: Path):
     good = _scad_target(tmp_path, "good", "    p.watertight()\n")
     bad = _scad_target(tmp_path, "bad", "    p.envelope(max=(1, 1, 1))\n")
@@ -262,7 +262,7 @@ def test_a_helper_the_contract_imports_is_invalidated_too(tmp_path: Path):
     )
 
 
-@needs_openscad
+@needs_scad_tier
 def test_garbage_timeout_env_still_placeholders_every_target(tmp_path: Path, monkeypatch):
     """The fan-out exists so an invocation that dies at the door leaves every
     target's artifact saying the run died — never a previous verdict."""
@@ -397,7 +397,7 @@ def test_running_a_part_evicts_the_models_own_siblings(tmp_path: Path):
     invalidate_model_modules(target.path)
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_contracts_shared_claims_module_does_not_cross_directories(tmp_path: Path):
     """PR #112's review: the taught `from claims import shared_claims`
     pattern, copied into two directories and batched, served directory A's
@@ -427,7 +427,7 @@ def test_a_contracts_shared_claims_module_does_not_cross_directories(tmp_path: P
     )
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_contract_that_raises_after_its_sibling_import_does_not_poison_the_next_run(
     tmp_path: Path,
 ):

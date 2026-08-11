@@ -19,12 +19,10 @@ import json
 from pathlib import Path
 
 import pytest
-from support import needs_build123d, needs_openscad
+from support import needs_build123d, needs_openscad, needs_scad_tier
 
 from partspec import Part, Status, Verdict, openscad, run
 from partspec.runner import _run_parameter_check
-
-pytest.importorskip("trimesh", reason="mesh extra not installed")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -43,7 +41,7 @@ def _status(report, check_id: str) -> Status:
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_satisfied_contract_passes(tmp_path: Path):
     p = Part("block", openscad(BLOCK))
     p.envelope(max=(30, 20, 10))
@@ -57,7 +55,7 @@ def test_a_satisfied_contract_passes(tmp_path: Path):
     assert _status(report, "builds") is Status.PASS
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_violated_geometry_check_fails(tmp_path: Path):
     p = Part("block", openscad(BLOCK)).envelope(max=(5, 5, 5))
     report = run(p, out_dir=tmp_path)
@@ -65,7 +63,7 @@ def test_a_violated_geometry_check_fails(tmp_path: Path):
     assert report.exit_code == 1
 
 
-@needs_openscad
+@needs_scad_tier
 def test_measurements_are_recorded_on_pass(tmp_path: Path):
     """What lets a future diff report drift on a check that still passes."""
     p = Part("block", openscad(BLOCK)).envelope(max=(30, 20, 10))
@@ -76,7 +74,7 @@ def test_measurements_are_recorded_on_pass(tmp_path: Path):
     assert envelope.measurement.value == pytest.approx((30.0, 20.0, 10.0))
 
 
-@needs_openscad
+@needs_scad_tier
 def test_provenance_is_recorded(tmp_path: Path):
     p = Part("block", openscad(BLOCK)).watertight()
     report = run(p, out_dir=tmp_path)
@@ -91,7 +89,7 @@ def test_provenance_is_recorded(tmp_path: Path):
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_contract_that_asserts_nothing_is_empty_not_pass(tmp_path: Path):
     """Vacuous green. The implicit `builds` check must not satisfy the emptiness
     test — otherwise the tool defeats its own most important guard."""
@@ -101,7 +99,7 @@ def test_a_contract_that_asserts_nothing_is_empty_not_pass(tmp_path: Path):
     assert _status(report, "builds") is Status.PASS, "builds itself still ran and passed"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_unsupported_does_not_read_as_green(tmp_path: Path):
     """genus is refused for multi-body parts; the part must not pass anyway."""
     p = Part("two", openscad(TWO))
@@ -254,7 +252,7 @@ def test_the_contract_is_not_folded_into_the_source_closure(tmp_path: Path):
     assert closure["files"] == 0, "nothing imported yet, and the contract does not count"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_a_tier_that_cannot_answer_says_which_one_can(tmp_path: Path):
     """The capability-refusal path, which no contract could reach until
     `topology` existed: every other v0 check maps to a primitive both backends
@@ -394,7 +392,7 @@ def test_a_contract_error_skips_every_check(tmp_path: Path):
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 def test_the_report_written_to_disk_is_schema_shaped(tmp_path: Path):
     p = Part("block", openscad(BLOCK)).watertight()
     report = run(p, out_dir=tmp_path, argv=["check", "x"])
