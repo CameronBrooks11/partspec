@@ -60,6 +60,40 @@ def test_field_order_is_fixed():
     ]
 
 
+def test_the_spec_example_carries_the_same_fields_in_the_same_order():
+    """§8 rule 1 says keys MUST be emitted in the order §7 gives — so §7's
+    example has to be able to answer what that order IS.
+
+    It could not: `attribution` and `build_origin` were emitted by every report
+    since v0.4.0 and appeared nowhere in the canonical block, so a consumer
+    building against the document would have found two unexpected keys and no
+    stated position for them. Found by the v0.7.0 pre-tag audit.
+
+    Compared as a SUBSEQUENCE rather than for equality: the example is a `check`
+    report, and `renders`/`render_tessellation` belong to the render payloads
+    §7 also documents. Every key the example shows must appear in the emitted
+    order, and none may be missing from the example.
+    """
+    import re
+
+    spec = (Path(__file__).resolve().parent.parent / "docs" / "SPEC-report.md").read_text()
+    start = spec.index("```jsonc", spec.index("## 7."))
+    block = spec[start : spec.index("```", start + 8)]
+    example = re.findall(r'^  "(\w+)"', block, re.M)
+
+    emitted = list(_report().to_json())
+    render_only = {"renders", "render_tessellation"}
+    documented = [k for k in example if k not in render_only]
+
+    assert set(documented) == set(emitted), (
+        f"documented but never emitted: {sorted(set(documented) - set(emitted))}; "
+        f"emitted but undocumented: {sorted(set(emitted) - set(documented))}"
+    )
+    assert documented == [k for k in emitted if k in set(documented)], (
+        f"§7's example orders keys {documented}, the writer emits {emitted}"
+    )
+
+
 def test_counts_are_the_per_status_tally_not_merely_a_sum():
     """The deslop audit's V1: this asserted only that the tally summed, so
     `tally[c.status.value] += 1` -> `tally["pass"] += 1` survived the whole

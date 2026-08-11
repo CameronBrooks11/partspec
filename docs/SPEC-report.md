@@ -497,6 +497,7 @@ an unknown major version rather than best-effort parse it.
   "verdict": "incomplete",
   "counts": { "total": 5, "pass": 3, "fail": 0,
               "approximate": 0, "unsupported": 1, "skipped": 1 },
+  "attribution": { "dimensional": 2, "attributed": 1 },
 
   "checks": [
     {
@@ -557,6 +558,7 @@ an unknown major version rather than best-effort parse it.
 
   "error": null,
   "hint": null,
+  "build_origin": null,              // "environment" | "model" | null — see below
   "build_stderr": null,              // engine's full stderr on a build failure; hint is one selected line of it
 
   "environment": {
@@ -657,6 +659,20 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   gridfinity bin, OpenSCAD's default Manifold backend emitted 4 non-manifold edges where
   CGAL emitted none, from identical source. Two reports that differ only here are not
   comparable on mesh validity.
+- **`build_origin`** — `"environment"`, `"model"`, or `null`: whose fault a build failure
+  was. `"model"` is a statement about the part (the design does not compile) and adjudicates
+  as a failing `builds` check; `"environment"` is not a statement about the part at all — no
+  engine on PATH, a missing wheel, an option the installed engine does not accept, a render
+  that ran out of time — and MUST NOT be reported as a verdict on the design (§6.1). Null
+  when the build succeeded. This is the primary routing key `docs/AGENT-CONTRACT.md` §2.3
+  tells an agent to read, and it was emitted by every report since v0.4.0 while appearing in
+  this document only in passing; the omission is what let two faults ship misclassified into
+  the v0.7.0 audit.
+- **`attribution`** — `{"dimensional": N, "attributed": M}`: how many of the run's checks
+  carry a limit an author chose (`DIMENSIONAL_KINDS`), and how many of those cited a source
+  (§10). The pair is what the vacuous-green warning (§6) ranges over — `M == 0` with `N > 0`
+  draws it — and a consumer can compute the disclosure itself rather than parse a warning
+  line. Emitted on every report.
 - **`checks[].requires`** — present only on `unsupported`, naming the tier that would answer
   **for an equivalent part**. The hedge is load-bearing: porting a 16-gon bore to build123d
   does not merely enable the check, it **changes the part** (investigation 04 §4). This is
@@ -664,9 +680,14 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 - **`checks[].id`** — stable within a contract, used as the join key by `diff`. Two checks
   in one report MUST NOT share an `id`. A contract that would emit a duplicate is a
   contract error (`verdict: "error"`), not a silently deduplicated report.
-- **`checks[].components`** — present on every check whose measurement is a vector: axis →
-  status (e.g. `{"x": "pass", "y": "pass", "z": "fail"}`), so a failure names *which*
-  component to act on instead of leaving the consumer to re-derive it from the vectors.
+- **`checks[].components`** — present on a check whose measurement is a vector **and whose
+  components are adjudicated against a limit**: axis → status (e.g. `{"x": "pass", "y":
+  "pass", "z": "fail"}`), so a failure names *which* component to act on instead of leaving
+  the consumer to re-derive it from the vectors. This said "every check whose measurement is
+  a vector" until v0.7.0, which `hole_diameter` falsifies: its measurement is the vector of
+  matched diameters, adjudicated as a set against a band rather than per axis, so it carries
+  a `hole` callout and no `components`. A consumer must therefore test for the key rather
+  than assume a vector implies it.
   Derived from the same per-component adjudication the check status folds, never computed a
   second way. Recorded on pass too (the §7.2 principle applied to attribution); an
   unconstrained axis is **absent**, because an omitted claim has no status. The check-level
@@ -683,6 +704,14 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   callout, `{"d": ..., "count": ...}` (plus `"bcd"` for a bolt circle). The diameter band lives in the check's `limit`; the
   measurement is the vector of matched diameters (null when none matched, with the part's
   full bore inventory in `detail` on failure). Additive (no schema bump).
+- **`checks[].direction`** — present only on `draft_angle` checks: the pull axis the draft
+  was measured against, as `[x, y, z]`. Part of the claim's identity, not context — the same
+  part measures differently under a different pull, so a draft claim without its axis is not
+  reproducible, and `SPEC-diff.md` compares it as a claim field. Additive (no schema bump).
+- **`checks[].step`** — present only on `step_roundtrip` checks: `{"schema": ...}`, the
+  application protocol the writer emitted (`AP214IS` today). The check answers whether the
+  part survives its own exchange format, and which format that was is part of the answer.
+  Additive (no schema bump).
 - **`checks[].source`** — present when any of the check's bounds was a `Referenced` value
   (`SPEC-contract.md` §10): `{field: {"standard", "subject", "field"}}`. The report states
   not just what was claimed but on whose authority; a bare-literal bound records nothing,
