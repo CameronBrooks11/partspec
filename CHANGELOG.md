@@ -5,76 +5,91 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.1] - 2026-08-11
 
-### Changed
+**No code changed.** `src/` is byte-identical to 0.7.0 and so is the wheel —
+all 34 entries match by SHA-256. No verb, check kind, exit code or engine
+behaviour differs, and there is nothing here to upgrade *for*.
 
-- `tests/test_mesh_backend.py` was nearly half coverage of
-  `engines/openscad.py` under a filename naming a different module (#153) —
-  37 of its 75 tests, 496 of its 1100 lines. Those are
-  `tests/test_openscad_engine.py` now. Not only tidiness: the old file binds
-  `trimesh` at import, so tests that never measure a mesh could not run
-  without the mesh extra. A base install goes from 406 to **451 passing**
-  across this release, 44 of which is the split; with no OpenSCAD binary
-  either — a system dependency rather than an extra — it is 384 to **416**,
-  since 13 of the 44 freed still need the engine. Both pairs measured at the
-  same commit.
-- `tests/test_cli.py` carried a private `_contract()` byte-identical in output
-  to `support.scad_target()`; proved equivalent, deleted, and its 15 call
-  sites moved. `support.py` gains `py_target`, the build123d counterpart,
-  written for #153 and then deleted unused because a helper nothing calls is
-  the slop that slice was removing — it returns with 15 callers.
+What did change is the **source distribution** and the repository's own gates.
+Two things a consumer gets: the test suite the sdist ships now passes in a base
+install, and the documents it ships no longer cite files the tarball does not
+contain.
 
 ### Fixed
 
-- `_write_json` documented an atomic write-and-rename and nothing held it to
-  that (#153). Replacing the temp-file dance with a direct truncating open
-  left the whole suite green. Two properties are pinned now: a failed write
-  leaves the previous report byte-identical, and a successful one replaces the
-  file by rename rather than writing in place — checked by inode, because a
-  writer that copies a temp file over the destination satisfies the first and
-  still lets a reader observe a half-written report.
-- The suite did not degrade honestly without extras, and no CI job ran the
-  whole suite in an environment that could show it: `check` and `test` install
-  every extra, and `mesh-only`/`mcp-only` each ran a single module. On a base
-  install it reported **23 failed / 317 passed**: those tests drive an
-  OpenSCAD part, which is measured *through* the mesh tier, and were marked
-  `needs_openscad` alone, so they ran and errored instead of skipping. A
-  further **392 tests never collected**, because a module-level
-  `importorskip` collapses its whole file to one skip line — `test_diff.py`
-  reported `1 skipped` for 34 tests, 32 of which need no engine at all. Zero
-  failures now, and `just test-no-extras` holds it, in a CI job that cannot
-  be skipped by the path filter. (The passing count for this release is in
-  the Changed section above; stating it twice is how the two drifted apart.)
-- `just test-mesh-only` ran one module, so nothing covered the space between
-  "no extras" and "all extras". It runs the whole suite now — which caught a
-  regression in this very change: a module gated on a *proxy* dependency
-  (`numpy`, which arrives with trimesh) rather than the one its tests use
-  collected on `pip install partspec[mesh]` and produced 1 failure and 11
-  errors, with every other gate in the repo still green.
+- **The sdist shipped a test suite that did not pass.** `pyproject.toml`
+  argues `tests/` ships "because a downstream packager runs the suite from an
+  sdist, and that claim only holds if the suite actually passes there... The
+  claim is ZERO FAILURES." At v0.7.0 a base install — `pip install partspec`,
+  no extras, OpenSCAD binary present — reported **23 failed / 314 passed**.
+  It is **451 passed / 137 skipped / 0 failed** now, and from the unpacked
+  tarball itself, 439 passed / 149 skipped.
+
+  Two causes. An OpenSCAD part is measured *through* the mesh tier, so tests
+  marked `needs_openscad` alone ran and errored instead of skipping when
+  `trimesh` was absent; `needs_scad_tier` names that coupling. And a
+  module-level `importorskip` raises at import, collapsing a whole file to one
+  skip line — `test_diff.py` reported `1 skipped` for 34 tests, 32 of which
+  need no engine at all. Eight such gates are gone.
+
+  No CI job could have caught either: `check` and `test` install every extra,
+  and `mesh-only`/`mcp-only` each ran a single module, so no job ran the whole
+  suite anywhere an extra was missing. `just test-no-extras` does now, in a job
+  the path filter cannot skip.
+- **19 citations across ten shipped documents** named files under `notes/` and
+  `evals/`, neither of which has shipped in the sdist since #150 — so they
+  dangled for every reader who arrived from PyPI rather than a checkout. They
+  are `blob/main` links now, and three tests hold them: every linked path is
+  tracked, every backticked path is tracked, and no shipped document may cite
+  a non-shipping file as a bare path. The last is the one that matters — the
+  other two ask "is this tracked?", and `notes/` is tracked *and* excluded,
+  which is why `AGENTS.md` passed both while being unopenable.
+- The `[0.7.0]` heading in this file had no link definition, so it rendered as
+  literal text between neighbours that were links — on the document
+  `pyproject.toml` advertises as the project's Changelog URL. `[Unreleased]`
+  also still compared from `v0.6.0`, a range spanning all of 0.7.0. A test
+  holds both, and a second refuses two `### Fixed` sections in one release.
 - `ok`, the branch-protection gate, listed its upstream jobs by hand and
   nothing checked the list. A job missing from it still runs and still goes
-  red, while the merge button turns green because the one required check
-  never waited for it — a job that cannot fail the gate reads as success.
-- The specs and skills cited `notes/` files that stopped shipping in the sdist
-  at #150, so 14 citations across eight documents dangled for anyone reading
-  them from PyPI rather than a checkout. They are reference-style links to
-  `blob/main` now, and a test asserts every linked path is tracked. The link
-  form puts the path in the document twice — once as display text, once in a
-  URL — and only the display copy was read by anything, so the two could drift
-  apart silently.
-- `AGENTS.md` cited [`evals/AUTHORING.md`][authoring-evals], which stopped shipping at #150 too;
-  `README.md` already linked the same file absolutely.
-- Every version heading in this file except `[0.7.0]` had a link definition,
-  so that one rendered as literal text while its neighbours were links, and
-  `[Unreleased]` still compared from `v0.6.0` — a range spanning all of 0.7.0.
-  A test now holds both.
+  red, while the merge button turns green because the one required check never
+  waited for it — a job that cannot fail the gate reads as success.
 - The eval harness told the agent its report was at
   `outputs/spec-<part id>/report.json`, but partspec derives that directory
   from the contract's filename and factory, not the part id. No eval case has
   the two equal, so the path was dead in every archived repair turn — four
   lines below partspec's own output naming the real one. `run_check` already
-  found the true path and discarded it; it returns it now.
+  found the true path and discarded it; it returns it now. (`evals/` does not
+  ship; this affects contributors only.)
+
+### Changed
+
+- `tests/test_mesh_backend.py` was nearly half coverage of
+  `engines/openscad.py` under a filename naming a different module (#153) —
+  37 of its 75 tests, 496 of its 1100 lines, now
+  `tests/test_openscad_engine.py`. Not only tidiness: the old file binds
+  `trimesh` at import, so tests that never measure a mesh could not run
+  without the mesh extra. The split alone accounts for 44 of this release's
+  base-install gain.
+- `just test-mesh-only` ran a single module, so nothing covered the ground
+  between "no extras" and "all extras". It runs the whole suite now — which
+  caught a regression mid-release: a module gated on a *proxy* dependency
+  (`numpy`, which arrives with `trimesh`) rather than the one its tests use
+  collected on `pip install partspec[mesh]` and failed, with every other gate
+  in the repo still green.
+- `tests/test_cli.py` carried a private `_contract()` byte-identical in output
+  to `support.scad_target()`; proved equivalent, deleted, and its 15 call
+  sites moved. `support.py` gains `py_target`, the build123d counterpart,
+  written for #153 and then deleted unused because a helper nothing calls is
+  the slop that slice was removing — it returns with 16 callers.
+- `_write_json` already wrote atomically, and **that is unchanged**; what was
+  missing is that nothing held it there. Replacing the tempfile-and-rename
+  with a direct truncating open left the whole suite green. Two properties are
+  pinned now: a failed write leaves the previous report byte-identical, and a
+  successful one replaces the file by rename rather than writing in place —
+  checked by inode, because a writer that copies a temp file over the
+  destination satisfies the first and still lets a reader observe a
+  half-written report.
 
 ## [0.7.0] - 2026-08-11
 
@@ -733,7 +748,8 @@ callouts, and reports become comparable.
 [convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
 [dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/CameronBrooks11/partspec/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/CameronBrooks11/partspec/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/CameronBrooks11/partspec/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/CameronBrooks11/partspec/compare/v0.4.0...v0.5.0

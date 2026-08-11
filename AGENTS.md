@@ -10,8 +10,11 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha; **v0.7.0 released on PyPI** (2026-08-11, tag → trusted publishing via
-`release.yml`). `check`, `measure` and `render` work against all three engines (`render`
+Status: pre-alpha; **v0.7.1 released on PyPI** (2026-08-11, tag → trusted publishing via
+`release.yml`). 0.7.1 carries **no code change** — its wheel is byte-identical to 0.7.0's
+and it exists to repair the sdist: the shipped suite now passes in a base install, and the
+shipped docs no longer cite files the tarball omits. `check`, `measure` and `render` work
+against all three engines (`render`
 with `--section` cuts on both tiers), `diff` compares reports and `vdiff` compares renders,
 `lint` reads the geometry (tier 2), and `partspec-mcp` serves check/measure/render/vdiff as
 stateless MCP tools. **v0.7.0 shipped the depth epic (#136)**: the OCCT tier gained

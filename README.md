@@ -2,7 +2,8 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.7.0 is on PyPI.** It
+> **Status: pre-alpha; v0.7.1 is on PyPI** — the same code as 0.7.0, which it
+> re-ships unchanged; only the source distribution, its tests and CI differ. It
 > runs end to end — `check`, `measure` and `render` across all three engines (with
 > `--section` cuts on both tiers), `diff` on the reports and `vdiff` on
 > the renders they produce — and is dogfooded on real

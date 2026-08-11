@@ -142,7 +142,7 @@ def py_target(
 
     Written once for the occt half of #153 and then deleted unused, on the
     grounds that shipping a helper nothing calls is the slop that slice was
-    removing. It is back with nine real callers.
+    removing. It is back with 16 real callers.
     """
     spec = tmp_path / "spec.py"
     spec.write_text(
