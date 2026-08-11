@@ -187,8 +187,30 @@ def _lint_scad(path: Path) -> list[Finding]:
     # Whole scientific literals match as one number (1e-3 is 0.001, not a
     # magic 3 — PR #119, F5); a bare digit right after e/E is never a number.
     number = re.compile(r"(?<![\w.])(?<![eE])(?<![eE][+-])-?\d+\.?\d*(?:[eE][+-]?\d+)?(?![\w.])")
+
+    # The exemption is the STATEMENT's, not the line's. This matched
+    # `^\s*\w+\s*=` per line, so an assignment wrapped across lines — the normal
+    # formatting for a lookup table — was exempt on its first line and flagged
+    # on every other:
+    #
+    #     plate = [60, 40, 4];        -> 0 findings
+    #     plate = [                   -> 3 findings
+    #       60, 40, 4                    (same constant, same name)
+    #     ];
+    #
+    # The rule's own rationale is that a magic number is *unnameable*; these are
+    # named, so the code was wrong rather than the doc (v0.7.0 pre-tag audit).
+    # An assignment stays open until its terminating `;`, which is also how
+    # OpenSCAD parses it.
+    in_assignment = False
     for i, line_text in enumerate(stripped.splitlines(), start=1):
-        if assignment.match(line_text) or re.match(r"\s*(include|use)\b", line_text):
+        opens = bool(assignment.match(line_text))
+        if in_assignment or opens:
+            # `;` closes it. Counting on the raw line is safe here because
+            # `stripped` has already had comments and strings removed.
+            in_assignment = ";" not in line_text
+            continue
+        if re.match(r"\s*(include|use)\b", line_text):
             continue
         for m in number.finditer(line_text):
             value = float(m.group(0))

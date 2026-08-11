@@ -57,6 +57,39 @@ def test_magic_numbers_flag_the_before_form_and_pass_the_after(tmp_path: Path):
     assert lint_path(after) == []
 
 
+def test_an_assignment_is_exempt_however_it_is_wrapped(tmp_path: Path):
+    """The exemption belongs to the STATEMENT, not to one line of it.
+
+    The rule matched `^\\s*\\w+\\s*=` per line, so an assignment spread over
+    several lines — the normal formatting for a lookup table — was exempt on its
+    first line and flagged on every other. Measured before the fix (v0.7.0
+    pre-tag audit): the same named constant gave 0 findings on one line and 3
+    across four.
+
+    The rule's own rationale is that a magic number is *unnameable*. These are
+    named, so the code was the defect rather than `docs/LINT.md`.
+    """
+    one_line = tmp_path / "one.scad"
+    one_line.write_text("plate = [60, 40, 4];\ncube(plate);\n")
+    assert lint_path(one_line) == []
+
+    wrapped = tmp_path / "wrapped.scad"
+    wrapped.write_text("plate = [\n  60, 40, 4\n];\ncube(plate);\n")
+    assert lint_path(wrapped) == [], "the same constant, wrapped, is the same claim"
+
+    # A table that IS read, so the only rule in play is the one under test —
+    # an unread one also draws `scad-unused`, which is correct and beside the
+    # point.
+    table = tmp_path / "table.scad"
+    table.write_text(
+        "holes = [[10,10],\n  [30,10],\n  [30,30]];\n"
+        "for (h = holes) translate(h) cube([60,40,4]);\n"
+    )
+    magic = [f for f in lint_path(table) if f.rule == "scad-magic-number"]
+    assert len(magic) == 3, "the named table is exempt; the unnamed cube literals are not"
+    assert all(f.line == 4 for f in magic), "and they are the cube's line, not the table's"
+
+
 def test_the_overshoot_idiom_is_never_magic(tmp_path: Path):
     """|value| <= 2 exemption: the -1/+2 idiom the repo's own skills teach
     must not be flagged by the repo's own lint."""

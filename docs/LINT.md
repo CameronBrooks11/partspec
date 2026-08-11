@@ -47,6 +47,12 @@ map governs `check`).
   (skills/openscad-authoring rule 1).
 - **Real example:** `cube([60, 40, 4]);` — the openscad skill's rule-1-before block,
   three findings; its after-form lints clean.
+- **Wrapping does not change the answer.** The exemption belongs to the statement, not
+  to one line of it, so `plate = [60, 40, 4];` and the same assignment spread over four
+  lines both lint clean. Until v0.7.0 the rule matched a line-leading `name =`, so a
+  wrapped lookup table — ordinary formatting — was exempt on its first line and flagged
+  on every other, three findings on a constant that has a name. The rule's own rationale
+  is that a magic number is *unnameable*; the code was the defect.
 - **Known noise, owned:** canonical-orientation angles (`rotate([-90, 0, 0])`, `45`,
   `360` in ranges) fire. Accept them knowingly, or name them (`quarter_turn = 90;`) —
   the advisory verdict means acceptance costs nothing. Scientific literals match as

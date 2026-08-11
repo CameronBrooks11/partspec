@@ -101,7 +101,7 @@ knowing before they bite:
   them — but `.val()` in your own code keeps only the first (`engines/pycad.py`
   records the measured case: 4 boxes, `.val().Volume()` = a quarter of the part).
 - A contract written against the build123d leg runs unchanged against a CadQuery
-  model — `tests/test_runner.py::test_the_same_hole_contract_holds_on_cadquery` is
+  model — `tests/test_bores.py::test_the_same_hole_contract_holds_on_cadquery` is
   that parity, executed. (Cross-ENGINE parity generally: `examples/bearing-block/`
   and `tests/test_differential.py`, whose two engines are OpenSCAD and build123d.)
 
