@@ -135,7 +135,28 @@ def tree_of(root: Path) -> str:
     return "\n".join(f"  {n}" for n in names)
 
 
-def run_check(work: Path, target: str, partspec: str) -> tuple[int, str, dict | None]:
+def relative_to_work(path: Path, work: Path) -> str:
+    """`path` as the agent would name it, given that it runs with `cwd=work`.
+
+    Both sides are resolved first: `work` comes from `tempfile`, which on macOS
+    hands back `/var/...` while the tool prints the `/private/var/...` it
+    resolved to. Falls back to the absolute path, which is still correct — just
+    longer than the prompt wants.
+    """
+    try:
+        return str(path.resolve().relative_to(work.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def run_check(work: Path, target: str, partspec: str) -> tuple[int, str, dict | None, Path | None]:
+    """Run `partspec check` and return `(code, output, report, report_path)`.
+
+    The path is returned rather than recomputed by the caller. partspec derives
+    the report directory as `<contract dir>/outputs/<stem>-<factory>`, so the
+    only reliable source for it is the line the tool prints — which this
+    function already has to find in order to parse the report at all.
+    """
     proc = subprocess.run(
         [partspec, "check", target],
         cwd=work,
@@ -145,17 +166,19 @@ def run_check(work: Path, target: str, partspec: str) -> tuple[int, str, dict | 
     )
     out = (proc.stdout + proc.stderr).strip()
     report = None
+    report_path = None
     for line in out.splitlines():
         cand = line.strip()
         if cand.endswith("report.json"):
             p = (work / cand) if not Path(cand).is_absolute() else Path(cand)
             if p.exists():
+                report_path = p
                 try:
                     report = json.loads(p.read_text())
                 except json.JSONDecodeError:
                     report = None
             break
-    return proc.returncode, out, report
+    return proc.returncode, out, report, report_path
 
 
 def call_agent(cmd: str, work: Path, prompt: str) -> tuple[bool, str]:
@@ -241,7 +264,7 @@ def run_trial(
                 return t
 
         for turn in range(1, max_turns + 1):
-            code, output, report = run_check(work, target, partspec)
+            code, output, report, report_path = run_check(work, target, partspec)
             verdict = (report or {}).get("verdict")
             summary = output.splitlines()[-2] if len(output.splitlines()) > 1 else output
 
@@ -270,9 +293,8 @@ def run_trial(
                 break
 
             report_note = ""
-            if report is not None:
-                rel = f"outputs/spec-{report.get('part', {}).get('id', '')}/report.json"
-                report_note = REPORT_NOTE.format(path=rel)
+            if report is not None and report_path is not None:
+                report_note = REPORT_NOTE.format(path=relative_to_work(report_path, work))
 
             prompt = PROMPT.format(
                 tree=tree_of(work),
