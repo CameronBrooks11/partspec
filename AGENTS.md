@@ -11,8 +11,9 @@ follows: **silence must never read as success** — a check the tool could not e
 could not evaluate precisely enough to decide, never reports as a pass.
 
 Status: pre-alpha; **v0.7.1 released on PyPI** (2026-08-11, tag → trusted publishing via
-`release.yml`). 0.7.1 carries **no code change** — its wheel is byte-identical to 0.7.0's
-and it exists to repair the sdist: the shipped suite now passes in a base install, and the
+`release.yml`). 0.7.1 carries **no code change**: every file in its installed `partspec/`
+package is byte-identical to 0.7.0's, the wheel differing only in `.dist-info` metadata.
+It exists to repair the sdist — the shipped suite now passes in a base install, and the
 shipped docs no longer cite files the tarball omits. `check`, `measure` and `render` work
 against all three engines (`render`
 with `--section` cuts on both tiers), `diff` compares reports and `vdiff` compares renders,

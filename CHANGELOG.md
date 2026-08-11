@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.1] - 2026-08-11
 
-**No code changed.** `src/` is byte-identical to 0.7.0 and so is the wheel —
-all 34 entries match by SHA-256. No verb, check kind, exit code or engine
-behaviour differs, and there is nothing here to upgrade *for*.
+**No code changed.** `src/` is byte-identical to 0.7.0, and so is every one of
+the 29 files inside the installed `partspec/` package — verified by SHA-256
+against a wheel rebuilt from the v0.7.0 tag. The only differences in the wheel
+are its `.dist-info` metadata: the version string, and the README it embeds as
+the long description. No verb, check kind, exit code or engine behaviour
+differs; nothing in the installed package changes.
 
 What did change is the **source distribution** and the repository's own gates.
 Two things a consumer gets: the test suite the sdist ships now passes in a base
@@ -22,9 +25,9 @@ contain.
   argues `tests/` ships "because a downstream packager runs the suite from an
   sdist, and that claim only holds if the suite actually passes there... The
   claim is ZERO FAILURES." At v0.7.0 a base install — `pip install partspec`,
-  no extras, OpenSCAD binary present — reported **23 failed / 314 passed**.
-  It is **451 passed / 137 skipped / 0 failed** now, and from the unpacked
-  tarball itself, 439 passed / 149 skipped.
+  no extras, OpenSCAD binary present — the shipped suite reported **23 failed
+  / 314 passed**. It is **451 passed / 137 skipped / 0 failed** now, and from
+  the unpacked tarball itself, 439 passed / 149 skipped.
 
   Two causes. An OpenSCAD part is measured *through* the mesh tier, so tests
   marked `needs_openscad` alone ran and errored instead of skipping when
@@ -37,7 +40,7 @@ contain.
   and `mesh-only`/`mcp-only` each ran a single module, so no job ran the whole
   suite anywhere an extra was missing. `just test-no-extras` does now, in a job
   the path filter cannot skip.
-- **19 citations across ten shipped documents** named files under `notes/` and
+- **17 citations across ten shipped documents** named files under `notes/` and
   `evals/`, neither of which has shipped in the sdist since #150 — so they
   dangled for every reader who arrived from PyPI rather than a checkout. They
   are `blob/main` links now, and three tests hold them: every linked path is
