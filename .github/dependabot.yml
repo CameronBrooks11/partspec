@@ -37,3 +37,30 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: "build"
+    # ruff is pinned TWICE — the dev group here and `.pre-commit-config.yaml`'s
+    # rev — and `test_both_ruff_pins_name_one_version` requires them equal,
+    # because the hooks mutate (`--fix`, `ruff-format`) and a split means
+    # `git commit` writes a diff `just check` then rejects.
+    #
+    # Dependabot cannot bump both in one PR: they are different ecosystems, and
+    # groups do not span ecosystems. Its first attempt (#174) bumped this half
+    # alone and the gate refused it, correctly and immediately. Left to itself
+    # that repeats every ruff release, so ruff is a deliberate two-file manual
+    # bump and both ecosystems ignore it. The guard is what makes that safe:
+    # forgetting the second file fails, it does not drift.
+    ignore:
+      - dependency-name: "ruff"
+
+  # The hook pins rot exactly like the action pins did (#171) — `gitleaks` and
+  # `pre-commit-hooks` are third-party revs nothing was watching either.
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      hooks:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+    ignore:
+      - dependency-name: "astral-sh/ruff-pre-commit"
