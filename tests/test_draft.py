@@ -11,15 +11,23 @@ from __future__ import annotations
 import math
 
 import pytest
-from support import check_of, needs_mesh, needs_openscad, py_target, report_of, scad_target
+from support import (
+    check_of,
+    needs_build123d,
+    needs_mesh,
+    needs_openscad,
+    optional_module,
+    py_target,
+    report_of,
+    scad_target,
+)
 
+from partspec.backend import Unsupported
+from partspec.backends.occt import OcctBackend, _min_draft_deg
 from partspec.contract import ContractError, Part
 from partspec.status import Status
 
-bd = pytest.importorskip("build123d", reason="occt extra not installed")
-
-from partspec.backend import Unsupported  # noqa: E402
-from partspec.backends.occt import OcctBackend, _min_draft_deg  # noqa: E402
+bd = optional_module("build123d")
 
 
 def _check(shape, **kwargs):
@@ -65,6 +73,7 @@ def test_the_sinusoid_minimum_is_exact_against_brute_force():
 # ---------------------------------------------------------------------------
 
 
+@needs_build123d
 def test_a_box_measures_zero_walls_and_ninety_tops():
     _spec, outcome = _check(bd.Box(20, 10, 6), min=2.0)
     assert not isinstance(outcome, Unsupported)
@@ -76,6 +85,7 @@ def test_a_box_measures_zero_walls_and_ninety_tops():
     assert all(axis.startswith("face_") for axis in outcome.axes)
 
 
+@needs_build123d
 def test_a_cone_wall_reads_its_half_angle_exactly():
     """Cone(8, 5, 6): half-angle atan(3/6) — the closed form must land on it
     to float precision, because nothing was sampled."""
@@ -85,12 +95,14 @@ def test_a_cone_wall_reads_its_half_angle_exactly():
     assert min(outcome.value) == pytest.approx(expected, abs=1e-9)
 
 
+@needs_build123d
 def test_a_vertical_cylinder_wall_is_zero_draft():
     _spec, outcome = _check(bd.Cylinder(5, 8), min=1.0)
     assert not isinstance(outcome, Unsupported)
     assert min(outcome.value) == pytest.approx(0.0, abs=1e-9)
 
 
+@needs_build123d
 def test_a_horizontal_cylinder_contains_its_tangent():
     """Axis perpendicular to the pull: the wrap passes through the vertical
     tangent, so the face's minimum draft is exactly 0."""
@@ -100,6 +112,7 @@ def test_a_horizontal_cylinder_contains_its_tangent():
     assert min(outcome.value) == pytest.approx(0.0, abs=1e-9)
 
 
+@needs_build123d
 def test_a_tilted_plane_reads_its_exact_elevation():
     """A box rotated 10 degrees: its former walls read exactly 10 and its
     former tops exactly 80 — asin(|n.d|) to float precision."""
@@ -109,6 +122,7 @@ def test_a_tilted_plane_reads_its_exact_elevation():
     assert values == pytest.approx([0.0, 0.0, 10.0, 10.0, 80.0, 80.0], abs=1e-6)
 
 
+@needs_build123d
 def test_the_direction_is_honoured():
     """The same box, pulled along X: the roles of walls and tops swap."""
     _spec, outcome = _check(bd.Box(20, 10, 6), min=2.0, direction=(1, 0, 0))
@@ -117,6 +131,7 @@ def test_the_direction_is_honoured():
     assert list(outcome.value)[4:] == pytest.approx([90, 90], abs=1e-9)
 
 
+@needs_build123d
 def test_a_freeform_face_refuses_the_whole_check():
     """A sphere face has no closed-form wrap extreme here; the check refuses
     whole rather than passing the analytic subset — a verdict that skipped a
@@ -164,6 +179,7 @@ def test_the_direction_is_normalised_at_declaration():
 # ---------------------------------------------------------------------------
 
 
+@needs_build123d
 def test_the_report_names_the_failing_faces_and_the_claim(tmp_path):
     from partspec.cli import main
 
@@ -184,6 +200,7 @@ def test_the_report_names_the_failing_faces_and_the_claim(tmp_path):
     assert len(failing) == 4, "the four vertical walls, by name"
 
 
+@needs_build123d
 def test_a_drafted_part_passes(tmp_path):
     from partspec.cli import main
 
@@ -213,6 +230,7 @@ def test_the_mesh_tier_refuses_with_the_tier_named(tmp_path):
     assert check["requires"] == "occt"
 
 
+@needs_build123d
 def test_adjudication_uses_the_component_machinery():
     spec, outcome = _check(bd.Cone(8, 5, 6), min=30.0)
     from partspec.status import adjudicate
@@ -222,6 +240,7 @@ def test_adjudication_uses_the_component_machinery():
     assert adjudicate(outcome, spec.limit) is Status.FAIL, "26.57 < 30 on the cone wall"
 
 
+@needs_build123d
 def test_a_generically_rotated_cylinder_wall_still_finds_its_tangent():
     """PR #141 review, F4: every earlier curved-face assertion sat at an
     axis-aligned orientation where the wrap seam coincides with the tangent,
@@ -233,6 +252,7 @@ def test_a_generically_rotated_cylinder_wall_still_finds_its_tangent():
     assert min(outcome.value) == pytest.approx(0.0, abs=1e-9)
 
 
+@needs_build123d
 def test_an_unattributed_draft_min_draws_the_warning(tmp_path):
     """PR #141 review, F3: min= is a number an author chose — exactly the
     circularizable class the attribution warning exists for — and the check

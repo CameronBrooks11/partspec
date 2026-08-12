@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,9 +25,11 @@ __all__ = [
     "measured",
     "needs_build123d",
     "needs_mesh",
+    "needs_numpy",
     "needs_openscad",
     "needs_scad_tier",
     "openscad_supports_backend_flag",
+    "optional_module",
     "py_target",
     "refused",
     "report_of",
@@ -103,13 +107,54 @@ needs_build123d = pytest.mark.skipif(
 needs_mesh = pytest.mark.skipif(
     importlib.util.find_spec("trimesh") is None, reason="mesh extra not installed"
 )
-"""Markers rather than in-body `importorskip`/`pytest.skip`.
+needs_numpy = pytest.mark.skipif(
+    importlib.util.find_spec("numpy") is None,
+    reason="numpy (it arrives with trimesh and with both OCCT-tier engines) not installed",
+)
+"""One spelling for "this test needs an extra", and never at module scope.
 
-The suite spelled these five different ways — `importorskip` in 38 bodies,
-`find_spec` skipifs in three idioms, and six hand-rolled `if OPENSCAD is None:
-pytest.skip(...)`. A body-level skip is also invisible to collection, which
-makes `conftest.py`'s `PARTSPEC_REQUIRE_ENGINES` guard harder to reason about.
+The suite spelled it five ways — `importorskip` in 38 bodies, `find_spec`
+skipifs in three idioms, and six hand-rolled `if OPENSCAD is None:
+pytest.skip(...)`. These markers are the one to reach for; 51 in-body
+`importorskip` calls remain in modules that are otherwise engine-free, and
+converting them is tidying rather than a fix, because a body-level skip still
+collects and still counts.
+
+What is not tolerated is a **module-level** gate, which does not:
+`test_packaging.py::test_only_a_module_that_cannot_import_gates_at_import`
+enforces that, and names the three modules that genuinely cannot import
+without their extra.
 """
+
+
+class _NotInstalled:
+    """Stands in for an absent extra, and says so the moment it is touched."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    def __getattr__(self, attr: str) -> Any:
+        raise AssertionError(
+            f"reached {self._name}.{attr} with {self._name} not installed — "
+            f"this test needs a needs_* marker (tests/support.py)"
+        )
+
+
+def optional_module(name: str) -> Any:
+    """Bind a CAD module that may not be installed, without gating the file.
+
+    A module-level `pytest.importorskip` raises at *import*, so pytest reports
+    the whole file as one skipped line. That hid 11 tests needing no engine at
+    all, and — worse — four `the mesh tier refuses with the tier named` tests,
+    invisible in `pip install partspec[mesh]`, the one install where the mesh
+    tier is the only tier (#165). Binding the name here lets the module import
+    everywhere; each test that drives the kernel carries its own `needs_*`
+    marker, and one that forgets fails by name instead of measuring nothing.
+    """
+    try:
+        return importlib.import_module(name)
+    except ModuleNotFoundError:
+        return _NotInstalled(name)
 
 
 def scad_target(

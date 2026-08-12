@@ -11,16 +11,24 @@ from __future__ import annotations
 import json
 
 import pytest
-from support import check_of, needs_mesh, needs_openscad, py_target, scad_target
+from support import (
+    check_of,
+    needs_build123d,
+    needs_mesh,
+    needs_openscad,
+    optional_module,
+    py_target,
+    scad_target,
+)
 
-bd = pytest.importorskip("build123d", reason="occt extra not installed")
+from partspec.backend import Unsupported
+from partspec.backends.occt import OcctBackend
+from partspec.cli import main
+from partspec.contract import ContractError, Part
+from partspec.runner import _run_geometry_check
+from partspec.status import Status
 
-from partspec.backend import Unsupported  # noqa: E402
-from partspec.backends.occt import OcctBackend  # noqa: E402
-from partspec.cli import main  # noqa: E402
-from partspec.contract import ContractError, Part  # noqa: E402
-from partspec.runner import _run_geometry_check  # noqa: E402
-from partspec.status import Status  # noqa: E402
+bd = optional_module("build123d")
 
 
 def _shell():
@@ -36,6 +44,7 @@ def _raw(shape):
 # ---------------------------------------------------------------------------
 
 
+@needs_build123d
 @pytest.mark.parametrize(
     ("name", "builder", "truth"),
     [
@@ -52,6 +61,7 @@ def test_the_lower_bound_lands_on_the_truth(name, builder, truth):
     assert raw["lo"] == pytest.approx(truth, abs=1e-9), name
 
 
+@needs_build123d
 def test_the_gap_limits_the_bound_honestly():
     """The U-channel: walls 3.0, gap 1.0. PR #144's review (F2) proved that
     EXCLUDING gap-classified pairs can hide a real wall, so the gap pair is
@@ -72,6 +82,7 @@ def test_the_gap_limits_the_bound_honestly():
     assert conclusive.status is Status.PASS
 
 
+@needs_build123d
 def test_closed_faces_answer_by_self_span():
     """A rod and a bead have no face PAIRS — the analytic self-span (the
     diameter) is the wall, achieved and therefore exact."""
@@ -85,6 +96,7 @@ def test_closed_faces_answer_by_self_span():
     assert bead["lo"] == bead["hi"] == pytest.approx(1.2)
 
 
+@needs_build123d
 def test_a_bore_self_span_is_a_void_not_a_wall():
     """The tube's inner cylinder face is closed too — its self-span (the
     bore diameter, 17) must be excluded by the axis-in-void test, or every
@@ -94,6 +106,7 @@ def test_a_bore_self_span_is_a_void_not_a_wall():
     assert raw["lo"] == pytest.approx(1.5, abs=1e-9), "1.5, not 17.0 and not 20.0"
 
 
+@needs_build123d
 def test_the_wedge_is_a_feature_and_its_truncation_is_a_wall():
     """The structural wedge policy: faces sharing an edge are never a wall,
     so a 5.71-degree taper does not fail as a sliver — but the moment the
@@ -112,6 +125,7 @@ def test_the_wedge_is_a_feature_and_its_truncation_is_a_wall():
     assert raw["lo"] == pytest.approx(0.05, abs=1e-9)
 
 
+@needs_build123d
 def test_an_eccentric_wall_is_bounded_not_guessed():
     """The bore offset makes the wall vary 1.1..1.9; lo must land on the
     true minimum exactly, and the interval must contain it."""
@@ -138,6 +152,7 @@ def _tilted_pocket():
     return _shell() - bd.Pos(0, 0, 5.6) * bd.Rot(8, 0, 0) * bd.Box(6, 6, 3)
 
 
+@needs_build123d
 def test_a_straddling_limit_adjudicates_approximate():
     """The first check whose interval genuinely straddles a limit: the
     tilted pocket's guaranteed [lo, hi] brackets the truth, a limit inside
@@ -162,6 +177,7 @@ def test_a_straddling_limit_adjudicates_approximate():
     assert conclusive_fail.status is Status.FAIL
 
 
+@needs_build123d
 def test_approximate_surfaces_in_the_verdict(tmp_path):
     """Exit 2: a straddling wall claim leaves the run INCOMPLETE — unproven,
     not failing — through the whole CLI."""
@@ -190,6 +206,7 @@ def test_approximate_surfaces_in_the_verdict(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@needs_build123d
 def test_the_cross_drilled_rod_reads_its_diameter():
     """PR #144 review, F1: the single-point axis probe landed inside the
     cross-hole and discarded the rod's 4 mm diametric wall — the tool
@@ -213,6 +230,7 @@ def test_the_cross_drilled_rod_reads_its_diameter():
     # the spec.
 
 
+@needs_build123d
 def test_the_spiral_wall_cannot_false_pass():
     """PR #144 review, F2: a spline spiral whose inner/outer pair minimum
     crosses the 2 mm air gap — excluding that pair as a gap took its real
@@ -240,6 +258,7 @@ def test_the_spiral_wall_cannot_false_pass():
     assert result.status is not Status.PASS, "the reviewer's false pass, dead"
 
 
+@needs_build123d
 def test_a_tiny_bore_is_still_a_void():
     """The mutant-(c) killer the reviewer demanded: a thick tube with a tiny
     bore — the bore's 2 mm self-span must be excluded (certified void), or
@@ -249,6 +268,7 @@ def test_a_tiny_bore_is_still_a_void():
     assert raw["lo"] == pytest.approx(9.0, abs=1e-9), "9.0, not the bore's 2.0"
 
 
+@needs_build123d
 def test_the_analytic_families_have_fixtures():
     """The mutant-(e) coverage the reviewer demanded: frustum, solid torus
     and torus shell all answer, and the solid cone's apex stays a feature
@@ -278,6 +298,7 @@ def test_the_exactness_threshold_binds():
     assert tight.exact is True
 
 
+@needs_build123d
 def test_a_witnessed_span_below_lo_refuses(monkeypatch):
     """PR #144 review, F3: the old floor-clamp DELETED witnessed crossings
     thinner than lo — counter-evidence silenced into an exact false
@@ -297,6 +318,7 @@ def test_a_witnessed_span_below_lo_refuses(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@needs_build123d
 def test_a_frustum_is_exact_again_through_its_certified_chord():
     """#145 item 2: the narrow rim of a frustum is where its thinnest span
     lives, and a fixed 6x6 ray grid never samples it — the interval read
@@ -318,6 +340,7 @@ def test_a_frustum_is_exact_again_through_its_certified_chord():
     assert _run_geometry_check(_spec(min=3.0), OcctBackend(), frustum).status is (Status.PASS)
 
 
+@needs_build123d
 def test_a_short_frustum_no_longer_refuses_outright():
     """#145 item 2, the sibling the fixture hunt turned up: on a 45-degree
     frustum every inward normal exits through an ADJACENT cap, so the ray
@@ -329,6 +352,7 @@ def test_a_short_frustum_no_longer_refuses_outright():
     assert raw["lo"] == raw["hi"] == pytest.approx(4.0, abs=1e-9)
 
 
+@needs_build123d
 def test_the_chord_certificate_is_the_whole_chord_or_nothing():
     """The certificate's teeth: a chord crossing a bore is NOT material end
     to end and must not certify, or the achieved-span argument collapses into
@@ -343,6 +367,7 @@ def test_the_chord_certificate_is_the_whole_chord_or_nothing():
     assert _chord_span(rod.wrapped, *clear_of_the_hole) == pytest.approx(4.0, abs=1e-9)
 
 
+@needs_build123d
 def test_the_antipodal_maps_are_diametric():
     """The chord machinery rests on one fact per family — that the antipodal
     parameter map really does land on the far side — and the map differs for
@@ -405,6 +430,7 @@ def _closed_analytic_candidates(shape):
     return out
 
 
+@needs_build123d
 def test_the_certificate_is_tested_where_the_ray_witness_cannot_mask_it():
     """Two properties of the certificate are invisible end to end, because
     for cylinders the ray witness independently reaches the same number and
@@ -436,6 +462,7 @@ def test_the_certificate_is_tested_where_the_ray_witness_cannot_mask_it():
     assert _certified_self_span(rod.wrapped, rod_candidates, None) == pytest.approx(4.0, abs=1e-9)
 
 
+@needs_build123d
 def test_the_spread_along_a_face_is_pinned_for_every_family():
     """PR #146 review, MINOR 4/N5-N6: the docstring claims each family is
     sampled along the face 'so a chord blocked by a bore can be answered by
@@ -483,6 +510,7 @@ def test_the_spread_along_a_face_is_pinned_for_every_family():
         assert _certified_self_span(shape.wrapped, [(span, chords)], None) == pytest.approx(span)
 
 
+@needs_build123d
 def test_a_certified_span_can_only_tighten_the_upper_end():
     """PR #146 review, MINOR 4/N3: the ceiling is load-bearing and was
     untested — a certified span must never RAISE `hi`. A rod with a 0.5 mm
@@ -508,6 +536,7 @@ def test_a_certified_span_can_only_tighten_the_upper_end():
     assert result.status is Status.FAIL, "0.6 is refuted by the 0.5 flange"
 
 
+@needs_build123d
 def test_a_trimmed_periodic_face_certifies_a_span_that_is_not_a_crossing():
     """PR #146 review, MAJOR: the certificate proves material along the
     chord, NOT that the chord runs between two points of the face. A 1 mm
@@ -558,6 +587,7 @@ def test_a_trimmed_periodic_face_certifies_a_span_that_is_not_a_crossing():
     assert raw["hi"] == pytest.approx(2.0, abs=1e-9)
 
 
+@needs_build123d
 def test_the_fillet_flip_now_fails_conclusively():
     """PR #146 review, MINOR 5: an unrecorded verdict escalation, pinned so
     it stays deliberate. SPEC 4.11 already warned that filleting a knife
@@ -577,6 +607,7 @@ def test_the_fillet_flip_now_fails_conclusively():
     assert result.measurement.bounds[1] == 2.0
 
 
+@needs_build123d
 def test_a_fillet_span_caps_the_interval_but_is_never_the_answer():
     """SPEC 4.11's new closure, executed (PR #146 review, round 2, Q1): a
     fillet band is a closed analytic face, so its tube diameter can cap the
@@ -607,6 +638,7 @@ def test_a_fillet_span_caps_the_interval_but_is_never_the_answer():
         assert not measurement.exact, "so the interval never collapses onto the fillet"
 
 
+@needs_build123d
 def test_the_certificate_declines_a_chord_that_is_nearly_material():
     """PR #146 review, MINOR 4/N2: the 1e-7 comparison was unpinned — a
     tolerance of 10% changed nothing in the whole suite. A chord that is 95%
@@ -620,6 +652,7 @@ def test_the_certificate_declines_a_chord_that_is_nearly_material():
     assert _chord_span(bd.Cylinder(2, 40).wrapped, *chord) == pytest.approx(4.0, abs=1e-9)
 
 
+@needs_build123d
 def test_an_unanswerable_chord_is_never_a_certificate(monkeypatch):
     """PR #146 review, MINOR 4: issue #145's own item 3 held that a branch no
     fixture can reach must be forced at the seam rather than accepted as
@@ -660,6 +693,7 @@ def test_an_unanswerable_chord_is_never_a_certificate(monkeypatch):
     assert _chord_span(rod.wrapped, *chord) is None, "nor does one that raises"
 
 
+@needs_build123d
 def test_an_unanswerable_certificate_keeps_the_span(monkeypatch):
     """#145 item 3: the kernel-failure fallback (`include=None -> True`) had
     no fixture — `BRepAlgoAPI_Common` failing on a segment is not
@@ -677,6 +711,7 @@ def test_an_unanswerable_certificate_keeps_the_span(monkeypatch):
     )
 
 
+@needs_build123d
 def test_a_stepped_ledge_bounds_from_the_ledge_and_says_so():
     """#145 item 1: a 1.5 mm ledge on a slab whose every wall is 2.0 reads
     lo = 1.5. That is not a bug in the bound — the ledge IS a 1.5 mm span
@@ -703,6 +738,7 @@ def test_a_stepped_ledge_bounds_from_the_ledge_and_says_so():
 # ---------------------------------------------------------------------------
 
 
+@needs_build123d
 def test_a_corner_only_part_fails_vacuously():
     """A tetrahedron: every face pair shares an edge, so there are no walls
     — and 'every wall is thick enough' over zero walls is the vacuous green
@@ -720,6 +756,7 @@ def test_a_corner_only_part_fails_vacuously():
     assert result.detail is not None and "vacuous green" in result.detail
 
 
+@needs_build123d
 def test_a_closed_freeform_face_refuses_the_whole_check():
     """A closed surface of revolution outside the analytic families has no
     guaranteed self-span: the check refuses by name rather than sampling."""
@@ -748,6 +785,7 @@ def test_declaration_and_dimensional_membership():
     assert "min_wall" in DIMENSIONAL_KINDS, "min= is a number an author chose"
 
 
+@needs_build123d
 def test_measure_lists_the_quantity_with_bounds_honesty(tmp_path):
     (tmp_path / "m.py").write_text(
         "import build123d as bd\n\n\ndef make_part():\n"

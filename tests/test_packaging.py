@@ -9,6 +9,7 @@ safety argument rested on a convention it did not enforce.
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 import tarfile
@@ -279,6 +280,40 @@ def test_no_test_shells_out_to_git_without_a_checkout_guard():
     assert not offenders, (
         "these shell out to git with no `(ROOT / '.git').exists()` guard, so they "
         f"error rather than skip in an unpacked sdist: {offenders}"
+    )
+
+
+def test_only_a_module_that_cannot_import_gates_at_import():
+    """The other way a test disappears: `pytest.importorskip` at module scope.
+
+    It raises during collection, so pytest reports the whole file as ONE
+    skipped line and every test inside it — including the ones that needed
+    nothing — is gone from the count. `test_diff.py` reported `1 skipped` for
+    34 tests, 32 of which needed no engine (#163, which removed eight such
+    gates). The ten that survived were measured in #165: they hid 11 tests
+    that pass with no extras at all, and four `the mesh tier refuses with the
+    tier named` tests, invisible under `pip install partspec[mesh]` — the one
+    install where the mesh tier is the only tier there is.
+
+    A per-test `needs_*` marker costs a line and keeps the skip visible and
+    counted. Three modules genuinely cannot be imported without their extra;
+    they are listed with the reason, because a reason in an allowlist is read
+    and a reason in a comment is not.
+    """
+    allowed = {
+        "test_mcp.py": "every test drives the MCP adapter",
+        "test_occt_backend.py": "a module-level bd.Box(...) inside a parametrize",
+        "test_raster.py": "partspec.raster imports numpy at module scope",
+    }
+    gated: dict[str, list[int]] = {}
+    for path in sorted((REPO / "tests").glob("test_*.py")):
+        for node in ast.parse(path.read_text()).body:
+            call = node.value if isinstance(node, ast.Assign | ast.Expr) else None
+            if isinstance(call, ast.Call) and ast.unparse(call.func) == "pytest.importorskip":
+                gated.setdefault(path.name, []).append(node.lineno)
+    assert set(gated) == set(allowed), (
+        "a module-level importorskip collapses a whole file to one skip line. "
+        f"Gating: {gated}. Allowed, with the reason each one cannot be avoided: {allowed}"
     )
 
 
