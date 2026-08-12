@@ -132,7 +132,7 @@ override-dependencies = ["cadquery-ocp-novtk ; sys_platform == 'never'"]
 [dependency-groups]
 dev = [
     "pytest>=8.0",
-    "ruff==0.16.1",  # EXACT, and equal to .pre-commit-config.yaml — see the note there
+    "ruff==0.16.2",  # EXACT, and equal to .pre-commit-config.yaml — see the note there
     "pyright>=1.1",
 ]
 
