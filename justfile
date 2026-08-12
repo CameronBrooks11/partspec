@@ -228,6 +228,30 @@ test-cadquery-only:
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None, "the mesh extra leaked in — this recipe no longer proves anything"'
     "$env/bin/python" -m pytest tests/ -q -rs
 
+# Run every pre-commit hook against the whole tree.
+#
+# Nothing else did. `just check` runs ruff and pyright directly, so the HOOKS —
+# a second, separately-pinned copy of ruff, plus the file fixers, the yaml
+# parse, the large-file limit and gitleaks, which live only there — were
+# exercised nowhere but somebody's `git commit`. A rev that breaks or a config
+# that stops parsing stayed green in CI and failed on the next commit instead.
+# Dependabot proposes those revs weekly now (#171's lesson one directory over),
+# and a PR no gate can judge is worse than no PR.
+#
+# The mutating hooks rewrite files and exit non-zero when they do, and that IS
+# the assertion: a tree already clean needs no rewriting. Executed: a tracked
+# markdown file with trailing whitespace and no final newline passes
+# `just check` in full and fails this.
+#
+# Note what it does NOT establish. `--all-files` means git-TRACKED files, so an
+# untracked file is invisible here (it is not invisible to `git commit`, which
+# runs against the index). And gitleaks passed a well-known AWS example key in
+# both modes when this was written, so treat secret detection as belonging to
+# GitHub push protection and the GitGuardian check, not to this step.
+[doc("Run every pre-commit hook against the whole tree")]
+hooks:
+    uvx pre-commit run --all-files --show-diff-on-failure
+
 # Run main entrypoint
 run *ARGS:
     uv run partspec {{ARGS}}

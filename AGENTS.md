@@ -90,6 +90,7 @@ just setup           # uv sync --all-extras (ALL engines — matches CI exactly)
 just fmt             # ruff format + ruff check --fix + regenerate doc blocks
 just gen-docs        # regenerate the generated doc blocks alone
 just check           # fmt-check + gen-docs --check + lint + typecheck (CI-equivalent)
+just hooks           # every pre-commit hook over the whole tree (CI runs this too)
 just test            # pytest
 just test-reverse    # the suite in reverse file order — catches cross-test state leaks
 just run -- --version
