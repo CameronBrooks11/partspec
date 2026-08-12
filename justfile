@@ -170,8 +170,15 @@ test-no-extras:
 # no `OCP` module at all (#109). The shape every other recipe here uses cannot
 # build this environment.
 #
-# Heavy: OCCT is ~1.5GB, so this is a minutes-long recipe and deliberately not
-# a CI job. Measured when added: 664 passed, 117 skipped, 0 failed.
+# Heavy — OCCT is ~1.5GB — so CI gates it on the `changes` path filter rather
+# than running it on a docs-only PR. It IS a CI job, with
+# `PARTSPEC_REQUIRE_ENGINES=openscad,build123d`, which is the sharper form of
+# the import check below: `conftest.py` resolves that by importing.
+# Measured in CI, which is the clean-room case: 656 passed, 125 skipped, 0
+# failed. On a checkout that has already been `just setup`, expect 664/117 —
+# `tests/test_lint_config.py` finds a ruff binary at `.venv/bin/ruff` and its
+# 8 tests run instead of skipping. That is ambient, not a property of the
+# install under test, which is why the clean number is the one recorded.
 [doc("Run the WHOLE suite against a throwaway occt-only install (slow, ~1.5GB)")]
 test-occt-only:
     #!/usr/bin/env bash
@@ -180,8 +187,18 @@ test-occt-only:
     trap 'rm -rf "$(dirname "$env")"' EXIT
     uv venv --quiet --seed "$env"
     "$env/bin/python" -m pip install --quiet -e '.[occt]' pytest
-    "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("build123d") is not None, "build123d did not land — see #109, this recipe proves nothing without it"; assert u.find_spec("trimesh") is None and u.find_spec("cadquery") is None, "another engine leaked in — this recipe no longer proves anything"'
-    "$env/bin/python" -m pytest tests/ -q
+    # `import`, not `find_spec`. #109 is precisely the state where the
+    # DISTRIBUTION is installed and the engine does not work: find_spec
+    # ("build123d") is true in a uv-pip install that delivered no OCP, and
+    # `import build123d` is what says so. The suite's own `needs_*` markers key
+    # on find_spec, so a broken engine there produces failures rather than
+    # skips — correct, but this is the sharper statement and it comes first.
+    "$env/bin/python" -c 'import build123d' || { echo "build123d installed but not importable — the #109 shape; this recipe proves nothing"; exit 1; }
+    "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None and u.find_spec("cadquery") is None, "another engine leaked in — this recipe no longer proves anything"'
+    # -rs: the skip PROFILE is what this environment is for. A bare count
+    # cannot be compared between two machines, and the whole reason this job
+    # exists is that nobody could see what an engine-only install does not run.
+    "$env/bin/python" -m pytest tests/ -q -rs
 
 # Run the WHOLE suite against a cadquery-ONLY install, in a throwaway environment.
 #
@@ -197,7 +214,8 @@ test-occt-only:
 # is for the dev environment. It runs the suite in the environment a user
 # actually gets, which is how the two-provider branch of
 # `_engine_import_error` was found to be the one branch with no test.
-# Measured when added: 670 passed, 111 skipped, 0 failed.
+# Measured in CI: 662 passed, 119 skipped, 0 failed (670/111 on a checkout with
+# a built `.venv` — see the ruff note on `test-occt-only`).
 [doc("Run the WHOLE suite against a throwaway cadquery-only install (slow, ~1.5GB)")]
 test-cadquery-only:
     #!/usr/bin/env bash
@@ -208,7 +226,7 @@ test-cadquery-only:
     "$env/bin/python" -m pip install --quiet -e '.[cadquery]' pytest
     "$env/bin/python" -c 'import cadquery' || { echo "cadquery did not import — the OCP clobber landed novtk-side; see README"; exit 1; }
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None, "the mesh extra leaked in — this recipe no longer proves anything"'
-    "$env/bin/python" -m pytest tests/ -q
+    "$env/bin/python" -m pytest tests/ -q -rs
 
 # Run main entrypoint
 run *ARGS:

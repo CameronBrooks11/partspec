@@ -100,14 +100,21 @@ just test-no-extras  # the WHOLE suite against a no-extras install (CI runs this
 just ocp-guard       # assert exactly one OCP provider is installed
 ```
 
-The two OCCT-tier environments are local-only and take minutes, because OCCT is
-~1.5GB and because `uv pip install .[occt]` strands OCP entirely (#109) — they
-need plain pip in a seeded venv, which is why they went unrun until 2026-08-11:
+The two OCCT-tier environments take minutes, because OCCT is ~1.5GB and because
+`uv pip install .[occt]` strands OCP entirely (#109) — they need plain pip in a
+seeded venv, which is why they went unrun until 2026-08-11. CI runs both, gated
+on the `changes` path filter so a docs-only PR does not pay for them:
 
 ```sh
 just test-occt-only      # the WHOLE suite against a plain-pip [occt] install
 just test-cadquery-only  # ditto [cadquery] — which lands TWO OCP providers, by design
 ```
+
+Those two CI jobs set `PARTSPEC_REQUIRE_ENGINES` to the engine the extra
+promises, which is the only place in the gate that can tell *the extra
+installed* from *the extra works*: `conftest.py` resolves it by importing,
+while every `needs_*` marker keys on `find_spec` — and #109 is exactly the
+state where the distribution is present and the import fails.
 
 `PARTSPEC_OPENSCAD` pins the engine; `PARTSPEC_REQUIRE_ENGINES=1` turns a missing one from
 a skip into a hard failure. CI sets both, across a **two-version matrix** — apt 2021.01 and
