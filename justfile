@@ -16,11 +16,13 @@ default:
 #
 # It also means the OCP resolution is exercised everywhere rather than only on
 # the machine that happens to have both engines. See `just ocp-guard`.
+[doc("Install all extras and set up the environment (what CI runs)")]
 setup:
     uv sync --all-extras
 
 # The light path: mesh tier only, no OCCT. For quick OpenSCAD-only iteration.
 # NOT what CI runs — if you use this, `just check` may differ from the gate.
+[doc("Light path: mesh tier only — NOT what CI runs")]
 setup-mesh:
     uv sync --extra mesh
 
@@ -43,6 +45,7 @@ fmt-check:
 # after the fact. Same mutating/non-mutating split as `fmt` — `just fmt`
 # rewrites, `just check` refuses a stale block. Run by `fmt` and `fmt-check`,
 # so this recipe is for running it alone.
+[doc("Regenerate the generated blocks in the docs from the code")]
 gen-docs:
     uv run python scripts/gen_docs.py
 
@@ -75,6 +78,7 @@ test:
 # repo refuses. It caught a real one:
 # an exemplar's `claims.py` outliving its test and breaking the five tests
 # that exist to prove that cannot happen.
+[doc("Run the suite in reverse file order (cross-test state leaks)")]
 test-reverse:
     uv run pytest $(find tests -name 'test_*.py' | sort -r)
 
@@ -97,6 +101,7 @@ test-reverse:
 #
 # So it runs everything now. Tests needing build123d skip, which is correct:
 # their absence is what this environment exists to prove.
+[doc("Run the WHOLE suite against a throwaway mesh-only install")]
 test-mesh-only:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -113,6 +118,7 @@ test-mesh-only:
 # the adapter is core + a subprocess per call by design (D18), so no CAD
 # engine may be required just to stand it up. The engine-dependent test
 # skips here legitimately — the absence of engines is the thing being proved.
+[doc("Run the MCP tests against a throwaway mcp-only install")]
 test-mcp-only:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -144,6 +150,7 @@ test-mcp-only:
 #
 # `PARTSPEC_REQUIRE_ENGINES` is deliberately NOT set: here the absence of every
 # engine is the thing being proved, so skips are the correct outcome.
+[doc("Run the WHOLE suite against a throwaway no-extras install")]
 test-no-extras:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -154,6 +161,55 @@ test-no-extras:
     "$env/bin/python" -c 'import importlib.util as u; assert all(u.find_spec(n) is None for n in ("trimesh", "build123d", "cadquery", "mcp")), "an extra leaked in — this recipe no longer proves anything"'
     "$env/bin/python" -m pytest tests/ -q
 
+# Run the WHOLE suite against an occt-ONLY install, in a throwaway environment.
+#
+# Plain `pip`, not `uv pip` — which is why this recipe did not exist until
+# 2026-08-11 and the environment had never been run. build123d's
+# `cadquery-ocp-proxy` picks the real OCP wheel with an install-time hook that
+# uv's installer does not run, so `uv pip install .[occt]` lands the proxy and
+# no `OCP` module at all (#109). The shape every other recipe here uses cannot
+# build this environment.
+#
+# Heavy: OCCT is ~1.5GB, so this is a minutes-long recipe and deliberately not
+# a CI job. Measured when added: 664 passed, 117 skipped, 0 failed.
+[doc("Run the WHOLE suite against a throwaway occt-only install (slow, ~1.5GB)")]
+test-occt-only:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env="$(mktemp -d)/venv"
+    trap 'rm -rf "$(dirname "$env")"' EXIT
+    uv venv --quiet --seed "$env"
+    "$env/bin/python" -m pip install --quiet -e '.[occt]' pytest
+    "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("build123d") is not None, "build123d did not land — see #109, this recipe proves nothing without it"; assert u.find_spec("trimesh") is None and u.find_spec("cadquery") is None, "another engine leaked in — this recipe no longer proves anything"'
+    "$env/bin/python" -m pytest tests/ -q
+
+# Run the WHOLE suite against a cadquery-ONLY install, in a throwaway environment.
+#
+# Same plain-pip reason as `test-occt-only`, plus one of its own: this install
+# lands TWO OCP providers and cannot be made not to. The extra names
+# `cadquery-ocp`; build123d brings `cadquery-ocp-proxy`, which brings
+# `cadquery-ocp-novtk`; pip installs both because they are different
+# distributions, and they own the same top-level `OCP/`. The repo's
+# `[tool.uv] override-dependencies` drops novtk, but that is a workspace
+# setting and is not carried in wheel metadata, so no consumer gets it.
+#
+# So this recipe deliberately does NOT assert one provider — `just ocp-guard`
+# is for the dev environment. It runs the suite in the environment a user
+# actually gets, which is how the two-provider branch of
+# `_engine_import_error` was found to be the one branch with no test.
+# Measured when added: 670 passed, 111 skipped, 0 failed.
+[doc("Run the WHOLE suite against a throwaway cadquery-only install (slow, ~1.5GB)")]
+test-cadquery-only:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env="$(mktemp -d)/venv"
+    trap 'rm -rf "$(dirname "$env")"' EXIT
+    uv venv --quiet --seed "$env"
+    "$env/bin/python" -m pip install --quiet -e '.[cadquery]' pytest
+    "$env/bin/python" -c 'import cadquery' || { echo "cadquery did not import — the OCP clobber landed novtk-side; see README"; exit 1; }
+    "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None, "the mesh extra leaked in — this recipe no longer proves anything"'
+    "$env/bin/python" -m pytest tests/ -q
+
 # Run main entrypoint
 run *ARGS:
     uv run partspec {{ARGS}}
@@ -161,6 +217,7 @@ run *ARGS:
 # Assert exactly one OCP provider is installed (SPEC-backend.md 4.1).
 # cadquery-ocp and cadquery-ocp-novtk both own the top-level OCP/ package and
 # pip does NOT detect the conflict — one silently clobbers the other.
+[doc("Assert exactly one OCP provider is installed")]
 ocp-guard:
     uv run python scripts/check_ocp.py
 
