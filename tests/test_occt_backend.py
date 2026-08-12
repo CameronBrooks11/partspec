@@ -509,13 +509,25 @@ def test_a_missing_engine_is_an_environment_fault_not_a_failing_part(tmp_path: P
     that is a workspace setting and is not carried in wheel metadata -- a plain
     `pip install partspec[occt,cadquery]` reproduces it with no override in
     scope, so the guard has to be in the code.
+
+    Which is why the exact wording is NOT pinned here. `_engine_import_error`
+    picks its branch from the OCP providers it finds installed, and a plain
+    `pip install partspec[cadquery]` really does land two of them (measured:
+    cadquery-ocp 7.9.3.1.1 alongside cadquery-ocp-novtk 7.9.3.1.1, pulled in
+    by cadquery and by build123d's proxy respectively). Asserting "not
+    importable" made this test fail in the one install its own docstring is
+    about. The three branch wordings are pinned individually in
+    `test_import_origin.py`; what belongs here is what every branch owes a
+    reader — this is the environment's fault, it names what would not load,
+    and it says what to do next.
     """
     model = tmp_path / "m.py"
     model.write_text("def part():\n    return None\n")
     result = build(PyCADSource(path=model, engine="definitely_not_installed", method="part"))
     assert isinstance(result, BuildError)
     assert result.origin == "environment", "not a verdict on the part"
-    assert "not importable" in result.message
+    assert "definitely_not_installed" in result.message, "it names what would not load"
+    assert result.hint, "an environment fault owes the reader a next step"
 
 
 # --------------------------------------------------------------------------

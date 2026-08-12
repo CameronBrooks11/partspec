@@ -162,6 +162,64 @@ def test_a_stranded_ocp_proxy_is_named_not_circular(monkeypatch):
     assert err.hint is not None and "plain pip" in err.hint and "#109" in err.hint
 
 
+def _import_error_with_providers(monkeypatch, installed: dict[str, str]):
+    """`_engine_import_error` with a chosen set of OCP providers installed.
+
+    It branches on `importlib.metadata`, so the branch a reader gets is a
+    property of their environment and cannot be reached by argument.
+    """
+    import importlib.metadata as md
+
+    from partspec.engines.pycad import _engine_import_error
+
+    real = md.distribution
+
+    def fake(name):
+        if name in installed:
+            return type("_D", (), {"version": installed[name]})()
+        raise md.PackageNotFoundError(name)
+
+    monkeypatch.setattr(md, "distribution", fake)
+    try:
+        return _engine_import_error("cadquery", ImportError("cannot import name 'IVtkOCC_Shape'"))
+    finally:
+        monkeypatch.setattr(md, "distribution", real)
+
+
+def test_two_ocp_providers_are_named_with_their_versions(monkeypatch):
+    """The clobber itself — the branch a real install actually reaches.
+
+    `pip install partspec[cadquery]` lands BOTH providers: cadquery pulls
+    `cadquery-ocp`, build123d's proxy pulls `cadquery-ocp-novtk`, pip sees no
+    conflict because they are different distributions, and they overwrite each
+    other's `OCP/`. Measured on a plain-pip `.[cadquery]` install — both at
+    7.9.3.1.1, and CadQuery imported anyway, so which one wins is install
+    order rather than anything a user chose.
+
+    Of the three branches this was the one with no test, and the only one that
+    needs no monkeypatching to reach in the wild.
+    """
+    err = _import_error_with_providers(
+        monkeypatch, {"cadquery-ocp": "7.9.3.1.1", "cadquery-ocp-novtk": "7.9.3.1.1"}
+    )
+    assert err.origin == "environment"
+    assert "two OCP providers" in err.message
+    assert "cadquery-ocp 7.9.3.1.1" in err.message, "the versions, so a reader can tell them apart"
+    assert "cadquery-ocp-novtk 7.9.3.1.1" in err.message
+    assert err.hint is not None and "--force-reinstall" in err.hint
+
+
+def test_one_provider_and_a_real_absence_is_just_the_missing_extra(monkeypatch):
+    """The ordinary case, which must not be dressed up as a clobber: one
+    provider installed and the engine still absent is a missing extra, and
+    the hint is the install command rather than a repair."""
+    err = _import_error_with_providers(monkeypatch, {"cadquery-ocp": "7.9.3.1.1"})
+    assert err.origin == "environment"
+    assert "cadquery is not importable" in err.message
+    assert "two OCP providers" not in err.message
+    assert err.hint == "pip install 'partspec[cadquery]'"
+
+
 def test_the_registry_never_records_partspec_itself():
     """PR #147's review, minor 10: the registry was described as preventing
     the over-eviction a directory sweep once caused — "it evicted the

@@ -31,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the one install where the mesh tier is the only tier. No code in
   `partspec/` changed (#165).
 
+- **The shipped suite failed one test under `pip install partspec[cadquery]`.**
+  That extra names `cadquery-ocp` explicitly while build123d brings
+  `cadquery-ocp-proxy`, which brings `cadquery-ocp-novtk` — so pip installs
+  both providers of the same top-level `OCP/` package and neither notices.
+  partspec's own guard detects exactly this and says so, which is what broke
+  the test: it pinned the wording of a different branch. It now asserts what
+  every branch owes a reader — the environment's fault, the module named, a
+  next step given — and the three wordings are pinned individually, including
+  the two-provider one, which had no test and is the only branch reachable
+  without monkeypatching. Measured after the fix: `[cadquery]` 670 passed,
+  `[occt]` 664 passed, no failures in either. Again no code in `partspec/`
+  changed.
+
 ## [0.7.1] - 2026-08-11
 
 **No code changed.** `src/` is byte-identical to 0.7.0, and so is every one of
