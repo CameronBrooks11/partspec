@@ -44,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   future recipe that omits the flag — a recipe measuring what a consumer gets
   cannot read config no consumer has.
 
+- **The dual-engine install's second line is not optional advice, and the
+  recipe that was supposed to prove it was living on luck.** `cadquery-ocp` and
+  `cadquery-ocp-novtk` own the same top-level `OCP/` and whichever lands last
+  wins; `just test-cadquery-only` was green for a month on plain pip, which
+  happened to land `cadquery-ocp` last, and failed on its first CI run under
+  `uv pip`, which landed novtk last — `ImportError: cannot import name
+  'IVtkOCC_Shape' from 'OCP.IVtkOCC'`, CadQuery unable to import at all. pip's
+  order was never a guarantee either. The recipe now runs the re-assert step
+  the README documents, so it verifies those instructions rather than hoping a
+  resolver agrees with them, and the README carries the `uv` form of the
+  two-step beside the `pip` form.
+
 - 0.7.1's release entry says the published wheel differs from 0.7.0's in "the
   version string, and the README it embeds". Comparing the two wheels *as
   published* — which is only possible after the fact — there is a third:
