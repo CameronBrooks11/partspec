@@ -1,0 +1,39 @@
+# Dependabot — because nothing else was going to tell us.
+#
+# Every action in this repo drifted three majors behind before anyone noticed
+# (#171), and the only signal was a Node 20 deprecation warning buried in the
+# log of a green job. Six actions, all still on node20. A weekly PR is the
+# cheap fix; the `ok` gate decides whether each one is safe, which is what it
+# is for.
+#
+# Grouped rather than one PR per dependency: a batch that CI has run as a
+# batch is the thing being merged, and six separate green PRs do not prove the
+# six work together.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  # `uv`, not `pip`: the lockfile is committed (see AGENTS.md — it is what
+  # holds the single-OCP-provider resolution in place), so the lock is the
+  # thing that needs updating and `uv lock` is what updates it honestly.
+  #
+  # The OCP hazard is covered rather than trusted: `just ocp-guard` runs in the
+  # `check` job, so a resolution that lands two providers fails the gate on the
+  # Dependabot PR instead of on someone's machine.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python:
+        patterns: ["*"]
+    commit-message:
+      prefix: "build"
