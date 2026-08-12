@@ -91,12 +91,22 @@ just fmt             # ruff format + ruff check --fix + regenerate doc blocks
 just gen-docs        # regenerate the generated doc blocks alone
 just check           # fmt-check + gen-docs --check + lint + typecheck (CI-equivalent)
 just test            # pytest
+just test-reverse    # the suite in reverse file order — catches cross-test state leaks
 just run -- --version
 just setup-mesh      # light path: mesh tier only. NOT what CI runs
-just test-mesh-only  # mesh tests against a throwaway scipy-free [mesh] install (CI runs this)
+just test-mesh-only  # the WHOLE suite against a throwaway scipy-free [mesh] install (CI runs this)
 just test-mcp-only   # MCP tests against a throwaway engine-free [mcp] install (CI runs this)
 just test-no-extras  # the WHOLE suite against a no-extras install (CI runs this)
 just ocp-guard       # assert exactly one OCP provider is installed
+```
+
+The two OCCT-tier environments are local-only and take minutes, because OCCT is
+~1.5GB and because `uv pip install .[occt]` strands OCP entirely (#109) — they
+need plain pip in a seeded venv, which is why they went unrun until 2026-08-11:
+
+```sh
+just test-occt-only      # the WHOLE suite against a plain-pip [occt] install
+just test-cadquery-only  # ditto [cadquery] — which lands TWO OCP providers, by design
 ```
 
 `PARTSPEC_OPENSCAD` pins the engine; `PARTSPEC_REQUIRE_ENGINES=1` turns a missing one from
