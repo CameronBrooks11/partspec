@@ -191,7 +191,10 @@ test-occt-only:
     # skips — correct, but this is the sharper statement and it comes first.
     "$env/bin/python" -c 'import build123d' || { echo "build123d installed but not importable — the #109 shape; this recipe proves nothing"; exit 1; }
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None and u.find_spec("cadquery") is None, "another engine leaked in — this recipe no longer proves anything"'
-    "$env/bin/python" -m pytest tests/ -q
+    # -rs: the skip PROFILE is what this environment is for. A bare count
+    # cannot be compared between two machines, and the whole reason this job
+    # exists is that nobody could see what an engine-only install does not run.
+    "$env/bin/python" -m pytest tests/ -q -rs
 
 # Run the WHOLE suite against a cadquery-ONLY install, in a throwaway environment.
 #
@@ -218,7 +221,7 @@ test-cadquery-only:
     "$env/bin/python" -m pip install --quiet -e '.[cadquery]' pytest
     "$env/bin/python" -c 'import cadquery' || { echo "cadquery did not import — the OCP clobber landed novtk-side; see README"; exit 1; }
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None, "the mesh extra leaked in — this recipe no longer proves anything"'
-    "$env/bin/python" -m pytest tests/ -q
+    "$env/bin/python" -m pytest tests/ -q -rs
 
 # Run main entrypoint
 run *ARGS:
