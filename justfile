@@ -174,7 +174,11 @@ test-no-extras:
 # than running it on a docs-only PR. It IS a CI job, with
 # `PARTSPEC_REQUIRE_ENGINES=openscad,build123d`, which is the sharper form of
 # the import check below: `conftest.py` resolves that by importing.
-# Measured when added: 664 passed, 117 skipped, 0 failed.
+# Measured in CI, which is the clean-room case: 656 passed, 125 skipped, 0
+# failed. On a checkout that has already been `just setup`, expect 664/117 —
+# `tests/test_lint_config.py` finds a ruff binary at `.venv/bin/ruff` and its
+# 8 tests run instead of skipping. That is ambient, not a property of the
+# install under test, which is why the clean number is the one recorded.
 [doc("Run the WHOLE suite against a throwaway occt-only install (slow, ~1.5GB)")]
 test-occt-only:
     #!/usr/bin/env bash
@@ -210,7 +214,8 @@ test-occt-only:
 # is for the dev environment. It runs the suite in the environment a user
 # actually gets, which is how the two-provider branch of
 # `_engine_import_error` was found to be the one branch with no test.
-# Measured when added: 670 passed, 111 skipped, 0 failed.
+# Measured in CI: 662 passed, 119 skipped, 0 failed (670/111 on a checkout with
+# a built `.venv` — see the ruff note on `test-occt-only`).
 [doc("Run the WHOLE suite against a throwaway cadquery-only install (slow, ~1.5GB)")]
 test-cadquery-only:
     #!/usr/bin/env bash
