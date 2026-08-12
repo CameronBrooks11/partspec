@@ -224,6 +224,18 @@ test-occt-only:
 # is for the dev environment. It runs the suite in the environment a user
 # actually gets, which is how the two-provider branch of
 # `_engine_import_error` was found to be the one branch with no test.
+#
+# WHICH provider wins the clobber is install-order luck, and this recipe was
+# living on it. It passed for a month on plain pip, which happened to land
+# `cadquery-ocp` last; the first CI run under `uv pip` landed novtk last and
+# CadQuery could not import (`IVtkOCC_Shape`). Nothing about that was a uv
+# fault — pip's order was never a guarantee either. So the second line below
+# re-asserts the VTK build, which is exactly the two-step the README tells
+# users to run. The recipe now verifies those instructions instead of hoping
+# a resolver agrees with them. Both distributions stay installed, so this is
+# still the two-provider environment the recipe exists to inhabit — the
+# re-assert decides which one owns `OCP/`, not how many are on disk.
+#
 # Measured in CI: 663 passed, 119 skipped, 0 failed (671/111 on a checkout with
 # a built `.venv` — see the ruff note on `test-occt-only`).
 [doc("Run the WHOLE suite against a throwaway cadquery-only install (slow, ~1.5GB)")]
@@ -234,7 +246,8 @@ test-cadquery-only:
     trap 'rm -rf "$(dirname "$env")"' EXIT
     uv venv --quiet "$env"
     uv pip install --quiet --no-config --python "$env/bin/python" -e '.[cadquery]' pytest
-    "$env/bin/python" -c 'import cadquery' || { echo "cadquery did not import — the OCP clobber landed novtk-side; see README"; exit 1; }
+    uv pip install --quiet --no-config --python "$env/bin/python" --no-deps --reinstall-package cadquery-ocp cadquery-ocp
+    "$env/bin/python" -c 'import cadquery' || { echo "cadquery did not import — the OCP clobber landed novtk-side despite the re-assert above; see README"; exit 1; }
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None, "the mesh extra leaked in — this recipe no longer proves anything"'
     "$env/bin/python" -m pytest tests/ -q -rs
 

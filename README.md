@@ -204,15 +204,21 @@ because it changes the artifact.
 ```sh
 pip install 'partspec[occt,cadquery]'
 pip install --force-reinstall --no-deps cadquery-ocp   # re-assert the VTK build
+
+# or, under uv
+uv pip install 'partspec[occt,cadquery]'
+uv pip install --no-deps --reinstall-package cadquery-ocp cadquery-ocp
 ```
 
 build123d wants `cadquery-ocp-novtk` and CadQuery wants `cadquery-ocp`. Both wheels install
 the same top-level `OCP/` package, neither pip nor uv detects the conflict, and whichever
 lands last wins — when novtk wins, CadQuery cannot import at all. This repo drops novtk with
 a `[tool.uv]` override, but that is a workspace setting and is not carried in wheel
-metadata, so a `pip` install has no override in scope. If you skip the second line, partspec
-tells you so: the clobber is reported as an environment fault with that command as the hint,
-not as a failing part.
+metadata, so a `pip` install has no override in scope. Which one wins is install-order luck
+and the two installers do not agree — `just test-cadquery-only` passed for a month on pip
+and failed on its first CI run under uv — so the second line is not optional advice. If you
+skip it, partspec tells you: the clobber is reported as an environment fault with that
+command as the hint, not as a failing part.
 
 **`uv pip install 'partspec[occt]'` works.** Earlier releases of this README said it did
 not — that no `OCP` module landed and you had to fall back to plain `pip` (#109). That was
