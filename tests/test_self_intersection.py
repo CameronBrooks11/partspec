@@ -6,21 +6,21 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
-bd = pytest.importorskip("build123d", reason="occt extra not installed")
-
-from support import (  # noqa: E402
+from support import (
     check_of,
     forced_open_solid,
+    needs_build123d,
     needs_mesh,
     needs_openscad,
+    optional_module,
     py_target,
     scad_target,
 )
 
-from partspec.backends.occt import OcctBackend  # noqa: E402
-from partspec.cli import main  # noqa: E402
+from partspec.backends.occt import OcctBackend
+from partspec.cli import main
+
+bd = optional_module("build123d")
 
 
 def _tight_sweep():
@@ -42,12 +42,14 @@ def _overlapping_helix():
     return bd.sweep(profile, helix)
 
 
+@needs_build123d
 def test_a_sound_part_is_free_exactly():
     outcome = OcctBackend().self_intersection_free(bd.Box(10, 10, 10))
     assert outcome.value is True
     assert outcome.exact is True
 
 
+@needs_build123d
 def test_the_tight_sweep_fails_with_the_faults_named():
     backend = OcctBackend()
     shape = _tight_sweep()
@@ -58,6 +60,7 @@ def test_the_tight_sweep_fails_with_the_faults_named():
     assert "edge/face" in detail, "the fault types are the actionable part"
 
 
+@needs_build123d
 def test_a_self_overlapping_swept_face_is_caught_pair_less():
     """PR #142 review, F1: the first draft claimed single-surface
     self-intersection is invisible in general. It is not — the kernel tests
@@ -71,6 +74,7 @@ def test_a_self_overlapping_swept_face_is_caught_pair_less():
     assert "1 face" in detail, "the pair-less fault: a face against itself"
 
 
+@needs_build123d
 def test_the_spindle_torus_is_the_recorded_limit():
     """The escape that remains: a self-intersection lying within a single
     ANALYTIC surface goes undetected — alone and fused into a multi-face
@@ -87,6 +91,7 @@ def test_the_spindle_torus_is_the_recorded_limit():
     assert backend.self_intersection_free(fused).value is True
 
 
+@needs_build123d
 def test_neither_validity_check_subsumes_the_other():
     """PR #142 review, F2: the first pin used two AGREEMENT cases, which is
     consistent with the checks being identical. These are the disagreement
@@ -103,6 +108,7 @@ def test_neither_validity_check_subsumes_the_other():
     assert backend.self_intersection_free(forced).value is True
 
 
+@needs_build123d
 def test_the_status_filter_is_load_bearing():
     """PR #142 review, F4: dropping the SelfIntersect status filter survived
     the suite. The tight sweep's analysis emits non-SI results too (a
@@ -114,6 +120,7 @@ def test_the_status_filter_is_load_bearing():
     assert all(f for f in faults), "no empty-kind entries from non-SI results"
 
 
+@needs_build123d
 def test_an_overlapping_compound_fails_as_its_own_boundary():
     """SPEC 4.9's multi-solid sentence, executed: two overlapping unfused
     solids in one part are that part's boundary contradicting itself — a
@@ -123,6 +130,7 @@ def test_an_overlapping_compound_fails_as_its_own_boundary():
     assert backend.self_intersection_free(overlapping).value is False
 
 
+@needs_build123d
 def test_the_check_through_the_cli_names_the_defect(tmp_path):
     (tmp_path / "m.py").write_text(
         "import build123d as bd\n\n\ndef make_part():\n"
@@ -142,6 +150,7 @@ def test_the_check_through_the_cli_names_the_defect(tmp_path):
     assert "entity fault" in check["detail"]
 
 
+@needs_build123d
 def test_a_sound_part_passes_through_the_cli(tmp_path):
     (tmp_path / "m.py").write_text(
         "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
@@ -166,6 +175,7 @@ def test_the_mesh_tier_refuses_with_the_tier_named(tmp_path):
     assert check["requires"] == "occt"
 
 
+@needs_build123d
 def test_measure_lists_the_quantity(tmp_path):
     (tmp_path / "m.py").write_text(
         "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"

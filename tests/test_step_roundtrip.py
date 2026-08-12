@@ -10,26 +10,28 @@ calibrates the 1e-6 default (PR #143 review, F1).
 from __future__ import annotations
 
 import pytest
-
-bd = pytest.importorskip("build123d", reason="occt extra not installed")
-
-from support import (  # noqa: E402
+from support import (
     check_of,
     forced_open_solid,
+    needs_build123d,
     needs_mesh,
     needs_openscad,
+    optional_module,
     py_target,
     scad_target,
 )
 
-from partspec.backend import Unsupported  # noqa: E402
-from partspec.backends.occt import OcctBackend  # noqa: E402
-from partspec.cli import main  # noqa: E402
-from partspec.contract import ContractError, Part  # noqa: E402
-from partspec.runner import _run_geometry_check  # noqa: E402
-from partspec.status import Status  # noqa: E402
+from partspec.backend import Unsupported
+from partspec.backends.occt import OcctBackend
+from partspec.cli import main
+from partspec.contract import ContractError, Part
+from partspec.runner import _run_geometry_check
+from partspec.status import Status
+
+bd = optional_module("build123d")
 
 
+@needs_build123d
 def test_healthy_families_round_trip_clean():
     backend = OcctBackend()
     for shape in (
@@ -47,6 +49,7 @@ def test_healthy_families_round_trip_clean():
         assert outcome["schema"], "the writer schema is recorded"
 
 
+@needs_build123d
 def test_the_forced_solid_loses_its_volume_through_step():
     outcome = OcctBackend().step_roundtrip(forced_open_solid())
     assert not isinstance(outcome, Unsupported)
@@ -62,6 +65,7 @@ def _spec(**kwargs):
     return part.checks[0]
 
 
+@needs_build123d
 def test_topology_drift_fails_at_any_tolerance():
     """The two gates are separate: a count that changed is a different part
     at ANY tol, so even tol=1.0 must fail the forced solid."""
@@ -124,6 +128,7 @@ def test_the_tol_is_never_epsilon_widened():
     assert _run_geometry_check(at_limit, _StubBackend(5e-7), None).status is Status.PASS
 
 
+@needs_build123d
 def test_a_threaded_rod_calibrates_the_default():
     """PR #143 review, F1: the thread family is the worst healthy citizen —
     a fused helical sweep round-trips far over the old 1e-9 default and
@@ -153,6 +158,7 @@ def test_a_threaded_rod_calibrates_the_default():
     )
 
 
+@needs_build123d
 def test_every_refusal_branch_is_a_named_unsupported(monkeypatch):
     """PR #143 review, F3: all three refusal branches were unreachable in
     tests — a silent writer failure would have read as a perfect round trip.
@@ -178,6 +184,7 @@ def test_every_refusal_branch_is_a_named_unsupported(monkeypatch):
     assert isinstance(outcome, Unsupported) and "adoption refused" in outcome.reason
 
 
+@needs_build123d
 def test_the_printers_are_restored_even_through_an_exception(monkeypatch):
     """PR #143 review, F4: a dropped restore would permanently mute OCCT
     diagnostics process-wide — invisible to CI, and this repo ships a
@@ -208,6 +215,7 @@ def test_the_declaration_validates_tol():
             _spec(tol=bad)
 
 
+@needs_build123d
 def test_the_check_through_the_cli_records_the_schema(tmp_path):
     (tmp_path / "m.py").write_text(
         "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 6)\n"
@@ -225,6 +233,7 @@ def test_the_check_through_the_cli_records_the_schema(tmp_path):
     assert check["measurement"]["exactness"] == "exact"
 
 
+@needs_build123d
 def test_the_cli_stdout_stays_clean_json(tmp_path, capsys):
     """The STEP machinery narrates transfers to stdout; the messenger
     silencing must keep the artifact channel pure — measure's JSON is the

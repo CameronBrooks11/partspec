@@ -15,12 +15,12 @@ import zlib
 from pathlib import Path
 
 import pytest
-from support import needs_build123d
+from support import needs_build123d, needs_numpy, optional_module
 
-np = pytest.importorskip("numpy", reason="numpy (a trimesh dependency) not installed")
+from partspec.cli import main
+from partspec.vdiff import VdiffUsageError, read_png
 
-from partspec.cli import main  # noqa: E402
-from partspec.vdiff import VdiffUsageError, read_png  # noqa: E402
+np = optional_module("numpy")
 
 _HIGHLIGHT = (230, 0, 126)
 
@@ -290,6 +290,7 @@ def test_a_failed_resolve_clears_the_stale_render_json(tmp_path: Path, capsys):
 # ---------------------------------------------------------------------------
 
 
+@needs_numpy
 def test_read_png_decodes_every_filter_the_engine_may_use(tmp_path: Path):
     """The OpenSCAD tier's images come from the engine, which filters as it
     pleases; each of the five PNG filters is hand-encoded here and must

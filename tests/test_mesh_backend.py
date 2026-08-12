@@ -3,12 +3,17 @@
 Two tiers of test, deliberately separated:
 
 * Measurement tests build their input with trimesh, so they run anywhere the
-  mesh extra is installed.
-* Engine tests shell out to OpenSCAD and skip when it is absent — but CI sets
-  `PARTSPEC_REQUIRE_ENGINES=1`, which turns that skip into a hard failure, so
-  "absent" is a local convenience and never a silent gap in the gate. Their
-  fixtures are chosen so every expected number has a closed form; asserting
-  against whatever the tool produced would test nothing.
+  mesh extra is installed — `needs_mesh`.
+* Engine tests shell out to OpenSCAD *and then measure what it exported*, so
+  they need the binary and the mesh extra both — `needs_scad_tier`. They skip
+  when either is absent, but CI sets `PARTSPEC_REQUIRE_ENGINES=1`, which turns
+  the binary half of that skip into a hard failure, so "absent" is a local
+  convenience and never a silent gap in the gate. Their fixtures are chosen so
+  every expected number has a closed form; asserting against whatever the tool
+  produced would test nothing.
+
+The gate is per test rather than on the module: `test_topology_is_not_in_
+capabilities` reads a declaration and needs neither (#165).
 """
 
 from __future__ import annotations
@@ -17,13 +22,20 @@ import math
 from pathlib import Path
 
 import pytest
-from support import measured, needs_openscad, openscad_supports_backend_flag, refused
+from support import (
+    measured,
+    needs_mesh,
+    needs_scad_tier,
+    openscad_supports_backend_flag,
+    optional_module,
+    refused,
+)
 
 from partspec.backend import BuildError, Tier, Unsupported, Vec3
 from partspec.backends.mesh import MeshBackend
 from partspec.engines.openscad import OpenSCADSource
 
-trimesh = pytest.importorskip("trimesh", reason="mesh extra not installed")
+trimesh = optional_module("trimesh")
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -38,6 +50,7 @@ def backend() -> MeshBackend:
 # --------------------------------------------------------------------------
 
 
+@needs_mesh
 def test_cube_measures_exactly(backend: MeshBackend):
     """A polyhedron's volume and area are closed-form. Under D15 the mesh *is*
     the part, so these are exact — not approximations of anything."""
@@ -52,6 +65,7 @@ def test_cube_measures_exactly(backend: MeshBackend):
     assert area.exact
 
 
+@needs_mesh
 def test_bbox_is_a_named_vector(backend: MeshBackend):
     mesh = trimesh.creation.box(extents=(10, 20, 30))
     bbox = backend.bbox(mesh)
@@ -60,12 +74,14 @@ def test_bbox_is_a_named_vector(backend: MeshBackend):
     assert bbox.exact
 
 
+@needs_mesh
 def test_watertight_and_validity(backend: MeshBackend):
     mesh = trimesh.creation.box(extents=(1, 1, 1))
     assert backend.watertight(mesh).value is True
     assert backend.is_valid(mesh).value is True
 
 
+@needs_mesh
 def test_open_shell_is_not_watertight(backend: MeshBackend):
     """The case OpenSCAD's own --summary gets wrong: it omits the validity key
     entirely and exits 0, so `.get("simple", True)` passes a broken part."""
@@ -76,6 +92,7 @@ def test_open_shell_is_not_watertight(backend: MeshBackend):
     assert backend.watertight(mesh).value is False
 
 
+@needs_mesh
 def test_watertight_detail_distinguishes_the_two_defects(backend: MeshBackend):
     """ "Not watertight" conflates a hole with a non-manifold junction.
 
@@ -109,10 +126,12 @@ def test_watertight_detail_distinguishes_the_two_defects(backend: MeshBackend):
     assert detail is not None and "non-manifold" in detail
 
 
+@needs_mesh
 def test_watertight_detail_is_none_when_fine(backend: MeshBackend):
     assert backend.watertight_detail(trimesh.creation.box(extents=(1, 1, 1))) is None
 
 
+@needs_mesh
 def test_solid_count_without_scipy(backend: MeshBackend):
     """trimesh's `body_count` needs scipy, which the mesh extra does not install."""
     a = trimesh.creation.box(extents=(5, 5, 5))
@@ -135,6 +154,7 @@ def _block_with_sealed_cavity(body: float = 20.0, core: float = 10.0):
     return trimesh.util.concatenate([outer, inner])
 
 
+@needs_mesh
 def test_a_sealed_cavity_is_one_solid_not_two(backend: MeshBackend):
     """The finding from the T0 agent-convergence baseline (`evals/BASELINE.md`).
 
@@ -148,6 +168,7 @@ def test_a_sealed_cavity_is_one_solid_not_two(backend: MeshBackend):
     assert measured(backend.cavities(mesh)).value == 1
 
 
+@needs_mesh
 def test_a_sealed_cavity_is_not_a_handle(backend: MeshBackend):
     """`(2 - X)/2` assumes a single shell, so it was wrong by exactly the cavity
     count: X = 4 here, reporting genus -1 — a handle that does not exist. The
@@ -155,6 +176,7 @@ def test_a_sealed_cavity_is_not_a_handle(backend: MeshBackend):
     assert measured(backend.genus(_block_with_sealed_cavity())).value == 0
 
 
+@needs_mesh
 def test_two_disjoint_bodies_are_not_cavities(backend: MeshBackend):
     """The counterpart the orientation rule has to keep getting right."""
     a = trimesh.creation.box(extents=(5, 5, 5))
@@ -165,12 +187,14 @@ def test_two_disjoint_bodies_are_not_cavities(backend: MeshBackend):
     assert measured(backend.cavities(both)).value == 0
 
 
+@needs_mesh
 def test_genus_counts_through_holes(backend: MeshBackend):
     assert measured(backend.genus(trimesh.creation.box(extents=(2, 2, 2)))).value == 0
     torus = trimesh.creation.torus(major_radius=10, minor_radius=3)
     assert measured(backend.genus(torus)).value == 1
 
 
+@needs_mesh
 def test_genus_counts_two_separate_through_holes(backend: MeshBackend):
     """Genus 2 — the case separating a real Euler characteristic from anything
     that merely detects "has a hole".
@@ -195,6 +219,7 @@ def test_genus_counts_two_separate_through_holes(backend: MeshBackend):
     assert measured(backend.genus(drilled)).value == 2
 
 
+@needs_mesh
 def test_genus_is_refused_for_multi_body_parts(backend: MeshBackend):
     """Genus is defined per body; the Euler characteristic of a complex is a
     different number. Two disjoint boxes give -1 — mathematically correct, and
@@ -246,6 +271,7 @@ def touching_tets():
     )
 
 
+@needs_mesh
 def test_volume_is_refused_on_an_open_mesh(backend: MeshBackend, open_cube):
     """The headline case. trimesh does not raise or return NaN — it returns half
     the volume of the closed cube, which reads as an ordinary measurement."""
@@ -255,16 +281,19 @@ def test_volume_is_refused_on_an_open_mesh(backend: MeshBackend, open_cube):
     assert "boundary edge" in reason, "the refusal names the actual defect"
 
 
+@needs_mesh
 def test_center_of_mass_is_refused_on_an_open_mesh(backend: MeshBackend, open_cube):
     """It previously reported (-2.5, 0, 0) — a point outside the material."""
     assert "closed surface" in refused(backend.center_of_mass(open_cube)).reason
 
 
+@needs_mesh
 def test_genus_is_refused_on_an_open_mesh(backend: MeshBackend, open_cube):
     """It previously reported genus 1: a through-hole that does not exist."""
     assert "closed surface" in refused(backend.genus(open_cube)).reason
 
 
+@needs_mesh
 def test_volume_is_refused_when_the_winding_is_inconsistent(backend: MeshBackend):
     """Closed is not sufficient. The divergence theorem sums *signed*
     contributions, so a flipped triangle subtracts where it should add. Edge use
@@ -279,6 +308,7 @@ def test_volume_is_refused_when_the_winding_is_inconsistent(backend: MeshBackend
     assert "winding" in refused(backend.volume(flipped)).reason
 
 
+@needs_mesh
 def test_body_count_is_refused_where_the_geometry_does_not_fix_it(
     backend: MeshBackend, touching_tets
 ):
@@ -289,6 +319,7 @@ def test_body_count_is_refused_where_the_geometry_does_not_fix_it(
     assert "non-manifold" in refused(backend.solid_count(touching_tets)).reason
 
 
+@needs_mesh
 def test_an_open_mesh_bounds_no_solid(backend: MeshBackend, open_cube):
     """Still an answer, not a refusal — over-refusal inflates `incomplete` and is
     its own way of dodging an answerable question. But the answer is 0: an open
@@ -298,6 +329,7 @@ def test_an_open_mesh_bounds_no_solid(backend: MeshBackend, open_cube):
     assert measured(backend.cavities(open_cube)).value == 0
 
 
+@needs_mesh
 def test_area_and_bbox_survive_an_open_mesh(backend: MeshBackend, open_cube):
     """Both are statements about the triangles as exported, not about what they
     enclose. Five faces of a 10mm cube: 500mm2."""
@@ -306,6 +338,7 @@ def test_area_and_bbox_survive_an_open_mesh(backend: MeshBackend, open_cube):
     assert backend.watertight(open_cube).value is False
 
 
+@needs_mesh
 def test_a_rejected_manifold_is_never_read(open_cube):
     """Pins the dependency behaviour that caused the bug.
 
@@ -334,6 +367,7 @@ def test_a_rejected_manifold_is_never_read(open_cube):
     assert isinstance(_manifold(open_cube), Unsupported), "so the wrapper must refuse"
 
 
+@needs_mesh
 def test_an_inside_out_mesh_has_no_volume(backend: MeshBackend):
     """Consistent winding is not correct winding. A uniformly inverted mesh is
     perfectly consistent and encloses *negative* volume: an inside-out cube
@@ -350,6 +384,7 @@ def test_an_inside_out_mesh_has_no_volume(backend: MeshBackend):
     assert "inside-out" in refused(backend.center_of_mass(inverted)).reason
 
 
+@needs_mesh
 def test_a_sealed_cavity_still_has_a_volume(backend: MeshBackend):
     """The counterpart: an inward-wound *component* is normal in a solid with a
     void, so the orientation gate must look at the part, not at any one shell."""
@@ -361,6 +396,7 @@ def test_a_sealed_cavity_still_has_a_volume(backend: MeshBackend):
 # --------------------------------------------------------------------------
 
 
+@needs_mesh
 def test_measurements_do_not_route_through_manifold3d(backend: MeshBackend):
     """manifold3d rebuilds the mesh it is handed, so nothing absolute may be
     read from it.
@@ -392,6 +428,7 @@ def test_measurements_do_not_route_through_manifold3d(backend: MeshBackend):
     assert calls == []
 
 
+@needs_mesh
 @pytest.mark.parametrize(
     ("name", "build"),
     [
@@ -419,6 +456,7 @@ def test_the_replacement_agrees_with_manifold3d_on_sound_meshes(backend: MeshBac
     assert measured(backend.genus(mesh)).value == reference.genus(), name
 
 
+@needs_mesh
 def test_topology_counts_are_always_refused(backend: MeshBackend):
     """The PartCAD failure, prevented structurally: a triangle count is not a
     face count, so the query is refused rather than answered wrongly."""
@@ -432,6 +470,7 @@ def test_topology_is_not_in_capabilities(backend: MeshBackend):
     assert "volume" in backend.capabilities()
 
 
+@needs_mesh
 def test_min_distance_is_exact_on_polyhedra(backend: MeshBackend):
     a = trimesh.creation.box(extents=(10, 10, 10))
     b = trimesh.creation.box(extents=(10, 10, 10))
@@ -441,6 +480,7 @@ def test_min_distance_is_exact_on_polyhedra(backend: MeshBackend):
     assert gap.exact
 
 
+@needs_mesh
 def test_intersect_volume_is_exact_on_polyhedra(backend: MeshBackend):
     a = trimesh.creation.box(extents=(10, 10, 10))
     b = trimesh.creation.box(extents=(10, 10, 10))
@@ -448,6 +488,7 @@ def test_intersect_volume_is_exact_on_polyhedra(backend: MeshBackend):
     assert measured(backend.intersect_volume(a, b)).value == pytest.approx(500.0, rel=1e-3)
 
 
+@needs_mesh
 def test_the_mesh_tier_does_not_declare_a_capability_it_cannot_honour():
     """`raycast` was in `CAPABILITIES` while `trimesh`'s default ray path
     indexes through `rtree`, which the `mesh` extra does not carry — so the
@@ -476,6 +517,7 @@ def test_the_mesh_tier_does_not_declare_a_capability_it_cannot_honour():
 # --------------------------------------------------------------------------
 
 
+@needs_mesh
 def test_distinct_normals_track_facet_resolution(backend: MeshBackend):
     """The identity signal: a cylinder at $fn=n has n+2 distinct normals."""
     for sections in (16, 32, 64):
@@ -483,6 +525,7 @@ def test_distinct_normals_track_facet_resolution(backend: MeshBackend):
         assert backend.provenance(mesh)["distinct_normals"] == sections + 2
 
 
+@needs_mesh
 def test_distinct_normals_survive_retriangulation(backend: MeshBackend):
     """Why it is the identity signal and `triangles` is not: subdividing changes
     the triangle count without changing the design."""
@@ -499,7 +542,7 @@ def test_distinct_normals_survive_retriangulation(backend: MeshBackend):
 # --------------------------------------------------------------------------
 
 
-@needs_openscad
+@needs_scad_tier
 def test_block_with_hole_matches_closed_form(backend: MeshBackend, tmp_path: Path):
     """The P1 exit criterion, on a shape whose every quantity has a closed form.
 
@@ -523,7 +566,7 @@ def test_block_with_hole_matches_closed_form(backend: MeshBackend, tmp_path: Pat
     assert measured(backend.genus(mesh)).value == 1, "a through-hole is genus 1"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_every_measured_quantity_is_flagged_exact(backend: MeshBackend, tmp_path: Path):
     """Under D15 nothing on this tier is approximate, and each measurement must
     say so rather than leaving a consumer to assume it."""
@@ -535,7 +578,7 @@ def test_every_measured_quantity_is_flagged_exact(backend: MeshBackend, tmp_path
         assert result.bounds is None, measure.__name__
 
 
-@needs_openscad
+@needs_scad_tier
 def test_render_backend_is_passed_through_when_set(backend: MeshBackend, tmp_path: Path):
     """The backend changes the artifact, not just the speed: on a community
     gridfinity bin, Manifold produced 4 non-manifold edges where CGAL produced
@@ -561,7 +604,7 @@ def test_render_backend_is_passed_through_when_set(backend: MeshBackend, tmp_pat
     assert measured(backend.volume(mesh)).value == pytest.approx(30 * 20 * 10 - 6 * 6 * 10)
 
 
-@needs_openscad
+@needs_scad_tier
 def test_two_bodies(backend: MeshBackend, tmp_path: Path):
     mesh = backend.build(OpenSCADSource(path=FIXTURES / "two_bodies.scad"), tmp_path)
     assert not isinstance(mesh, BuildError)
@@ -570,7 +613,7 @@ def test_two_bodies(backend: MeshBackend, tmp_path: Path):
     assert isinstance(backend.genus(mesh), Unsupported)
 
 
-@needs_openscad
+@needs_scad_tier
 def test_parameters_reach_the_engine(backend: MeshBackend, tmp_path: Path):
     """-D overrides actually change the geometry — the thing every parametric
     contract depends on."""
@@ -584,7 +627,7 @@ def test_parameters_reach_the_engine(backend: MeshBackend, tmp_path: Path):
     assert measured(backend.volume(mesh)).value == pytest.approx(100 * 50 * 2)
 
 
-@needs_openscad
+@needs_scad_tier
 def test_curved_geometry_is_still_exact_for_the_polyhedron(backend: MeshBackend, tmp_path: Path):
     """A $fn=16 cylinder is a 16-gon prism, and partspec measures the prism.
 
