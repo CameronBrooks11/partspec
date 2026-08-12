@@ -73,6 +73,12 @@ jobs:
         run: just ocp-guard
       - name: Check (fmt + lint + typecheck)
         run: just check
+      # The hooks are a second, separately-pinned copy of part of the toolchain
+      # (ruff lives in `.pre-commit-config.yaml` as well as the dev group), and
+      # gitleaks and the file fixers live ONLY there. Until this step they were
+      # exercised nowhere but a developer's `git commit`.
+      - name: Hooks
+        run: just hooks
 
   test:
     name: Test (openscad ${{ matrix.openscad }})
