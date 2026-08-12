@@ -111,12 +111,19 @@ needs_numpy = pytest.mark.skipif(
     importlib.util.find_spec("numpy") is None,
     reason="numpy (it arrives with trimesh and with both OCCT-tier engines) not installed",
 )
-"""Markers rather than in-body `importorskip`/`pytest.skip`.
+"""One spelling for "this test needs an extra", and never at module scope.
 
-The suite spelled these five different ways — `importorskip` in 38 bodies,
-`find_spec` skipifs in three idioms, and six hand-rolled `if OPENSCAD is None:
-pytest.skip(...)`. A body-level skip is also invisible to collection, which
-makes `conftest.py`'s `PARTSPEC_REQUIRE_ENGINES` guard harder to reason about.
+The suite spelled it five ways — `importorskip` in 38 bodies, `find_spec`
+skipifs in three idioms, and six hand-rolled `if OPENSCAD is None:
+pytest.skip(...)`. These markers are the one to reach for; 51 in-body
+`importorskip` calls remain in modules that are otherwise engine-free, and
+converting them is tidying rather than a fix, because a body-level skip still
+collects and still counts.
+
+What is not tolerated is a **module-level** gate, which does not:
+`test_packaging.py::test_only_a_module_that_cannot_import_gates_at_import`
+enforces that, and names the three modules that genuinely cannot import
+without their extra.
 """
 
 
@@ -137,7 +144,7 @@ def optional_module(name: str) -> Any:
     """Bind a CAD module that may not be installed, without gating the file.
 
     A module-level `pytest.importorskip` raises at *import*, so pytest reports
-    the whole file as one skipped line. That hid 13 tests needing no engine at
+    the whole file as one skipped line. That hid 11 tests needing no engine at
     all, and — worse — four `the mesh tier refuses with the tier named` tests,
     invisible in `pip install partspec[mesh]`, the one install where the mesh
     tier is the only tier (#165). Binding the name here lets the module import

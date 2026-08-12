@@ -171,7 +171,12 @@ Run the suite under both before touching `engines/openscad.py`.
 - **A skipped test is not a passing test.** The suite once reported 195 passed / 23 skipped
   in CI because no runner had OpenSCAD, and those 23 were the entire end-to-end path. If you
   add a `skipif` for a missing tool, add the tool to `PARTSPEC_REQUIRE_ENGINES` handling in
-  `tests/conftest.py` so CI cannot lose it silently.
+  `tests/conftest.py` so CI cannot lose it silently. And **never gate a test module at
+  import**: `pytest.importorskip` at module scope raises during collection, so the file
+  reports as ONE skipped line and every test in it — including the ones needing nothing —
+  leaves the count. Use a per-test `needs_*` marker from `tests/support.py`;
+  `test_packaging.py` enforces this and names the three modules that genuinely cannot
+  import without their extra.
 - **Never let an unevaluated check exit 0.** `Verdict.INCOMPLETE` maps to exit 2 on purpose.
 - **Do not add a `--allow-incomplete` flag** without a recorded case where `incomplete` is a
   part's genuine long-term state. Shipping the escape hatch alongside the discipline means

@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AGENTS.md`: a released entry takes form-only edits, and a changed claim
   goes in a new entry.
 
+- **The suite the sdist ships still hid tests from the install it ships to.**
+  0.7.1 made `tests/` *pass* in a base install; it did not make it *run*. Ten
+  module-level `pytest.importorskip` gates collapsed their files to a single
+  skip line each, so a base install collected 588 tests where 714 exist and
+  ran 451 of them. Gating is per test now: 463 pass there, and
+  `pip install partspec[mesh]` — which reported four whole files as
+  `4 skipped` — runs the four `the mesh tier refuses with the tier named`
+  tests, the only executed evidence that the mesh tier refuses honestly in
+  the one install where the mesh tier is the only tier. No code in
+  `partspec/` changed (#165).
+
 ## [0.7.1] - 2026-08-11
 
 **No code changed.** `src/` is byte-identical to 0.7.0, and so is every one of
