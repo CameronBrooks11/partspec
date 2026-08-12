@@ -150,8 +150,9 @@ quietly-wrong part shows you.
   whichever lands last wins. A fresh-venv spike that worked was resolution-order luck.
 - **Detected by.** The first `import cadquery` after `uv sync --all-extras` — days can
   pass between the install exiting 0 and the import that reveals it, and the traceback
-  blames the library, not the resolver. (F5; the successor hazard is #109 — `cadquery-ocp-proxy` under `uv pip` installs no
-  OCP at all.)
+  blames the library, not the resolver. (F5. The sibling hazard is #109: the override below
+  is *configuration*, and `uv pip` applies it to anything installed from this directory — so
+  it silently reshapes installs it was never meant to touch, including published wheels.)
 - **When it's green.** The install exits 0. The breakage surfaces only at first import,
   possibly days later, and looks like the *library's* bug.
 - **Guards.** `[tool.uv] override-dependencies` drops novtk from resolution;

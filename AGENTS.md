@@ -101,15 +101,25 @@ just test-no-extras  # the WHOLE suite against a no-extras install (CI runs this
 just ocp-guard       # assert exactly one OCP provider is installed
 ```
 
-The two OCCT-tier environments take minutes, because OCCT is ~1.5GB and because
-`uv pip install .[occt]` strands OCP entirely (#109) — they need plain pip in a
-seeded venv, which is why they went unrun until 2026-08-11. CI runs both, gated
-on the `changes` path filter so a docs-only PR does not pay for them:
+The two OCCT-tier environments take minutes, because OCCT is ~1.5GB. They went
+unrun until 2026-08-11 because `uv pip install .[occt]` appeared to strand OCP
+(#109) and the shape every other recipe used seemed unable to build them. It
+was this repo's own `[tool.uv] override-dependencies`: **`uv pip` reads
+`[tool.uv]` from the nearest pyproject.toml above the CWD and applies it to
+whatever it is installing**, so any `uv pip install` run from this checkout
+resolves against our overrides, published wheels included. Every recipe that
+installs into a throwaway environment therefore passes `--no-config`, and
+`tests/test_packaging.py` refuses one that does not. CI runs both, gated on the
+`changes` path filter so a docs-only PR does not pay for them:
 
 ```sh
-just test-occt-only      # the WHOLE suite against a plain-pip [occt] install
+just test-occt-only      # the WHOLE suite against a throwaway [occt] install
 just test-cadquery-only  # ditto [cadquery] — which lands TWO OCP providers, by design
 ```
+
+The same trap applies to the release cold-verify: install the published wheel
+from a directory outside the repo, or the thing you verify is not the thing
+users get.
 
 Those two CI jobs set `PARTSPEC_REQUIRE_ENGINES` to the engine the extra
 promises, which is the only place in the gate that can tell *the extra

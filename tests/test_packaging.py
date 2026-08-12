@@ -467,3 +467,28 @@ def test_the_project_urls_point_at_things_that_exist():
     assert (REPO / "CHANGELOG.md").is_file()
     assert urls["Documentation"].rstrip("/").endswith("/docs")
     assert (REPO / "docs").is_dir()
+
+
+def test_every_throwaway_install_recipe_ignores_this_repos_uv_config():
+    """`uv pip` applies `[tool.uv]` from the pyproject.toml it finds by walking
+    up from the CWD — to whatever it is installing, published wheel included.
+    These recipes exist to measure what a CONSUMER gets, and a consumer never
+    has this repo's `override-dependencies` in scope.
+
+    Without `--no-config` the measurement is of our own resolution wearing a
+    consumer's clothes. That is not a hypothetical: it produced #109, ten days
+    of a self-inflicted strand recorded as an upstream uv bug, a README
+    paragraph telling every uv user to avoid a command that works, and two
+    recipes carrying a plain-pip workaround for a cause that was never real.
+    """
+    lines = [
+        line.strip()
+        for line in (REPO / "justfile").read_text().splitlines()
+        if line.strip().startswith("uv pip install")
+    ]
+    assert lines, "no `uv pip install` in the justfile — this guard has lost its subject"
+    missing = [line for line in lines if "--no-config" not in line]
+    assert not missing, (
+        "these justfile installs read this repo's [tool.uv] and so cannot measure what a "
+        f"consumer gets — add --no-config: {missing}"
+    )

@@ -135,9 +135,18 @@ def test_a_broken_local_import_chain_is_still_the_parts_fault(tmp_path: Path):
 
 
 def test_a_stranded_ocp_proxy_is_named_not_circular(monkeypatch):
-    """#109: cadquery-ocp-proxy installed but no OCP delivered (the uv pip
-    case) — the old hint said pip install partspec[occt], which a uv user
-    re-runs through uv, forever."""
+    """#109: the OCP ecosystem is installed and no concrete provider is.
+
+    The generic hint for this state was `pip install partspec[occt]` — the very
+    command that produced it, so the reader loops. What the reader needs is the
+    name of the distribution that went missing.
+
+    Asserted as invariants, not as phrasing: the message twice named a cause
+    that turned out to be fiction (an install-time hook in the proxy; uv's
+    installer) and a test pinned to those words defended the fiction. What must
+    hold is that the fault is environmental, that the missing provider is named,
+    and that the hint is not the command that got you here.
+    """
     import importlib.metadata as md
 
     from partspec.engines.pycad import _engine_import_error
@@ -157,9 +166,13 @@ def test_a_stranded_ocp_proxy_is_named_not_circular(monkeypatch):
         err = _engine_import_error("build123d", ImportError("No module named 'OCP'"))
     finally:
         monkeypatch.setattr(md, "distribution", real)
-    assert err.origin == "environment"
-    assert "cadquery-ocp-proxy" in err.message and "delivered no OCP" in err.message
-    assert err.hint is not None and "plain pip" in err.hint and "#109" in err.hint
+    assert err.origin == "environment", "not a verdict on the part"
+    assert "no OCP provider is installed" in err.message, "it says what is absent"
+    assert "cadquery-ocp-proxy 7.9.3.1.1" in err.message, "and what is present, with its version"
+    assert err.hint is not None
+    assert "cadquery-ocp-novtk" in err.hint, "the hint names the distribution to install"
+    assert "partspec[occt]" not in err.hint, "which is the command that produced this state"
+    assert "#109" in err.hint
 
 
 def _import_error_with_providers(monkeypatch, installed: dict[str, str]):
