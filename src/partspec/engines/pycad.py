@@ -404,17 +404,26 @@ def _engine_import_error(engine: str, exc: ImportError) -> BuildError:
         except PackageNotFoundError:
             proxy = None
         if proxy is not None:
-            # The proxy selects a concrete OCP wheel with an install-time hook
-            # that some installers (uv pip) never run — so it sits in the
-            # environment having delivered nothing, and the generic
-            # "pip install partspec[occt]" hint would send a uv user in a
-            # circle (#109, found in the v0.4.0 cold verification).
+            # The OCP ecosystem is here and no concrete provider is: the
+            # resolution dropped one that build123d and CadQuery both declare
+            # outright. `cadquery-ocp-proxy` is a metadata-only version tracker
+            # that ships no OCP itself, so its presence is the breadcrumb, not
+            # the cause -- ocpsvg and ocp_gordon depend on it bare.
+            #
+            # The known way to reach this state is a resolver override, and the
+            # known override is THIS REPO'S: `uv pip` reads `[tool.uv]` from the
+            # pyproject.toml above the CWD, so any `uv pip install` run from a
+            # partspec checkout inherits `override-dependencies` and drops
+            # novtk. That is the whole of #109, which spent ten days on record
+            # as an upstream uv bug (see the `--no-config` note in the justfile).
+            wanted = "cadquery-ocp" if engine == "cadquery" else "cadquery-ocp-novtk"
             return BuildError(
-                f"{engine} is not importable: {exc}; cadquery-ocp-proxy {proxy} is "
-                f"installed but delivered no OCP — its install-time selection does "
-                f"not run under every installer (uv pip is the known case)",
-                hint="install the engine with plain pip, or pin a concrete "
-                "cadquery-ocp; see partspec issue #109",
+                f"{engine} is not importable: {exc}; no OCP provider is installed "
+                f"(cadquery-ocp-proxy {proxy} is present, but it ships no OCP) — "
+                f"something dropped {wanted} from the resolution",
+                hint=f"pip install {wanted}; if you installed from a partspec "
+                f"checkout, `uv pip` applied this repo's [tool.uv] override — "
+                f"re-run it with --no-config. See partspec issue #109",
                 origin="environment",
             )
 

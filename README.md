@@ -214,21 +214,25 @@ metadata, so a `pip` install has no override in scope. If you skip the second li
 tells you so: the clobber is reported as an environment fault with that command as the hint,
 not as a failing part.
 
-**`uv pip install 'partspec[occt]'` does not work — use plain `pip`.** build123d's
-`cadquery-ocp-proxy` selects the real OCP wheel with an install-time hook that uv's
-installer does not run, so the proxy lands and no `OCP` module does. `import build123d`
-then fails with `ModuleNotFoundError: No module named 'OCP'` (#109). Measured against
-`partspec[occt]==0.7.1` from PyPI on 2026-08-12, with proxy 7.9.3.1.1, on **Python 3.12,
-3.13 and 3.14 alike** — this is the current state, not a historical one. Two things do
-work: plain `pip`, and a locked project (`uv sync`) the way this repo does. If you hit
-the stranded state anyway, partspec names it rather than blaming your part —
+**`uv pip install 'partspec[occt]'` works.** Earlier releases of this README said it did
+not — that no `OCP` module landed and you had to fall back to plain `pip` (#109). That was
+wrong, and the cause was ours: `uv pip` reads `[tool.uv]` from the nearest pyproject.toml
+above the working directory and applies it to whatever it is installing, so every
+measurement taken from inside a partspec checkout inherited this repo's
+`override-dependencies`, which drops `cadquery-ocp-novtk` on purpose. One directory over,
+the same command has always worked. If you are installing *from* a clone, pass
+`--no-config`.
+
+That leaves one real way to reach an engine with no OCP behind it, and partspec names it
+rather than blaming your part —
 
 ```
-$ partspec check spec.py:make            # exit 4, verdict "error", origin "environment"
-build123d is not importable: No module named 'OCP'; cadquery-ocp-proxy 7.9.3.1.1 is
-installed but delivered no OCP — its install-time selection does not run under every
-installer (uv pip is the known case)
-hint: install the engine with plain pip, or pin a concrete cadquery-ocp; see #109
+$ partspec check spec.py:stepper_bracket   # exit 4, verdict "error", origin "environment"
+build123d is not importable: No module named 'OCP'; no OCP provider is installed
+(cadquery-ocp-proxy 7.9.3.1.1 is present, but it ships no OCP) — something dropped
+cadquery-ocp-novtk from the resolution
+hint: pip install cadquery-ocp-novtk; if you installed from a partspec checkout,
+`uv pip` applied this repo's [tool.uv] override — re-run it with --no-config. See #109
 ```
 
 ## Documentation

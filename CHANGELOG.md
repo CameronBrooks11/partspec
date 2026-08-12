@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`uv pip install 'partspec[occt]'` was never broken, and #109 was ours.**
+  For ten days the README told uv users the command does not work and to fall
+  back to plain `pip`; the issue recorded an upstream cause — that build123d's
+  `cadquery-ocp-proxy` picks a real OCP wheel with an install-time hook uv's
+  installer skips — and the error message, its test, two justfile recipes and
+  `AGENTS.md` all repeated it. None of it was true. `cadquery-ocp-proxy` ships
+  no OCP and has no dependencies at all; every build123d release ever published
+  hard-depends on a concrete provider (`cadquery-ocp` through 0.10.0,
+  `cadquery-ocp-novtk` from 0.11.0), so there was no hook to run and nothing
+  for uv to skip. The strand was this repo's own
+  `[tool.uv] override-dependencies = ["cadquery-ocp-novtk ; sys_platform == 'never'"]`,
+  which uv finds by walking up from the working directory and applies to
+  whatever it is installing. Measured four ways against
+  `partspec[occt]==0.7.1` on Python 3.13: outside the repo it installs OCP;
+  inside the repo it does not; inside the repo with `--no-config` it does;
+  and in an empty directory holding nothing but a pyproject.toml carrying that
+  one override, it does not. `partspec[occt]==0.4.0`, the version of the
+  original report, installs cleanly from outside the repo today — and the
+  override predates that report by six days, so it was in scope for every
+  measurement the issue was ever built on.
+
+  Fixed in what the tool says and in what the gates measure. The README
+  paragraph is replaced with the correction rather than deleted, since the
+  wrong version shipped in three releases. `_engine_import_error` no longer
+  blames uv's installer: the state it detects is now stated as what it is — no
+  OCP provider installed, the proxy present as a breadcrumb — and it names the
+  distribution to install instead of advising a switch of installer. Its test
+  asserts those invariants rather than the phrasing, which is how the fiction
+  survived: the test pinned the words. All five throwaway-environment recipes
+  pass `uv pip install --no-config`, which lets `test-occt-only` and
+  `test-cadquery-only` drop the seeded-venv-plus-plain-pip workaround they
+  carried for a cause that did not exist, and `test_packaging.py` fails any
+  future recipe that omits the flag — a recipe measuring what a consumer gets
+  cannot read config no consumer has.
+
 - 0.7.1's release entry says the published wheel differs from 0.7.0's in "the
   version string, and the README it embeds". Comparing the two wheels *as
   published* — which is only possible after the fact — there is a third:
@@ -32,9 +67,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `partspec/` changed (#165).
 
 - **The shipped suite failed one test under `pip install partspec[cadquery]`.**
-  That extra names `cadquery-ocp` explicitly while build123d brings
-  `cadquery-ocp-proxy`, which brings `cadquery-ocp-novtk` — so pip installs
-  both providers of the same top-level `OCP/` package and neither notices.
+  That extra names `cadquery-ocp` explicitly while build123d hard-depends on
+  `cadquery-ocp-novtk` — so pip installs both providers of the same top-level
+  `OCP/` package and neither notices.
   partspec's own guard detects exactly this and says so, which is what broke
   the test: it pinned the wording of a different branch. It now asserts what
   every branch owes a reader — the environment's fault, the module named, a
