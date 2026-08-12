@@ -230,6 +230,66 @@ jobs:
       - name: Test
         run: just test-mcp-only
 
+  # The two OCCT-tier extras, each alone. Neither environment existed in CI or
+  # in any recipe until #170, and the reason was mechanical rather than an
+  # oversight: `uv pip install .[occt]` lands `cadquery-ocp-proxy` and NO `OCP`
+  # module (#109, and still reproducing on 2026-08-12 across Python 3.12/3.13/
+  # 3.14), so the `uv pip` shape every other job here uses cannot build them.
+  # Plain pip in a seeded venv can.
+  #
+  # `PARTSPEC_REQUIRE_ENGINES` is the sharp end. `conftest.py` resolves it by
+  # IMPORTING the engine, not by `find_spec`, so these two jobs are the only
+  # place in CI that can tell "the extra installed" apart from "the extra
+  # works" — which is exactly the #109 failure, and exactly the failure that
+  # went unnoticed long enough for the README to describe it in the past tense.
+  #
+  # Gated on `changes`, unlike `no-extras`: OCCT is ~1.5GB and these are the
+  # slowest jobs in the file, so a docs-only PR should not pay for them.
+  occt-only:
+    name: OCCT-only install
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: extractions/setup-just@v4
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: Install OpenSCAD (apt)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openscad
+      - name: Test
+        # The absence of trimesh and cadquery is what this job proves, so
+        # requiring them would fail the honest run.
+        env:
+          PARTSPEC_REQUIRE_ENGINES: "openscad,build123d"
+        run: just test-occt-only
+
+  # The cadquery extra pulls build123d deliberately (`backends/occt.py`
+  # measures through build123d's Shape API), so both are required here. What
+  # this install ALSO lands is two OCP providers, and it cannot be made not to
+  # — see the recipe. Running the suite in that state is how the two-provider
+  # branch of `_engine_import_error` was found to be the only one with no test.
+  cadquery-only:
+    name: CadQuery-only install
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: extractions/setup-just@v4
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: Install OpenSCAD (apt)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openscad
+      - name: Test
+        env:
+          PARTSPEC_REQUIRE_ENGINES: "openscad,cadquery,build123d"
+        run: just test-cadquery-only
+
   # No extras at all: the base install a `pip install partspec` produces.
   # `check` and `test` install every extra and `mesh-only`/`mcp-only` install a
   # subset, so this is the only job that can see a test whose engine dependency
@@ -262,7 +322,7 @@ jobs:
   ok:
     name: ok
     if: always()
-    needs: [changes, check, test, mesh-only, mcp-only, no-extras]
+    needs: [changes, check, test, mesh-only, mcp-only, no-extras, occt-only, cadquery-only]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

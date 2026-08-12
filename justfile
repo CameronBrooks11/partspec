@@ -170,8 +170,11 @@ test-no-extras:
 # no `OCP` module at all (#109). The shape every other recipe here uses cannot
 # build this environment.
 #
-# Heavy: OCCT is ~1.5GB, so this is a minutes-long recipe and deliberately not
-# a CI job. Measured when added: 664 passed, 117 skipped, 0 failed.
+# Heavy — OCCT is ~1.5GB — so CI gates it on the `changes` path filter rather
+# than running it on a docs-only PR. It IS a CI job, with
+# `PARTSPEC_REQUIRE_ENGINES=openscad,build123d`, which is the sharper form of
+# the import check below: `conftest.py` resolves that by importing.
+# Measured when added: 664 passed, 117 skipped, 0 failed.
 [doc("Run the WHOLE suite against a throwaway occt-only install (slow, ~1.5GB)")]
 test-occt-only:
     #!/usr/bin/env bash
@@ -180,7 +183,14 @@ test-occt-only:
     trap 'rm -rf "$(dirname "$env")"' EXIT
     uv venv --quiet --seed "$env"
     "$env/bin/python" -m pip install --quiet -e '.[occt]' pytest
-    "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("build123d") is not None, "build123d did not land — see #109, this recipe proves nothing without it"; assert u.find_spec("trimesh") is None and u.find_spec("cadquery") is None, "another engine leaked in — this recipe no longer proves anything"'
+    # `import`, not `find_spec`. #109 is precisely the state where the
+    # DISTRIBUTION is installed and the engine does not work: find_spec
+    # ("build123d") is true in a uv-pip install that delivered no OCP, and
+    # `import build123d` is what says so. The suite's own `needs_*` markers key
+    # on find_spec, so a broken engine there produces failures rather than
+    # skips — correct, but this is the sharper statement and it comes first.
+    "$env/bin/python" -c 'import build123d' || { echo "build123d installed but not importable — the #109 shape; this recipe proves nothing"; exit 1; }
+    "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None and u.find_spec("cadquery") is None, "another engine leaked in — this recipe no longer proves anything"'
     "$env/bin/python" -m pytest tests/ -q
 
 # Run the WHOLE suite against a cadquery-ONLY install, in a throwaway environment.
