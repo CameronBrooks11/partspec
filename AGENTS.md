@@ -10,8 +10,15 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha; **v0.7.3 released on PyPI** (2026-08-13, tag → trusted publishing via
-`release.yml`). 0.7.3 is the first release cut from an *adoption* measurement rather than
+Status: pre-alpha; **v0.7.4 released on PyPI** (2026-08-13, tag → trusted publishing via
+`release.yml`). 0.7.4 is one fix and it corrects 0.7.3: the remedy `check` had just started
+printing named `pip`, which a `uv venv` does not have — and on a distro that packages one
+the word still resolves, to the *system* interpreter, so the fix ran clean and changed
+nothing the failing interpreter could see. Hints are now phrased for the interpreter
+reading them (`install.py`, `find_spec` and deliberately not `shutil.which`). Both
+0.7.3-era findings and this one came from the same place: installing the published artifact
+as a stranger would and following its instructions literally. 0.7.3 before it is the first
+release cut from an *adoption* measurement rather than
 from review: a fresh agent, given a cold install, a community CadQuery library and an
 external standard to check it against, spent roughly 40% of its effort discovering the
 contract API. `check` now prints `report.hint` — the remedy — instead of leaving it in the

@@ -2,12 +2,12 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.7.3 is on PyPI** — what a fresh agent, dropped on a
-> cold install with a real part to verify and no other context, found the tool
-> doing: naming a fault and withholding its remedy. `check` printed the problem
-> and left the fix in `report.json`, where `measure` and `render` had always
-> printed theirs; the two Python engine factories carried no docstring; and
-> diagnostics cited specs the wheel does not ship. It
+> **Status: pre-alpha; v0.7.4 is on PyPI** — v0.7.3 stopped the tool naming a
+> fault and withholding its remedy, and 0.7.4 is the correction that found: the
+> remedy it had started printing said `pip`, and a `uv venv` ships none. Worse,
+> the word still resolves — to the system interpreter's pip — so the fix ran,
+> reported success, and changed nothing the failing interpreter could see.
+> Install hints now name whichever installer is actually there. It
 > runs end to end — `check`, `measure` and `render` across all three engines (with
 > `--section` cuts on both tiers), `diff` on the reports and `vdiff` on
 > the renders they produce — and is dogfooded on real

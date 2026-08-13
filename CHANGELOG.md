@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-08-13
+
+**A remedy that cannot be run is not a remedy.** One fix, found the way the last
+release was: by installing the published artifact the way a stranger would and
+following its own instructions literally.
+
+Measured at this tag, five environments, no failures anywhere:
+
+| environment | passed | skipped |
+| --- | ---: | ---: |
+| `uv sync --all-extras` (`just test`) | 800 | 0 |
+| base install, no extras | 466 | 260 |
+| `[mesh]` only | 586 | 152 |
+| `[occt]` only | 665 | 126 |
+| `[cadquery]` only | 671 | 120 |
+
 ### Fixed
 
 - **Every hint that named an installer named `pip`, which a `uv venv` does not
@@ -988,7 +1004,8 @@ callouts, and reports become comparable.
 [convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
 [dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.4...HEAD
+[0.7.4]: https://github.com/CameronBrooks11/partspec/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/CameronBrooks11/partspec/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/CameronBrooks11/partspec/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/CameronBrooks11/partspec/compare/v0.7.0...v0.7.1
