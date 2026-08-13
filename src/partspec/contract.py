@@ -185,6 +185,9 @@ class Source:
 
     engine: str  # "openscad" | "build123d" | "cadquery"
     path: Path
+    """The model file. A relative path is resolved against the **contract's**
+    directory, not the working directory, so a contract means the same thing
+    from wherever it is run; an absolute path is left alone."""
     params: dict[str, Any] = field(default_factory=dict)
     method: str | None = None
     backend: str | None = None
@@ -228,10 +231,32 @@ def openscad(
 
 
 def build123d(path: str | Path, /, method: str | None = None, **params: Any) -> Source:
+    """A build123d source: a module partspec imports and calls for its part.
+
+    `method` names the callable to call; without it, partspec looks for
+    `make_part`. It is invoked as `method(**params)` and whatever it returns
+    is the part — a build123d object, or anything exposing the same `.wrapped`
+    OCCT shape.
+
+    A *callable* rather than a module-level `result`, because `params` is the
+    whole point: a part built as an import side effect cannot be
+    parameterised, so a contract could declare a family and get one part.
+    """
     return Source(engine="build123d", path=Path(path), params=params, method=method)
 
 
 def cadquery(path: str | Path, /, method: str | None = None, **params: Any) -> Source:
+    """A CadQuery source: a module partspec imports and calls for its part.
+
+    Identical in shape to `build123d` — `method` names the callable, default
+    `make_part`, invoked as `method(**params)`. A returned `Workplane` is
+    reduced over its **whole** stack (several values become a Compound), so a
+    `combine=False` build is measured entire rather than by its first solid.
+
+    Note this is not CQGI: CadQuery's own script convention assigns a
+    module-level `result` and takes parameters by injection, and neither
+    applies here. Export a function.
+    """
     return Source(engine="cadquery", path=Path(path), params=params, method=method)
 
 
