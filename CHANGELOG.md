@@ -7,6 +7,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-08-13
+
+**The first release cut from an adoption measurement rather than from review.**
+A fresh agent was dropped on a cold PyPI install of 0.7.2 with a real
+objective — evaluate the community CadQuery library `cq-gridfinity` against
+the published Gridfinity standard — and no other context: no access to this
+checkout, no worked example, nothing but the installed tool. Roughly **40% of
+its effort went to discovering the contract API**, and every fix below is one
+of the reasons why.
+
+The measurement paid for itself twice over. It also produced the thing it was
+pointed at: `cq-gridfinity`'s stacking lip is 0.6 mm shorter than the standard
+at both sizes tested — `GR_LIP_PROFILE`'s final segment is 1.3 mm where the
+reference implementation has 1.9 — found by an `envelope` bound sourced from
+the standard rather than from the library, which is the whole argument for
+attribution.
+
+**What this release does not change:** `pip install 'partspec[cadquery]'` still
+lands two OCP providers and still needs the re-assert the README documents.
+That was confirmed on a clean ancestor chain with `--no-config`, so it is the
+default outcome and not a local artefact. The extra cannot fix it — the
+override that does is a workspace setting wheel metadata cannot carry — so what
+changed is that the tool now prints the remedy instead of only recording it.
+
+Measured at this tag, five environments, no failures anywhere:
+
+| environment | passed | skipped |
+| --- | ---: | ---: |
+| `uv sync --all-extras` (`just test`) | 798 | 0 |
+| base install, no extras | 464 | 260 |
+| `[mesh]` only | 584 | 152 |
+| `[occt]` only | 663 | 126 |
+| `[cadquery]` only | 669 | 120 |
+
+### Fixed
+
+- **`check` named the fault and withheld the remedy.** `BuildError` carries a
+  message and a hint; `measure` and `render` have always printed both, and
+  `check` — the verb people actually run — printed only the message, leaving
+  the hint in `report.json`. On a cold `partspec[cadquery]` install, which
+  lands two OCP providers so that CadQuery cannot import at all, the console
+  named the clobber precisely, twice, and never said
+  `pip install --force-reinstall --no-deps cadquery-ocp`. The same agent lost
+  time to this twice more in one session: `available: <names>` on a mistyped
+  factory, and the claims-pin mismatch hint, were withheld identically. Every
+  path that sets `report.hint` is one where nothing was proven about the part,
+  so the rule is now simply that a hint is printed. The console is still a
+  courtesy and `report.json` is still ground truth; the courtesy just stopped
+  naming a problem and hiding its answer.
+- **A run-level fault was stated once per check.** An environment-origin build
+  failure skips every declared check carrying the same sentence as its detail,
+  so a ten-check contract printed an identical forty-word packaging diagnosis
+  ten times — and `report.error`, the thing that actually happened, not once.
+  The console now elides a detail that merely echoes the run-level error and
+  states the error a single time. The artifact is untouched: a per-check
+  consumer still reads `detail` on every check.
+- **Both Python engine factories were undocumented.** `openscad` had a
+  docstring; `build123d` and `cadquery` had none, and they are the entry point
+  for both Python engines. What they did not say is what bites: partspec calls
+  a *named callable*, defaulting to `make_part`, with the contract's params as
+  keyword arguments. The agent assumed CQGI's module-level `result` — the
+  convention `cq-gridfinity`'s own shims use — and learned otherwise only by
+  failing. `Source.path` now also records that a relative path resolves against
+  the contract's directory rather than the working directory.
+- **Diagnostics cited specs an installed user cannot reach.** Messages name
+  `SPEC-report.md 7.1` and `SPEC-contract.md 10`; the wheel ships the package
+  and nothing else, deliberately. `--help` now says where the documents are.
+  The wheel still ships no docs.
+- **The unattributed-limit advisory named the problem and not the way out.**
+  `partspec.refs` carries `iso15` and `nema17`, so an author citing anything
+  else was told their bound proves the model matches itself and not how to fix
+  that. It now names `partspec.Referenced`, which the agent found by reading
+  `dir(partspec)`.
+- **The README's front-page transcript quoted output the tool had stopped
+  printing** — one commit after the commit that changed it. Neither existing
+  guard reads what a transcript *says*: one compares the contract's call shape,
+  the other counts `ok` lines and the tally. The transcript is recaptured and
+  now executed, so every non-path line it quotes must appear in a real run.
+  The OCP error block one section down was never captured at all — it was
+  assembled from `BuildError`'s fields, and showed a `hint:` line `check` did
+  not then emit. That is the third block of "captured" output in this README
+  found not to have been captured.
+- **`--out` meant two different things and said so nowhere.** On `measure` it
+  is the engine's build directory — an `.stl` on OpenSCAD, nothing at all on
+  the OCCT tier, which builds in memory — because `measure` writes no report by
+  design (SPEC-report scope: the payload is stdout). It had no help text, while
+  `check --out` is documented as "report directory", so it read as a report
+  flag that silently did nothing. Behaviour is unchanged; the flag now says
+  what it controls. `check --out`'s own layout is documented too:
+  `DIR/report.json` for one target, `DIR/<part-slug>/report.json` for several.
+
 ## [0.7.2] - 2026-08-12
 
 **A retraction.** For ten days, across three releases, this project told uv
@@ -880,7 +971,8 @@ callouts, and reports become comparable.
 [convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
 [dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/CameronBrooks11/partspec/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/CameronBrooks11/partspec/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/CameronBrooks11/partspec/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/CameronBrooks11/partspec/compare/v0.6.0...v0.7.0

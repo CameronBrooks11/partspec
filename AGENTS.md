@@ -10,9 +10,16 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha; **v0.7.2 released on PyPI** (2026-08-12, tag → trusted publishing via
-`release.yml`). 0.7.2 retracts #109: `uv pip install 'partspec[occt]'` was never broken,
-and the strand three releases of documentation blamed on uv was this repo's own
+Status: pre-alpha; **v0.7.3 released on PyPI** (2026-08-13, tag → trusted publishing via
+`release.yml`). 0.7.3 is the first release cut from an *adoption* measurement rather than
+from review: a fresh agent, given a cold install, a community CadQuery library and an
+external standard to check it against, spent roughly 40% of its effort discovering the
+contract API. `check` now prints `report.hint` — the remedy — instead of leaving it in the
+artifact while `measure` and `render` printed theirs; a run-level fault is stated once
+rather than once per skipped check; both Python engine factories have docstrings; and
+`--help` says where the specs every diagnostic cites actually live. 0.7.2 before it
+retracts #109: `uv pip install 'partspec[occt]'` was never broken, and the strand three
+releases of documentation blamed on uv was this repo's own
 `[tool.uv] override-dependencies`, applied to whatever `uv pip` installs from a directory
 under this one. The one code change is the error that names the state. 0.7.1 before it
 carried no code change at all, and exists to repair the sdist — the shipped suite passes
