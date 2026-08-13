@@ -566,3 +566,54 @@ def test_no_hint_line_when_there_is_no_hint(tmp_path: Path, capsys):
     # report path printed in the summary contains "hint" all by itself. Same
     # trap `test_a_fully_unattributed_run_draws_the_warning` records.
     assert "hint:" not in capsys.readouterr().err
+
+
+def test_a_run_level_fault_is_stated_once(tmp_path: Path, capsys):
+    """N skipped checks are not N faults.
+
+    On an environment-origin build failure every declared check is skipped
+    carrying the same sentence as its `detail`, so the console printed one
+    forty-word packaging diagnosis once per check — ten times on a ten-check
+    contract — while `report.error`, the thing that actually happened, was
+    never printed at all.
+
+    The artifact is untouched: a per-check consumer still reads `detail` on
+    every check. Only the console stops repeating itself. Scoped to the
+    property (a detail that merely echoes `report.error`), not to the OCP
+    message that exposed it.
+    """
+    from partspec.cli import _summarise
+
+    error = "build123d is not importable: No module named 'OCP'"
+    report = _report(
+        error=error,
+        build_origin="environment",
+        checks=[
+            _check(Status.SKIPPED, id="builds", detail=f"not evaluated: {error}"),
+            _check(Status.SKIPPED, id="watertight", detail=f"not evaluated: {error}"),
+            _check(Status.SKIPPED, id="volume", detail=f"not evaluated: {error}"),
+        ],
+    )
+    _summarise(report, tmp_path / "report.json")
+    err = capsys.readouterr().err
+    assert err.count("No module named 'OCP'") == 1, "one fault, one line"
+    for check_id in ("builds", "watertight", "volume"):
+        assert check_id in err, "every check is still listed"
+
+
+def test_a_detail_that_is_not_an_echo_survives(tmp_path: Path, capsys):
+    """The eliding is exact-match only. A check whose detail says something
+    the run-level error does not must keep saying it."""
+    from partspec.cli import _summarise
+
+    report = _report(
+        error="the contract does not match its claims pin",
+        checks=[
+            _check(Status.SKIPPED, id="a", detail="not evaluated: the contract does not match"),
+            _check(Status.FAIL, id="b", detail="z=24.8 outside max=25.45"),
+        ],
+    )
+    _summarise(report, tmp_path / "report.json")
+    err = capsys.readouterr().err
+    assert "not evaluated: the contract does not match" in err
+    assert "z=24.8 outside max=25.45" in err

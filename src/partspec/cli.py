@@ -104,7 +104,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="<module-path>[:<factory>] — several targets share one process, "
         "one report each, exit by the worst verdict",
     )
-    check.add_argument("--out", type=Path, default=None, help="report directory")
+    check.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        # The shape change is deliberate — one directory cannot hold N reports
+        # at one deterministic name — but it was undocumented, so a caller who
+        # built paths against the single-target shape had them move underneath
+        # on adding a second target.
+        help="report directory: DIR/report.json for one target, "
+        "DIR/<part-slug>/report.json for several",
+    )
     check.add_argument("--quiet", action="store_true", help="suppress the human summary")
     check.add_argument(
         "--render",
@@ -1053,15 +1063,30 @@ def _summarise(report, path: Path) -> None:
     Deliberately terse: this is a courtesy, not the contract. Anything a
     consumer needs is in the JSON.
     """
+    # One run-level fault is one fact about the run, not a fact about each
+    # check. When the build fails for an environment reason, every declared
+    # check is skipped carrying the SAME sentence as its detail, so a ten-check
+    # contract printed an identical forty-word packaging diagnosis ten times
+    # and `report.error` — the thing that actually happened — not once. The
+    # detail stays in the artifact untouched, where a per-check consumer needs
+    # it; only the console stops repeating itself.
+    echoed = f"not evaluated: {report.error}" if report.error else None
     for check in report.checks:
         line = f"  {_ICON[check.status]} {check.id}"
-        if check.detail:
+        if check.detail and check.detail != echoed:
             line += f" — {check.detail}"
         print(line, file=sys.stderr)
 
     counts = report.counts()
     summary = ", ".join(f"{n} {name}" for name, n in counts.items() if name != "total" and n)
     print(f"\n{report.verdict.upper()}: {summary or 'no checks'}", file=sys.stderr)
+
+    if echoed:
+        # Said once, here, now that the per-check lines no longer say it. The
+        # console never printed `report.error` at all before: on an
+        # environment fault the only account of what happened was N copies of
+        # it wearing a check's name.
+        print(f"  {report.error}", file=sys.stderr)
 
     if report.hint:
         # `measure` and `render` have always printed their hint; `check` — the
