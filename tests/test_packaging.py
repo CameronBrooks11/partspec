@@ -10,6 +10,7 @@ safety argument rested on a convention it did not enforce.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
 import subprocess
 import tarfile
@@ -505,3 +506,77 @@ def test_every_throwaway_install_recipe_ignores_this_repos_uv_config():
         "these installs read this repo's [tool.uv] and so cannot measure what a "
         f"consumer gets — add --no-config: {missing}"
     )
+
+
+def test_no_runtime_message_tells_the_reader_to_run_bare_pip():
+    """A remedy naming an installer the reader does not have is not a remedy.
+
+    A `uv venv` ships no `pip`, and on a distro that packages one the word
+    still resolves — to `/usr/bin/pip`, bound to the SYSTEM interpreter. So
+    `pip install --force-reinstall --no-deps cadquery-ocp`, the whole answer to
+    the two-provider clobber, ran clean and installed OCP where the failing
+    3.12 venv could never see it. The user follows the instruction and the next
+    run prints a byte-identical diagnosis.
+
+    That is the tool's own thesis turned inside out: not silence read as
+    success, but an answer that does nothing read as an answer. Found on the
+    v0.7.3 cold verify, in the very install shape the README documents.
+
+    Scoped to the property rather than to the line where it was found, which is
+    the lesson #109's guard learned the expensive way: every live string in the
+    package, not the four hints that happened to be wrong. Prose is exempt —
+    a bare string statement is documentation, never a message — so a docstring
+    may still discuss `pip install partspec`, and several do.
+    """
+    package = REPO / "src" / "partspec"
+    offenders, uses = [], 0
+    for path in sorted(package.rglob("*.py")):
+        text = path.read_text()
+        if path.name == "install.py":
+            continue  # its own definition is not a use of it
+        uses += text.count("install_hint(")
+        tree = ast.parse(text)
+        prose = {
+            id(stmt.value)
+            for stmt in ast.walk(tree)
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant)
+        }
+        offenders += [
+            f"{path.relative_to(package)}:{node.lineno}: {node.value!r}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in prose
+            and "pip install" in node.value
+        ]
+    assert uses, "nothing calls install_hint — this guard has lost its subject"
+    assert not offenders, (
+        "these messages name an installer that may not exist where they are read; "
+        f"phrase them with install_hint(): {offenders}"
+    )
+
+
+def test_the_install_hint_names_the_installer_this_interpreter_has(monkeypatch):
+    """Detection is `find_spec`, and `shutil.which` would be wrong.
+
+    Measured in a uv venv on this machine: `find_spec("pip")` is None and
+    `which("pip")` is `/usr/bin/pip` — a real file, for another interpreter.
+    `which` answers "does the word resolve", and the question a hint has to
+    answer is "can THIS interpreter install".
+    """
+    from partspec.install import install_hint
+
+    real = importlib.util.find_spec
+
+    def without_pip(name, *a, **kw):
+        return None if name == "pip" else real(name, *a, **kw)
+
+    monkeypatch.setattr(importlib.util, "find_spec", without_pip)
+    assert install_hint("'partspec[mesh]'") == "uv pip install 'partspec[mesh]'"
+    assert install_hint("--force-reinstall x", "--reinstall-package x x") == (
+        "uv pip install --reinstall-package x x"
+    ), "where the two installers disagree on flags, uv gets its own spelling"
+
+    monkeypatch.setattr(importlib.util, "find_spec", real)
+    if real("pip") is not None:  # pragma: no cover - depends on the venv
+        assert install_hint("'partspec[mesh]'") == "pip install 'partspec[mesh]'"

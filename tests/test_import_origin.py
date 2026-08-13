@@ -219,7 +219,12 @@ def test_two_ocp_providers_are_named_with_their_versions(monkeypatch):
     assert "two OCP providers" in err.message
     assert "cadquery-ocp 7.9.3.1.1" in err.message, "the versions, so a reader can tell them apart"
     assert "cadquery-ocp-novtk 7.9.3.1.1" in err.message
-    assert err.hint is not None and "--force-reinstall" in err.hint
+    # A repair of what is installed, not an install of what is missing —
+    # asserted on the word both installers share, because the flag they spell
+    # it with differs (`--force-reinstall` / `--reinstall-package`) and which
+    # one is named depends on the environment reading it (`install.py`).
+    assert err.hint is not None and "reinstall" in err.hint
+    assert "cadquery-ocp" in err.hint
 
 
 def test_one_provider_and_a_real_absence_is_just_the_missing_extra(monkeypatch):
@@ -230,7 +235,10 @@ def test_one_provider_and_a_real_absence_is_just_the_missing_extra(monkeypatch):
     assert err.origin == "environment"
     assert "cadquery is not importable" in err.message
     assert "two OCP providers" not in err.message
-    assert err.hint == "pip install 'partspec[cadquery]'"
+    # The installer's name is the environment's business (`install.py`); what
+    # this branch owes the reader is the extra, not a repair.
+    assert err.hint is not None and err.hint.endswith("install 'partspec[cadquery]'")
+    assert "--force-reinstall" not in err.hint
 
 
 def test_the_registry_never_records_partspec_itself():

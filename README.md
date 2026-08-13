@@ -222,7 +222,9 @@ metadata, so a `pip` install has no override in scope. Which one wins is install
 and the two installers do not agree — `just test-cadquery-only` passed for a month on pip
 and failed on its first CI run under uv — so the second line is not optional advice. If you
 skip it, partspec tells you: the clobber is reported as an environment fault with that
-command as the hint, not as a failing part.
+command as the hint, not as a failing part — and it hints whichever of the two lines above
+fits the environment it is running in, because a `uv venv` ships no `pip` and the word then
+resolves to the system one, which installs somewhere the failing interpreter cannot see.
 
 **`uv pip install 'partspec[occt]'` works.** Earlier releases of this README said it did
 not — that no `OCP` module landed and you had to fall back to plain `pip` (#109). That was
@@ -252,7 +254,8 @@ ERROR: 2 skipped
 ```
 
 (Captured from a run, then wrapped to fit this page; the real lines are one
-each. Every declared check is `skipped` and `builds` is not reported as
+each. The hint names `pip` because that run had one — in a `uv venv` the same
+hint reads `uv pip install`. Every declared check is `skipped` and `builds` is not reported as
 failing, because an absent OCP disproves nothing about the design —
 `build_origin: "environment"` in the report is the machine-readable form of
 that distinction.)

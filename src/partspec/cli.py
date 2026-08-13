@@ -24,6 +24,7 @@ from typing import Any, cast
 
 from .backend import DEFAULT_TIMEOUT_S, BuildError, effective_timeout
 from .contract import Part
+from .install import install_hint
 from .report import tool_version, write_placeholder
 from .runner import run
 from .status import EXIT_USAGE, Status, Verdict, exit_code
@@ -862,7 +863,9 @@ def _render_files(
             return BuildError(
                 "the section rasterizer needs numpy, and this environment has none",
                 origin="environment",
-                hint="any partspec engine extra brings it, e.g. pip install 'partspec[mesh]'",
+                hint=(
+                    "any partspec engine extra brings it, e.g. " + install_hint("'partspec[mesh]'")
+                ),
             )
         from . import raster
 

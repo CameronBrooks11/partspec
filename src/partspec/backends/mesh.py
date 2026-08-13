@@ -32,6 +32,7 @@ from typing import Any
 
 from ..backend import BuildError, Tier, Unsupported, Vec3, effective_timeout
 from ..engines import openscad
+from ..install import install_hint
 from ..status import Measurement
 
 __all__ = ["CAPABILITIES", "MeshBackend"]
@@ -113,7 +114,7 @@ class MeshBackend:
         except ImportError as exc:
             return BuildError(
                 f"the mesh tier is not importable: {exc}",
-                hint="pip install 'partspec[mesh]'",
+                hint=install_hint("'partspec[mesh]'"),
                 origin="environment",
             )
 

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from ..backend import BuildError
+from ..install import install_hint
 
 __all__ = ["PyCADSource", "adopt", "build", "invalidate_model_modules", "record_model_modules"]
 
@@ -421,7 +422,7 @@ def _engine_import_error(engine: str, exc: ImportError) -> BuildError:
                 f"{engine} is not importable: {exc}; no OCP provider is installed "
                 f"(cadquery-ocp-proxy {proxy} is present, but it ships no OCP) — "
                 f"something dropped {wanted} from the resolution",
-                hint=f"pip install {wanted}; if you installed from a partspec "
+                hint=f"{install_hint(wanted)}; if you installed from a partspec "
                 f"checkout, `uv pip` applied this repo's [tool.uv] override — "
                 f"re-run it with --no-config. See partspec issue #109",
                 origin="environment",
@@ -432,12 +433,15 @@ def _engine_import_error(engine: str, exc: ImportError) -> BuildError:
             f"{engine} could not be imported because two OCP providers are installed "
             f"({', '.join(installed)}); they share the same OCP/ package and one has "
             f"clobbered the other",
-            hint="pip install --force-reinstall --no-deps cadquery-ocp",
+            hint=install_hint(
+                "--force-reinstall --no-deps cadquery-ocp",
+                "--no-deps --reinstall-package cadquery-ocp cadquery-ocp",
+            ),
             origin="environment",
         )
     return BuildError(
         f"{engine} is not importable: {exc}",
-        hint=f"pip install 'partspec[{'cadquery' if engine == 'cadquery' else 'occt'}]'",
+        hint=install_hint(f"'partspec[{'cadquery' if engine == 'cadquery' else 'occt'}]'"),
         origin="environment",
     )
 

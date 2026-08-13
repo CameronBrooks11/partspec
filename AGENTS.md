@@ -74,6 +74,7 @@ src/partspec/
   expr.py         # restricted-AST evaluation for `requires`, with operand capture
   lint.py         # tier-1 advisory source lint, engine-free (docs/LINT.md, #26)
   target.py       # <module>[:<factory>] resolution
+  install.py      # phrases install hints for the interpreter reading them (uv venvs have no pip)
   runner.py       # phase orchestration: parameters -> build -> geometry -> report
   cli.py          # argparse entry point
   diff.py         # semantic comparison of two reports (SPEC-diff.md)
