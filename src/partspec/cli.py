@@ -140,7 +140,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="dump every quantity the backend can honestly produce (no verdict)",
     )
     measure.add_argument("target", help="<module-path>[:<factory>]")
-    measure.add_argument("--out", type=Path, default=None)
+    # NOT `check`'s "report directory", and the bare flag read as if it were:
+    # `measure` writes no report by design (SPEC-report.md scope — the payload
+    # is stdout), so `--out DIR` on the OCCT tier accepted a path, exited 0 and
+    # created nothing. Same flag name, different noun, no help text to tell
+    # them apart.
+    measure.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="where the engine's build artifact goes (an .stl on OpenSCAD; the "
+        "OCCT tier builds in memory and writes nothing). The measurements "
+        "themselves go to stdout — this verb emits no report file",
+    )
     measure.add_argument(
         "--timeout",
         type=_timeout_arg,
@@ -1050,6 +1062,19 @@ def _summarise(report, path: Path) -> None:
     counts = report.counts()
     summary = ", ".join(f"{n} {name}" for name, n in counts.items() if name != "total" and n)
     print(f"\n{report.verdict.upper()}: {summary or 'no checks'}", file=sys.stderr)
+
+    if report.hint:
+        # `measure` and `render` have always printed their hint; `check` — the
+        # verb people actually run — did not, so the one line saying what to DO
+        # reached only `report.json`. A run with a hint is a run that proved
+        # nothing about the part: the contract did not match its pin, the
+        # contract raised, or the build failed. On the environment branch of
+        # that last one the audience is necessarily a human at a terminal, and
+        # the hint is the whole remedy — no machine repairs its own OCP
+        # install. This does not make the console the contract (it is still a
+        # courtesy, and the JSON is still ground truth); it stops the courtesy
+        # from naming a problem and withholding its answer.
+        print(f"  hint: {report.hint}", file=sys.stderr)
 
     if report.verdict is Verdict.EMPTY:
         print(

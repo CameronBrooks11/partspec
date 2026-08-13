@@ -235,14 +235,25 @@ That leaves one real way to reach an engine with no OCP behind it, and partspec 
 rather than blaming your part —
 
 ```
-$ partspec check spec.py:stepper_bracket   # exit 4, verdict "error", origin "environment"
-build123d is not importable: No module named 'OCP'; no OCP provider is installed
-(cadquery-ocp-proxy 7.9.3.1.1 is present, but it ships no OCP) — something dropped
-cadquery-ocp-novtk from the resolution
-hint: pip install cadquery-ocp-novtk; if you installed from a partspec checkout,
-`uv pip` applied this repo's [tool.uv] override — re-run it with --no-config. See
-partspec issue #109
+$ partspec check spec.py:stepper_bracket        # exit 4, verdict "error"
+  --   builds — not evaluated: build123d is not importable: No module named
+       'OCP'; no OCP provider is installed (cadquery-ocp-proxy 7.9.3.1.1 is
+       present, but it ships no OCP) — something dropped cadquery-ocp-novtk
+       from the resolution
+  --   watertight — not evaluated: build123d is not importable: <the same>
+
+ERROR: 2 skipped
+  hint: pip install cadquery-ocp-novtk; if you installed from a partspec
+        checkout, `uv pip` applied this repo's [tool.uv] override — re-run it
+        with --no-config. See partspec issue #109
+  outputs/spec-stepper_bracket/report.json
 ```
+
+(Captured from a run, then wrapped to fit this page; the real lines are one
+each. Every declared check is `skipped` and `builds` is not reported as
+failing, because an absent OCP disproves nothing about the design —
+`build_origin: "environment"` in the report is the machine-readable form of
+that distinction.)
 
 ## Documentation
 

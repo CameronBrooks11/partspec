@@ -519,3 +519,50 @@ def test_a_failed_write_leaves_the_previous_report_intact(tmp_path: Path):
         "the report was written in place rather than renamed over; a reader "
         "holding the path can observe a partially written artifact"
     )
+
+
+def test_a_hint_in_the_report_reaches_the_console(tmp_path: Path, capsys):
+    """A courtesy that names a problem and withholds its answer is not one.
+
+    `check`'s summary printed the check lines, the verdict, two advisories and
+    the report path — and never `report.hint`, while `measure` and `render`
+    both printed theirs. So the one line saying what to DO reached `report.json`
+    only, on the verb people actually run.
+
+    Found by dropping an agent on a cold install of `partspec[cadquery]`, which
+    lands two OCP providers and cannot import CadQuery. The console named the
+    clobber precisely and did not carry
+    `pip install --force-reinstall --no-deps cadquery-ocp`, which is the entire
+    remedy and which no machine can infer. The same agent hit it twice more:
+    the pin-mismatch hint and `available: <names>` on a mistyped factory were
+    withheld the same way.
+
+    Every path that sets `report.hint` — pin mismatch, ContractError, build
+    failure — is a path where nothing was proven about the part, so the rule is
+    simply: if there is a hint, print it.
+    """
+    from partspec.cli import _summarise
+
+    report = _report(
+        error="cadquery could not be imported because two OCP providers are installed",
+        hint="pip install --force-reinstall --no-deps cadquery-ocp",
+        build_origin="environment",
+        checks=[_check(Status.SKIPPED, detail="not evaluated: the part did not build")],
+    )
+    _summarise(report, tmp_path / "report.json")
+    err = capsys.readouterr().err
+    assert "hint: pip install --force-reinstall --no-deps cadquery-ocp" in err, (
+        "the remedy stayed in the JSON; the console named the fault and not the fix"
+    )
+
+
+def test_no_hint_line_when_there_is_no_hint(tmp_path: Path, capsys):
+    """The summary stays terse on the ordinary path. A bare `hint:` label, or
+    one reading `None`, would be worse than the silence it replaced."""
+    from partspec.cli import _summarise
+
+    _summarise(_report(checks=[_check(Status.PASS)]), tmp_path / "report.json")
+    # The label, not the word: pytest names tmp_path after this test, so the
+    # report path printed in the summary contains "hint" all by itself. Same
+    # trap `test_a_fully_unattributed_run_draws_the_warning` records.
+    assert "hint:" not in capsys.readouterr().err
