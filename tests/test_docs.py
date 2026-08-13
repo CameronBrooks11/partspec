@@ -724,3 +724,48 @@ def test_every_engine_factory_documents_how_it_finds_the_part():
         f"engine factories with no docstring: {undocumented} — `inspect.getdoc` is "
         "where an installed user learns the API, because the wheel ships no docs"
     )
+
+
+@needs_scad_tier
+def test_the_readme_console_block_is_what_the_console_prints():
+    """The front page quotes a run. The run must still say that.
+
+    `test_the_readme_example_is_the_real_contract` compares the *contract*
+    shape and never looks at the transcript below it, so the quoted output
+    drifted the moment a message changed — which is exactly what happened when
+    the attribution advisory gained its escape hatch: the README went on
+    showing the previous sentence, and nothing failed.
+
+    This is not a phrase search. The phrases come from the README and the
+    assertion is that the tool PRODUCES them — an executable claim about the
+    front page, which is what this module is for. Path and version lines are
+    skipped because they are environment, not claim.
+    """
+    import subprocess
+    import sys
+
+    block = re.search(
+        r"```console\n\$ (partspec check examples/spacer/spec\.py:spacer)\n(.*?)```",
+        README.read_text(),
+        re.S,
+    )
+    assert block is not None, "the README no longer shows a spacer run"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "partspec", *block.group(1).split()[1:]],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    actual = result.stdout + result.stderr
+    quoted = [
+        line.strip() for line in block.group(2).splitlines() if line.strip() and "/" not in line
+    ]
+    assert quoted, "nothing quoted to check"
+    missing = [line for line in quoted if line not in actual]
+    assert not missing, (
+        "the README quotes console output the tool no longer prints:\n  "
+        + "\n  ".join(missing)
+        + f"\n--- actual ---\n{actual}"
+    )
