@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every hint that named an installer named `pip`, which a `uv venv` does not
+  have.** Absent would have been the kind outcome: on a distro that packages
+  pip the word still resolves — to `/usr/bin/pip`, bound to the system
+  interpreter — so `pip install --force-reinstall --no-deps cadquery-ocp`, the
+  entire answer to the two-provider clobber, was refused outright under PEP 668
+  with advice to "create a virtual environment" the reader was already standing
+  in, and its suggested `--break-system-packages` override would have installed
+  OCP into a Python that could never satisfy the failing one. Either way the
+  next run printed a byte-identical diagnosis. Hints are now phrased for the
+  interpreter that will read them (`install.py`), detected with `find_spec` and
+  deliberately not `shutil.which` — `which` is exactly what finds the wrong
+  pip. Verified end to end in a pip-less two-provider venv: the printed command,
+  run verbatim, takes the run from `ERROR: 3 skipped` to `PASS: 3 pass`. Found
+  on the v0.7.3 cold verify, in the install shape the README documents.
+
 ## [0.7.3] - 2026-08-13
 
 **The first release cut from an adoption measurement rather than from review.**

@@ -30,6 +30,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .install import install_hint
 from .status import EXIT_USAGE
 
 if TYPE_CHECKING:
@@ -205,7 +206,7 @@ def main() -> int:
         server = build_server()
     except ImportError as exc:
         print(f"partspec-mcp: the MCP SDK is not importable: {exc}", file=sys.stderr)
-        print("  hint: pip install 'partspec[mcp]'", file=sys.stderr)
+        print("  hint: " + install_hint("'partspec[mcp]'"), file=sys.stderr)
         return EXIT_USAGE
     server.run()
     return 0
