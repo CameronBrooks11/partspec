@@ -84,6 +84,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="partspec",
         description="Verify CAD-as-code parts against declared engineering intent.",
+        # Diagnostics cite the specs by section ("SPEC-report.md 7.1"), and the
+        # wheel ships the package and nothing else — so for anyone who installed
+        # rather than cloned, every one of those citations is a dead pointer
+        # unless the tool says where the documents are. Found by dropping an
+        # agent on a cold install: it went looking for SPEC-contract.md, could
+        # not find it, and inferred the API from `inspect.getdoc` instead.
+        epilog="Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...): "
+        "https://github.com/CameronBrooks11/partspec/tree/main/docs",
     )
     parser.add_argument("--version", action="version", version=f"partspec {tool_version()}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
@@ -1061,7 +1069,10 @@ def _summarise(report, path: Path) -> None:
         print(
             f"  every dimensional limit on {report.part_id!r} is unattributed: "
             f"bounds derived from the model's own numbers prove the model matches "
-            f"itself (partspec.refs carries cited values; SPEC-contract.md 10)",
+            f"itself — cite the source instead: partspec.refs for a standard it "
+            f'carries (iso15, nema17), else partspec.Referenced(value, {{"standard": '
+            f'..., "subject": ..., "field": ...}}) for anything it does not '
+            f"(SPEC-contract.md 10)",
             file=sys.stderr,
         )
     print(f"  {path}", file=sys.stderr)

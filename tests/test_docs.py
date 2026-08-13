@@ -651,3 +651,76 @@ def test_the_generated_doc_blocks_are_current():
         "a generated doc block is stale or misplaced; run `just fmt`.\n"
         f"{result.stdout}{result.stderr}"
     )
+
+
+def test_every_spec_a_diagnostic_cites_is_locatable_from_the_tool():
+    """A citation an installed user cannot follow is not a citation.
+
+    Diagnostics cite the specs by section — `(SPEC-report.md 7.1)`,
+    `SPEC-contract.md 10` — and the wheel ships the package and nothing else,
+    on purpose. So for anyone who installed rather than cloned, the tool names
+    documents it gives no way to reach. Found by dropping an agent on a cold
+    install with an objective and no other context: it went looking for
+    SPEC-contract.md after the attribution advisory named it, did not find it,
+    and inferred the contract API from `inspect.getdoc` instead.
+
+    Two halves, both derived rather than matched: every spec the source names
+    must exist, and `--help` must say where the specs are. Neither is a phrase
+    search — the first fails on a citation to a document that does not exist,
+    the second on a tool that cites documents and never locates them.
+    """
+    import re
+
+    cited = {
+        m.group(0)
+        for path in (ROOT / "src" / "partspec").rglob("*.py")
+        for m in re.finditer(r"SPEC-[a-z]+\.md", path.read_text())
+    }
+    assert cited, "no spec citations at all — this guard has lost its subject"
+    missing = sorted(name for name in cited if not (DOCS / name).exists())
+    assert not missing, f"diagnostics cite specs that do not exist: {missing}"
+
+    from partspec.cli import build_parser
+
+    epilog = build_parser().epilog or ""
+    assert "docs" in epilog, (
+        "the CLI cites specs by section but never says where they live; an "
+        "installed user has no docs/ directory to look in"
+    )
+
+
+def test_every_engine_factory_documents_how_it_finds_the_part():
+    """`openscad` had a docstring; `build123d` and `cadquery` had none.
+
+    Those two are the entry point for both Python engines, and the thing they
+    do not say is the thing that bites: partspec calls a NAMED CALLABLE,
+    defaulting to `make_part`, with the contract's params as keyword
+    arguments. An agent evaluating a CadQuery library assumed CQGI's
+    module-level `result` — the convention that library's own shims use — and
+    was corrected only by the build failing.
+
+    Scoped to the property, not to the two functions that were missing one: a
+    fourth engine added tomorrow is covered without touching this test. That
+    is the lesson of the `--no-config` guard, which searched the justfile
+    because the justfile is where its bug was found, and so missed the same
+    bug in the release workflow.
+    """
+    import inspect
+
+    import partspec
+    from partspec.contract import Source
+
+    # `isfunction` first: `__all__` also carries exception classes, and
+    # `inspect.signature` raises outright on some builtin types.
+    factories = {
+        name: obj
+        for name in partspec.__all__
+        if inspect.isfunction(obj := getattr(partspec, name))
+        and inspect.signature(obj).return_annotation in (Source, "Source")
+    }
+    assert len(factories) >= 3, f"expected one factory per engine, found {sorted(factories)}"
+    undocumented = sorted(name for name, obj in factories.items() if not inspect.getdoc(obj))
+    assert not undocumented, (
+        f"engine factories with no docstring: {undocumented} — `inspect.getdoc` is "
+        "where an installed user learns the API, because the wheel ships no docs"
+    )

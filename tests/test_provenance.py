@@ -450,6 +450,11 @@ def test_a_fully_unattributed_run_draws_the_warning(tmp_path: Path, capsys):
     assert err.count("is unattributed:") == 1, "one line, never a chorus"
     assert "every dimensional limit on 'circular' is unattributed" in err
     assert "partspec.refs" in err
+    # And the way out for a number `refs` does not carry, which is most of
+    # them: `refs` holds iso15 and nema17, so an author citing anything else
+    # was told the bound was unattributed and not how to attribute it. The
+    # agent that hit this found `Referenced` by reading `dir(partspec)`.
+    assert "partspec.Referenced" in err, "the advisory must name its own escape hatch"
 
 
 @needs_build123d
