@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.2] - 2026-08-12
 
-**A retraction.** For ten days, three releases and eight documents, this project
-told uv users that `uv pip install 'partspec[occt]'` does not work and named an
+**A retraction.** For ten days, across three releases, this project told uv
+users that `uv pip install 'partspec[occt]'` does not work and named an
 upstream cause. Both halves were wrong, and the cause was one line of this
-repo's own configuration. The single change inside `partspec/` is the error
-message that had the fiction written into it; everything else is documentation,
-recipes and gates that repeated it.
+repo's own configuration. Eight files carried the explanation — the README,
+`AGENTS.md`, `docs/FAILURE-MODES.md`, the justfile, CI's workflow, this file,
+the error message itself and the test that pinned its wording — and the single
+change inside `partspec/` is that error message. Everything else is
+documentation, recipes and gates that repeated it.
 
 Measured at this tag, five environments, no failures anywhere:
 
