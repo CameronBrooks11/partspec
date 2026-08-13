@@ -88,10 +88,19 @@ jobs:
       # only, no extras: importing partspec must not require a CAD engine, and
       # this is where that claim gets exercised against the built wheel rather
       # than the source tree.
+      #
+      # `--no-config`, enforced by `tests/test_packaging.py`. This step runs in
+      # the checkout, and `uv pip` reads `[tool.uv]` from the pyproject.toml it
+      # finds by walking up from the CWD — so without the flag it resolves the
+      # published wheel against this repo's `override-dependencies`, which no
+      # user has. Harmless today, because core depends on no OCP provider; the
+      # step's whole claim is that it reproduces a consumer's environment, and
+      # a consumer is not standing in this directory. That reading is what
+      # #109 cost ten days.
       - name: Smoke-test the wheel
         run: |
           uv venv /tmp/smoke
-          VIRTUAL_ENV=/tmp/smoke uv pip install dist/*.whl
+          VIRTUAL_ENV=/tmp/smoke uv pip install --no-config dist/*.whl
           /tmp/smoke/bin/partspec --version
           version=$(/tmp/smoke/bin/partspec --version)
           [ "$version" = "partspec ${GITHUB_REF_NAME#v}" ] || { echo "::error::--version says '$version'"; exit 1; }

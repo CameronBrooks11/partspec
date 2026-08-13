@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-08-12
+
+**A retraction.** For ten days, three releases and eight documents, this project
+told uv users that `uv pip install 'partspec[occt]'` does not work and named an
+upstream cause. Both halves were wrong, and the cause was one line of this
+repo's own configuration. The single change inside `partspec/` is the error
+message that had the fiction written into it; everything else is documentation,
+recipes and gates that repeated it.
+
+Measured at this tag, five environments, no failures anywhere:
+
+| environment | passed | skipped |
+| --- | ---: | ---: |
+| `uv sync --all-extras` (`just test`) | 791 | 0 |
+| base install, no extras | 466 | 251 |
+| `[mesh]` only | 585 | 144 |
+| `[occt]` only | 665 | 117 |
+| `[cadquery]` only | 671 | 111 |
+
 ### Fixed
 
 - **`uv pip install 'partspec[occt]'` was never broken, and #109 was ours.**
@@ -56,6 +75,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolver agrees with them, and the README carries the `uv` form of the
   two-step beside the `pip` form.
 
+- **The guard against #109 did not cover the release.** Its first version read
+  the justfile, because that is where the recipes it was written for live. The
+  install it therefore missed is the last one to touch an artifact before PyPI:
+  `release.yml`'s cold smoke-test of the built wheel, whose stated purpose is
+  to reproduce "the environment every `pip install partspec` user starts
+  from". It runs in the checkout, so it read the override like everything
+  else. Harmless in fact — core depends on no OCP provider, so there was
+  nothing for the override to drop — but the claim it makes is exactly the one
+  #109 falsified, and this is the release path. It passes `--no-config` now,
+  and the guard searches every file that runs a `uv pip install`, comments
+  excluded, rather than one file by name. Found by the pre-tag audit for this
+  release, in the workflow that publishes it.
+
+- The comment above CI's two OCCT-tier jobs still gave the retracted cause —
+  that `uv pip install .[occt]` "lands `cadquery-ocp-proxy` and NO `OCP`
+  module ... still reproducing on 2026-08-12", and that plain pip in a seeded
+  venv is the way around it. The recipes it describes had already moved back
+  to plain `uv pip` with `--no-config` in the same change that retracted the
+  cause; the prose above them had not. Nothing executed it, which is how it
+  survived — the repeat defect of this project, recorded in `AGENTS.md`.
+
 - 0.7.1's release entry says the published wheel differs from 0.7.0's in "the
   version string, and the README it embeds". Comparing the two wheels *as
   published* — which is only possible after the fact — there is a third:
@@ -71,7 +111,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.7.1 made `tests/` *pass* in a base install; it did not make it *run*. Ten
   module-level `pytest.importorskip` gates collapsed their files to a single
   skip line each, so a base install collected 588 of the suite's 788 tests and
-  ran 451. Gating is per test now: 714 collect there and 463 pass, and
+  ran 451. Gating is per test, and at the commit that changed it 714 collected
+  there and 463 passed — 717 and 466 at this tag, per the table above. And
   `pip install partspec[mesh]` — which reported four whole files as
   `4 skipped` — runs the four `the mesh tier refuses with the tier named`
   tests, the only executed evidence that the mesh tier refuses honestly in
@@ -88,8 +129,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   next step given — and the three wordings are pinned individually, including
   the two-provider one, which had no test and is the only branch reachable
   without monkeypatching. Measured after the fix: `[cadquery]` 670 passed,
-  `[occt]` 664 passed, no failures in either. Again no code in `partspec/`
-  changed.
+  `[occt]` 664 passed, no failures in either — 671 and 665 at this tag, per the
+  table above. Again no code in `partspec/` changed.
 
 ## [0.7.1] - 2026-08-11
 
@@ -837,7 +878,8 @@ callouts, and reports become comparable.
 [convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
 [dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/CameronBrooks11/partspec/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/CameronBrooks11/partspec/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/CameronBrooks11/partspec/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/CameronBrooks11/partspec/compare/v0.5.0...v0.6.0

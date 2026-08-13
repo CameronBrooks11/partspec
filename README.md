@@ -2,8 +2,10 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.7.1 is on PyPI** — the same code as 0.7.0, which it
-> re-ships unchanged; only the source distribution, its tests and CI differ. It
+> **Status: pre-alpha; v0.7.2 is on PyPI** — a documentation retraction with one
+> code change behind it: `uv pip install 'partspec[occt]'` works and always did,
+> and the paragraph below that said otherwise for three releases was describing
+> this repo's own resolver override, not uv's behaviour (#109). It
 > runs end to end — `check`, `measure` and `render` across all three engines (with
 > `--section` cuts on both tiers), `diff` on the reports and `vdiff` on
 > the renders they produce — and is dogfooded on real
@@ -238,7 +240,8 @@ build123d is not importable: No module named 'OCP'; no OCP provider is installed
 (cadquery-ocp-proxy 7.9.3.1.1 is present, but it ships no OCP) — something dropped
 cadquery-ocp-novtk from the resolution
 hint: pip install cadquery-ocp-novtk; if you installed from a partspec checkout,
-`uv pip` applied this repo's [tool.uv] override — re-run it with --no-config. See #109
+`uv pip` applied this repo's [tool.uv] override — re-run it with --no-config. See
+partspec issue #109
 ```
 
 ## Documentation

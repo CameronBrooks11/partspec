@@ -237,17 +237,20 @@ jobs:
         run: just test-mcp-only
 
   # The two OCCT-tier extras, each alone. Neither environment existed in CI or
-  # in any recipe until #170, and the reason was mechanical rather than an
-  # oversight: `uv pip install .[occt]` lands `cadquery-ocp-proxy` and NO `OCP`
-  # module (#109, and still reproducing on 2026-08-12 across Python 3.12/3.13/
-  # 3.14), so the `uv pip` shape every other job here uses cannot build them.
-  # Plain pip in a seeded venv can.
+  # in any recipe until #170, and the reason was believed to be mechanical:
+  # `uv pip install .[occt]` landed `cadquery-ocp-proxy` and NO `OCP` module,
+  # so the `uv pip` shape every other job here uses appeared unable to build
+  # them and they were carried on plain pip in a seeded venv instead. That was
+  # #109, and it was ours — `uv pip` reads `[tool.uv]` from the pyproject.toml
+  # above the CWD, so those installs inherited this repo's
+  # `override-dependencies` and dropped novtk on purpose. Both recipes are
+  # back on the ordinary `uv pip` shape with `--no-config`.
   #
   # `PARTSPEC_REQUIRE_ENGINES` is the sharp end. `conftest.py` resolves it by
   # IMPORTING the engine, not by `find_spec`, so these two jobs are the only
   # place in CI that can tell "the extra installed" apart from "the extra
-  # works" — which is exactly the #109 failure, and exactly the failure that
-  # went unnoticed long enough for the README to describe it in the past tense.
+  # works" — which is exactly the state #109 produced, and exactly the failure
+  # that went unnoticed long enough to be written up as an upstream bug.
   #
   # Gated on `changes`, unlike `no-extras`: OCCT is ~1.5GB and these are the
   # slowest jobs in the file, so a docs-only PR should not pay for them.

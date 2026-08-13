@@ -480,15 +480,28 @@ def test_every_throwaway_install_recipe_ignores_this_repos_uv_config():
     of a self-inflicted strand recorded as an upstream uv bug, a README
     paragraph telling every uv user to avoid a command that works, and two
     recipes carrying a plain-pip workaround for a cause that was never real.
+
+    Scoped to the justfile alone on its first outing, which left the one
+    install that matters most uncovered: `release.yml`'s cold smoke-test of
+    the built wheel, the last thing to touch an artifact before PyPI. It ran
+    in the checkout and read the override like everything else. Anywhere a
+    consumer's install is being reproduced counts, so the search is over
+    every file that runs one.
     """
+    sources = [REPO / "justfile", *sorted((REPO / ".github" / "workflows").glob("*.yml"))]
     lines = [
-        line.strip()
-        for line in (REPO / "justfile").read_text().splitlines()
-        if line.strip().startswith("uv pip install")
+        (path.name, stripped)
+        for path in sources
+        for line in path.read_text().splitlines()
+        # A comment is prose ABOUT an install, not one — both the justfile and
+        # ci.yml discuss this very command in comments that must not be read
+        # as commands. `VIRTUAL_ENV=... uv pip install` is one, so the match
+        # is anywhere in the line, not at its start.
+        if "uv pip install" in (stripped := line.strip()) and not stripped.startswith("#")
     ]
-    assert lines, "no `uv pip install` in the justfile — this guard has lost its subject"
-    missing = [line for line in lines if "--no-config" not in line]
+    assert lines, "no `uv pip install` anywhere — this guard has lost its subject"
+    missing = [f"{name}: {line}" for name, line in lines if "--no-config" not in line]
     assert not missing, (
-        "these justfile installs read this repo's [tool.uv] and so cannot measure what a "
+        "these installs read this repo's [tool.uv] and so cannot measure what a "
         f"consumer gets — add --no-config: {missing}"
     )
