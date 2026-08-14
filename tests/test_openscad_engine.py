@@ -312,25 +312,66 @@ def test_empty_geometry_is_a_build_error(backend: MeshBackend, tmp_path: Path):
 
 
 @needs_openscad
-def test_a_failed_render_leaves_no_stale_artifact(tmp_path: Path):
-    """The export path is deterministic, so a previous run's mesh is already
-    sitting there when the next one starts — and the post-render guards ask only
-    whether the file exists and is non-empty, which the stale file answers just
-    as well. An invocation that exits 0 without writing would have measured the
-    last run's part and reported it as this one's."""
+def test_a_failed_render_leaves_the_previous_artifact_untouched(tmp_path: Path):
+    """The opposite of what this test asserted until #208, deliberately.
+
+    It required that a failed render leave nothing behind, because `render`
+    unlinked its target up front. What the unlink also reached was the caller's
+    file, deleted for nothing — and an `.stl` beside a model may be the model's
+    own `import()`. The engine now exports into a scratch directory and the
+    result is moved into place only once it exists, so a compile error, a blown
+    timeout or a Ctrl-C leaves whatever was there: the same guarantee
+    `measure --out <file>` already gave the filename form.
+
+    The claim the unlink actually protected — that a stale file cannot answer
+    the post-render guards — is `test_a_stale_artifact_cannot_answer_the_
+    post_render_guards`, which the scratch directory keeps true without it.
+    """
     good = _scad(tmp_path, "part", "cube([10, 10, 10]);")
     first = openscad.render(OpenSCADSource(path=good), tmp_path / "out")
     assert isinstance(first, Path) and first.stat().st_size > 0
-    stale_size = first.stat().st_size
+    before = first.read_bytes()
 
     broken = tmp_path / "part.scad"
     broken.write_text("this is not openscad;\n")
     second = openscad.render(OpenSCADSource(path=broken), tmp_path / "out")
 
     assert isinstance(second, BuildError), "premise: the second render fails"
-    assert not first.exists(), (
-        f"a {stale_size}-byte mesh from the previous run survived a failed render"
-    )
+    assert first.read_bytes() == before, "a failed render consumed the file it did not write"
+    assert not [p for p in (tmp_path / "out").iterdir() if p.name.startswith(".partspec-build-")]
+
+
+def test_a_stale_artifact_cannot_answer_the_post_render_guards(tmp_path: Path, monkeypatch):
+    """The reason the up-front unlink existed, kept true without it.
+
+    OpenSCAD exits 0 on some degenerate input while writing nothing, so
+    `render` asks whether the artifact exists and is non-empty rather than
+    trusting the exit code — questions a *previous* run's mesh at the same
+    deterministic path answers just as well. Removing that mesh first was one
+    way to make the questions mean what they read as; exporting into a
+    directory created empty by this call is the other, and it is the one that
+    does not delete the caller's data on the way (#208).
+
+    Pinned to a stub engine rather than the real one, because the case is a
+    property of `render`'s bookkeeping and not of any binary: the installed
+    2021.01 exits **1** on an empty top-level object, so the branch this test
+    is about is unreachable through it.
+    """
+    stub = tmp_path / "openscad-stub"
+    stub.write_text("#!/bin/sh\nexit 0\n")
+    stub.chmod(0o755)
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "part.stl").write_bytes(b"the previous run's mesh")
+    source = _scad(tmp_path, "part.scad", "cube([10, 10, 10]);\n")
+
+    result = openscad.render(OpenSCADSource(path=source), out)
+
+    assert isinstance(result, BuildError), "an engine that wrote nothing produced nothing"
+    assert "no geometry" in result.message
+    assert (out / "part.stl").read_bytes() == b"the previous run's mesh"
 
 
 def test_top_level_variables_ignores_locals_and_noise(tmp_path: Path):

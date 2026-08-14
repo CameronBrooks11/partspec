@@ -172,11 +172,12 @@ def build_parser() -> argparse.ArgumentParser:
         "the artifact, replaced only once the build succeeds, so a failed run "
         "leaves what was there. Any other PATH — a trailing "
         f"{os.sep!r}, an existing directory, any other suffix — is a directory "
-        "to write <source>.stl in. A file is refused when nothing would be "
-        "written to it (the OCCT tier builds in memory) or when the model reads "
-        "external data, because an import()ed .stl is an input, not an output. "
-        "The measurements themselves go to stdout — this verb emits no report "
-        "file",
+        "to write <source>.stl in, and the MODEL'S OWN directory is refused "
+        "when that name is already taken and the model reads external data. A "
+        "file is refused when nothing would be written to it (the OCCT tier "
+        "builds in memory) or when the model reads external data, because an "
+        "import()ed .stl is an input, not an output. The measurements "
+        "themselves go to stdout — this verb emits no report file",
     )
     measure.add_argument(
         "--timeout",
@@ -903,19 +904,16 @@ def _measure_resolved(
         # measures, so this is refused rather than guessed at, and the refusal
         # says which two files it cannot tell apart.
         #
-        # The question asked is `partial`, not `reads_external_data`, because
-        # those are the same question: a closure with an UNRESOLVED include
-        # cannot see inside that file, so it cannot know whether the file
-        # imports data either. `partial` is exactly "there are inputs I cannot
-        # account for", which is the precondition for this refusal, and it is
-        # already computed (SPEC-report §8.3).
-        closure = include_closure(source.path)
-        if closure.partial:
-            reason = (
-                "reads external data (import()/surface())"
-                if closure.reads_external_data
-                else f"has include(s) partspec could not resolve ({', '.join(closure.unresolved)})"
-            )
+        # The question asked is the whole of `partial`, not
+        # `reads_external_data`, because those are the same question: a closure
+        # with an UNRESOLVED include cannot see inside that file, so it cannot
+        # know whether the file imports data either. `partial_reason` is
+        # exactly "there are inputs I cannot account for" and says which kind,
+        # non-None on precisely the closures `partial` is true of; it is
+        # already computed (SPEC-report §8.3), and phrased in one place because
+        # `openscad.render` refuses on the same grounds (#208).
+        reason = include_closure(source.path).partial_reason
+        if reason is not None:
             _measure_failure(
                 part,
                 target,

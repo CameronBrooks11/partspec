@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A build no longer destroys its own input, on `check` as well as on
+  `measure`.** `engines/openscad.render` unlinked `<out dir>/<source stem>.stl`
+  before invoking the engine, so a model whose `import()` target sits at that
+  derived path built without it. Filed as a `measure --out DIR` bug (#208); it
+  is a bug in `render`, which means `check --out DIR` reached it too, and that
+  is the worse half — measured on the filed repro, `partspec check spec.py:part
+  --out .` printed `PASS: 2 pass` for `envelope(max=(20,20,20))` on geometry
+  that was not the part, at exit 0, with the input gone. `measure` answered
+  `bbox [5,5,5] volume 125` where the part measures `[8,7,11]` / `356`. The
+  engine now exports into a scratch directory under the output directory and
+  the result is moved into place with `os.replace` only once it exists and is
+  non-empty, so the output directory is write-only for the whole render — the
+  shape `_build_to_file` already used for the filename form of `--out`, and
+  what `SPEC-backend.md` §5 step 1 describes (`-o <tmp>.stl`). The unlink's
+  stated reason dies with it: the exists/non-empty guards now ask about a file
+  in a directory this call created empty, so no previous run's mesh can answer
+  them (pinned by a test against a stub engine that exits 0 writing nothing,
+  because the installed 2021.01 exits 1 on empty geometry and cannot reach that
+  branch). A failed render, a blown timeout or a Ctrl-C now leaves whatever was
+  there rather than deleting it.
+- **A render into the model's own directory is refused when it cannot be told
+  from an input.** Non-destructive building fixes the measurement and not the
+  file: `os.replace` still lands the artifact on top of the input at the end.
+  `Closure.reads_external_data` is a bool by design — a data path may be
+  computed at render time — so the refusal is conservative and narrow, firing
+  only when the output directory resolves to the source's own directory AND the
+  closure is partial AND `<stem>.stl` already exists there. All three clauses
+  exist to avoid over-refusing: without the first, every REPEAT run of any
+  external-data model against the default `outputs/<slug>` would be refused for
+  finding its own previous artifact. It therefore **under-refuses** —
+  `--out sub` for a model importing `sub/<stem>.stl` still replaces that file,
+  and only the file: the measurement is correct there because the engine reads
+  the input before anything moves. Both directions are pinned by test. The
+  refusal is `origin="environment"`, so `check` reports it as a run-level fault
+  with every check skipped rather than as a failing `builds` (SPEC-report
+  §6.1), and both verbs exit 4.
+
 ## [0.7.5] - 2026-08-14
 
 ### Added

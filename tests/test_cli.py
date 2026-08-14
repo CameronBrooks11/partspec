@@ -390,6 +390,126 @@ def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(
 
 
 # --------------------------------------------------------------------------
+# measure/check --out DIR (#208): the DERIVED artifact path may be an input
+# --------------------------------------------------------------------------
+
+
+def _donor_stl(tmp_path: Path, dest: Path) -> bytes:
+    """Build a real 3x7x11 mesh at `dest`, for a model to `import()`.
+
+    A real one, rendered by the engine that will read it back, because these
+    tests turn on whether the import was resolved at all: the `b"donor"`
+    placeholder the file-mode tests use never reaches OpenSCAD, and a model
+    that imports it measures the same either way.
+    """
+    from partspec.engines import openscad
+
+    source = tmp_path / "donor.scad"
+    source.write_text("cube([3, 7, 11]);\n")
+    built = openscad.render(openscad.OpenSCADSource(path=source), tmp_path / "donor-out")
+    assert isinstance(built, Path), built
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(built, dest)
+    return dest.read_bytes()
+
+
+@needs_openscad
+def test_measure_out_refuses_the_model_s_own_directory_over_a_colliding_input(
+    tmp_path: Path, capsys
+):
+    """`--out .` derived `<stem>.stl`, and the model imported that file.
+
+    Filed as a `measure` bug and reproduced at exit 0 with a complete payload:
+    `part.scad` imports `part.stl`, the run unlinked `part.stl` before invoking
+    the engine, and the model then built without its import — `[5, 5, 5]` for a
+    part that measures `[8, 7, 11]`, with the input gone. Building in a scratch
+    directory fixes the number; it does not stop `os.replace` from putting the
+    output on top of the input afterwards, which is what this refusal is for.
+    """
+    donor = _donor_stl(tmp_path, tmp_path / "self_named_import.stl")
+    target = scad_target(tmp_path, source="self_named_import.scad", claims="")
+    assert main(["measure", target, "--out", str(tmp_path)]) == exit_code(Verdict.ERROR)
+    assert (tmp_path / "self_named_import.stl").read_bytes() == donor
+    doc = json.loads(capsys.readouterr().out)
+    assert "self_named_import.stl" in doc["error"], "the refusal names the file at stake"
+    assert "reads external data" in doc["error"]
+    assert "pass an output directory other than the model's own" in doc["hint"]
+
+
+@needs_openscad
+def test_check_out_refuses_rather_than_passing_a_part_it_would_have_consumed(tmp_path: Path):
+    """The half the issue did not file, and the worse one.
+
+    `check --out .` reached the same unlink, so the same consumed import
+    produced `PASS: 2 pass` — a verdict on geometry that was not the part,
+    with the input gone. The refusal is `origin="environment"`, so `builds`
+    is skipped rather than failed: nothing here disproves the design
+    (SPEC-report §6.1).
+    """
+    donor = _donor_stl(tmp_path, tmp_path / "self_named_import.stl")
+    target = scad_target(
+        tmp_path,
+        source="self_named_import.scad",
+        claims="    p.envelope(max=(20.0, 20.0, 20.0))\n",
+    )
+    assert main(["check", target, "--quiet", "--out", str(tmp_path)]) == exit_code(Verdict.ERROR)
+    assert (tmp_path / "self_named_import.stl").read_bytes() == donor
+    report = report_of(tmp_path)
+    assert report["verdict"] == "error"
+    assert report["build_origin"] == "environment"
+    assert [c["status"] for c in report["checks"]] == ["skipped", "skipped"]
+    assert "self_named_import.stl" in report["error"]
+
+
+@needs_scad_tier
+def test_measure_out_measures_the_import_and_a_repeat_run_is_not_refused(tmp_path: Path, capsys):
+    """The condition that must NOT fire, run twice.
+
+    A guard of the form "the artifact path exists and the closure is partial"
+    catches the filed repro and regresses every second run of any external-data
+    model, because run 2 finds run 1's own artifact waiting for it. So the
+    refusal also requires the destination to be the model's OWN directory,
+    which an output directory never is — and both runs measure the imported
+    solid, `[8, 7, 11]` rather than the bare `[5, 5, 5]` cube.
+    """
+    _donor_stl(tmp_path, tmp_path / "self_named_import.stl")
+    target = scad_target(tmp_path, source="self_named_import.scad", claims="")
+    out = tmp_path / "art"
+    for run in ("first", "second"):
+        assert main(["measure", target, "--out", str(out)]) == 0, run
+        doc = json.loads(capsys.readouterr().out)
+        assert doc["measurements"]["bbox"]["value"] == [8.0, 7.0, 11.0], run
+    assert (out / "self_named_import.stl").stat().st_size > 0
+
+
+@needs_scad_tier
+def test_measure_out_still_loses_an_import_it_cannot_tell_from_its_output(tmp_path: Path, capsys):
+    """The residue this fix leaves, pinned rather than left to be rediscovered.
+
+    The refusal covers the model's own directory and nothing else, because no
+    signal distinguishes the two files anywhere else: `reads_external_data` is
+    a bool by design, since a data path may be computed at render time. So
+    `--out sub` for a model importing `sub/<stem>.stl` still writes the
+    artifact over that import.
+
+    What survives is the half that matters more. The engine reads the real
+    input — the build happens in a scratch directory, and nothing is removed
+    before it — so THIS run's answer is right, `[8, 7, 11]`; only the file is
+    lost, and the next run would be refused nothing and answer `[5, 5, 5]`.
+    Trading a rare lost file for never over-refusing a legitimate output
+    directory is the deliberate choice; it is not the absence of one.
+    """
+    donor = _donor_stl(tmp_path, tmp_path / "sub" / "subdir_import.stl")
+    target = scad_target(tmp_path, source="subdir_import.scad", claims="")
+    assert main(["measure", target, "--out", str(tmp_path / "sub")]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["measurements"]["bbox"]["value"] == [8.0, 7.0, 11.0], "the import WAS read"
+    assert (tmp_path / "sub" / "subdir_import.stl").read_bytes() != donor, (
+        "and the artifact then replaced it — the documented residue of #208's guard"
+    )
+
+
+# --------------------------------------------------------------------------
 # measure — identity (#47): as identifiable as a report
 # --------------------------------------------------------------------------
 

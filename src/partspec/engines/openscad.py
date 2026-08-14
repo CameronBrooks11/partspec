@@ -203,6 +203,61 @@ def _method_scratch(source: OpenSCADSource, out_dir: Path) -> Path | BuildError:
     return scratch
 
 
+def _output_over_an_input(source: OpenSCADSource, out_dir: Path, stl: Path) -> BuildError | None:
+    """Refuse when the artifact would land on a file that may be an input.
+
+    Building in a scratch directory keeps the MEASUREMENT honest — the engine
+    reads whatever inputs are on disk, because nothing has been removed — but
+    the move into place still writes `<stem>.stl` over whatever holds that
+    name, and where the model reads that file the NEXT run measures something
+    else. #208's repro is exactly that: `part.scad` imports `part.stl`, a
+    destination of the source's own directory derives `part.stl`, and after
+    the run the input is the output. Under `check` it was worse than a wrong
+    number — a PASS verdict on geometry that was not the part.
+
+    `Closure.reads_external_data` is a bool by design: a data path may be
+    computed at render time, so no static reader can resolve it. So this
+    cannot know WHICH files are inputs and has to be conservative, the same
+    position the file-mode `--out` guard takes (`cli._measure_resolved`). The
+    narrowest condition that catches the repro is all three of:
+
+    1. the destination is the directory the source's relative
+       `import()`/`surface()` paths resolve against — its own;
+    2. the closure is partial, so inputs exist that partspec cannot enumerate;
+    3. `<stem>.stl` is already there to be destroyed.
+
+    Each clause is load-bearing in the direction of NOT over-refusing. Without
+    (1) every repeat run against the default `outputs/<slug>` sees run 1's own
+    artifact and refuses — the whole ordinary path, broken. Without (2) no
+    model could ever write beside its source. Without (3) a first run into the
+    source directory is refused over a file that does not exist.
+
+    It therefore **under-refuses**, deliberately: `--out sub` where the model
+    imports `sub/part.stl` still loses the file. What it does not lose there is
+    the answer — the scratch build reads that input before anything replaces it
+    — so the residue is one destroyed file rather than a confident wrong
+    measurement, which is the cheaper half. Over-refusing costs every user of a
+    legitimate output directory; under-refusing costs a rare corner one file.
+    Scanning the closure for the destination's NAME was the precise alternative
+    considered and rejected: it resolves nothing when the path is computed,
+    which is the case `reads_external_data` exists to admit, so it would refuse
+    in the easy case and stay silent in the hard one.
+    """
+    if out_dir.resolve() != source.path.parent.resolve() or not stl.exists():
+        return None
+    reason = include_closure(source.path).partial_reason
+    if reason is None:
+        return None
+    return BuildError(
+        f"the build artifact for {source.path.name} would be written to {stl.resolve()}, "
+        f"in the model's own directory, but {source.path.name} {reason}, so partspec "
+        f"cannot account for every input and cannot prove {stl.name} is not one of them",
+        hint=f"pass an output directory other than the model's own ({source.path.parent}) "
+        f"— the artifact lands in it as {stl.name}",
+        origin="environment",
+    )
+
+
 def render(
     source: OpenSCADSource, out_dir: Path, *, timeout_s: float | None = DEFAULT_TIMEOUT_S
 ) -> Path | BuildError:
@@ -212,10 +267,30 @@ def render(
     defaults to ASCII. Choosing the format explicitly means the export does not
     silently change meaning with the installed version.
 
+    **Nothing in `out_dir` is touched until there is an artifact to put there.**
+    The engine writes into a scratch directory under `out_dir` and the result
+    is moved into place with `os.replace`, so the destination holds the old
+    file or the new one and never neither. This is what SPEC-backend §5 step 1
+    already describes (`-o <tmp>.stl`), and the shape `cli._build_to_file`
+    settled on for the filename form of `--out` — the directory form never got
+    it (#208).
+
+    An earlier revision unlinked the target up front, so that the
+    exists/non-empty guards below could not be answered by a *stale* file from
+    a previous run. That reason does not survive the scratch directory: the
+    guards now ask about a file in a directory this call created empty
+    moments earlier, so no previous run's mesh can be standing in it and there
+    is nothing stale to be fooled by. What the unlink did reach was the
+    caller's data — `.stl` is an input extension as well as an output one, and
+    a model importing `<stem>.stl` built without its import and reported a
+    complete, confident, wrong answer at exit 0, `measure` and `check` alike.
+
     `timeout_s` here is already resolved: a number is the bound, None is
     unbounded (the explicit `--timeout 0` waiver). The None-means-default rule
     lives one layer up, in `effective_timeout`.
     """
+    import tempfile
+
     executable = find_executable()
     if executable is None:
         return BuildError(
@@ -235,22 +310,9 @@ def render(
         )
     stl = out_dir / f"{source.path.stem}.stl"
 
-    # The export path is deterministic, so a previous run's mesh is sitting there
-    # before this one starts. The guards below ask whether the file exists and is
-    # non-empty — questions the *stale* file answers just as well, so an
-    # invocation that exits 0 without writing would measure the last run's part
-    # and report it as this one's. Removing it first makes the checks mean what
-    # they read as, and makes a failed render leave nothing behind for a later
-    # reader to pick up.
-    try:
-        stl.unlink(missing_ok=True)
-    except OSError as exc:
-        # A stale artifact in a directory this run cannot write is the same
-        # environment fault as an uncreatable one, and must not traceback.
-        return BuildError(
-            f"could not clear the previous artifact in {out_dir}: {exc.strerror}",
-            origin="environment",
-        )
+    refusal = _output_over_an_input(source, out_dir, stl)
+    if refusal is not None:
+        return refusal
 
     scratch: Path | None = None
     try:
@@ -277,81 +339,105 @@ def render(
             render_path, defines = source.path, _define_args(source.params)
 
         backend_args = ["--backend", source.backend] if source.backend else []
-        cmd = [
-            executable,
-            "--export-format",
-            "binstl",
-            *backend_args,
-            "-o",
-            str(stl),
-            *defines,
-            str(render_path),
-        ]
-        try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout_s, check=False
-            )
-        except subprocess.TimeoutExpired:
-            return BuildError(f"openscad timed out after {timeout_s}s", origin="environment")
-        except OSError as exc:
-            # A mistyped PARTSPEC_OPENSCAD reaches here. The pin is returned
-            # as given rather than validated away, because silently falling
-            # back to PATH would answer with an engine the user did not choose
-            # — and the version is the part (F13). So it fails, by name.
-            return BuildError(
-                f"could not run the openscad binary at {executable!r}: {exc.strerror}",
-                origin="environment",
-                hint=f"{ENV_EXECUTABLE} is set to this path"
-                if os.environ.get(ENV_EXECUTABLE)
-                else None,
-            )
-
-        if proc.returncode != 0:
-            reason = _first_error_line(proc.stderr)
-            if _is_unknown_option(proc.stderr):
-                # The engine rejected an option partspec passed, which is a
-                # statement about the ENGINE, not the part. The 2021.01 case is
-                # `backend=`: render backends arrived later, and Debian and
-                # Ubuntu ship 2021.01, so this is the ordinary experience of a
-                # contract written against a newer engine, not an exotic one.
-                #
-                # Measured before this branch existed: `verdict: fail`,
-                # `build_origin: "model"`, hint `unrecognised option
-                # '--backend'`. The hint was right and the origin was wrong,
-                # and the origin is what AGENT-CONTRACT §2.3 routes on — so an
-                # agent was sent to §2.1 "fix the source" over a machine that
-                # simply predates the flag. SPEC-report §6.1 forbids exactly
-                # that: an environment fault MUST NOT be reported as a
-                # statement about the part.
-                # The hint names the option the ENGINE named, never a literal.
-                # It read "(2021.01 has no --backend)", which is true of the
-                # case that prompted this branch and false of every other:
-                # `--export-format` is passed on every render and arrived in
-                # 2021.01, so on an older binary every build lands here and the
-                # hint would have told the reader to drop a flag they never
-                # passed (PR #160 review).
+        # The scratch directory sits under `out_dir` rather than in the system
+        # temp dir, so the move into place is a rename on one filesystem —
+        # `_build_to_file` places its own beside the destination for the same
+        # reason. The method entry file is NOT moved here: relative
+        # `import()`/`surface()` paths resolve against the main entry file's
+        # directory, so `_method_scratch` alone decides where that lives.
+        with tempfile.TemporaryDirectory(
+            dir=out_dir, prefix=".partspec-build-", ignore_cleanup_errors=True
+        ) as build_dir:
+            staged = Path(build_dir) / stl.name
+            cmd = [
+                executable,
+                "--export-format",
+                "binstl",
+                *backend_args,
+                "-o",
+                str(staged),
+                *defines,
+                str(render_path),
+            ]
+            try:
+                proc = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=timeout_s, check=False
+                )
+            except subprocess.TimeoutExpired:
+                return BuildError(f"openscad timed out after {timeout_s}s", origin="environment")
+            except OSError as exc:
+                # A mistyped PARTSPEC_OPENSCAD reaches here. The pin is returned
+                # as given rather than validated away, because silently falling
+                # back to PATH would answer with an engine the user did not choose
+                # — and the version is the part (F13). So it fails, by name.
                 return BuildError(
-                    f"the openscad binary rejected an option partspec passed: {reason}",
-                    hint=f"this engine does not accept it — {reason}. Upgrade openscad, or "
-                    f"drop the contract argument that needs it (`backend=` needs a build "
-                    f"newer than 2021.01)",
+                    f"could not run the openscad binary at {executable!r}: {exc.strerror}",
                     origin="environment",
+                    hint=f"{ENV_EXECUTABLE} is set to this path"
+                    if os.environ.get(ENV_EXECUTABLE)
+                    else None,
+                )
+
+            if proc.returncode != 0:
+                reason = _first_error_line(proc.stderr)
+                if _is_unknown_option(proc.stderr):
+                    # The engine rejected an option partspec passed, which is a
+                    # statement about the ENGINE, not the part. The 2021.01 case is
+                    # `backend=`: render backends arrived later, and Debian and
+                    # Ubuntu ship 2021.01, so this is the ordinary experience of a
+                    # contract written against a newer engine, not an exotic one.
+                    #
+                    # Measured before this branch existed: `verdict: fail`,
+                    # `build_origin: "model"`, hint `unrecognised option
+                    # '--backend'`. The hint was right and the origin was wrong,
+                    # and the origin is what AGENT-CONTRACT §2.3 routes on — so an
+                    # agent was sent to §2.1 "fix the source" over a machine that
+                    # simply predates the flag. SPEC-report §6.1 forbids exactly
+                    # that: an environment fault MUST NOT be reported as a
+                    # statement about the part.
+                    # The hint names the option the ENGINE named, never a literal.
+                    # It read "(2021.01 has no --backend)", which is true of the
+                    # case that prompted this branch and false of every other:
+                    # `--export-format` is passed on every render and arrived in
+                    # 2021.01, so on an older binary every build lands here and the
+                    # hint would have told the reader to drop a flag they never
+                    # passed (PR #160 review).
+                    return BuildError(
+                        f"the openscad binary rejected an option partspec passed: {reason}",
+                        hint=f"this engine does not accept it — {reason}. Upgrade openscad, "
+                        f"or drop the contract argument that needs it (`backend=` needs a "
+                        f"build newer than 2021.01)",
+                        origin="environment",
+                        stderr=proc.stderr,
+                    )
+                return BuildError(
+                    f"openscad exited {proc.returncode}",
+                    hint=reason,
                     stderr=proc.stderr,
                 )
-            return BuildError(
-                f"openscad exited {proc.returncode}",
-                hint=reason,
-                stderr=proc.stderr,
-            )
-        # OpenSCAD exits 0 on some degenerate input while writing nothing useful,
-        # so the artifact is checked rather than the exit code trusted.
-        if not stl.is_file() or stl.stat().st_size == 0:
-            return BuildError(
-                "openscad exited 0 but produced no geometry",
-                hint=_first_error_line(proc.stderr),
-                stderr=proc.stderr,
-            )
-        return stl
+            # OpenSCAD exits 0 on some degenerate input while writing nothing
+            # useful, so the artifact is checked rather than the exit code
+            # trusted. It is the STAGED file that is checked: the scratch
+            # directory was created empty by this call, so "exists and is
+            # non-empty" cannot be answered by a previous run's mesh — which
+            # is the whole reason the old up-front unlink existed.
+            if not staged.is_file() or staged.stat().st_size == 0:
+                return BuildError(
+                    "openscad exited 0 but produced no geometry",
+                    hint=_first_error_line(proc.stderr),
+                    stderr=proc.stderr,
+                )
+            staged.replace(stl)
+            return stl
+    except OSError as exc:
+        # One clause for the scratch directory and for the move, because the
+        # caller's question is the same in each: the artifact is not where you
+        # asked for it, and that is the environment's doing, not the part's.
+        # Same sentence `_build_to_file` uses, for the same failure.
+        return BuildError(
+            f"could not write the build artifact to {stl}: {exc.strerror}",
+            origin="environment",
+        )
     finally:
         if scratch is not None:
             scratch.unlink(missing_ok=True)
@@ -752,6 +838,22 @@ class Closure:
     def partial(self) -> bool:
         """True when the closure is known not to cover every input."""
         return bool(self.unresolved) or self.reads_external_data
+
+    @property
+    def partial_reason(self) -> str | None:
+        """Why it is partial, phrased for a refusal — None when it is not.
+
+        One spelling, because two guards now ask this question: the file-mode
+        `--out` refusal in `cli._measure_resolved` and the source-directory
+        one in `render`. A reader who trips both must not be told the same
+        thing two ways, and the phrasing is the part of a refusal most likely
+        to drift when it is written twice.
+        """
+        if self.reads_external_data:
+            return "reads external data (import()/surface())"
+        if self.unresolved:
+            return f"has include(s) partspec could not resolve ({', '.join(self.unresolved)})"
+        return None
 
 
 _ASSIGNMENT = re.compile(r"([A-Za-z_$][A-Za-z0-9_]*)\s*=")
