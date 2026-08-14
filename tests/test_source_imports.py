@@ -43,6 +43,18 @@ def fresh() -> Iterator[None]:
     _clear()
 
 
+@pytest.fixture
+def whole_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Inventory everything, including what was loaded before partspec was.
+
+    `_BASELINE` is captured at import and is the right default for a `partspec
+    check`, where it holds the venv's own scenery and nothing a model needs.
+    Under pytest it holds the whole test runner, so a test that wants to see a
+    real installed distribution has to ask for the unfiltered view.
+    """
+    monkeypatch.setattr(imports, "_BASELINE", frozenset())
+
+
 def _install(site: Path, name: str, version: str, files: dict[str, str]) -> Path:
     """A distribution whose RECORD declares exactly the files it wrote."""
     rows = []
@@ -125,6 +137,31 @@ def test_a_source_checkout_beats_the_version_metadata_would_have_reported(
     assert entry["digest"] != imports._metadata_digest("gadget")
 
 
+def test_an_edit_to_an_installed_file_does_not_move_a_metadata_digest(tmp_path: Path, fresh: None):
+    """A limitation, pinned because SPEC-report §8.3 rule 5 now states it.
+
+    Ownership is decided by path, so an edited file the RECORD declares is
+    still declared: the entry stays `metadata` and the digest stays the
+    installer's. Catching it would mean hashing every loaded file to compare
+    against its declared hash, which is the cost this tier exists to avoid,
+    and `DESIGN-190.md` R3 takes that trade knowingly — §7.1 already limits a
+    digest to comparison-based tamper evidence. If this test ever fails
+    because the digest moved, the spec is what needs the edit.
+    """
+    site = tmp_path / "site"
+    _install(site, "tampered", "1.0", {"tampered/__init__.py": "VALUE = 1\n"})
+    _activate(site)
+    importlib.import_module("tampered")
+    before = imports.inventory()["tampered"]
+
+    (site / "tampered" / "__init__.py").write_text("VALUE = 666\n")
+    _clear()
+    after = imports.inventory()["tampered"]
+
+    assert after == before
+    assert after["identity"] == "metadata"
+
+
 def test_the_bytes_that_moved_move_the_digest(tmp_path: Path, fresh: None):
     """A content digest that did not track its own tree would be worse than
     the metadata it replaced: confident, cheap and blind."""
@@ -205,6 +242,60 @@ def test_a_distribution_digest_covers_the_files_beside_its_package(tmp_path: Pat
     assert digests[0] != digests[1], "a changed vendored library must move the digest"
 
 
+def test_an_editable_finder_shim_does_not_stand_in_for_the_library(tmp_path: Path, fresh: None):
+    """`pip install -e .` on a flat layout writes `__editable___<name>_finder.py`
+    **into site-packages**, lists it in the RECORD, and imports it from a `.pth`
+    at startup. Index that row and the shim is a RECORD-owned loaded file, so
+    the distribution earns a `metadata` entry for a library the model never
+    imported — and the shim's `MAPPING` embeds the checkout's absolute path, so
+    two byte-identical installs at two paths disagree. That is the
+    machine-sensitivity the `../` filter exists to remove, arriving through a
+    row the filter does not cover.
+    """
+    site = tmp_path / "site"
+    finder = "__editable___flat_lib_0_2_0_finder"
+    _install(
+        site,
+        "flat-lib",
+        "0.2.0",
+        {
+            f"{finder}.py": f"MAPPING = {{'flatlib': '{tmp_path}/src/flatlib'}}\n",
+            "__editable__.flat_lib-0.2.0.pth": f"import {finder}\n",
+        },
+    )
+    _activate(site)
+    importlib.import_module(finder)
+
+    found = imports.inventory()
+    assert "flat-lib" not in found, "the shim is not the library, and never ran its code"
+    assert finder not in found
+    assert not imports._record_index()[1]["flat-lib"], "no row of this install is its code"
+
+
+def test_a_content_digest_covers_the_package_tree_and_says_so(tmp_path: Path, fresh: None):
+    """The other side of the trap above, and the reason rule 3 is about the
+    *metadata* tier. With no RECORD there is nothing that can associate
+    `co_pkg.libs/` with `co_pkg` — the vendored directory is named for the
+    distribution, not the package, which is why `OCP` sits beside
+    `cadquery_ocp.libs`. The digest covers the tree it was loaded from, rule 6
+    says exactly that, and this pins the two together so neither can drift.
+    """
+    checkout = tmp_path / "checkout"
+    (checkout / "co_pkg").mkdir(parents=True)
+    (checkout / "co_pkg" / "__init__.py").write_text("VALUE = 1\n")
+    (checkout / "co_pkg.libs").mkdir()
+    (checkout / "co_pkg.libs" / "libfoo.so").write_text("ELF-one\n")
+    _activate(checkout)
+    importlib.import_module("co_pkg")
+
+    entry = imports.inventory()["co_pkg"]
+    assert entry["files"] == 1, "the package tree, and rule 6 says no more than that"
+
+    (checkout / "co_pkg" / "data.txt").write_text("used at run time\n")
+    _clear()
+    assert imports.inventory()["co_pkg"]["files"] == 2, "the whole tree, not the .py files"
+
+
 def test_a_console_script_row_cannot_move_the_digest(tmp_path: Path, fresh: None):
     """A generated console script embeds the venv's absolute path in its
     shebang, so its hash differs on every machine — numpy's differed across all
@@ -264,17 +355,30 @@ def test_a_namespace_package_is_a_named_gap_and_not_a_crash(tmp_path: Path, fres
     assert closure["partial"] is True
 
 
-def test_the_inventory_is_not_empty_in_an_ordinary_process():
+def test_the_inventory_is_not_empty_in_an_ordinary_process(whole_process: None):
     """The `platstdlib` trap (§R6), which is silent by construction: in a venv
     `sysconfig.get_paths()["platstdlib"]` is the **parent** of `site-packages`,
     so excluding the stdlib by that path excludes every installed distribution
     too. The prototype that did it reported zero imports and its tests passed.
+
+    Asserted against this real venv rather than a synthetic one, because the
+    trap is a property of where a real interpreter puts things.
     """
     found = imports.inventory()
     assert found, "an inventory that filtered everything away must fail loudly"
     assert found["pytest"]["identity"] == "metadata"
     assert found["pytest"]["version"]
     assert "json" not in found and "unittest" not in found, "the stdlib is not an input"
+
+
+def test_no_directory_holding_installed_packages_reads_as_stdlib():
+    """`--system-site-packages` on a distribution that installs to
+    `<stdlib>/site-packages` — Arch, Fedora, RHEL — puts third-party code
+    inside the stdlib directory and outside `sysconfig`'s `purelib`. Every
+    system distribution would then vanish from the closure in silence."""
+    for directory in imports._site_dirs():
+        assert not imports._is_stdlib(directory), directory
+    assert imports._site_dirs(), "there is always at least one site directory"
 
 
 def test_the_stdlib_lives_where_os_does_not_where_platstdlib_says():
@@ -309,13 +413,40 @@ def test_a_later_targets_imports_are_not_lost_to_the_cache(tmp_path: Path, fresh
     assert "late" in second and "early" in second
 
 
-def test_the_entry_point_is_not_an_import(tmp_path: Path, fresh: None):
+def test_the_entry_point_is_not_an_import(whole_process: None):
     """`__main__` under a console script is a venv-generated launcher whose
     shebang embeds an absolute path, and `__mp_main__` is multiprocessing's
     alias for the same file — importing build123d registers it. Hashing either
     makes the closure machine-specific."""
     assert "__main__" not in imports.inventory()
     assert "__mp_main__" not in imports.inventory()
+
+
+def test_the_tool_and_the_venv_are_not_inputs_of_the_part():
+    """What was loaded before partspec was is scenery, and scenery is not a
+    build input. `partspec` itself is `tool.version`, which `diff` already
+    compares, and it is editable-installed in the dogfood loop — recorded here
+    it would report "an input moved" on every part after any edit to the tool.
+    `_virtualenv` is written by `uv venv` and not by `python -m venv`, so it
+    would separate two machines with identical package sets.
+    """
+    found = imports.inventory()
+    assert "partspec" not in found
+    assert "_virtualenv" not in found
+    assert "partspec" in imports._BASELINE, "the exclusion is the baseline's doing"
+
+
+def test_a_library_imported_after_partspec_is_not_scenery(tmp_path: Path, fresh: None):
+    """The other half of the baseline: it must drop what preceded partspec and
+    nothing else, or a model's own library disappears with it. Everything a
+    contract loads — the model, its helpers, the CAD kernel the engine imports
+    lazily at build time — happens after."""
+    site = tmp_path / "site"
+    _install(site, "afterwards", "1.0", {"afterwards/__init__.py": "VALUE = 1\n"})
+    _activate(site)
+    importlib.import_module("afterwards")
+
+    assert imports.inventory()["afterwards"]["version"] == "1.0"
 
 
 def test_the_models_own_directory_is_not_counted_twice(tmp_path: Path, fresh: None):

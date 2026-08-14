@@ -12,10 +12,18 @@ the file that was imported one the installer's RECORD actually describes?**
   RECORD-declared hashes. Measured at 0.07 ms for `cadquery-ocp`'s 396 rows,
   and bounded by the ownership check, which is what keeps it from being
   vacuous.
-- `content`: no. Hash the bytes that were imported. Editable installs,
-  `sys.path` source checkouts and post-install edits all land here, and they
-  are cheap by construction because they are source trees rather than wheels
-  (measured on the fleet's checkout: 0.58 ms cold, 0.55 ms warm, 17 files).
+- `content`: no. Hash the bytes that were imported. Editable installs and
+  `sys.path` source checkouts land here, and they are cheap by construction
+  because they are source trees rather than wheels (measured on the fleet's
+  checkout: 0.58 ms cold, 0.55 ms warm, 17 files).
+
+What the first tier does **not** catch is an edit to a file the RECORD
+declares: ownership is decided by path, so the file stays owned, the entry
+stays `metadata`, and the digest is over hashes the installer wrote rather
+than bytes on disk. Finding that would mean hashing every loaded file to
+compare it against its declared hash — the cost this tier exists to avoid.
+SPEC-report §7.1 already says a digest is comparison-based tamper *evidence*
+and not tamper-proofing; the ownership check bounds vacuity, not tampering.
 
 The ownership check is not a formality. All three arm-A agents ran a
 `sys.path` checkout of `cq-gridfinity` while the venv reported 0.5.7 from a
@@ -35,6 +43,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import os
+import site
 import sys
 import sysconfig
 from functools import cache
@@ -73,6 +82,43 @@ an absolute path, so hashing it makes the closure machine-specific — the same
 defect the `../` RECORD filter exists to prevent, arriving by another door.
 `__mp_main__` is multiprocessing's alias for that same file, and it is not
 hypothetical: importing build123d pulls in joblib, which registers it."""
+
+_EDITABLE = "__editable__"
+"""setuptools' editable-install shim, which is neither the tool nor the library.
+
+`pip install -e .` on a flat layout writes `__editable___<name>_finder.py`
+**into site-packages**, lists it in the distribution's RECORD, and imports it
+at startup from a `.pth`. Indexing it makes the shim a RECORD-owned loaded
+file, which hands the distribution a `metadata` entry for a library the model
+never imported — and the shim embeds `MAPPING = {'lib': '/abs/path/to/src'}`,
+so the digest differs between two byte-identical checkouts at two paths. Under
+stage 3 that is CI and a laptop reporting a library that did not change.
+
+Excluded in both directions: the module is not an import, and the row is not
+part of what the distribution installed."""
+
+_BASELINE = frozenset(name.partition(".")[0] for name in sys.modules)
+"""What was already loaded when partspec was — the scenery, not the build.
+
+Captured at import, which is before any contract, model or engine is read:
+partspec's core is stdlib-only by design (AGENTS.md), so nothing a model needs
+can be in here in the process shapes partspec ships — the CLI and MCP's
+subprocess-per-call. Measured on a real CLI run, the whole third-party
+baseline is `_virtualenv` and `partspec` itself.
+
+Both belong out. `partspec` is the runner, already recorded as `tool.version`
+and compared by `diff`, and in a dogfood loop it is editable-installed, so
+every edit to the tool would move an "input" on every part it measured.
+`_virtualenv` is a property of the venv creator — `uv venv` writes it, `python
+-m venv` does not — so two machines with identical package sets would differ
+by an entry. The snapshot also takes `sitecustomize`, `_distutils_hack` and
+`pkg_resources` with it, none of which any model asked for.
+
+The bound, stated because it is the one way this can under-report: partspec
+can only speak for imports that arrived after it did. A host process that
+imports a model's library *before* importing partspec puts that library in the
+baseline. Tests override this attribute directly to inventory a whole
+process."""
 
 
 def inventory(
@@ -113,12 +159,15 @@ def inventory(
     fileless: set[str] = set()
 
     for name, module in list(sys.modules.items()):
-        if module is None or name in _INVOCATION:
+        unit = name.partition(".")[0]
+        if module is None or name in _INVOCATION or unit in _BASELINE:
+            continue
+        if unit.startswith(_EDITABLE):
             continue
         filename = getattr(module, "__file__", None)
         if not filename:
             if _is_unresolved_namespace(name, module, skip):
-                fileless.add(name.partition(".")[0])
+                fileless.add(unit)
             continue
         path = os.path.normpath(filename)
         if path in excluded or _is_stdlib(path) or (skip and _within(path, skip)):
@@ -134,7 +183,6 @@ def inventory(
             if path in excluded or (skip and _within(path, skip)):
                 continue
             owner = owners.get(path)
-        unit = name.partition(".")[0]
         if owner is not None:
             dists.add(owner)
             identified.add(unit)
@@ -233,10 +281,24 @@ def _stdlib_dir() -> str:
 
 @cache
 def _site_dirs() -> tuple[str, ...]:
+    """Every directory that holds installed distributions, stdlib or not.
+
+    `sysconfig`'s `purelib`/`platlib` describe *this* environment only. On
+    distributions that install third-party packages to
+    `<stdlib>/site-packages` — Arch, Fedora, RHEL — a venv created with
+    `--system-site-packages` imports from a directory that is inside the
+    stdlib and is not in `sysconfig`'s answer, so every system distribution
+    would read as stdlib and vanish from the closure without a word. `site`
+    knows about them, so it is asked too.
+    """
     paths = sysconfig.get_paths()
-    return tuple(
-        sorted({os.path.realpath(paths[key]) for key in ("purelib", "platlib") if paths.get(key)})
-    )
+    found = {os.path.realpath(paths[key]) for key in ("purelib", "platlib") if paths.get(key)}
+    try:
+        found.update(os.path.realpath(entry) for entry in site.getsitepackages())
+        found.add(os.path.realpath(site.getusersitepackages()))
+    except AttributeError:  # pragma: no cover - a stripped or embedded `site`
+        pass
+    return tuple(sorted(found))
 
 
 def _within(path: str, directory: str) -> bool:
@@ -261,11 +323,17 @@ def _is_stdlib(path: str) -> bool:
 def _keep_row(path: str, digest: str) -> bool:
     """Which RECORD rows describe the installed code, and only that.
 
-    - `../`: console scripts, whose generated shebang embeds the venv's
-      absolute path. Across five independently created fleet venvs the raw
-      RECORD digest for numpy 2.5.2 differed in **all five**, entirely on
-      these rows. Unfiltered, the digest is per-machine noise and the field
-      is worse than useless.
+    - `../`: anything written outside site-packages. The reason is console
+      scripts, whose generated shebang embeds the venv's absolute path —
+      across five independently created fleet venvs the raw RECORD digest for
+      numpy 2.5.2 differed in **all five** and agreed in none, entirely on
+      those two rows. The filter is by location rather than by kind, so it
+      also drops rows that are perfectly stable (numpy ships three
+      `share/man/man1` pages here and in fleet a1). That is the deliberate
+      trade: a digest that is reproducible and slightly narrow beats one that
+      is complete and differs on every machine.
+    - `__editable__*`: setuptools' editable shim, whose `MAPPING` embeds the
+      absolute path of the source checkout — the same defect by another door.
     - `*.dist-info/*`: the record of the *install*, not of the code.
       `direct_url.json` carries the URL or local path a wheel came from and
       `INSTALLER` names pip or uv, so two correct installs of one wheel
@@ -275,6 +343,7 @@ def _keep_row(path: str, digest: str) -> bool:
     """
     return bool(digest) and not (
         path.startswith("../")
+        or path.startswith(_EDITABLE)
         or path.endswith(_BYTECODE)
         or ".dist-info/" in path
         or ".egg-info/" in path
@@ -312,11 +381,19 @@ def _record_index() -> tuple[
     owners: dict[str, str] = {}
     rows: dict[str, tuple[tuple[str, str], ...]] = {}
     versions: dict[str, str] = {}
+    seen: set[str] = set()
     for dist in distributions():
         metadata = dist.metadata
         name, version = metadata["Name"], metadata["Version"]
-        if not name or name in rows:
+        if not name or name in seen:
             continue
+        # Claimed before the RECORD is read, not after: skipping a
+        # RECORD-less installation early would let a *later* copy of the same
+        # name supply the version, while `environment.packages` took the
+        # first — one name, two answers, in two fields of one report.
+        seen.add(name)
+        if version:
+            versions[name] = version
         record = dist.read_text("RECORD")
         if record is None:
             continue
@@ -358,6 +435,15 @@ def _metadata_digest(name: str) -> str:
 def _content_digest(roots: tuple[Path, ...]) -> tuple[str, int]:
     """Hash the bytes under `roots`, whole package trees, not the loaded files.
 
+    The package tree is the whole scope, and its bound is stated in
+    SPEC-report §8.3 rule 6: a distribution's unit can be wider — vendored
+    shared objects in a sibling directory, `cadquery_ocp.libs/` beside `OCP/` —
+    and nothing outside a RECORD can discover that association. Where a RECORD
+    exists the entry is `metadata`, whose digest is over every row and so
+    covers the sibling; where none exists there is nothing to consult. Guessing
+    at sibling names would miss the very case that names the trap, since that
+    directory is named for the *distribution* and the package is not.
+
     The tree, because a module reads its data files and a package that lost
     one is a different package; and because the loaded set is whatever this
     run happened to touch, which would make the digest depend on the
@@ -372,9 +458,13 @@ def _content_digest(roots: tuple[Path, ...]) -> tuple[str, int]:
     digest that moved because a `__pycache__` was written would report a
     change that did not happen.
 
-    Memoised on the roots, which is safe for the same reason `sys.modules` is:
-    the bytes were read into the interpreter before this ran, so a later
-    target in the same process imported the same ones.
+    Memoised on the roots because a run is one point in time. The digest
+    covers the whole tree, including files this process never imported, so it
+    is not "the bytes that were loaded" and would go stale if one were edited
+    mid-run — but a run whose inputs move underneath it has no single honest
+    account to give, and one answer per run at least makes two targets of one
+    run comparable. Re-reading per target would buy nothing and cost the walk
+    again for every one.
     """
     members: list[Path] = []
     for root in roots:

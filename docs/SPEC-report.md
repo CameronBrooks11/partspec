@@ -899,10 +899,17 @@ Each entry is keyed by **distribution** name where `identity` is `metadata`, and
 **top-level module** name where it is `content` or `unidentified`, because a distribution
 is what carries a version and an unowned source tree has none.
 
+The map covers what was imported **after partspec was**, which excludes the tool itself
+and the interpreter's own scenery — `partspec` is already `tool.version` and would
+otherwise report an input moving on every part whenever the tool was edited, and
+`_virtualenv` records which program created the venv rather than anything a model reads.
+Everything a contract loads happens after that point, engines included: they import their
+CAD kernel lazily at build time.
+
 | `identity` | when | `digest` covers | `version` |
 | --- | --- | --- | --- |
 | `metadata` | every loaded file of that distribution is declared in its installer RECORD | the RECORD's own declared hashes, `path,hash` rows sorted by path | the distribution's |
-| `content` | a loaded file no RECORD declares — an editable install, a `sys.path` checkout, a post-install edit | the bytes of the whole package tree, sorted content hashes as `digest` above, with `files` | `null` |
+| `content` | a loaded file no RECORD declares — an editable install, a `sys.path` checkout, a package no installer wrote | the bytes of the package tree the import was loaded from, sorted content hashes as `digest` above, with `files` | `null` |
 | `unidentified` | `__file__ is None` and nothing under the name is identifiable | `null` | `null` |
 
 Rules a producer MUST follow:
@@ -912,18 +919,35 @@ Rules a producer MUST follow:
    Without that check the tier is vacuous where it matters most: an editable install's
    RECORD lists only a `.pth` and a finder shim, so a material source edit left both the
    version and the RECORD digest unmoved while the bytes that ran had changed.
-2. **Rows beginning `../` MUST be excluded from a `metadata` digest**, with `.pyc` rows
-   and the `dist-info` metadata. Console-script shebangs embed the venv's absolute path:
-   unfiltered, numpy 2.5.2's digest differed across all five fleet venvs and agreed across
-   none.
-3. **A `content` digest MUST cover the distribution's unit, not the imported file's
-   directory.** `cadquery_ocp.libs/` holds 69 vendored OCCT shared objects, 105 MB, beside
-   the `OCP/` package rather than inside it, and `sys.modules` never names it.
+   Correspondingly, **a row that is not the distribution's code MUST NOT be proof**:
+   setuptools writes `__editable___<name>_finder.py` into site-packages and lists it, and
+   accepting it hands a `metadata` entry to a library nothing imported, with a digest over
+   a shim that embeds the checkout's absolute path.
+2. **Rows beginning `../` MUST be excluded from a `metadata` digest**, with `__editable__`
+   rows, `.pyc` rows and the `dist-info` metadata. Console-script shebangs embed the
+   venv's absolute path: unfiltered, numpy 2.5.2's digest differed across all five fleet
+   venvs and agreed across none. The rule is by location, not by kind, and so also drops
+   stable rows outside site-packages such as installed man pages — a reproducible digest
+   over slightly less is worth more than a complete one that differs per machine.
+3. **A `metadata` digest MUST cover every row of the distribution, not the imported
+   package's directory.** `cadquery_ocp.libs/` holds 69 vendored OCCT shared objects,
+   105 MB, beside the `OCP/` package rather than inside it, and `sys.modules` never names
+   it; the RECORD does, so a digest scoped to the distribution catches it and one scoped
+   to the imported directory silently does not.
 4. **An import that cannot be identified MUST still be listed.** A map that omits it reads
    as an import that never happened.
 5. `identity: "metadata"` is the installer's word, taken deliberately (§7.1: digests are
-   comparison-based tamper *evidence*, not tamper-proofing). It is bounded by rule 1, which
-   reduces what it can be wrong about to site-packages edited after install.
+   comparison-based tamper *evidence*, not tamper-proofing). Ownership is decided by path,
+   so **a post-install edit to a file the RECORD declares does not move a `metadata`
+   digest** and does not demote the entry to `content`. Detecting it would mean hashing
+   every loaded file to compare against its declared hash, which is the cost this tier
+   exists to avoid. What rule 1 bounds is vacuity, not tampering.
+6. A `content` digest covers **the package tree the import was loaded from**. Where a
+   distribution's unit is wider than that tree — vendored shared objects in a sibling
+   directory, as in rule 3 — nothing outside RECORD can discover the association, so a
+   `content` entry MUST NOT be read as covering it. This is a stated bound rather than a
+   gap token because a Python-tier closure is `partial` unconditionally (`native_reads`),
+   so no reader may treat any of it as complete coverage.
 
 #### `unseen` — the gaps, by name
 
@@ -942,7 +966,7 @@ property of the tier and is present in every report that tier will ever write.
 **A consumer that meets a token it does not recognise MUST treat it as a bounded gap.**
 Closed vocabularies leak, and the failure must be closed: an older reader of a newer
 report goes inconclusive rather than silently ignoring a gap it does not understand. The
-same rule covers the field's absence — a closure with no `unseen` and no `imports` was
+same rule covers the field's absence — a closure missing `unseen` **or** `imports` was
 written before the question was asked, and MUST NOT be read as an answer to it.
 
 > **Reversed 2026-08-05.** This section previously specified that the Python engines emit no
