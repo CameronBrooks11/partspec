@@ -11,6 +11,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from support import (
@@ -22,6 +23,7 @@ from support import (
     scad_target,
 )
 
+from partspec import cli
 from partspec.cli import main
 from partspec.status import Verdict, exit_code
 
@@ -336,6 +338,133 @@ def test_argparse_still_owns_its_own_exits():
     SystemExit for `--version` and usage errors is untouched."""
     with pytest.raises(SystemExit):
         main(["--version"])
+
+
+# --------------------------------------------------------------------------
+# what a contract failure prints (#188)
+# --------------------------------------------------------------------------
+
+CLI_FILE = str(Path(cli.__file__))
+
+
+def _failure_through(outer_file: str, inner_file: str, statement: str) -> BaseException:
+    """An exception whose traceback is one frame in `outer_file` calling one in
+    `inner_file`, which ran `statement`.
+
+    Compiled under those filenames because which file a frame belongs to is
+    exactly what the filter reads, and a stack running *through* partspec's own
+    source into a non-partspec failure is not otherwise arrangeable without a
+    real bug in partspec to trigger.
+    """
+    ns: dict[str, Any] = {}
+    exec(compile(f"def inner():\n    {statement}\n", inner_file, "exec"), ns)  # noqa: S102
+    exec(compile("def outer():\n    inner()\n", outer_file, "exec"), ns)  # noqa: S102
+    try:
+        ns["outer"]()
+    except Exception as exc:  # noqa: BLE001 - whatever the staged statement raised is the subject
+        tb = exc.__traceback__
+        exc.__traceback__ = tb.tb_next if tb is not None else None  # drop this helper's frame
+        return exc
+    raise AssertionError("the staged failure did not raise")
+
+
+def _raising_contract(tmp_path: Path, body: str) -> str:
+    spec = tmp_path / "spec.py"
+    spec.write_text(f"from partspec import Part, openscad\n\n\ndef make() -> Part:\n{body}")
+    return f"{spec}:make"
+
+
+def test_a_contract_error_prints_the_contract_frame_and_not_partspec_s(tmp_path: Path, capsys):
+    """#188: a `ContractError` is partspec's own, deliberately raised, with a
+    message written for the reader — so the six internal frames it travelled
+    through are never the answer. The one useful frame is the contract's own
+    line, and it stays."""
+    target = _raising_contract(tmp_path, "    return Part('', openscad('x.scad'))\n")
+    assert main(["check", target, "--out", str(tmp_path / "out")]) == exit_code(Verdict.ERROR)
+    err = capsys.readouterr().err
+    assert "spec.py" in err and "line 5" in err, "the reader's own line still says where"
+    assert "ContractError: a part needs an id" in err
+    assert str(Path(cli.__file__).parent) not in err, "partspec's internals are not the answer"
+    assert "<string>" not in err, "nor is a dataclass's generated __init__"
+    assert "the contract is wrong, not the part" in err, "the classification is unchanged"
+
+
+def test_a_type_error_in_a_contract_keeps_the_line_that_raised_it(tmp_path: Path, capsys):
+    """The reason the traceback is printed at all: a contract is arbitrary
+    Python, and for a mistyped keyword argument the frame is the only thing
+    that says *where*. Filtering partspec's frames must not cost that."""
+    target = _raising_contract(
+        tmp_path, "    return Part('x', openscad('x.scad')).envelope(maks=(1, 1, 1), tol=0.05)\n"
+    )
+    assert main(["check", target, "--out", str(tmp_path / "out")]) == exit_code(Verdict.ERROR)
+    err = capsys.readouterr().err
+    assert "spec.py" in err and "line 5" in err
+    assert "envelope(maks=" in err, "the source line that raised is quoted"
+    assert str(Path(cli.__file__).parent) not in err
+
+
+def test_a_library_the_contract_called_keeps_its_frames(tmp_path: Path, capsys):
+    """A third-party library (CadQuery, say) that raises four calls deep is
+    genuinely where the failure happened, and those frames are not partspec
+    explaining itself. Only partspec's own are dropped."""
+    (tmp_path / "lib188.py").write_text("def bore(d):\n    raise ValueError(f'no bore at {d}')\n")
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "import lib188\n\nfrom partspec import Part, openscad\n\n\ndef make() -> Part:\n"
+        "    lib188.bore(7.5)\n    return Part('x', openscad('x.scad'))\n"
+    )
+    assert main(["check", f"{spec}:make", "--out", str(tmp_path / "out")]) == exit_code(
+        Verdict.ERROR
+    )
+    err = capsys.readouterr().err
+    assert "lib188.py" in err and "raise ValueError" in err, "the library's frame is kept"
+    assert "spec.py" in err, "and so is the contract line that called it"
+    assert str(Path(cli.__file__).parent) not in err
+
+
+def test_a_failure_with_no_contract_frames_still_prints_the_whole_traceback(capsys):
+    """The fallback that keeps silence from reading as success: if the stack
+    holds no contract frame, filtering partspec's would leave an empty
+    traceback. Partspec's frames are then all there is, so they are printed."""
+    exc = _failure_through(CLI_FILE, CLI_FILE, "raise ValueError('boom')")
+    cli._print_contract_traceback(exc)
+    err = capsys.readouterr().err
+    assert "cli.py" in err and "ValueError: boom" in err
+
+
+def test_a_partspec_bug_under_a_contract_keeps_its_internal_frames(tmp_path: Path, capsys):
+    """The other half of that: an `AttributeError` raised inside partspec is a
+    partspec bug, and its internal frames are the bug report. Dropping them
+    would hide the one failure a user cannot act on and partspec must."""
+    exc = _failure_through(str(tmp_path / "spec.py"), CLI_FILE, "raise AttributeError('boom')")
+    cli._print_contract_traceback(exc)
+    err = capsys.readouterr().err
+    assert "cli.py" in err, "an exception partspec did not choose keeps its own frames"
+    assert "spec.py" in err
+
+
+def test_a_partspec_exception_from_the_same_stack_is_still_filtered(tmp_path: Path, capsys):
+    """Same stack as the bug above, one exception type over: `ContractError` is
+    a diagnosis partspec wrote for the reader, not a bug report about itself."""
+    exc = _failure_through(
+        str(tmp_path / "spec.py"), CLI_FILE, "raise __import__('partspec').ContractError('bad')"
+    )
+    cli._print_contract_traceback(exc)
+    err = capsys.readouterr().err
+    assert "spec.py" in err
+    assert "cli.py" not in err
+
+
+def test_a_chained_failure_keeps_its_chain(tmp_path: Path, capsys):
+    """A filtered reprint would show one exception of a chain and drop the
+    cause, which is information about what actually went wrong. Chains print
+    unfiltered rather than being rebuilt frame by frame."""
+    exc = _failure_through(
+        str(tmp_path / "spec.py"), str(tmp_path / "spec.py"), "raise ValueError('b') from KeyError"
+    )
+    cli._print_contract_traceback(exc)
+    err = capsys.readouterr().err
+    assert "KeyError" in err and "direct cause" in err
 
 
 def test_render_on_the_occt_tier_from_the_same_verb(tmp_path: Path, capsys):

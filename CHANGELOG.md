@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A contract that raised printed partspec's own call stack before its
+  answer.** Six internal frames wrapped the one useful one — the reader's own
+  contract line — and a `ContractError` is partspec's own exception, raised
+  deliberately with a message written for the reader, so its internal path is
+  never the diagnosis. The traceback stays, because a contract is arbitrary
+  Python and for a `TypeError` in user code the frame is the only thing that
+  says *where*; partspec's frames are dropped from it. Frames from a library
+  the contract called are kept — a CadQuery operation that raised four calls
+  deep is where the failure happened. Two cases still print unfiltered, because
+  a filter that hides a partspec bug is the silence this tool exists to refuse:
+  a stack with no contract frame at all, and a non-partspec exception raised
+  inside partspec (an `AttributeError` from partspec's own code is a bug
+  report, and its frames are the report). Presentation only — the exit code
+  (`4`), the "the contract is wrong, not the part" classification and the
+  report are unchanged. (#188)
+
 ## [0.7.4] - 2026-08-13
 
 **A remedy that cannot be run is not a remedy.** One fix, found the way the last

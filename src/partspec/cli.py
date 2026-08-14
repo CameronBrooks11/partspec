@@ -232,6 +232,72 @@ def _out_dir(target_spec: str, explicit: Path | None) -> Path:
     return target.path.resolve().parent / "outputs" / target.slug
 
 
+_SOURCE_ROOT = Path(__file__).resolve().parent
+
+
+def _is_partspec_frame(frame: traceback.FrameSummary) -> bool:
+    if frame.filename.startswith("<"):
+        # `<string>` is a dataclass-generated `__init__`, `<frozen ...>` the
+        # import machinery: partspec's implementation under another name, and
+        # a frame with no source line to show either way. A contract always
+        # has a real path — the loader imports it from a file.
+        return True
+    return Path(frame.filename).resolve().is_relative_to(_SOURCE_ROOT)
+
+
+def _print_contract_traceback(exc: BaseException) -> None:
+    """Print the traceback of an exception a contract raised, with partspec's
+    own frames dropped (#188).
+
+    The traceback stays because a contract is arbitrary Python: for a `TypeError`
+    in user code it is the only thing that says *where*. What the reader did not
+    ask for is partspec's call path to that line — six internal frames around one
+    useful one, and for a `ContractError` (deliberately raised, with a message
+    written for the reader) the internals are never the answer.
+
+    Frames from a third-party library the contract called are kept: they are not
+    partspec explaining itself, and a CadQuery operation that raised four calls
+    deep is genuinely where the failure happened.
+
+    Two cases print the whole thing unfiltered, because a filter that hides a
+    partspec bug is the silence this tool exists to refuse:
+
+    - **No contract frames at all** — the exception came from inside partspec
+      before user code ran, so its frames are all there is.
+    - **The innermost frame is partspec's and the exception is not partspec's
+      own** — an `AttributeError` from `region.py` is a partspec bug, and its
+      internal frames are the bug report. A `ContractError` from the same line
+      is a diagnosis, and they are noise.
+
+    Chained exceptions (`raise ... from`, or one raised while handling another)
+    also print unfiltered: the chain's other tracebacks are information, and
+    reprinting them frame-filtered is not worth losing them to a bug here.
+
+    Presentation only: the exit code (`EXIT_ERROR`), the "the contract is wrong,
+    not the part" classification and the report on disk are untouched. Nothing
+    is filtered out of an artifact — this path's report is `write_placeholder`'s,
+    and the diagnosis lives on stderr alone (`AGENT-CONTRACT.md` §2.3), which is
+    the only reason its shape is worth this much care.
+    """
+    frames = traceback.extract_tb(exc.__traceback__)
+    contract_frames = [f for f in frames if not _is_partspec_frame(f)]
+    chained = exc.__cause__ is not None or (
+        exc.__context__ is not None and not exc.__suppress_context__
+    )
+    raised_inside_partspec = bool(frames) and _is_partspec_frame(frames[-1])
+    partspec_raised_it = type(exc).__module__.split(".")[0] == "partspec"
+    if not contract_frames or chained or (raised_inside_partspec and not partspec_raised_it):
+        # `print_exception`, not `print_exc`: the exception is passed in, so
+        # the fallback must not depend on being inside its `except` block.
+        traceback.print_exception(exc)
+        return
+    sys.stderr.write(
+        "Traceback (most recent call last):\n"
+        + "".join(traceback.format_list(contract_frames))
+        + "".join(traceback.format_exception_only(exc))
+    )
+
+
 def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
     """Resolve a target, turning any failure into an exit code rather than a
     traceback.
@@ -279,7 +345,7 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
         # `sys.exit(3)` as `empty`. No exit code from user code may become a
         # partspec verdict. Scoped to resolution, so argparse's own SystemExit
         # (`--version`, a usage error) is untouched.
-        traceback.print_exc()
+        _print_contract_traceback(exc)
         print(f"\npartspec: the contract raised {type(exc).__name__}: {exc}", file=sys.stderr)
         print("  the contract is wrong, not the part", file=sys.stderr)
         return exit_code(Verdict.ERROR)
