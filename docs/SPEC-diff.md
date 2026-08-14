@@ -131,12 +131,17 @@ a dependency upgrade moving a number is a different explanation than the design 
 
 **`environment.packages` is compared in three groups, and the split is normative.**
 `changed` names a distribution whose version moved: a build input changed, and it is the
-thing that explains a moved measurement. `added` and `removed` name distributions present
+thing that explains a moved measurement. `added` and `removed` name distributions installed
 on one side only, which is most often two machines resolving different transitive
 dependency sets — CI against a laptop — and explains nothing about the part on its own.
 Reporting both under one heading would leave the reader to separate them by hand.
 `SPEC-report.md` §8 rule 2 says in bold that this field MUST NOT be excluded from
 comparison; through v0.7.4 this comparator excluded it entirely (#211).
+
+**The first comparison against a pre-v0.7.5 baseline reports appearances, not
+installations.** The old field held at most five engine names, so every other installed
+distribution is `added` against it. Nothing was installed; the recorded surface widened.
+Re-record the baseline to clear it — the same one-time step an upgrade already asks for.
 
 When a side carries no usable `packages` map the artifact says so — `environment.packages`
 becomes `{ "uncomparable": "…" }` — rather than omitting the key. An omission is
@@ -176,10 +181,12 @@ It does not change the outcome: an old report that predates the field still diff
   ],
   "environment": {
     "engine_version": { "old": "2021.01", "new": "2026.08.01" },
-    "packages": {                    // present only when a package differs
+    "packages": {                    // present when a package differs, and in the
+                                     // `uncomparable` shape when a side has no map;
+                                     // absent when both sides carry the same map
       "changed": { "trimesh": { "old": "5.0.0", "new": "5.1.0" } },   // a version moved
-      "added":   { "shapely": "2.1.2" },   // present on the new side only
-      "removed": {}                        // present on the old side only
+      "added":   { "shapely": "2.1.2" },   // installed on the new side only
+      "removed": {}                        // installed on the old side only
     }
   }
 }

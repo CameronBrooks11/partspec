@@ -292,33 +292,8 @@ def test_packages_are_not_quarantined_from_comparison():
     would silence it in every `partspec[mesh]` install without OpenSCAD, where
     it passes — over-skipping being the same sin as the under-skipping this
     change is about (PR #163 review).
-
-    The engine loop imports before it asserts, because the field is keyed on
-    *import* rather than on install since #211. Asserting on installation alone
-    passed in a full session — where some other test module had already
-    imported the engine — and failed when this file ran on its own: the same
-    assertion, two answers, decided by collection order.
     """
-    import importlib
     from importlib.metadata import PackageNotFoundError, version
-
-    # The list is duplicated on purpose: which packages explain a moved number
-    # is a product decision, like DEFAULT_TIMEOUT_S's value. `cadquery-ocp`
-    # ships the `OCP` module — distribution names and module names differ, and
-    # the report records the former, because that is what carries a version.
-    engines = {}
-    for name, module in (
-        ("build123d", "build123d"),
-        ("cadquery", "cadquery"),
-        ("cadquery-ocp", "OCP"),
-        ("trimesh", "trimesh"),
-        ("manifold3d", "manifold3d"),
-    ):
-        try:
-            engines[name] = version(name)
-        except PackageNotFoundError:
-            continue
-        importlib.import_module(module)
 
     packages = _report().to_json()["environment"]["packages"]
     assert packages, "an empty map explains nothing about a moved number"
@@ -328,44 +303,48 @@ def test_packages_are_not_quarantined_from_comparison():
     for name, recorded in packages.items():
         assert version(name) == recorded, f"{name} recorded as {recorded}"
 
-    # And every engine this run imported must appear. Requiring "at least one"
-    # let the field silently stop recording a whole tier — exactly the case the
-    # block exists for.
-    for name, installed in engines.items():
+    # And every installed engine must appear. Requiring "at least one" let the
+    # field silently stop recording a whole tier — exactly the case the block
+    # exists for. The list is duplicated on purpose: which packages explain a
+    # moved number is a product decision, like DEFAULT_TIMEOUT_S's value.
+    for name in ("build123d", "cadquery", "cadquery-ocp", "trimesh", "manifold3d"):
+        try:
+            installed = version(name)
+        except PackageNotFoundError:
+            continue
         assert packages.get(name) == installed, (
-            f"{name} was imported at {installed}; the report says {packages.get(name)!r}"
+            f"{name} is installed at {installed}; the report says {packages.get(name)!r}"
         )
 
 
 def test_packages_sees_past_the_engine_allowlist():
-    """The field records what the run imported, not five hardcoded names.
+    """The field records the environment, not five hardcoded names.
 
     Through v0.7.4 `_installed_versions()` enumerated `build123d`, `cadquery`,
     `cadquery-ocp`, `trimesh` and `manifold3d` and nothing else, so the library
     a contract actually wraps was invisible: the fleet-01 study that produced
     #190 evaluated `cqgridfinity`, and no report it wrote ever named it. A
     version bump of the one dependency the part depends on moved a measurement
-    with nothing in the report to explain it.
+    with nothing in the report to explain it (#211).
 
-    No engine mark: `pytest` is imported by construction wherever this runs, so
-    the claim holds on a base install too — which is the point, since the
-    allowlist's failure was not about engines.
+    No engine mark: `pytest` is installed wherever this runs, so the claim holds
+    on a base install too — which is the point, since the allowlist's failure
+    was not about engines.
 
-    The non-empty assertion is the guard for a specific silent failure. A
-    prototype excluded the stdlib by comparing against
+    The non-empty assertion guards a silent failure with history. A prototype of
+    the import-keyed design excluded the stdlib by comparing against
     `sysconfig.get_paths()["platstdlib"]`, which in a venv is the *parent* of
     `site-packages`: it excluded every installed distribution too and recorded
-    zero imports, and every test then written still passed. The index here is
-    built from `dist-info/RECORD`, where the stdlib simply does not appear, so
-    nothing is filtered by location — but an empty map must fail loudly if that
-    ever changes.
+    zero, and every test then written still passed. Enumerating installations
+    filters nothing by location and cannot repeat that — but an inventory that
+    silently empties must fail loudly whatever the cause.
     """
     from importlib.metadata import version
 
     packages = _report().to_json()["environment"]["packages"]
     assert packages, "an empty inventory records nothing and explains nothing"
     assert packages.get("pytest") == version("pytest"), (
-        "pytest is imported by this very run and is not an engine: the inventory "
+        "pytest is installed in this environment and is not an engine: the inventory "
         f"must see it, and it recorded {packages.get('pytest')!r}"
     )
     assert set(packages) - {"build123d", "cadquery", "cadquery-ocp", "trimesh", "manifold3d"}, (
@@ -375,25 +354,35 @@ def test_packages_sees_past_the_engine_allowlist():
     assert list(packages) == sorted(packages), "SPEC-report §8 rule 1: sorted by name"
 
 
-def test_packages_omits_what_was_installed_but_never_imported():
-    """Absence is a claim too: the field says what this build used.
+def test_packages_is_a_property_of_the_venv_not_of_this_process():
+    """Two runs of identical inputs on one machine must agree.
 
-    A distribution that no module loaded is not an input to this run, and
-    recording it would restore the noise the allowlist had — entries describing
-    tiers that never executed. Stated as a proper-subset relation rather than
-    by naming a package, because which distributions an environment happens to
-    carry is not this test's business: recorded ⊆ installed says the inventory
-    invents nothing, and recorded ≠ installed says it is keyed on imports.
+    SPEC-report §8 rule 2 admits only `duration_ms` and `platform` as varying,
+    and `packages` is simultaneously mandatory to compare — a field that is both
+    is a noise source unless it is stable.
+
+    The first cut of #211 derived it from `sys.modules`, and the batch loop
+    shares one interpreter across targets, so a part inherited whatever an
+    unrelated earlier target had imported: `examples/spacer` recorded 6
+    distributions alone and 41 behind a build123d part, and `diff` turned that
+    into "packages appeared: Pygments 2.20.0, anytree 2.13.0, +33 more" between
+    two runs of the same OpenSCAD part. Worse, the spacer's report asserted
+    `build123d` and `cadquery-ocp` as inputs to a build that never touched them.
+
+    Equality with the install set is the whole proof: a value that equals what
+    is installed cannot move with what was imported. What a given part loaded is
+    a per-part fact and belongs to `part.source_closure` (#190).
     """
     from importlib.metadata import distributions
 
-    installed = {name for dist in distributions() if (name := dist.metadata["Name"])}
-    packages = set(_report().to_json()["environment"]["packages"])
-    assert packages <= installed, f"recorded but not installed: {sorted(packages - installed)}"
-    assert installed - packages, (
-        "every installed distribution was recorded, so the inventory is indistinguishable "
-        "from a list of what is installed rather than of what this run imported"
-    )
+    installed: dict[str, str] = {}
+    for dist in distributions():
+        metadata = dist.metadata
+        if (name := metadata["Name"]) and (dist_version := metadata["Version"]):
+            installed.setdefault(name, dist_version)
+
+    packages = _report().to_json()["environment"]["packages"]
+    assert packages == dict(sorted(installed.items()))
 
 
 # --------------------------------------------------------------------------

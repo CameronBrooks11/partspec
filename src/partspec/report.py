@@ -326,6 +326,17 @@ class Report:
         distinguishes "a dependency upgrade moved this number" from "the design
         changed", so a comparator that excludes the whole block loses the ability
         to explain its own findings.
+
+        That non-variance is why `packages` enumerates what is *installed* and
+        not what this process imported. Several targets share one interpreter
+        (`cli.py`'s batch loop), so an import-keyed field would make a part's
+        recorded environment depend on which unrelated target ran before it:
+        measured, the OpenSCAD-tier `examples/spacer` recorded 6 distributions
+        alone and 41 in a batch behind a build123d part — the same part, the
+        same venv, the same second, and `diff` reporting 35 packages
+        "appeared". An environment is a property of the venv. What *this part*
+        loaded is a per-part fact and belongs in `part.source_closure`, which
+        is where byte-level identity lives (#190).
         """
         env: dict[str, Any] = {
             "python": platform.python_version(),
@@ -341,116 +352,61 @@ class Report:
 
 
 @cache
-def _distribution_roots() -> dict[str, list[tuple[str, str]]]:
-    """Map every installed distribution's top-level path to its name and version.
+def _installed_distributions() -> tuple[tuple[str, str], ...]:
+    """Every distribution installed in this environment, name and version.
 
-    One pass over every `dist-info/RECORD`, which is the only route from a
-    *file on disk* back to the distribution that owns it. `top_level.txt` is
-    not that route — `cadquery-ocp`'s lists `OCP`, `cadquery_ocp` and a stray
-    `dist` — and `packages_distributions()` measures 207-272 ms per call
-    against this pass's ~50 ms, because it builds the whole module-name map
-    whether or not anything imported it.
+    One pass over the `dist-info` metadata on `sys.path`. First occurrence
+    wins, matching `importlib.metadata.version()`, which resolves against the
+    same order — so the report and a hand-run `version()` cannot disagree.
 
-    Only the first path segment of each RECORD row is indexed, not every row:
-    182 keys instead of 18,995, and the same answer, because a loaded file is
-    found by walking up to the root that owns it. Rows beginning `..` are
-    console scripts outside the install root and name nothing importable.
+    Cached for the life of the process, which is sound precisely because the
+    answer does not depend on process state: nothing installs a distribution
+    between two targets of one `partspec check`. The MCP layer gets no benefit
+    — it runs the CLI as a subprocess per call by design — so it pays the cold
+    cost every time.
 
-    A key may carry more than one distribution. `OCP` is claimed by both
-    `cadquery-ocp` and `cadquery-ocp-novtk` in a venv that has both installed,
-    and no in-process check can say which one wrote the file that loaded. Both
-    are recorded: naming both is a true statement about the environment, and
-    picking one would be a guess presented as a fact.
-
-    Cached for the life of the process: nothing installs a distribution between
-    two parts of one `partspec check`, and a batch run writes one report per
-    target. Read-only by contract — the caller must not mutate the returned map.
+    Returned as a tuple of pairs, not a dict: a cached mutable value reaches
+    the report artifact by reference, and one caller's edit would silently
+    rewrite every later report's environment.
     """
-    import csv
     from importlib.metadata import distributions
 
-    index: dict[str, list[tuple[str, str]]] = {}
+    found: dict[str, str] = {}
     for dist in distributions():
         metadata = dist.metadata
         name, dist_version = metadata["Name"], metadata["Version"]
-        if not name or not dist_version:
+        if not name or not dist_version or name in found:
             continue
-        try:
-            record = dist.read_text("RECORD")
-        except OSError:
-            record = None
-        if not record:
-            # No RECORD: an egg-info tree, or an installer that wrote none.
-            continue
-        roots = {
-            row[0].split("/", 1)[0]
-            for row in csv.reader(record.splitlines())
-            if row and row[0] and not row[0].startswith("..")
-        }
-        base = Path(str(dist.locate_file("")))
-        for root in roots:
-            index.setdefault(str(base / root), []).append((name, dist_version))
-    return index
+        found[name] = dist_version
+    # Sorted: SPEC-report §8 rule 1 — a derived collection is ordered by a
+    # stated key, here the distribution name.
+    return tuple(sorted(found.items()))
 
 
 def _installed_versions() -> dict[str, str]:
-    """Versions of the distributions this run actually imported.
+    """The distributions installed in this environment, name -> version.
 
-    Derived from `sys.modules` — what was imported — rather than from what
-    happens to be installed, because the question the field answers is "did
-    something this build used move?". A five-name allowlist of engine packages
-    answered it for the engines and for nothing else: the library a contract
-    wraps, which is the input most likely to move under it, was never recorded
-    (#211, and it compounds #190).
+    Widened from a hardcoded five-name allowlist of engine packages
+    (`build123d`, `cadquery`, `cadquery-ocp`, `trimesh`, `manifold3d`), which
+    could not see the library a contract wraps: the fleet-01 study that
+    produced #190 evaluated `cqgridfinity`, and no report it wrote ever named
+    it, so a bump of the one dependency the part had moved a measurement with
+    nothing in the report to explain it (#211).
 
-    Locating each loaded file in the RECORD index rather than mapping module
-    names to distributions is deliberate: a module imported from a `sys.path`
-    source checkout resolves to no distribution and is therefore *not*
-    recorded, instead of being recorded at the version of a same-named
-    installed distribution whose code never ran. Silence is the honest answer
-    there; a version string would be a confident false one.
+    Keyed on what is **installed**, not on what this process imported. The
+    field lives in the `environment` block and SPEC-report §8 rule 2 admits
+    only `duration_ms` and `platform` as varying between two runs of identical
+    inputs; a `sys.modules`-derived value fails that, because the batch loop
+    shares one interpreter and a part would inherit whatever an unrelated
+    earlier target happened to import. What *this part* loaded is a per-part
+    fact belonging to `part.source_closure` (#190), not to the environment.
 
-    Measured at 50 ms on an 84-distribution cadquery venv with 1,184 modules
-    loaded, and 85 ms on this repo's 114-distribution full-extras venv with
-    3,202 — against ~956 ms to build one part. Both caches are per-process, so
-    a batch of targets pays the index once and each module's attribution once.
+    Measured on this repo's 114-distribution full-extras venv: 57 ms cold (page
+    cache evicted), 26 ms warm; on the fleet's 84-distribution cadquery venv,
+    45 ms cold, 25 ms warm. Cold matters most on the OpenSCAD tier, where a
+    ~0.5 s run has no 956 ms build to hide behind.
     """
-    found: dict[str, str] = {}
-    for module in list(sys.modules.values()):
-        # Namespace packages and built-ins have no `__file__`; they are not
-        # attributable to a distribution and are skipped, not crashed on.
-        filename = getattr(module, "__file__", None)
-        if not filename:
-            continue
-        for name, dist_version in _owning_distributions(filename):
-            found[name] = dist_version
-    # Sorted: SPEC-report §8 rule 1 — a derived collection is ordered by a
-    # stated key, here the distribution name.
-    return dict(sorted(found.items()))
-
-
-@cache
-def _owning_distributions(filename: str) -> tuple[tuple[str, str], ...]:
-    """The distributions claiming a loaded module's file, name and version.
-
-    Walks the file up to the indexed root that owns it. No path is filtered by
-    location: the stdlib appears in no RECORD and drops out on its own, which
-    is why this cannot repeat the prototype error of excluding site-packages
-    along with the stdlib — a venv's `platstdlib` is the *parent* of
-    `site-packages`, so filtering by that prefix silently reported zero
-    imports while every test still passed.
-
-    Empty when nothing owns the file: the stdlib, a `sys.path` source checkout,
-    an editable install's source tree.
-    """
-    index = _distribution_roots()
-    path = Path(os.path.normpath(filename))
-    while str(path) not in index:
-        parent = path.parent
-        if parent == path:
-            break
-        path = parent
-    return tuple(index.get(str(path), ()))
+    return dict(_installed_distributions())
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> Path:
