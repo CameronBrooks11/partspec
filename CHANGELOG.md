@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`scad-magic-number` flagged two positions where the literal already has a
+  name, or is not a dimension at all.** A parameter default on a
+  `function`/`module` **declaration line** fired (`module post(h = 40)`), while
+  the identical default wrapped onto a continuation line did not: the rule
+  decides its paren-depth exemption before counting the line's own parens, so
+  on a header line the depth is still 0 and the exemption — which the rule's
+  own comment says covers "the named argument and signature-default case" —
+  never applied. The common form was flagged and the rare form was tested,
+  which is how it survived. Defaults are exempt whether scalar or vector —
+  `module plate(size = [60, 40, 4])` is the ordinary way to spell a size, and
+  exempting only the offset past `name =` would have left that half of the
+  report unfixed — and it is the DEFAULTS that are exempt, not the line: the
+  walk stops at the parameter list's closing paren, so a one-line module's
+  body literals still fire (#205). Separately, an integer **subscript index**
+  fired past `MAGIC_EXEMPT`: `type[3][0]` is a field offset into a registry
+  row — no unit, unreachable by `-D`, never a `param` or a report — so the
+  accessor idiom that exists to replace magic indices with names drew one
+  finding per field past the third. A `[` following an identifier or a `]` is
+  now read as a subscript; a `[` opening a vector literal (`size = [3, 4]`) is
+  not, a keyword before the bracket is not an identifier (`each [100, 200]`
+  splats, and its literals stay flagged), and integers only, so `v[3.5]` stays
+  visible (#206). Measured on the repo's own `examples/` and `.scad` fixtures:
+  34 findings before, 34 after — though that corpus contains no vector default
+  at all, which is why the case carries a fixture of its own rather than a
+  count.
 - **A contract that raised printed partspec's own call stack before its
   answer.** Six internal frames wrapped the one useful one — the reader's own
   contract line — and a `ContractError` is partspec's own exception, raised

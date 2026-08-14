@@ -142,6 +142,122 @@ def test_a_named_argument_is_not_an_assignment_statement(tmp_path: Path):
     assert len([f for f in lint_path(unterminated) if f.rule == "scad-magic-number"]) == 3
 
 
+def test_a_signature_default_answers_the_same_on_one_line_as_on_four(tmp_path: Path):
+    """The declaration line is the common form, and it was the flagged one.
+
+    `skip` is decided from a line-leading `name =` before `depth` is advanced,
+    so on a `function`/`module` header `depth` is still 0 and the paren-depth
+    exemption — which the rule's own comment says covers "the named argument
+    and signature-default case" — never applied. Only the continuation form
+    was exempt, and only the continuation form was tested, which is how the
+    bug survived (#205).
+    """
+    one_line = tmp_path / "one.scad"
+    one_line.write_text(
+        "function radius(i, r_min = 100, pitch = 5) = r_min + i * pitch;\n"
+        "module post(h = 40, d = 12) { cylinder(h = h, d = d); }\n"
+        "post();\n"
+        "echo(radius(1));\n"
+    )
+    assert [f for f in lint_path(one_line) if f.rule == "scad-magic-number"] == []
+
+    wrapped = tmp_path / "wrapped.scad"
+    wrapped.write_text(
+        "function radius(i,\n"
+        "                r_min = 100,\n"
+        "                pitch = 5) = r_min + i * pitch;\n"
+        "echo(radius(1));\n"
+    )
+    assert [f for f in lint_path(wrapped) if f.rule == "scad-magic-number"] == [], (
+        "the same defaults, wrapped, are the same claim"
+    )
+
+    # The DEFAULTS are exempt, not the line: a one-line module carries its
+    # body on the header line, and the body's literals are as magic as ever.
+    body = tmp_path / "body.scad"
+    body.write_text("module post(h = 40) { translate([0, 0, 37.5]) cube(h); }\npost();\n")
+    magic = [f for f in lint_path(body) if f.rule == "scad-magic-number"]
+    assert [f.message.split()[0] for f in magic] == ["37.5"], "40 is named by `h`; 37.5 is not"
+
+    # A named argument in a CALL is not a signature default — nothing here
+    # declares `h`, so the literal stays visible.
+    call = tmp_path / "call.scad"
+    call.write_text("cylinder(h = 40, d = 12);\n")
+    assert len([f for f in lint_path(call) if f.rule == "scad-magic-number"]) == 2
+
+
+def test_a_vector_default_is_as_named_as_a_scalar_one(tmp_path: Path):
+    """A size, a position and a range are all spelled `[...]` in OpenSCAD.
+
+    The first fix exempted the offset just past `name =`, which lands on the
+    `[` rather than on a number, so the single-line form kept #205's exact
+    asymmetry for the most common default form there is — and the repo's own
+    corpus contains no `module f(v = [` at all, so the 30-to-30 count could
+    not see it (PR #209 review). A corpus delta proves nothing about a shape
+    the corpus does not contain.
+    """
+    one_line = tmp_path / "one.scad"
+    one_line.write_text(
+        "module plate_a(size = [60, 40, 4]) { cube(size); }\n"
+        "function f(v = [100, 200]) = v;\n"
+        "plate_a();\necho(f());\n"
+    )
+    assert [f for f in lint_path(one_line) if f.rule == "scad-magic-number"] == []
+
+    wrapped = tmp_path / "wrapped.scad"
+    wrapped.write_text("module plate_b(\n    size = [60, 40, 4]) { cube(size); }\nplate_b();\n")
+    assert [f for f in lint_path(wrapped) if f.rule == "scad-magic-number"] == [], (
+        "the same vector default, wrapped, is the same claim"
+    )
+
+    # Nested groups are covered, and the walk stops at the parameter list's
+    # own closing paren — the body's literals are untouched by it.
+    nested = tmp_path / "nested.scad"
+    nested.write_text(
+        "module holes(at = [[10, 300], [30, 400]]) { cube([500, 600, 700]); }\nholes();\n"
+    )
+    magic = [f.message.split()[0] for f in lint_path(nested) if f.rule == "scad-magic-number"]
+    assert magic == ["500", "600", "700"], "the default is named by `at`; the body's cube is not"
+
+
+def test_a_subscript_index_is_structure_not_a_dimension(tmp_path: Path):
+    """`type[3][0]` is a field offset into a registry row: no unit, `-D`
+    cannot override it, it can never reach a `param` or a report — exactly
+    like the 0/1 `MAGIC_EXEMPT` already covers by accident (#206).
+
+    The accessor-over-a-row idiom is how OpenSCAD registries name their
+    fields, so the rule fired hardest on the code that best served its own
+    intent — once per accessor past the third field.
+    """
+    rows = tmp_path / "rows.scad"
+    rows.write_text(
+        "function lamp_pin_spacing(type) = type[3][0];\n"
+        "function lamp_pin_d(type) = type[3][1];\n"
+        "function nested(type) = type[4][2][7];\n"
+        "echo(lamp_pin_spacing(0), lamp_pin_d(0), nested(0));\n"
+    )
+    assert [f for f in lint_path(rows) if f.rule == "scad-magic-number"] == []
+
+    # A `[` that OPENS a vector literal is not a subscript, and a fractional
+    # index is a bug either way — both stay visible.
+    literals = tmp_path / "literals.scad"
+    literals.write_text("cube([60, 40, 4]);\ntranslate([0, 0, 37.5]) sphere(1);\necho(v[3.5]);\n")
+    magic = [f.message.split()[0] for f in lint_path(literals) if f.rule == "scad-magic-number"]
+    assert magic == ["60", "40", "4", "37.5", "3.5"]
+
+    # A KEYWORD before `[` is not a subscripted identifier. `each [100, 200]`
+    # is a list-comprehension splat and `else [0, 300]` a comprehension's
+    # alternative; both read as an identifier run to the scan and muted the
+    # literals after them — a real magic number silenced (PR #209 review).
+    keywords = tmp_path / "keywords.scad"
+    keywords.write_text(
+        "polygon([each [100, 200], [0, 0]]);\n"
+        "polygon([for (i = [0:1]) if (i > 0) [i, i] else [0, 300]]);\n"
+    )
+    magic = [f.message.split()[0] for f in lint_path(keywords) if f.rule == "scad-magic-number"]
+    assert magic == ["100", "200", "300"], "a splat's literals are not indices"
+
+
 def test_the_overshoot_idiom_is_never_magic(tmp_path: Path):
     """|value| <= 2 exemption: the -1/+2 idiom the repo's own skills teach
     must not be flagged by the repo's own lint."""
