@@ -317,6 +317,74 @@ def test_packages_are_not_quarantined_from_comparison():
         )
 
 
+def test_packages_sees_past_the_engine_allowlist():
+    """The field records the environment, not five hardcoded names.
+
+    Through v0.7.4 `_installed_versions()` enumerated `build123d`, `cadquery`,
+    `cadquery-ocp`, `trimesh` and `manifold3d` and nothing else, so the library
+    a contract actually wraps was invisible: the fleet-01 study that produced
+    #190 evaluated `cqgridfinity`, and no report it wrote ever named it. A
+    version bump of the one dependency the part depends on moved a measurement
+    with nothing in the report to explain it (#211).
+
+    No engine mark: `pytest` is installed wherever this runs, so the claim holds
+    on a base install too — which is the point, since the allowlist's failure
+    was not about engines.
+
+    The non-empty assertion guards a silent failure with history. A prototype of
+    the import-keyed design excluded the stdlib by comparing against
+    `sysconfig.get_paths()["platstdlib"]`, which in a venv is the *parent* of
+    `site-packages`: it excluded every installed distribution too and recorded
+    zero, and every test then written still passed. Enumerating installations
+    filters nothing by location and cannot repeat that — but an inventory that
+    silently empties must fail loudly whatever the cause.
+    """
+    from importlib.metadata import version
+
+    packages = _report().to_json()["environment"]["packages"]
+    assert packages, "an empty inventory records nothing and explains nothing"
+    assert packages.get("pytest") == version("pytest"), (
+        "pytest is installed in this environment and is not an engine: the inventory "
+        f"must see it, and it recorded {packages.get('pytest')!r}"
+    )
+    assert set(packages) - {"build123d", "cadquery", "cadquery-ocp", "trimesh", "manifold3d"}, (
+        "the recorded set is a subset of the old five-name allowlist, so the widening "
+        "records nothing the allowlist did not"
+    )
+    assert list(packages) == sorted(packages), "SPEC-report §8 rule 1: sorted by name"
+
+
+def test_packages_is_a_property_of_the_venv_not_of_this_process():
+    """Two runs of identical inputs on one machine must agree.
+
+    SPEC-report §8 rule 2 admits only `duration_ms` and `platform` as varying,
+    and `packages` is simultaneously mandatory to compare — a field that is both
+    is a noise source unless it is stable.
+
+    The first cut of #211 derived it from `sys.modules`, and the batch loop
+    shares one interpreter across targets, so a part inherited whatever an
+    unrelated earlier target had imported: `examples/spacer` recorded 6
+    distributions alone and 41 behind a build123d part, and `diff` turned that
+    into "packages appeared: Pygments 2.20.0, anytree 2.13.0, +33 more" between
+    two runs of the same OpenSCAD part. Worse, the spacer's report asserted
+    `build123d` and `cadquery-ocp` as inputs to a build that never touched them.
+
+    Equality with the install set is the whole proof: a value that equals what
+    is installed cannot move with what was imported. What a given part loaded is
+    a per-part fact and belongs to `part.source_closure` (#190).
+    """
+    from importlib.metadata import distributions
+
+    installed: dict[str, str] = {}
+    for dist in distributions():
+        metadata = dist.metadata
+        if (name := metadata["Name"]) and (dist_version := metadata["Version"]):
+            installed.setdefault(name, dist_version)
+
+    packages = _report().to_json()["environment"]["packages"]
+    assert packages == dict(sorted(installed.items()))
+
+
 # --------------------------------------------------------------------------
 # conformance: the spec's own example
 # --------------------------------------------------------------------------

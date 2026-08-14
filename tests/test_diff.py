@@ -224,6 +224,113 @@ def test_environment_changes_explain_without_being_differences():
     assert doc["environment"]["engine_version"] == {"old": "2021.01", "new": "2026.08.01"}
 
 
+# --------------------------------------------------------------------------
+# environment.packages — the field SPEC-report §8 says MUST NOT be excluded
+# --------------------------------------------------------------------------
+
+
+def _with_packages(doc: dict, packages: dict) -> dict:
+    doc["environment"] = {**doc["environment"], "packages": packages}
+    return doc
+
+
+def test_a_moved_package_version_is_named_on_an_otherwise_identical_diff():
+    """The paragraph's own example: a trimesh upgrade moved a number.
+
+    `SPEC-report.md` §8 rule 2 says in bold that `environment.packages` MUST
+    NOT be excluded from comparison, and this comparator excluded it entirely
+    until #211 — so the one fact that distinguishes "a dependency upgrade moved
+    this" from "the design changed" was recorded in every report and read in
+    none of them.
+    """
+    old = _with_packages(_doc(), {"trimesh": "5.0.0", "numpy": "2.5.2"})
+    new = _with_packages(_doc(), {"trimesh": "5.1.0", "numpy": "2.5.2"})
+
+    doc = _diff(old, new)
+    assert doc["environment"]["packages"]["changed"] == {
+        "trimesh": {"old": "5.0.0", "new": "5.1.0"}
+    }
+    assert doc["environment"]["packages"]["added"] == {}
+    assert doc["environment"]["packages"]["removed"] == {}
+    # Context, not a finding: same rule as engine_version.
+    assert doc["outcome"] == "identical"
+    assert exit_code_of(doc["outcome"]) == 0
+    assert "packages moved: trimesh 5.0.0 → 5.1.0" in summary_of(doc)
+
+
+def test_a_package_that_appeared_is_not_reported_as_a_version_move():
+    """Two facts, two message forms.
+
+    A version that moved is a changed build input and explains a moved
+    measurement. A package present on one side only is usually two machines
+    resolving different transitive dependency sets — CI against a laptop — and
+    explains nothing on its own. Folding them into one list would leave the
+    reader to work out which had happened, which is the work the field exists
+    to remove.
+    """
+    old = _with_packages(_doc(), {"trimesh": "5.0.0", "vtk": "9.6.2"})
+    new = _with_packages(_doc(), {"trimesh": "5.0.0", "shapely": "2.1.2"})
+
+    packages = _diff(old, new)["environment"]["packages"]
+    assert packages["changed"] == {}
+    assert packages["added"] == {"shapely": "2.1.2"}
+    assert packages["removed"] == {"vtk": "9.6.2"}
+
+    summary = summary_of(_diff(old, new))
+    assert "packages appeared: shapely 2.1.2" in summary
+    assert "packages disappeared: vtk 9.6.2" in summary
+    assert "moved" not in summary, f"an appearance reported as a version move: {summary}"
+
+
+def test_an_unchanged_package_set_says_nothing():
+    """Reported only when it changed, like every other environment key. An
+    entry per unchanged distribution would bury the finding in ceremony, and
+    the inventory now runs to dozens of entries."""
+    doc = _diff(
+        _with_packages(_doc(), {"trimesh": "5.0.0"}), _with_packages(_doc(), {"trimesh": "5.0.0"})
+    )
+    assert "packages" not in doc["environment"]
+    assert summary_of(doc) == "identical: p — no semantic differences"
+
+
+def test_the_summary_bounds_a_wall_of_package_noise():
+    """Two runs on different machines can differ in dozens of distributions.
+    The artifact carries every one; the one-line summary names two per group
+    and counts the rest, or it stops being one line."""
+    old = _with_packages(_doc(), {f"dist{i}": "1.0" for i in range(9)})
+    new = _with_packages(_doc(), {f"dist{i}": "2.0" for i in range(9)})
+
+    doc = _diff(old, new)
+    assert len(doc["environment"]["packages"]["changed"]) == 9, "the artifact keeps all of them"
+    summary = summary_of(doc)
+    assert "packages moved: dist0 1.0 → 2.0, dist1 1.0 → 2.0, +7 more" in summary
+    assert len(summary.splitlines()) == 1
+
+
+def test_a_report_with_no_packages_map_says_so_rather_than_nothing():
+    """Silence must not read as "no dependency moved".
+
+    An older report, or a hand-written one, may carry no `environment.packages`
+    map. Omitting the key would be indistinguishable from a comparison that ran
+    and found nothing — the exact silence-as-success shape the tool refuses. It
+    is stated, and it changes no outcome: the diff still runs.
+    """
+    old = _doc()
+    old["environment"] = {"python": "3.12.7"}
+    doc = _diff(old, _with_packages(_doc(), {"trimesh": "5.0.0"}))
+
+    assert (
+        doc["environment"]["packages"]["uncomparable"]
+        == "no environment.packages map on the old side, so whether a dependency moved is unknown"
+    )
+    assert doc["outcome"] == "identical"
+    assert exit_code_of(doc["outcome"]) == 0
+    assert "packages not compared:" in summary_of(doc)
+
+    both = _diff(old, {**_doc(), "environment": {"python": "3.12.7"}})
+    assert "on both sides" in both["environment"]["packages"]["uncomparable"]
+
+
 def test_a_cosmetic_contract_edit_is_recorded_but_not_a_difference():
     """The module-scoped digest over-fires deliberately (SPEC-report.md 7.1);
     the semantic comparison must not inherit the over-firing.

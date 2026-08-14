@@ -16,6 +16,7 @@ import platform
 import sys
 import tempfile
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -325,6 +326,17 @@ class Report:
         distinguishes "a dependency upgrade moved this number" from "the design
         changed", so a comparator that excludes the whole block loses the ability
         to explain its own findings.
+
+        That non-variance is why `packages` enumerates what is *installed* and
+        not what this process imported. Several targets share one interpreter
+        (`cli.py`'s batch loop), so an import-keyed field would make a part's
+        recorded environment depend on which unrelated target ran before it:
+        measured, the OpenSCAD-tier `examples/spacer` recorded 6 distributions
+        alone and 41 in a batch behind a build123d part — the same part, the
+        same venv, the same second, and `diff` reporting 35 packages
+        "appeared". An environment is a property of the venv. What *this part*
+        loaded is a per-part fact and belongs in `part.source_closure`, which
+        is where byte-level identity lives (#190).
         """
         env: dict[str, Any] = {
             "python": platform.python_version(),
@@ -339,17 +351,62 @@ class Report:
         return _write_json(directory / REPORT_FILENAME, self.to_json())
 
 
-def _installed_versions() -> dict[str, str]:
-    """Versions of the optional engine packages that are actually installed."""
-    from importlib.metadata import PackageNotFoundError, version
+@cache
+def _installed_distributions() -> tuple[tuple[str, str], ...]:
+    """Every distribution installed in this environment, name and version.
+
+    One pass over the `dist-info` metadata on `sys.path`. First occurrence
+    wins, matching `importlib.metadata.version()`, which resolves against the
+    same order — so the report and a hand-run `version()` cannot disagree.
+
+    Cached for the life of the process, which is sound precisely because the
+    answer does not depend on process state: nothing installs a distribution
+    between two targets of one `partspec check`. The MCP layer gets no benefit
+    — it runs the CLI as a subprocess per call by design — so it pays the cold
+    cost every time.
+
+    Returned as a tuple of pairs, not a dict: a cached mutable value reaches
+    the report artifact by reference, and one caller's edit would silently
+    rewrite every later report's environment.
+    """
+    from importlib.metadata import distributions
 
     found: dict[str, str] = {}
-    for name in ("build123d", "cadquery", "cadquery-ocp", "trimesh", "manifold3d"):
-        try:
-            found[name] = version(name)
-        except PackageNotFoundError:
+    for dist in distributions():
+        metadata = dist.metadata
+        name, dist_version = metadata["Name"], metadata["Version"]
+        if not name or not dist_version or name in found:
             continue
-    return found
+        found[name] = dist_version
+    # Sorted: SPEC-report §8 rule 1 — a derived collection is ordered by a
+    # stated key, here the distribution name.
+    return tuple(sorted(found.items()))
+
+
+def _installed_versions() -> dict[str, str]:
+    """The distributions installed in this environment, name -> version.
+
+    Widened from a hardcoded five-name allowlist of engine packages
+    (`build123d`, `cadquery`, `cadquery-ocp`, `trimesh`, `manifold3d`), which
+    could not see the library a contract wraps: the fleet-01 study that
+    produced #190 evaluated `cqgridfinity`, and no report it wrote ever named
+    it, so a bump of the one dependency the part had moved a measurement with
+    nothing in the report to explain it (#211).
+
+    Keyed on what is **installed**, not on what this process imported. The
+    field lives in the `environment` block and SPEC-report §8 rule 2 admits
+    only `duration_ms` and `platform` as varying between two runs of identical
+    inputs; a `sys.modules`-derived value fails that, because the batch loop
+    shares one interpreter and a part would inherit whatever an unrelated
+    earlier target happened to import. What *this part* loaded is a per-part
+    fact belonging to `part.source_closure` (#190), not to the environment.
+
+    Measured on this repo's 114-distribution full-extras venv: 57 ms cold (page
+    cache evicted), 26 ms warm; on the fleet's 84-distribution cadquery venv,
+    45 ms cold, 25 ms warm. Cold matters most on the OpenSCAD tier, where a
+    ~0.5 s run has no 956 ms build to hide behind.
+    """
+    return dict(_installed_distributions())
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> Path:

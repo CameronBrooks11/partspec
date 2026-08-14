@@ -305,6 +305,35 @@ def test_batch_of_two_python_models_each_measures_its_own(tmp_path: Path):
     assert vol_b == pytest.approx(3.0), "model B must not build with model A's cached helper"
 
 
+@needs_scad_tier
+def test_a_batch_records_one_environment_for_every_target(tmp_path: Path):
+    """`environment.packages` must not depend on batch position.
+
+    The targets share one interpreter, so a field derived from `sys.modules`
+    makes a part's recorded environment a function of what ran before it. The
+    first cut of #211 did exactly that and the OpenSCAD part's report claimed
+    `build123d` and `cadquery-ocp` as inputs to a build that never touched
+    them — 6 distributions run alone, 41 run behind a build123d part, from
+    identical inputs on one machine, which SPEC-report §8 rule 2 forbids and
+    which `diff` then reported as 35 packages appearing between two runs of
+    the same part.
+
+    Deliberately cross-tier and in that order: an OpenSCAD part behind a
+    build123d part is the case where the contamination is both largest and
+    most obviously wrong. The equality is over the whole map, not a
+    spot-check, because the failure was 35 extra entries and not a wrong one.
+    """
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    heavy = _closure_target(tmp_path / "heavy", 1.0)
+    light = _scad_target(tmp_path, "light", "    p.watertight()\n")
+    assert main(["check", heavy, light, "--quiet"]) == 0
+
+    heavy_env = report_of(tmp_path / "heavy" / "outputs" / "spec-make")["environment"]
+    light_env = _report(light)["environment"]
+    assert light_env["packages"] == heavy_env["packages"]
+    assert light_env["packages"], "an empty map on both sides would satisfy equality"
+
+
 def test_resolving_a_contract_records_its_sibling_imports(tmp_path: Path):
     """PR #147's review, major 5: the recording in `target.resolve()` was
     held only by running the suite in reverse file order — which CI does not

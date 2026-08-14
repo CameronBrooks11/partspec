@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`environment.packages` recorded five hardcoded names and `diff` read none
+  of them.** `SPEC-report.md` §8 rule 2 says in bold that the field MUST NOT be
+  excluded from comparison — it is what distinguishes "a trimesh upgrade moved
+  this number" from "the design changed" — and `diff` compared exactly
+  `tool_version`, the engine version and the render backend, so a dependency
+  bump produced a verdict with nothing on the page to explain it. Both halves
+  are fixed. The field now records **every distribution installed in the
+  environment** instead of the allowlist `build123d`, `cadquery`,
+  `cadquery-ocp`, `trimesh`, `manifold3d` — which could not see the library a
+  contract wraps, and so never named `cqgridfinity` in any report of the study
+  that found #190. It enumerates installations rather than imports on purpose:
+  the field lives in the `environment` block, several targets share one
+  interpreter, and a `sys.modules`-derived value made a part's recorded
+  environment a function of which unrelated target ran before it — measured on
+  the first cut of this change, `examples/spacer` recorded 6 distributions
+  alone and 41 behind a build123d part, claiming `build123d` and `cadquery-ocp`
+  as inputs to an OpenSCAD build that never touched them, which rule 2 forbids.
+  Which distributions *a part* loaded is a per-part question, and it belongs to
+  `part.source_closure`, where byte-level identity lives (#190). `diff`
+  compares the map in three groups, because a version that **moved** is a
+  changed build input that explains a moved measurement, while a package that
+  **appeared or disappeared** is usually two machines resolving different
+  transitive dependency sets and explains nothing on its own; reporting them
+  together would leave the reader to separate them by hand. Where a side
+  carries no usable map the artifact says `uncomparable` rather than omitting
+  the key, since an omission is indistinguishable from "no dependency moved".
+  No verdict or exit code changes. The one-line summary names the moves on
+  every outcome, `identical` included — a dependency that moved under an
+  unchanged part is exactly what an unqualified "no semantic differences"
+  would misreport — bounded at two names per group with the remainder counted,
+  because the inventory now runs to dozens of entries. **The first comparison
+  against a baseline recorded by v0.7.4 or earlier reports the widening as
+  appearances**: the old field held at most five names, so every other
+  installed distribution is `added` against it. Nothing was installed;
+  re-record the baseline to clear it. Measured on this repo's
+  114-distribution venv: 57 ms cold with the page cache evicted, 26 ms warm,
+  cached per process so later targets in a batch pay nothing — end to end
+  +23 ms on an OpenSCAD-tier run, 534 → 557 ms, the tier with no 956 ms build
+  to hide it. The MCP layer runs the CLI as a subprocess per call by design, so
+  it pays the cold cost on every call (#211, stage 1 of #190).
 - **`scad-magic-number` flagged two positions where the literal already has a
   name, or is not a dimension at all.** A parameter default on a
   `function`/`module` **declaration line** fired (`module post(h = 40)`), while
