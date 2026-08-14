@@ -44,26 +44,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a path that already existed as a file exited 4, so prior state decided what
   the flag meant. An adoption agent hit it four times in a row.
 
-  A path ending in **`.stl`** — the one format the OpenSCAD tier exports — is
-  now the artifact itself, and the mesh lands exactly there. Every other path
-  is the directory it has always been: an existing directory whatever it is
-  called, a path with a trailing separator (`--out run.2026-08-13/`), and any
-  other suffix (`--out v1.2`). Gating on `.stl` rather than on "has a suffix"
-  is deliberate and was found in review: while any suffix counted,
-  `--out models/spacer.scad` replaced the run's own source with binary STL at
-  exit 0, which is a worse defect than the one being fixed. A name the engine
-  cannot write is refused as before.
+  A path ending in **`.stl`** — matched exactly, the one thing the OpenSCAD
+  tier writes — is now the artifact itself, and the mesh lands exactly there.
+  Every other path is the directory it has always been: an existing directory
+  whatever it is called, a path with a trailing separator
+  (`--out run.2026-08-13/`), any other suffix (`--out v1.2`), and `.STL`,
+  which partspec never writes and so is far likelier to be someone's input.
+  Gating on `.stl` rather than on "has a suffix" was found in review: while
+  any suffix counted, `--out models/spacer.scad` replaced the run's own source
+  with binary STL at exit 0, a worse defect than the one being fixed.
 
-  Two guarantees come with the file form. The build runs in a scratch
-  directory beside the destination, so exporting `<source>.stl` on the way
-  cannot overwrite a neighbour of that name; and the destination is claimed
-  before the engine runs, so a failed build leaves nothing behind — the same
-  promise directory mode already made, which empties the directory. A symlink
-  is replaced, not followed.
+  **The destination is written only once the build succeeds.** The engine runs
+  in a scratch directory beside it and the result is moved into place with
+  `os.replace`, so the file is the old one or the new one and never neither: a
+  failed build, a blown timeout or a Ctrl-C leaves what was already there.
+  (This is not what directory mode does — it removes `DIR/<source>.stl` before
+  the engine runs — and the difference is deliberate. Directory mode unlinks a
+  path partspec derived; here the caller typed it.) Building in the scratch
+  directory is also what stops the export from overwriting a neighbour called
+  `<source>.stl` on the way. A symlink at the destination is replaced rather
+  than written through, so its target is untouched.
 
-  On the OCCT tier, which builds in memory and exports nothing, a filename is
-  **refused** (exit 64) rather than accepted and quietly not written, and the
-  refusal is an artifact: identity plus `error`/`hint` on stdout, as
+  **A file destination is refused when the model reads external data.**
+  `import()` reads an `.stl`, which makes the suffix an input extension as
+  well as an output one, and a closure that reads external data cannot say
+  which file it reads (SPEC-report §8.3). Writing the artifact over an input
+  changes what the next run measures — measured on a model importing its own
+  destination: `[5, 5, 5]` reported at exit 0 for a part that measures
+  `[10, 10, 10]`, with the input destroyed. Refused (exit 64) rather than
+  guessed at; a directory still works and is what the hint recommends.
+
+  Likewise on the OCCT tier, which builds in memory and exports nothing: a
+  filename is refused rather than accepted and quietly not written. Both
+  refusals are artifacts — identity plus `error`/`hint` on stdout, as
   SPEC-report's Scope requires of any failure after the target resolves.
 
   `check --out` and `render --out` are unchanged: they hold several files, so

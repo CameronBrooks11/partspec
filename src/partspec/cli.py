@@ -169,13 +169,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help="where the engine's build artifact goes: a PATH ending in .stl IS "
-        "the artifact — an existing file there is replaced, and a failed build "
-        "leaves nothing behind. Any other PATH, including one with a trailing "
-        f"{os.sep!r} or an existing directory, is a directory to write "
-        "<source>.stl in. Only OpenSCAD exports anything; the OCCT tier builds "
-        "in memory, so naming a file there is refused rather than silently "
-        "producing nothing. The measurements themselves go to stdout — this "
-        "verb emits no report file",
+        "the artifact, replaced only once the build succeeds, so a failed run "
+        "leaves what was there. Any other PATH — a trailing "
+        f"{os.sep!r}, an existing directory, any other suffix — is a directory "
+        "to write <source>.stl in. A file is refused when nothing would be "
+        "written to it (the OCCT tier builds in memory) or when the model reads "
+        "external data, because an import()ed .stl is an input, not an output. "
+        "The measurements themselves go to stdout — this verb emits no report "
+        "file",
     )
     measure.add_argument(
         "--timeout",
@@ -371,9 +372,14 @@ def _hidden_marker(hidden: int) -> str:
 
 ARTIFACT_SUFFIX = ".stl"
 """The one thing `measure --out` can name. The OpenSCAD tier exports binary
-STL and nothing else (`--export-format binstl`, SPEC-backend §5.1 step 1), so
+STL and nothing else (`--export-format binstl`, SPEC-backend §5 step 1), so
 this is the whole set of filenames the flag can honour — not a default among
-several."""
+several.
+
+Matched exactly, so `--out UP.STL` is a directory. partspec only ever writes
+the lowercase form, which makes an uppercase `.STL` almost always a file that
+came from somewhere else — hand-authored or downloaded — and those are the
+ones least likely to be output and most expensive to lose."""
 
 
 def _names_the_artifact(raw: str) -> bool:
@@ -403,41 +409,59 @@ def _names_the_artifact(raw: str) -> bool:
     path = Path(raw)
     if path.is_dir():
         return False
-    return path.suffix.lower() == ARTIFACT_SUFFIX
+    return path.suffix == ARTIFACT_SUFFIX
 
 
 def _build_to_file(backend: Any, source: Any, dest: Path, timeout_s: float) -> Any | BuildError:
-    """Build so the artifact lands at exactly `dest`.
+    """Build so the artifact lands at exactly `dest`, and only if it exists.
 
-    Two rules, both borrowed from the directory path rather than invented
-    here, because one flag may not mean two things:
+    **Nothing touches `dest` until there is an artifact to put there.** The
+    engine runs in a scratch directory and the result is moved into place with
+    `os.replace`, so the destination holds the old file or the new one and
+    never neither: a failed build, a blown timeout or a Ctrl-C leaves whatever
+    was there before, untouched.
 
-    **The destination is claimed before the engine runs.** `openscad.render`
-    unlinks its target first so that "a failed render leaves nothing behind
-    for a later reader to pick up" — the stale-mesh class `notes/FINDINGS.md`
-    records this project already paying for, where a run's named output still
-    holds an older mesh that reads as current. Directory mode empties the
-    directory on a failed rebuild; file mode now empties the file, so exit 4
-    means the same thing under both spellings. A symlink is unlinked, not
-    followed: the link is replaced and whatever it pointed at is untouched.
+    An earlier revision unlinked `dest` up front, reasoning that
+    `openscad.render` does the same to its target so "a failed render leaves
+    nothing behind for a later reader to pick up". That was wrong twice.
+    `notes/FINDINGS.md` W9 states the remedy as an either/or — unlink the
+    target *or* render to a fresh temp path and move it into place — and this
+    function is the second branch, which is also the one FINDINGS praises
+    `report.py` for. And the staleness W9 describes cannot arise here at all:
+    the build happens in a fresh empty directory and the measurement is loaded
+    from there, so `dest` is write-only for the whole run. What the unlink did
+    reach was the caller's data. `.stl` is an *input* extension as well as an
+    output one — SPEC-report §8.3 calls `import()`/`surface()` targets files
+    that "genuinely are build inputs" — so deleting `dest` before the engine
+    ran made a model importing it build without its import and report a
+    confident, complete, wrong answer at exit 0. That is the defect #187
+    exists to abolish, reintroduced by its own fix. `_measure_resolved`
+    refuses a file destination for a model that reads external data; this
+    function no longer removes anything it did not create.
 
-    **The build itself happens in a scratch directory beside `dest`.** The
-    engine names its export after the source file, so building straight into
+    **The build happens in a scratch directory beside `dest`.** The engine
+    names its export after the source file, so building straight into
     `dest.parent` would export `<source-stem>.stl` there first and unlink
     whatever the caller already had under that name — `--out models/a.stl`
     would destroy `models/spacer.stl`. Beside, rather than in the system temp
-    dir, so the move into place is a rename on one filesystem.
+    dir, so the move into place is a rename on one filesystem. A symlink at
+    `dest` is replaced by that rename rather than written through, so its
+    target is untouched.
+
+    The scratch directory is removed on every exit from this function,
+    including exceptions; only SIGKILL can leave a `.partspec-build-*` behind.
+    Sweeping older ones is deliberately not done here — a concurrent `measure`
+    writing another file in the same directory owns one of them, and this
+    function cannot tell which.
     """
     import tempfile
 
     # One clause for every way the filesystem can refuse — an uncreatable
-    # parent, an unwritable one, an unremovable destination, a failed move —
-    # because the caller's question is the same in each: the artifact is not
-    # where you asked for it, and that is the environment's doing, not the
-    # part's.
+    # parent, an unwritable one, a failed move — because the caller's question
+    # is the same in each: the artifact is not where you asked for it, and
+    # that is the environment's doing, not the part's.
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.unlink(missing_ok=True)
         with tempfile.TemporaryDirectory(
             dir=dest.parent, prefix=".partspec-build-", ignore_cleanup_errors=True
         ) as scratch:
@@ -797,12 +821,17 @@ def _measure_failure(
     identity prefix as the success payload, so the consumer can tell WHICH
     file and revision failed to measure.
 
-    Every failure after the target resolves comes through here, which is what
-    SPEC-report.md's Scope requires ("On any failure after the target
+    Every build outcome and every `--out` refusal comes through here, which is
+    what SPEC-report.md's Scope requires ("On any failure after the target
     resolves, both MUST emit a JSON object carrying that identity plus
-    `error`/`hint`") — including the `--out` refusal, which exits 64 rather
-    than 4 but is no less a thing a machine has to understand. The exit code
-    stays the caller's to choose; this only says what happened.
+    `error`/`hint`") — the refusals exit 64 rather than 4 but are no less a
+    thing a machine has to understand. The exit code stays the caller's to
+    choose; this only says what happened.
+
+    One post-resolution path still prints stderr alone: an unknown engine
+    (`_backend_for` raising `ContractError`), which cannot reach here because
+    it has no backend to describe one with, and which the contract layer makes
+    unreachable anyway.
     """
     from .report import SCHEMA_VERSION
     from .runner import engine_block, identity
@@ -853,6 +882,27 @@ def _measure_resolved(
                 f"--out {dest} names a file, but the {part.source.engine} tier builds "
                 f"in memory and exports nothing to write there",
                 "only the OpenSCAD tier writes a build artifact; pass a directory, or drop --out",
+            )
+            return EXIT_USAGE
+        from .engines.openscad import include_closure
+
+        # `.stl` is an INPUT extension too — `import()` reads one — so a
+        # destination that looks like this run's output may be one of its
+        # inputs. The closure records that the model reads external data and
+        # deliberately cannot say what: the argument may be computed at render
+        # time (SPEC-report §8.3). Writing the artifact over an input changes
+        # what the NEXT run measures, so this is refused rather than guessed
+        # at, and the refusal says which two files it cannot tell apart.
+        if include_closure(source.path).reads_external_data:
+            _measure_failure(
+                part,
+                target,
+                backend,
+                f"--out {dest} names a file, but {source.path.name} reads external data "
+                f"(import()/surface()), and partspec cannot prove {dest.name} is not one "
+                f"of its inputs",
+                f"pass a directory — the artifact lands in it as "
+                f"{source.path.stem}{ARTIFACT_SUFFIX}",
             )
             return EXIT_USAGE
         artifact = _build_to_file(backend, source, dest, timeout_s)

@@ -158,6 +158,7 @@ def test_measure_overwrites_a_path_that_already_exists_as_a_file(tmp_path: Path,
         "v1.2",  # nor a versioned one
         "renders.d/",  # a trailing separator is directory intent, stated
         "a.stl/",  # even when the name is one the engine could write
+        "UP.STL",  # partspec never writes this spelling, so it is not output
     ],
 )
 def test_measure_out_takes_a_directory_unless_the_name_is_an_stl(tmp_path: Path, capsys, name: str):
@@ -228,24 +229,70 @@ def test_measure_out_does_not_overwrite_a_neighbour_of_the_file_it_was_given(
 
 
 @needs_scad_tier
-def test_measure_out_leaves_nothing_behind_when_the_build_fails(tmp_path: Path, capsys):
-    """Both spellings of `--out` promise the same thing after a failure.
+def test_measure_out_leaves_the_destination_alone_when_the_build_fails(tmp_path: Path, capsys):
+    """Nothing touches the destination until there is an artifact for it.
 
-    `openscad.render` unlinks its target before running so that a failed
-    render leaves nothing for a later reader to pick up — the stale-mesh class
-    in `notes/FINDINGS.md`, where a run's named output still holds an older
-    mesh that reads as current. Directory mode empties the directory; file
-    mode must empty the file, or one flag means two things.
+    A revision of this fix unlinked the destination up front, to match the
+    target unlink in `openscad.render`. Two things were wrong with that.
+    `notes/FINDINGS.md` W9 offers the unlink *or* a temp path moved into place
+    — this is the second, and the staleness W9 describes cannot arise here
+    anyway, since the build runs in a fresh scratch directory and the
+    measurement is read from there, never from `dest`. What the unlink did
+    reach was the caller's file: a blown timeout, a build error or a Ctrl-C
+    deleted it for nothing. `os.replace` gives the whole guarantee — the old
+    file or the new one, never neither, never half of one.
     """
     target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
     dest = tmp_path / "a.stl"
     assert main(["measure", target, "--out", str(dest)]) == 0
-    assert dest.is_file()
+    before = dest.read_bytes()
     capsys.readouterr()
 
     code = main(["measure", target, "--out", str(dest), "--timeout", "0.001"])
     assert code == exit_code(Verdict.ERROR)
-    assert not dest.exists(), "a failed run must not leave the previous mesh readable"
+    assert dest.read_bytes() == before, "a failed run may not consume the file it was given"
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".partspec-build-")]
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_out_refuses_a_file_when_the_model_reads_external_data(tmp_path: Path, capsys):
+    """`.stl` is an input extension as well as an output one.
+
+    `import()` reads one, and SPEC-report §8.3 says so — those paths "genuinely
+    are build inputs", and may be computed at render time, so no static reader
+    can resolve them. Writing the artifact over one changes what the NEXT run
+    measures: with the destination consumed, the model built without its
+    import and reported a confident `[5, 5, 5]` for a part that measures
+    `[10, 10, 10]`, at exit 0. That is the defect #187 exists to abolish,
+    reached through its own fix, so a file destination is refused for any
+    model whose closure reads external data — the one signal partspec has, and
+    an honest one: it says the two files cannot be told apart, not that they
+    are the same.
+    """
+    (tmp_path / "input.stl").write_bytes(b"donor")
+    target = scad_target(tmp_path, source="imports_data.scad", claims="")
+    dest = tmp_path / "input.stl"
+    assert main(["measure", target, "--out", str(dest)]) == 64
+    assert dest.read_bytes() == b"donor", "an input is not an output path"
+    doc = json.loads(capsys.readouterr().out)
+    assert "reads external data" in doc["error"]
+    assert "input.stl" in doc["error"]
+    assert "pass a directory" in doc["hint"]
+
+
+@needs_scad_tier
+def test_measure_still_takes_a_directory_for_a_model_that_reads_external_data(
+    tmp_path: Path, capsys
+):
+    """The refusal is about the destination, not the model. A directory has a
+    derived name the caller did not type, so the ambiguity does not arise."""
+    (tmp_path / "input.stl").write_bytes(b"donor")
+    target = scad_target(tmp_path, source="imports_data.scad", claims="")
+    out = tmp_path / "out"
+    assert main(["measure", target, "--out", str(out)]) == 0
+    assert (out / "imports_data.stl").stat().st_size > 0
+    assert (tmp_path / "input.stl").read_bytes() == b"donor"
     json.loads(capsys.readouterr().out)
 
 
