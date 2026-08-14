@@ -134,7 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Two migration diagnostics stated a fault and withheld the remedy their
   own specs promised.** `SPEC-diff.md` §2 rule 3 said this comparison "names
-  re-recording the baseline as the fix", the #190 stage-3 entry below said it
+  re-recording the baseline as the fix", the #190 stage-3 entry above said it
   "keeps returning exit 2 with the remedy named", and `diff.py`'s comment and
   its test said it too — while the run printed the cause and stopped:
   *"indeterminate: … the old report was written before partspec recorded
@@ -187,9 +187,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   imported, and a contract's own imports are its part's. Python tier only, the
   OpenSCAD render being a subprocess that imports nothing. `diff` **qualifies
   rather than asserts**: an `added`/`removed` entry either side named there is
-  reported as `inputs not attributable: …`, naming batch position as the
-  reason, counted apart under `covered:`, listed in
-  `source.imports.unattributable`, and no longer making the closure `changed`.
+  reported as `inputs not attributable: …`, stating that this comparison
+  cannot tell an input that moved from one inherited from an earlier target —
+  the inability `preloaded` evidences, and never a cause it does not, since a
+  part that genuinely starts importing a library its batch neighbour also
+  loads is indistinguishable from here (measured at batch position 2 of 2 in
+  both runs). They are counted apart under `covered:`, listed in
+  `source.imports.unattributable`, and no longer make the closure `changed`.
   Movement the `preloaded` sets do not explain keeps its wording exactly, a
   version that moved under an inherited import is still a move, and two
   reports carrying the same `preloaded` set with nothing moved print nothing

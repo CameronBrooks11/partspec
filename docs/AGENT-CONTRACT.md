@@ -205,9 +205,10 @@ On the first `pass` for an unfamiliar part, confirm in `report.json`:
    bytes were read or their installer taken at its word (SPEC-report §8.3). An unrecognised
    `unseen` token is a gap, not noise; `imports` absent means the question was never asked.
    `imports` **over-reports in a multi-target run** — one interpreter, one `sys.modules` —
-   and `preloaded` names the entries this part cannot be credited with, so do not read one
-   of those as a library this part loaded, and do not read its arrival between two runs as
-   a build input that appeared (§8.3 rule 7).
+   and `preloaded` names the entries this part cannot be credited with. Such an entry may
+   have been loaded by this part or by an earlier target — nothing in the report can say
+   which — so treat its arrival between two runs as unresolved: not as a build input that
+   appeared, and equally not as one that did not (§8.3 rule 7).
    `diff` classifies those gaps rather than counting them: `native_reads` is irreducible on
    the Python tier and reaches no verdict — it is printed on every outcome as `not covered:`
    — while every other token, recognised or not, still blocks `identical` (SPEC-diff §2

@@ -415,11 +415,17 @@ def _imports_delta(
     either side already said it could not attribute to its own target
     (`preloaded`, SPEC-report §8.3 rule 7). They stay in `added`/`removed` —
     they really are on one side only — but they are the one movement this
-    comparison must not report as a finding: a Python part behind another one
-    in a batch inherits its imports, so the difference between two runs of the
-    same part is the batch, not the part. Only `added` and `removed` can be
-    affected. A `changed` entry is present on both sides with something moved
-    between them, which is a fact about the distribution whoever loaded it.
+    comparison must not report as a finding, because it cannot tell which of
+    two things produced it: a part behind another one in a batch inherits its
+    imports, AND a part that genuinely started importing a library the earlier
+    target also loads looks identical from here. Measured: a follower whose
+    model began importing a shared module, at batch position 2 of 2 in both
+    runs, is a real new build input landing in exactly this set. What this
+    field carries is the inability, never a cause.
+
+    Only `added` and `removed` can be affected. A `changed` entry is present
+    on both sides with something moved between them, which is a fact about the
+    distribution whoever loaded it.
     """
     old_imports = (old_closure or {}).get("imports")
     new_imports = (new_closure or {}).get("imports")
@@ -506,7 +512,8 @@ def _moved_phrases(
     An unattributable entry is phrased as the qualification it is rather than
     counted as movement: it belongs here because something was observed and
     the reason must not then claim nothing was seen, and it is worded apart
-    from the three groups because what was observed is a batch position.
+    from the three groups because what was observed cannot be attributed —
+    which is a statement about this comparison, not about the batch.
     """
     scope = (
         "the model directory digest"
@@ -593,11 +600,15 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
     bounded = {t: p for t, p in classified.items() if t not in _IRREDUCIBLE_GAPS}
 
     digest_moved = old_closure.get("digest") != new_closure.get("digest")
-    # Attributed movement only: an entry present on one side because that
-    # target ran second in a batch is not the closure changing, and calling
-    # it `changed` puts "every declared claim held across the change" under a
-    # comparison where nothing changed. Neither `same` nor `changed` is
-    # outcome-bearing, so this moves no verdict and no exit code.
+    # Attributed movement only. This vocabulary has three values and none of
+    # them is "movement seen, attribution unknown": `inconclusive` is
+    # verdict-bearing and would make every multi-target Python comparison
+    # exit 2, so the choice is between `same` and `changed`, and `changed`
+    # is the one that puts "every declared claim held across the change"
+    # under a comparison whose only movement may be an inherited import. The
+    # fact itself is never dropped — `source.imports.unattributable` names
+    # every entry, and the summary line states the inability. Neither `same`
+    # nor `changed` is outcome-bearing, so this moves no verdict and no exit.
     imports_moved = "uncomparable" not in imports and any(
         _attributed(imports, group) for group in ("changed", "added", "removed")
     )
@@ -1074,9 +1085,18 @@ def _imports_clause(doc: dict[str, Any]) -> str:
     positive finding — *this build input arrived* — drawn from a fact about
     which targets shared an interpreter: measured, one build123d cube diffed
     against itself behind a CadQuery target said `inputs appeared: cadquery
-    2.8.0, casadi 3.7.2, +4 more`, and nothing had appeared. Where the
-    movement does not touch that set the wording is unchanged, because there
-    the appearance is exactly what it says.
+    2.8.0, casadi 3.7.2, +4 more`, and nothing had appeared.
+
+    The clause states the inability and stops. Asserting the cause — "the
+    difference is its position in a batch" — is the same defect pointing the
+    other way, and it was measured too: a follower whose model began importing
+    a shared module, at batch position 2 of 2 in *both* runs, had a genuine
+    new build input reported as a non-event. `preloaded` evidences that this
+    comparison cannot attribute the entry; it evidences nothing about why the
+    entry is on one side.
+
+    Where the movement does not touch that set the wording is unchanged,
+    because there the appearance is exactly what it says.
     """
     imports = _imports_groups(doc)
     clauses = []
@@ -1088,15 +1108,15 @@ def _imports_clause(doc: dict[str, Any]) -> str:
             named = [_import_label(n, e) for n, e in group_entries.items()]
             clauses.append(f"inputs {verb}: {_bounded(named)}")
     if carried := imports.get("unattributable"):
-        # Both directions in one clause: which side an inherited import landed
-        # on is a property of the batch order, so naming the direction would
-        # dress the same non-finding up as two.
+        # Both directions in one clause: naming which side an entry landed on
+        # would suggest this comparison knows why it landed there, which is
+        # the one thing it does not.
         entries = {**(imports.get("added") or {}), **(imports.get("removed") or {})}
         named = [_import_label(name, entries.get(name)) for name in carried]
         clauses.append(
-            f"inputs not attributable: {_bounded(named)} — already loaded when one of these "
-            "targets began, so the difference is its position in a batch, not an input "
-            "that moved"
+            f"inputs not attributable: {_bounded(named)} — on one side only, and already "
+            "loaded when that target began, so this comparison cannot tell an input that "
+            "moved from one inherited from an earlier target"
         )
     return ("; " + "; ".join(clauses)) if clauses else ""
 

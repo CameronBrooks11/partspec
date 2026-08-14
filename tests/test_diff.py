@@ -831,8 +831,8 @@ def test_an_inherited_import_is_not_reported_as_an_appearance():
     assert "appeared" not in summary, f"an inherited import read as a finding: {summary}"
     assert summary.splitlines()[0] == (
         "identical: p — no semantic differences; inputs not attributable: cadquery 2.8.0 — "
-        "already loaded when one of these targets began, so the difference is its position "
-        "in a batch, not an input that moved"
+        "on one side only, and already loaded when that target began, so this comparison "
+        "cannot tell an input that moved from one inherited from an earlier target"
     )
     assert "  covered: model directory (2 files); 2 imported distributions, 1 not attributable" in (
         summary.splitlines()
@@ -882,6 +882,39 @@ def test_an_appearance_the_batch_cannot_explain_keeps_todays_wording():
     summary = summary_of(doc)
     assert "inputs appeared: shapely 2.1.2" in summary
     assert "inputs not attributable: cadquery 2.8.0" in summary
+
+
+def test_an_unattributable_import_is_not_denied_to_have_moved():
+    """The qualification states an inability and MUST NOT state a cause.
+
+    `preloaded` evidences that this comparison cannot attribute the entry. It
+    evidences nothing about *why* the entry is on one side, and the first cut
+    of this clause said "the difference is its position in a batch, not an
+    input that moved" — which the audit reproduced as false: a follower whose
+    model began importing a shared module its leader's contract also imports
+    is a genuine new build input, at batch position 2 of 2 in BOTH runs, and
+    its content digest was sitting in `source.imports.added` while the line
+    denied that anything had moved. Reversing the pair denies a real
+    disappearance the same way.
+    """
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")}, preloaded=["build123d"])
+    new = _python_doc(
+        {
+            "build123d": _dist("0.10.1", "aaa"),
+            "helper29": {**_dist(None, "bbb", "content"), "files": 1},
+        },
+        preloaded=["build123d", "helper29"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["source"]["imports"]["unattributable"] == ["helper29"]
+    assert "helper29" in doc["source"]["imports"]["added"], "the evidence stays in the artifact"
+
+    summary = summary_of(doc)
+    assert "inputs not attributable: helper29" in summary
+    assert "cannot tell an input that moved from one inherited from an earlier target" in summary
+    for denial in ("not an input that moved", "position in a batch", "not the part"):
+        assert denial not in summary, f"a real appearance reported as a non-event: {summary}"
 
 
 def test_a_version_that_moved_under_an_inherited_import_is_still_a_move():

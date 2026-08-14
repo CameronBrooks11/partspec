@@ -104,9 +104,20 @@ Rules:
    comparison indeterminate and rebuild what rule 3 exists to remove. Measured before the
    qualification: one build123d cube diffed against itself, run behind a CadQuery target
    in a batch, reported `inputs appeared: cadquery 2.8.0, casadi 3.7.2, +4 more` at exit
-   `0` — six build inputs positively claimed to have arrived, and nothing had. Only
-   `added` and `removed` can be affected; a `changed` entry is present on both sides with
-   something moved between them, which is a fact about the distribution whoever loaded it.
+   `0` — six build inputs positively claimed to have arrived, and nothing had.
+
+   **The message MUST state the inability and MUST NOT state a cause.** `preloaded`
+   evidences that this comparison cannot attribute the entry; it evidences nothing about
+   why the entry is on one side, and "the difference is its position in a batch" is the
+   same overclaim aimed the other way. Measured: a follower whose model began importing a
+   shared module its leader's contract also imports — batch position 2 of 2 in **both**
+   runs — is a genuine new build input that lands in this set, and calling it a batch
+   artefact reports a real change as a non-event. `SPEC-report.md` §8.3 rule 7 already
+   words it correctly: *the honest reading is that this comparison cannot attribute it.*
+
+   Only `added` and `removed` can be affected; a `changed` entry is present on both sides
+   with something moved between them, which is a fact about the distribution whoever
+   loaded it.
 
    Found differences are real regardless of any gap, so this rule only ever blocks the
    `identical` claim, never the `different` one. A `changed` closure is likewise never a
@@ -301,8 +312,10 @@ It does not change the outcome: an old report that predates the field still diff
       "added": {},
       "removed": {},
       "unattributable": []           // names in `added`/`removed` that a side's
-                                     // `preloaded` covers: on one side only because of
-                                     // batch position, never reported as an appearance
+                                     // `preloaded` covers: on one side only, and this
+                                     // comparison cannot say whether they moved.
+                                     // Never reported as an appearance, and never
+                                     // explained away as batch position either
     },
     "unseen": {                      // the gaps by class, token -> what it says to a reader
       "irreducible": { "native_reads": "files read inside C extensions — …" },

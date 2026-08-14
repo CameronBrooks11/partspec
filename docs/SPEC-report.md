@@ -964,10 +964,12 @@ Rules a producer MUST follow:
    under-reporting direction this whole section refuses. So the bound is stated instead:
    `preloaded` lists, sorted, the entries of `imports` that were already in `sys.modules`
    when this target's contract was resolved, and an entry named there is one **this report
-   cannot claim as its own**. It is `[]` for a target that ran first or alone, present
-   whenever `imports` is — absence means the question was never asked, exactly as for
-   `imports` — and it is a **Python-tier field**: the OpenSCAD render is a subprocess that
-   imports nothing, which is what `imports: {}` already says. A consumer MUST NOT report
+   cannot claim as its own**. It is `[]` for a target that ran first or alone, and it is a
+   **Python-tier field**: an OpenSCAD closure carries `imports: {}` and no `preloaded` at
+   all, because the render is a subprocess that imports nothing and there is nothing to
+   attribute. Its absence therefore dates no report — `imports` is the field that does
+   that (above), and a consumer reading the same absence rule into this one would misdate
+   every 0.7.5 OpenSCAD report as pre-0.7.5. A consumer MUST NOT report
    an entry it names as a build input that appeared; the honest reading is that this
    comparison cannot attribute it (SPEC-diff.md §2 rule 3). It is not an `unseen` token:
    the coverage is not incomplete, the attribution is, and routing it through the gap

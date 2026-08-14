@@ -336,27 +336,49 @@ def test_a_batch_records_one_environment_for_every_target(tmp_path: Path):
     assert light_env["packages"], "an empty map on both sides would satisfy equality"
 
 
-def _inheriting_target(d: Path, library: Path) -> str:
-    """A build123d part whose CONTRACT imports a library from a third directory.
+def _install(site: Path, distribution: str, module: str) -> None:
+    """A distribution whose NAME differs from the module it installs.
 
-    Third, because `_invalidate_after` evicts what was loaded from beside the
-    contract and beside the model, and this import must survive into the next
-    target — that survival is the subject. Imported by the contract rather
-    than by the model so the name is in `sys.modules` however the build goes.
+    `imports` keys a RECORD-owned entry by DISTRIBUTION and an unowned one by
+    module, and `preloaded` is intersected with it, so a snapshot taken over
+    raw `sys.modules` names silently drops every entry whose two names differ
+    — 7 of 39 in this repo's own venv (`cadquery-ocp`, `Pygments`,
+    `charset-normalizer`, …), each then claimed as this part's own. A
+    single-file module named for its distribution is the one shape that
+    cannot tell the two apart, which is why this fixture exists.
+
+    The RECORD's digests are never verified against the files; ownership is
+    the row's path, which is what this is here to exercise.
+    """
+    site.mkdir(parents=True, exist_ok=True)
+    (site / f"{module}.py").write_text("VALUE = 29\n")
+    info = site / f"{distribution.replace('-', '_')}-1.0.dist-info"
+    info.mkdir(exist_ok=True)
+    (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {distribution}\nVersion: 1.0\n")
+    (info / "RECORD").write_text(f"{module}.py,sha256=0000,12\n")
+
+
+def _inheriting_target(d: Path, part_id: str, imports: dict[str, Path], model: str) -> str:
+    """A build123d part whose CONTRACT imports modules from other directories.
+
+    Other, because `_invalidate_after` evicts what was loaded from beside the
+    contract and beside the model, and a leader's imports must survive into
+    the next target — that survival is the subject. Imported by the contract
+    rather than by the model so the name is in `sys.modules` however the build
+    goes, and so the FOLLOWER's own contract import lands after the snapshot
+    the runner takes for it.
     """
     d.mkdir(exist_ok=True)
-    (d / "model.py").write_text(
-        "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n"
-    )
+    (d / "model.py").write_text(model)
     spec = d / "spec.py"
+    paths = "".join(f"sys.path.insert(0, {str(p)!r})\n" for p in imports.values())
+    names = "".join(f"import {name}\n" for name in imports)
     spec.write_text(
-        "import sys\n\n"
-        f"sys.path.insert(0, {str(library)!r})\n"
-        "import batchlib29\n"
+        f"import sys\n\n{paths}{names}"
         "from partspec import Part, build123d\n\n\n"
         "def make():\n"
-        "    p = Part('leader', build123d('model.py'))\n"
-        "    p.volume(min=0.0, max=batchlib29.VALUE)\n"
+        f"    p = Part({part_id!r}, build123d('model.py'))\n"
+        "    p.volume(min=0.0)\n"
         "    return p\n"
     )
     return f"{spec}:make"
@@ -399,26 +421,64 @@ def test_a_batch_says_which_imports_it_did_not_load_itself(tmp_path: Path):
     into silence, and a `sys.modules` delta would drop a library the second
     target genuinely uses because the first loaded it first. What must not be
     wide is the claim, so the closure names what it inherited.
+
+    Three decisions inside that claim are pinned here, each of which survived
+    the whole suite when mutated during review: the snapshot's boundary, the
+    name it is keyed by, and its scope.
     """
     pytest.importorskip("build123d", reason="occt extra not installed")
-    library = tmp_path / "elsewhere"
-    library.mkdir()
-    (library / "batchlib29.py").write_text("VALUE = 29\n")
-    leader = _inheriting_target(tmp_path / "leader", library)
-    follower = _closure_target(tmp_path / "follower", 1.0)
+    site = tmp_path / "site"
+    _install(site, "batch-lib-29", "batchlib29")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "followerlib29.py").write_text("VALUE = 1\n")
+
+    follower_dir = tmp_path / "follower"
+    follower_dir.mkdir()
+    (follower_dir / "fhelper29.py").write_text("SIZE = 1.0\n")
+    follower = _inheriting_target(
+        follower_dir,
+        "follower",
+        {"followerlib29": elsewhere},
+        "import fhelper29\nfrom build123d import Box\n\n\n"
+        "def make_part():\n    return Box(fhelper29.SIZE, 1, 1)\n",
+    )
+    # The leader loads all three: an installed distribution, and the
+    # follower's OWN model-directory helper, which the follower's map
+    # excludes because its closure digest already covers it.
+    leader = _inheriting_target(
+        tmp_path / "leader",
+        "leader",
+        {"batchlib29": site, "fhelper29": follower_dir},
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n",
+    )
 
     _cold("check", follower, "--quiet", "--out", str(tmp_path / "alone"))
     alone = report_of(tmp_path / "alone")["part"]["source_closure"]
     assert alone["preloaded"] == [], "one target in a process inherits nothing"
-    assert "batchlib29" not in alone["imports"]
+    assert "batch-lib-29" not in alone["imports"]
 
     _cold("check", leader, follower, "--quiet")
     behind = _report(follower)["part"]["source_closure"]
-    assert "batchlib29" in behind["imports"], "the map over-reports on purpose"
-    assert "batchlib29" in behind["preloaded"], "and must say it cannot claim this one"
+    assert "batch-lib-29" in behind["imports"], "the map over-reports on purpose"
     assert set(behind["imports"]) - set(alone["imports"]) <= set(behind["preloaded"]), (
         "every entry the batch position added must be named as unattributable"
     )
+
+    # Keyed the way `imports` is, by distribution — a snapshot of raw
+    # `sys.modules` names would drop this entry and claim it as the part's.
+    assert "batch-lib-29" in behind["preloaded"]
+    assert "batchlib29" not in behind["preloaded"]
+    # Taken BEFORE the contract is resolved: this part's contract imported
+    # `followerlib29` itself, and a snapshot taken after resolution would
+    # report the part's own import as inherited.
+    assert "followerlib29" in behind["imports"]
+    assert "followerlib29" not in behind["preloaded"]
+    # Scoped to entries of `imports` (SPEC-report §8.3 rule 7). The leader
+    # loaded the follower's model-directory helper, which the map excludes,
+    # so naming it here would be a claim about an entry the map does not have.
+    assert "fhelper29" not in behind["imports"]
+    assert set(behind["preloaded"]) <= set(behind["imports"])
 
 
 def test_resolving_a_contract_records_its_sibling_imports(tmp_path: Path):
