@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from . import expr as expr_mod
+from . import imports
 from .backend import BuildError, Unsupported
 from .contract import GEOMETRY, GEOMETRY_KINDS, CheckSpec, Part
 from .report import CheckResult, Report, tool_version
@@ -1057,9 +1058,15 @@ def _python_closure(source: Any, contract_path: Path | None) -> dict[str, Any]:
     already `contract_digest`, and folding it in here would make the *source*
     closure move whenever a claim changed.
 
-    `partial` is unconditional. Python can import from anywhere on `sys.path`,
-    read data files at runtime and load C extensions, none of which this sees.
-    An earlier draft of `SPEC-report.md` §8.3 concluded that this uncertainty
+    `imports` covers what the model imported from outside that directory —
+    the third-party library a wrapper contract exists to check (#190). Without
+    it the closure of the fleet-01 gridfinity bin was `files: 1`, and the
+    seventeen files that produced the geometry appeared nowhere.
+
+    `partial` is derived from `unseen` and stays unconditionally true, because
+    `native_reads` is always there: a C extension can read a file with no
+    Python event to observe it, measured directly on `OCP.StlAPI_Reader`. An
+    earlier draft of `SPEC-report.md` §8.3 concluded that this uncertainty
     argued for emitting nothing at all. That was the wrong call: silence is not
     the absence of a claim here, because `source_digest` is still sitting in the
     report asserting that one file identifies the build. A `partial` closure is
@@ -1079,12 +1086,19 @@ def _python_closure(source: Any, contract_path: Path | None) -> dict[str, Any]:
             continue
         members.add(path)
 
+    found = imports.inventory(skip_tree=root, exclude=frozenset(excluded))
+    unseen = ["native_reads"]
+    if any(entry["identity"] == imports.UNIDENTIFIED for entry in found.values()):
+        unseen.append("unidentified_imports")
+
     hashes = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in members)
     return {
         "digest": "sha256:" + hashlib.sha256("".join(hashes).encode()).hexdigest(),
         "files": len(hashes),
         "scope": "model_directory",
-        "partial": True,
+        "partial": bool(unseen),
+        "imports": found,
+        "unseen": sorted(unseen),
     }
 
 
@@ -1109,6 +1123,12 @@ def _closure(source: Any) -> dict[str, Any] | None:
     members = sorted(
         hashlib.sha256(f.read_bytes()).hexdigest() for f in closure.files if f.is_file()
     )
+    unseen = []
+    if closure.reads_external_data:
+        unseen.append("external_data_reads")
+    if closure.unresolved:
+        unseen.append("unresolved_includes")
+
     out: dict[str, Any] = {
         "digest": "sha256:" + hashlib.sha256("".join(members).encode()).hexdigest(),
         "files": len(members),
@@ -1117,8 +1137,16 @@ def _closure(source: Any) -> dict[str, Any] | None:
         out["unresolved"] = list(closure.unresolved)
     if closure.reads_external_data:
         out["reads_external_data"] = True
-    if closure.partial:
+    if unseen:
         # Stated positively so a consumer cannot mistake absence of the two
-        # fields above for a guarantee it never made.
+        # fields above for a guarantee it never made. Derived from `unseen`,
+        # which names the same two gaps: `Closure.partial` is
+        # `bool(unresolved) or reads_external_data`, so the boolean is
+        # unchanged in every case (#190).
         out["partial"] = True
+    # An empty map, never an absent one: this tier renders in a subprocess and
+    # imports nothing, and that is a different statement from "not recorded",
+    # which is what an absent `imports` means in a pre-0.7.5 report.
+    out["imports"] = {}
+    out["unseen"] = sorted(unseen)
     return out

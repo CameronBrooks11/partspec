@@ -602,6 +602,37 @@ def test_a_partial_closure_on_only_the_new_side_still_blocks_identical():
     assert _diff(old, new)["outcome"] == "indeterminate"
 
 
+@pytest.mark.parametrize("outcome", ["identical", "different", "indeterminate"])
+def test_the_closure_fields_added_in_stage_2_reach_no_verdict(outcome: str):
+    """#190 stage 2 records `imports` and `unseen`; **stage 3** decides what
+    they mean. Until then `diff` reads `digest` and `partial` and nothing
+    else, so a library that moved must not change an outcome or an exit code
+    behind a user's back — the upgrade lands the evidence before the rule.
+
+    Stage 3 changes this test on purpose, and that is the point of it: the
+    behaviour it pins is a decision, not an accident.
+    """
+    old, new = _doc(), _doc()
+    for doc, digest in ((old, "sha256:aaa"), (new, "sha256:bbb")):
+        doc["part"]["source_closure"]["imports"] = {
+            "cqgridfinity": {"identity": "content", "version": None, "digest": digest, "files": 16}
+        }
+        doc["part"]["source_closure"]["unseen"] = []
+    bare_old, bare_new = _doc(), _doc()
+    for doc in (new, bare_new):
+        if outcome == "different":
+            doc["checks"] = [c for c in doc["checks"] if c["id"] != "fits"]
+            doc["counts"]["total"] -= 1
+            doc["counts"]["pass"] -= 1
+        if outcome == "indeterminate":
+            doc["part"]["source_closure"]["partial"] = True
+
+    with_fields, without = _diff(old, new), _diff(bare_old, bare_new)
+    assert with_fields["outcome"] == without["outcome"] == outcome
+    assert exit_code_of(with_fields["outcome"]) == exit_code_of(without["outcome"])
+    assert with_fields["source"] == without["source"]
+
+
 def test_weakening_that_flips_a_status_still_shows_the_moved_limit():
     """The flagship attack: loosen the limit until a failing check passes.
     An entry saying only 'fixed' reports the attack as an improvement

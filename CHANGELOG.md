@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`part.source_closure` now says which distributions the model imported, and
+  names its own gaps.** Two additive fields on both tiers, `schema_version`
+  unchanged. `imports` maps each import to how it was identified: `metadata`
+  where every loaded file of a distribution is declared in its installer's
+  RECORD — version plus a digest over the RECORD's own hashes, ~0.1 ms — and
+  `content` where a loaded file is declared by no RECORD, which byte-hashes the
+  package tree. The second tier is the one the fleet-01 study needed and the
+  one no cheap mechanism can replace: all three arm-A agents imported a
+  `sys.path` checkout of `cq-gridfinity` (17 files) while the venv reported
+  0.5.7 from a different, 12-file copy, so `importlib.metadata.version()`
+  described code that never ran. Ownership is checked per file against **whole
+  RECORD rows**, never a first path segment, because distributions routinely
+  share a top-level directory (`zope.*`, `google.*`, `sphinxcontrib.*`,
+  `ruamel.*`, `jaraco.*`) and this repo's venv holds a five-way `trame`
+  collision. Distributions whose RECORD-declared bytes were not loaded are
+  never named. `unseen` names the gaps from a closed vocabulary —
+  `native_reads`, `unidentified_imports`, `external_data_reads`,
+  `unresolved_includes` — and `partial` is now **derived** from it,
+  `partial == bool(unseen)`, with the same value in every case it had before: a
+  namespace package with no `__file__` is now a named gap instead of a silent
+  omission. An unrecognised token MUST be read as a bounded gap, so an older
+  consumer of a newer report fails closed. An **absent** `imports` is not
+  "nothing imported" — it is a report written before the question was asked,
+  which is why the OpenSCAD tier emits `{}`. **No `diff` behaviour, verdict or
+  exit code changes**; stage 3 of #190 owns what the comparator does with the
+  new fields. Cost, measured against 6e9b67e: the OpenSCAD tier is unchanged
+  (+1.1 ms, +0.19%, it builds no index), and the Python tier pays one RECORD
+  index per process — 62.5 ms cold / 57.9 ms warm in the fleet's
+  84-distribution venv, 100.9 / 65.2 in this repo's 114-distribution one — for
+  +65 ms warm and +29 ms cold end to end on a 5.1 s cadquery run (+1.3% /
+  +0.6%), +86 ms warm and +119 ms cold on a 2.7 s build123d run (+3.2% /
+  +4.3%). Distributions the installer already describes are **not** byte-hashed:
+  hashing everything imported measured 836 ms warm / 1921 ms cold over 1270 MB,
+  70% of it `vtk` and `casadi` (#190, stage 2 of 4).
+
 ### Fixed
 
 - **`environment.packages` recorded five hardcoded names and `diff` read none
