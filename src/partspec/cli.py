@@ -259,19 +259,36 @@ def _print_contract_traceback(exc: BaseException) -> None:
     partspec explaining itself, and a CadQuery operation that raised four calls
     deep is genuinely where the failure happened.
 
-    Two cases print the whole thing unfiltered, because a filter that hides a
+    What survives is printed *contiguously*, so every gap carries a
+    `[N partspec frames hidden]` marker. Without it the reprint reads as a
+    direct call chain that never happened, and the reader most likely to be
+    misled is an agent parsing it.
+
+    Four cases print the whole thing unfiltered, because a filter that hides a
     partspec bug is the silence this tool exists to refuse:
 
     - **No contract frames at all** — the exception came from inside partspec
       before user code ran, so its frames are all there is.
-    - **The innermost frame is partspec's and the exception is not partspec's
-      own** — an `AttributeError` from `region.py` is a partspec bug, and its
-      internal frames are the bug report. A `ContractError` from the same line
-      is a diagnosis, and they are noise.
+    - **A partspec frame at or below the contract's own** and the exception is
+      not partspec's — partspec code participated in the failure rather than
+      merely reaching the contract, so an `AttributeError` from `region.py` is
+      a partspec bug and its frames are the bug report. The leading frames that
+      only got the process to the contract (`cli`, `target`) do not count: they
+      are on every stack and are what #188 is about. A `ContractError` from the
+      same position is a diagnosis written for the reader, and its frames are
+      noise — the exception's own module is what separates the two.
+    - **An exception group** — `format_exception_only` renders a group as its
+      header alone ("2 sub-exceptions"), losing every sub-exception *and* the
+      contract frames inside them, which is the opposite of the point.
+    - **A chained exception** (`raise ... from`, or one raised while handling
+      another) — the other segments of the chain are information.
 
-    Chained exceptions (`raise ... from`, or one raised while handling another)
-    also print unfiltered: the chain's other tracebacks are information, and
-    reprinting them frame-filtered is not worth losing them to a bug here.
+    The chain case is a real limitation, not a rounding error: a contract doing
+    `try/except → raise ContractError(...)` is idiomatic, and implicit
+    `__context__` chaining sends it here. Filtering each segment independently
+    was considered and refused for v1 — walking the chain means reproducing
+    CPython's connector prose and its group tree by hand, and a filter that
+    prints a *misleading* chain is worse than one that prints a noisy true one.
 
     Presentation only: the exit code (`EXIT_ERROR`), the "the contract is wrong,
     not the part" classification and the report on disk are untouched. Nothing
@@ -280,22 +297,43 @@ def _print_contract_traceback(exc: BaseException) -> None:
     the only reason its shape is worth this much care.
     """
     frames = traceback.extract_tb(exc.__traceback__)
-    contract_frames = [f for f in frames if not _is_partspec_frame(f)]
+    first_contract = next((i for i, f in enumerate(frames) if not _is_partspec_frame(f)), None)
     chained = exc.__cause__ is not None or (
         exc.__context__ is not None and not exc.__suppress_context__
     )
-    raised_inside_partspec = bool(frames) and _is_partspec_frame(frames[-1])
     partspec_raised_it = type(exc).__module__.split(".")[0] == "partspec"
-    if not contract_frames or chained or (raised_inside_partspec and not partspec_raised_it):
+    partspec_in_the_failure = first_contract is not None and any(
+        _is_partspec_frame(f) for f in frames[first_contract:]
+    )
+    if (
+        first_contract is None
+        or chained
+        or isinstance(exc, BaseExceptionGroup)
+        or (partspec_in_the_failure and not partspec_raised_it)
+    ):
         # `print_exception`, not `print_exc`: the exception is passed in, so
         # the fallback must not depend on being inside its `except` block.
         traceback.print_exception(exc)
         return
-    sys.stderr.write(
-        "Traceback (most recent call last):\n"
-        + "".join(traceback.format_list(contract_frames))
-        + "".join(traceback.format_exception_only(exc))
-    )
+
+    out = ["Traceback (most recent call last):\n"]
+    hidden = 0
+    for frame in frames:
+        if _is_partspec_frame(frame):
+            hidden += 1
+            continue
+        out.append(_hidden_marker(hidden))
+        hidden = 0
+        out.extend(traceback.format_list([frame]))
+    out.append(_hidden_marker(hidden))
+    out.extend(traceback.format_exception_only(exc))
+    sys.stderr.write("".join(out))
+
+
+def _hidden_marker(hidden: int) -> str:
+    if hidden == 0:
+        return ""
+    return f"  [{hidden} partspec frame{'s' if hidden > 1 else ''} hidden]\n"
 
 
 def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:

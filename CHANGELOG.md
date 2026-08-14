@@ -17,13 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Python and for a `TypeError` in user code the frame is the only thing that
   says *where*; partspec's frames are dropped from it. Frames from a library
   the contract called are kept — a CadQuery operation that raised four calls
-  deep is where the failure happened. Two cases still print unfiltered, because
-  a filter that hides a partspec bug is the silence this tool exists to refuse:
-  a stack with no contract frame at all, and a non-partspec exception raised
-  inside partspec (an `AttributeError` from partspec's own code is a bug
-  report, and its frames are the report). Presentation only — the exit code
-  (`4`), the "the contract is wrong, not the part" classification and the
-  report are unchanged. (#188)
+  deep is where the failure happened. Every gap left by a dropped frame carries
+  a `[N partspec frames hidden]` marker, so the reprint cannot be read as a
+  call chain that never happened. Four cases still print unfiltered, because a
+  filter that hides a partspec bug is the silence this tool exists to refuse: a
+  stack with no contract frame at all; a non-partspec exception with a partspec
+  frame *inside* the failure rather than merely on the way to the contract (an
+  `AttributeError` from partspec's own code is a bug report, and its frames are
+  the report); an exception group, which renders header-only through the
+  filtered path and would lose every sub-exception and the contract lines
+  inside them; and a chained exception, whose other segments are information.
+  The chain case leaves `try/except → raise ContractError(...)` — an idiomatic
+  contract — printing unfiltered; filtering each segment independently means
+  reproducing CPython's chain and group formatting by hand, and is deferred
+  rather than guessed at. Presentation only — the exit code (`4`), the "the
+  contract is wrong, not the part" classification and the report are
+  unchanged. (#188)
 
 ## [0.7.4] - 2026-08-13
 
