@@ -39,7 +39,11 @@ map governs `check`).
 - **Predicate:** a numeric literal with `|value| > 2` on any line that is not an
   assignment or an `include`/`use`, in the noise-stripped source. (Any assignment, at
   any depth — not only top-level ones, which is what this said until v2; `x = 50;`
-  inside a module body is exempt.) The
+  inside a module body is exempt.) Two further positions are exempt because the
+  literal is already named or is not a dimension at all: a **parameter default** in a
+  `function`/`module` signature, scalar or vector (`module post(h = 40)`,
+  `module plate(size = [60, 40, 4])`), and an **integer subscript index**
+  (`type[3][0]`). The
   exemption is deliberate: 0/1/2 are structure, and the `-1`/`+2` boolean-overshoot
   idiom (skills/openscad-authoring rule 3) must not be flagged by the tool whose own
   skills teach it.
@@ -53,6 +57,21 @@ map governs `check`).
   wrapped lookup table — ordinary formatting — was exempt on its first line and flagged
   on every other, three findings on a constant that has a name. The rule's own rationale
   is that a magic number is *unnameable*; the code was the defect.
+- **A signature default is named by its parameter.** `function radius(i, r_min = 100)`
+  and the same signature wrapped over three lines both lint clean. Until #205 only the
+  wrapped form did: the paren-depth exemption is decided before the declaration line's
+  own parens are counted, so the common single-line form was flagged and the rare
+  continuation form was not. **A vector default is the whole bracket group** —
+  `module plate(size = [60, 40, 4])` is clean, because a size, a position and a range
+  are all spelled `[...]` in OpenSCAD. The exemption covers the DEFAULTS, not the line:
+  the walk stops at the parameter list's closing paren, so a one-line module's body
+  literals still fire.
+- **A subscript index is structure, not a dimension.** `type[3][0]` reads field 3 of a
+  registry row: no unit, unreachable by `-D`, never a `param` or a report (#206). A `[`
+  following an identifier or a `]` is a subscript; a `[` opening a vector literal
+  (`size = [3, 4]`) is not, and the rule applies there as before. A keyword before the
+  bracket is not an identifier — `each [100, 200]` splats a vector and its literals are
+  flagged. Integers only, so `v[3.5]` — a bug either way — stays visible.
 - **Known noise, owned:** canonical-orientation angles (`rotate([-90, 0, 0])`, `45`,
   `360` in ranges) fire. Accept them knowingly, or name them (`quarter_turn = 90;`) —
   the advisory verdict means acceptance costs nothing. Scientific literals match as

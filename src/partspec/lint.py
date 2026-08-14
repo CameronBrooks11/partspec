@@ -157,6 +157,89 @@ def _entry_top_level(stripped: str) -> dict[str, int]:
     return names
 
 
+_DECLARATION = re.compile(r"\s*(?:function|module)\s+\w+\s*\(")
+
+
+def _signature_default_offsets(line_text: str) -> set[int]:
+    """Offsets covered by the DEFAULT VALUES in a declaration's parameter list.
+
+    The paren-depth exemption below cannot reach a `function`/`module` header:
+    `depth` is still 0 on that line, and the line starts with the keyword
+    rather than `name =`, so a signature default was flagged on the
+    single-line form and exempt on the continuation form — the same defaults,
+    two answers (#205). This exempts the DEFAULTS specifically rather than the
+    whole line, because a one-line module carries its body on that line too:
+
+        module post(h = 40) { translate([0, 0, 37.5]) cube(1); }
+
+    where 40 is named by `h` and 37.5 is not.
+
+    A VECTOR default is the whole bracket group, not its first character.
+    Returning only the offset after `name =` exempted `h = 40` and missed
+    `size = [60, 40, 4]` — which is how OpenSCAD spells a size, a position and
+    a range, so the fix would have covered the less common half of the report
+    (PR #209 review). Every literal in the group is named by the parameter.
+    The walk is bounded by the parameter list's own closing paren, so the
+    exemption can never reach into a one-line module's body.
+    """
+    header = _DECLARATION.match(line_text)
+    if not header:
+        return set()
+    depth, end = 1, header.end()
+    while end < len(line_text) and depth:
+        if line_text[end] in "([":
+            depth += 1
+        elif line_text[end] in ")]":
+            depth -= 1
+        end += 1
+    offsets: set[int] = set()
+    for m in re.finditer(r"\w+\s*=\s*", line_text[header.end() : end]):
+        start = header.end() + m.end()
+        if start >= len(line_text) or line_text[start] != "[":
+            offsets.add(start)
+            continue
+        group, pos = 1, start + 1
+        while pos < end and group:
+            if line_text[pos] == "[":
+                group += 1
+            elif line_text[pos] == "]":
+                group -= 1
+            pos += 1
+        offsets.update(range(start, pos))
+    return offsets
+
+
+_BEFORE_BRACKET_KEYWORDS = frozenset(
+    {"assert", "each", "echo", "else", "false", "for", "if", "let", "true", "undef"}
+)
+"""Words that can sit immediately before a `[` without subscripting it.
+
+`each [100, 200]` is a list-comprehension splat and `else [0, 0]` a
+comprehension's alternative — both read as an identifier run to the scan
+below, which muted the literals after them (PR #209 review). Over-listing is
+the safe direction: a keyword that cannot precede `[` costs nothing, while a
+missing one silences a real magic number."""
+
+
+def _is_subscript_index(line_text: str, match: re.Match[str]) -> bool:
+    """`type[3][0]` — a field offset into a record, not a dimension (#206).
+
+    A subscript's `[` follows an identifier or a closing `]`; a vector
+    literal's follows an operator, a comma, or nothing. Integers only, so
+    `v[1.5]` — a bug either way — stays visible.
+    """
+    if not re.fullmatch(r"-?\d+", match.group(0)):
+        return False
+    before = line_text[: match.start()].rstrip()
+    if not before.endswith("["):
+        return False
+    head = before[:-1].rstrip()
+    if head.endswith("]"):
+        return True
+    word = re.search(r"\w+$", head)
+    return word is not None and word.group(0) not in _BEFORE_BRACKET_KEYWORDS
+
+
 def _lint_scad(path: Path) -> list[Finding]:
     raw = path.read_text(encoding="utf-8", errors="replace")
     stripped = _strip_preserving_lines(raw)
@@ -247,9 +330,12 @@ def _lint_scad(path: Path) -> list[Finding]:
             continue
         if re.match(r"\s*(include|use)\b", line_text):
             continue
+        defaults = _signature_default_offsets(line_text)
         for m in number.finditer(line_text):
             value = float(m.group(0))
             if abs(value) <= MAGIC_EXEMPT:
+                continue
+            if m.start() in defaults or _is_subscript_index(line_text, m):
                 continue
             findings.append(
                 Finding(
