@@ -267,9 +267,12 @@ def test_a_package_that_appeared_is_not_reported_as_a_version_move():
     explains nothing on its own. Folding them into one list would leave the
     reader to work out which had happened, which is the work the field exists
     to remove.
+
+    Two 0.7.5-shaped reports, because an appearance against a baseline that
+    predates the field's widening is a third thing and is reported as one.
     """
-    old = _with_packages(_doc(), {"trimesh": "5.0.0", "vtk": "9.6.2"})
-    new = _with_packages(_doc(), {"trimesh": "5.0.0", "shapely": "2.1.2"})
+    old = _with_packages(_python_doc(), {"trimesh": "5.0.0", "vtk": "9.6.2"})
+    new = _with_packages(_python_doc(), {"trimesh": "5.0.0", "shapely": "2.1.2"})
 
     packages = _diff(old, new)["environment"]["packages"]
     assert packages["changed"] == {}
@@ -627,7 +630,12 @@ while the rule around it does: an indeterminate that stopped saying this
 would be an exit code with no argument attached."""
 
 
-def _python_doc(imports: dict | None = None, unseen: list[str] | None = None, **overrides) -> dict:
+def _python_doc(
+    imports: dict | None = None,
+    unseen: list[str] | None = None,
+    preloaded: list[str] | None = None,
+    **overrides,
+) -> dict:
     """A report whose closure has the 0.7.5 shape — the Python tier's."""
     doc = _doc(**overrides)
     doc["part"]["source_closure"] = {
@@ -636,6 +644,7 @@ def _python_doc(imports: dict | None = None, unseen: list[str] | None = None, **
         "scope": "model_directory",
         "partial": True,
         "imports": {} if imports is None else imports,
+        "preloaded": [] if preloaded is None else preloaded,
         "unseen": ["native_reads"] if unseen is None else unseen,
     }
     return doc
@@ -697,6 +706,28 @@ def test_a_library_that_moved_under_an_unchanged_part_is_identical_and_named():
     )
     assert "  every declared claim held across the change" in summary.splitlines()
     assert "  not covered: files read inside C extensions" in summary
+
+
+def test_a_moved_model_directory_alone_still_holds_the_claims_line():
+    """The other half of the gate on that sentence, and the commonest real
+    case: an edited model directory with no import movement at all.
+
+    Every positive test around it holds the closure digest equal and moves a
+    version instead, so the digest half went unexecuted — mutating
+    `closure_digest_changed` out of the gate deleted the line from exactly
+    this case with 934 tests still green.
+    """
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+    old = _python_doc(dict(imports))
+    new = _python_doc(dict(imports))
+    new["part"]["source_closure"]["digest"] = "sha256:moved"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical"
+    assert doc["source"]["closure"] == "changed"
+    assert doc["source"]["closure_digest_changed"] is True
+    assert doc["source"]["imports"]["changed"] == {}, "the digest alone, no import movement"
+    assert "  every declared claim held across the change" in summary_of(doc).splitlines()
 
 
 def test_a_regression_beside_a_moved_library_names_the_input_that_moved():
@@ -788,6 +819,202 @@ def test_an_import_that_appeared_is_not_reported_as_a_version_move():
     assert "inputs appeared: shapely 2.1.2" in summary
     assert "inputs disappeared: vtk 9.6.2" in summary
     assert "moved" not in summary.splitlines()[0], f"an appearance read as a move: {summary}"
+
+
+def test_an_inherited_import_is_not_reported_as_an_appearance():
+    """The v0.7.5 pre-tag audit's blocker, reproduced from its own numbers.
+
+    `imports` is read from `sys.modules`, so a Python part behind another
+    target in one batch inherits its imports: the same build123d cube
+    recorded 38 imports alone and 44 behind a CadQuery target. Diffed against
+    itself — same part, same source, same versions — that said `inputs
+    appeared: cadquery 2.8.0, casadi 3.7.2, +4 more`, which is a positive
+    finding about build inputs assembled out of the batch order.
+
+    The map still names all 44, because over-reporting cannot turn a real
+    build input into silence. What changes is the claim made over it.
+    """
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")})
+    new = _python_doc(
+        {"build123d": _dist("0.10.1", "aaa"), "cadquery": _dist("2.8.0", "bbb")},
+        preloaded=["build123d", "cadquery"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical", "the outcome is unchanged by the qualification"
+    assert exit_code_of(doc["outcome"]) == 0
+    assert doc["source"]["imports"]["added"] == {"cadquery": _dist("2.8.0", "bbb")}, (
+        "the entry stays in the delta — the artifact loses nothing"
+    )
+    assert doc["source"]["imports"]["unattributable"] == ["cadquery"]
+    assert doc["source"]["closure"] == "changed", "the recorded maps did differ"
+
+    summary = summary_of(doc)
+    assert "appeared" not in summary, f"an inherited import read as a finding: {summary}"
+    assert summary.splitlines()[0] == (
+        "identical: p — no semantic differences; inputs not attributable: cadquery 2.8.0 — "
+        "on one side only, and already loaded when that target began, so this comparison "
+        "cannot tell an input that moved from one inherited from an earlier target"
+    )
+    assert "  covered: model directory (2 files); 2 imported distributions, 1 not attributable" in (
+        summary.splitlines()
+    )
+    assert "every declared claim held across the change" not in summary
+
+
+def test_an_unattributable_difference_is_still_a_recorded_difference():
+    """`closure` says what the two reports RECORDED; `unattributable` says
+    what is unknown about it. Neither field does the other's job.
+
+    Suppressing the entry here made the artifact read `closure: "same"` while
+    carrying `imports.added: ["helper29"]` in the same object — sameness
+    asserted over a difference it had recorded, which is the stage-3 review's
+    B2 finding one field over. It costs no verdict: `different` is computed
+    from checks alone and only `inconclusive` is outcome-bearing, so a
+    `changed` closure falls through to `identical` at exit 0.
+    """
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")}, preloaded=["build123d"])
+    new = _python_doc(
+        {"build123d": _dist("0.10.1", "aaa"), "helper29": _dist("1.0", "bbb")},
+        preloaded=["build123d", "helper29"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["source"]["closure"] == "changed"
+    assert doc["source"]["imports"]["unattributable"] == ["helper29"]
+    assert doc["source"]["closure_digest_changed"] is False, "the map alone, not the digest"
+    assert doc["outcome"] == "identical", "recording it moves no verdict"
+    assert exit_code_of(doc["outcome"]) == 0
+
+    # The sentence names "the change" as the part's, and no change was
+    # attributed to the part — the headline states the inability instead.
+    assert "every declared claim held across the change" not in summary_of(doc)
+
+
+def test_two_reports_carrying_one_preloaded_set_say_nothing_about_it():
+    """The qualification fires on movement, never on the field's presence.
+
+    Two runs of one part in the same batch position inherit the same imports,
+    and there is nothing to qualify: a caveat printed on every comparison
+    would be noise, and noise is what taught three fleet agents to filter the
+    `not covered:` line.
+    """
+    imports = {"build123d": _dist("0.10.1", "aaa"), "cadquery": _dist("2.8.0", "bbb")}
+    doc = _diff(
+        _python_doc(dict(imports), preloaded=["cadquery"]),
+        _python_doc(dict(imports), preloaded=["cadquery"]),
+    )
+    assert doc["source"]["imports"]["unattributable"] == []
+    summary = summary_of(doc)
+    assert summary.splitlines()[0] == "identical: p — no semantic differences"
+    assert "attributable" not in summary
+    assert "  covered: model directory (2 files); 2 imported distributions, all unchanged" in (
+        summary.splitlines()
+    )
+
+
+def test_an_appearance_the_batch_cannot_explain_keeps_todays_wording():
+    """The qualification is bounded by the `preloaded` set, not by its
+    existence. An import that appeared and was not inherited is exactly what
+    v0.7.5 says it is, on the same line as one that was."""
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")})
+    new = _python_doc(
+        {
+            "build123d": _dist("0.10.1", "aaa"),
+            "cadquery": _dist("2.8.0", "bbb"),
+            "shapely": _dist("2.1.2", "ccc"),
+        },
+        preloaded=["build123d", "cadquery"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["source"]["imports"]["unattributable"] == ["cadquery"]
+    assert doc["source"]["closure"] == "changed", "the unexplained appearance is still movement"
+    summary = summary_of(doc)
+    assert "inputs appeared: shapely 2.1.2" in summary
+    assert "inputs not attributable: cadquery 2.8.0" in summary
+
+
+def test_an_unattributable_import_is_not_denied_to_have_moved():
+    """The qualification states an inability and MUST NOT state a cause.
+
+    `preloaded` evidences that this comparison cannot attribute the entry. It
+    evidences nothing about *why* the entry is on one side, and the first cut
+    of this clause said "the difference is its position in a batch, not an
+    input that moved" — which the audit reproduced as false: a follower whose
+    model began importing a shared module its leader's contract also imports
+    is a genuine new build input, at batch position 2 of 2 in BOTH runs, and
+    its content digest was sitting in `source.imports.added` while the line
+    denied that anything had moved. Reversing the pair denies a real
+    disappearance the same way.
+    """
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")}, preloaded=["build123d"])
+    new = _python_doc(
+        {
+            "build123d": _dist("0.10.1", "aaa"),
+            "helper29": {**_dist(None, "bbb", "content"), "files": 1},
+        },
+        preloaded=["build123d", "helper29"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["source"]["imports"]["unattributable"] == ["helper29"]
+    assert "helper29" in doc["source"]["imports"]["added"], "the evidence stays in the artifact"
+
+    summary = summary_of(doc)
+    assert "inputs not attributable: helper29" in summary
+    assert "cannot tell an input that moved from one inherited from an earlier target" in summary
+    for denial in ("not an input that moved", "position in a batch", "not the part"):
+        assert denial not in summary, f"a real appearance reported as a non-event: {summary}"
+
+    # Executed, not merely claimed: the disappearance is the OLD side's
+    # `preloaded`, so this is also what holds the union to both halves —
+    # reading only the new side's leaves this reporting `inputs disappeared`.
+    backwards = _diff(new, old)
+    assert list(backwards["source"]["imports"]["removed"]) == ["helper29"]
+    assert backwards["source"]["imports"]["unattributable"] == ["helper29"]
+    reversed_summary = summary_of(backwards)
+    assert "disappeared" not in reversed_summary, (
+        f"a real disappearance reported as a non-event: {reversed_summary}"
+    )
+    assert "inputs not attributable: helper29" in reversed_summary
+
+
+def test_a_version_that_moved_under_an_inherited_import_is_still_a_move():
+    """Attribution qualifies *who loaded it*, not *whether it moved*. A
+    distribution present on both sides at two versions is a changed build
+    input whichever target imported it first, and dropping that would be the
+    under-report the wide map exists to avoid."""
+    old = _python_doc({"cqgridfinity": _dist("0.5.7", "aaa")}, preloaded=["cqgridfinity"])
+    new = _python_doc({"cqgridfinity": _dist("0.6.0", "bbb")}, preloaded=["cqgridfinity"])
+
+    doc = _diff(old, new)
+    assert doc["source"]["imports"]["unattributable"] == []
+    assert doc["source"]["closure"] == "changed"
+    assert "inputs moved: cqgridfinity 0.5.7 → 0.6.0" in summary_of(doc)
+
+
+def test_an_inherited_import_beside_a_gap_does_not_claim_nothing_was_seen():
+    """The indeterminate reason has two shapes and only one is true at a
+    time (SPEC-diff §2 rule 3). An inherited import was observed, so the
+    verbatim nothing-was-seen sentence must not be uttered — and it must not
+    be counted as an import that appeared either."""
+    old = _python_doc({"shims": _unidentified()}, unseen=["native_reads", "unidentified_imports"])
+    new = _python_doc(
+        {"shims": _unidentified(), "cadquery": _dist("2.8.0", "bbb")},
+        unseen=["native_reads", "unidentified_imports"],
+        preloaded=["cadquery"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "indeterminate", "the bounded gap still blocks, as before"
+    assert exit_code_of(doc["outcome"]) == 2
+    reason = doc["indeterminate"][0]["reason"]
+    assert SENTENCE not in reason
+    assert reason.startswith(
+        "no declared claim changed, but 1 import on one side only cannot be attributed to "
+        "either target;"
+    )
 
 
 def test_one_moved_library_is_named_once_not_twice():
@@ -912,6 +1139,48 @@ def test_an_unreadable_closure_fails_closed_on_both_tiers(scope: str | None):
     )
 
 
+def test_a_preloaded_field_in_the_wrong_shape_fails_closed():
+    """An uninterpretable field must not read as an empty one.
+
+    A non-list `preloaded` was silently taken as "nothing preloaded", which
+    put the entry back in the appeared group: measured, two closures carrying
+    `"preloaded": "build123d,cadquery"` reported `identical: p — no semantic
+    differences; inputs appeared: cadquery 2.8.0` at exit 0 — the positive
+    claim this field exists to prevent, assembled out of a field the reader
+    could not read. SPEC-diff §2 rule 3 already ruled it: a field present in
+    the wrong shape is `malformed_closure`, on either tier.
+    """
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")}, preloaded=[])
+    new = _python_doc({"build123d": _dist("0.10.1", "aaa"), "cadquery": _dist("2.8.0", "bbb")})
+    for doc_ in (old, new):
+        doc_["part"]["source_closure"]["preloaded"] = "build123d,cadquery"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "indeterminate", "an unreadable field must not exit 0"
+    assert exit_code_of(doc["outcome"]) == 2
+    assert list(doc["source"]["unseen"]["bounded"]) == ["malformed_closure"]
+    assert "preloaded is not the shape" in doc["indeterminate"][0]["reason"]
+
+
+@pytest.mark.parametrize(
+    "closure",
+    [
+        {"digest": "sha256:k1", "files": 16},
+        {"digest": "sha256:k1", "files": 16, "imports": {}, "unseen": []},
+    ],
+    ids=["pre-0.7.5", "0.7.5-openscad"],
+)
+def test_an_absent_preloaded_is_not_a_malformed_one(closure: dict):
+    """The direction the shape check must never reach. `preloaded` is absent
+    from every pre-0.7.5 closure and from every OpenSCAD one — whose render is
+    a subprocess that imports nothing (§8.3 rule 7) — and absence is not a
+    shape. Reading it as one would flip both to exit 2 on upgrade, which is
+    the false alarm the whole absence rule exists to avoid."""
+    doc = _diff(_legacy(dict(closure)), _legacy(dict(closure)))
+    assert doc["outcome"] == "identical"
+    assert exit_code_of(doc["outcome"]) == 0
+
+
 def test_a_malformed_0_7_5_closure_is_not_blamed_on_its_age():
     """Fails closed either way, but `imports_not_recorded` names a cause —
     "written before partspec recorded imports" — and a remedy, re-record the
@@ -1029,8 +1298,10 @@ def test_a_pre_0_7_5_report_diffs_exactly_as_it_did_before(closure: dict, outcom
     assert doc["outcome"] == outcome
     assert exit_code_of(doc["outcome"]) == (0 if outcome == "identical" else 2)
     # A pre-0.7.5 pair also gets the output it got before: no coverage block
-    # is invented for a report that never recorded coverage.
-    assert summary_of(doc).splitlines()[0] == summary_of(doc)
+    # is invented for a report that never recorded coverage. The remedy is the
+    # one line added under the headline, and only where there is one to name.
+    trailing = summary_of(doc).splitlines()[1:]
+    assert all(line.startswith("  remedy: ") for line in trailing), trailing
 
 
 def test_a_pre_0_7_5_pair_whose_closure_moved_gets_no_orphaned_line():
@@ -1052,13 +1323,95 @@ def test_a_pre_0_7_5_pair_whose_closure_moved_gets_no_orphaned_line():
 
 def test_the_message_for_a_pre_0_7_5_baseline_names_the_remedy():
     """Message (f): what a user upgrading sees, and why re-recording the
-    baseline is the fix rather than a flag."""
+    baseline is the fix rather than a flag.
+
+    Named in the output and in the artifact, not only in the specs: three
+    documents and a comment said this comparison "names re-recording the
+    baseline as the fix" while the code printed the cause and stopped, on the
+    one exit 2 every upgrading user meets.
+    """
     doc = _diff(_legacy(dict(LEGACY_PYTHON)), _python_doc())
     assert doc["indeterminate"][0]["reason"] == (
         "no differences found, but the old report was written before partspec recorded "
         f"imports (0.7.4 or earlier): its source identity covers one directory, so {SENTENCE}"
     )
+    assert doc["indeterminate"][0]["remedy"] == (
+        "re-record the baseline with this version — run `partspec check` over the old side "
+        "again and keep that report — so both sides carry an import map"
+    )
+    assert summary_of(doc).splitlines()[1] == (
+        "  remedy: re-record the baseline with this version — run `partspec check` over "
+        "the old side again and keep that report — so both sides carry an import map"
+    )
     assert doc["source"]["imports"]["uncomparable"].startswith("no source_closure.imports map")
+
+
+def test_a_gap_with_no_remedy_is_not_given_one():
+    """An invented remedy is worse than none: it sends a reader to do work
+    that cannot help, which is what naming the cause alone already did. A
+    namespace package has no file to hash and no partspec option closes it."""
+    imports = {"shims": _unidentified()}
+    unseen = ["native_reads", "unidentified_imports"]
+    doc = _diff(_python_doc(imports, unseen), _python_doc(imports, unseen))
+
+    assert doc["outcome"] == "indeterminate"
+    assert "remedy" not in doc["indeterminate"][0]
+    assert "remedy:" not in summary_of(doc)
+
+
+def test_the_widened_packages_field_is_not_reported_as_installations():
+    """`SPEC-diff.md` §3 and the #211 entry both say "nothing was installed;
+    re-record the baseline to clear it" — and the tool said `packages
+    appeared: PyJWT 2.13.0, PyYAML 6.0.3, +107 more`, on the first diff after
+    an upgrade. It can tell: the old report's closure carries no `imports`,
+    which is the same signal `_gap_tokens` reads to date a report.
+    """
+    old = _with_packages(_legacy(dict(LEGACY_SCAD_COMPLETE)), {"trimesh": "4.0.0"})
+    new = _with_packages(_python_doc(), {"trimesh": "4.0.0", "PyJWT": "2.13.0", "PyYAML": "6.0.3"})
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical", "a widened record is not a finding about the part"
+    assert exit_code_of(doc["outcome"]) == 0
+    assert doc["environment"]["packages"]["added"] == {"PyJWT": "2.13.0", "PyYAML": "6.0.3"}, (
+        "the group is unchanged — the artifact loses nothing"
+    )
+    assert doc["environment"]["packages"]["first_recorded"] == ["PyJWT", "PyYAML"]
+
+    summary = summary_of(doc)
+    assert "packages appeared" not in summary, f"a widened record read as an install: {summary}"
+    assert (
+        "2 packages recorded for the first time: PyJWT 2.13.0, PyYAML 6.0.3 — the baseline "
+        "predates 0.7.5, when this field held five engine names; nothing was installed, and "
+        "re-recording the baseline clears it"
+    ) in summary
+
+
+def test_a_package_the_old_field_did_record_still_appears():
+    """The split is why the widening is nameable at all. The pre-0.7.5 field
+    held five engine names, so those five it could record — `trimesh` absent
+    from an old report means it genuinely was not installed, and calling that
+    a first recording would misname a real install on the same line."""
+    old = _with_packages(_legacy(dict(LEGACY_SCAD_COMPLETE)), {"cadquery": "2.8.0"})
+    new = _with_packages(_python_doc(), {"cadquery": "2.8.0", "trimesh": "4.0.0", "idna": "3.11"})
+
+    doc = _diff(old, new)
+    assert doc["environment"]["packages"]["first_recorded"] == ["idna"]
+    summary = summary_of(doc)
+    assert "packages appeared: trimesh 4.0.0" in summary
+    assert "1 packages recorded for the first time: idna 3.11" in summary
+
+
+def test_a_0_7_5_baseline_reports_an_install_as_an_install():
+    """The qualification is bounded by the baseline's age, not by the group.
+    Two 0.7.5 reports get v0.7.5's wording, because there the appearance is
+    exactly what it says."""
+    old = _with_packages(_python_doc(), {"cadquery": "2.8.0"})
+    new = _with_packages(_python_doc(), {"cadquery": "2.8.0", "idna": "3.11"})
+
+    doc = _diff(old, new)
+    assert doc["environment"]["packages"]["first_recorded"] == []
+    assert "packages appeared: idna 3.11" in summary_of(doc)
+    assert "recorded for the first time" not in summary_of(doc)
 
 
 def test_an_openscad_model_reading_external_data_keeps_its_message():

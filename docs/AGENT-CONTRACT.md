@@ -172,7 +172,13 @@ pinned part from the invocation — from where you sit these are indistinguishab
   its diff is the confession in your PR — treat running `--pin` as requiring the same
   human sign-off as the contract edit itself;
 - `partspec diff old/report.json new/report.json` reports `removed` and `limit_changed`
-  on comparison, including a stripped citation;
+  on comparison, including a stripped citation. The **first** comparison against a
+  baseline recorded before v0.7.5 is a migration, not a finding about the part: a Python
+  baseline is `indeterminate` at exit 2 because it carries no import map, and either tier
+  reports the widened `environment.packages` as names recorded for the first time. Both
+  name the same remedy — re-record the baseline (`indeterminate[].remedy`,
+  `environment.packages.first_recorded`) — and it is one step, not a per-run condition to
+  tolerate;
 - the run-level `attribution` block discloses when every dimensional limit is
   unattributed — bounds derived from the model's own numbers prove the model matches
   itself; take limits from `partspec.refs` (`iso15`, `nema17`) or the drawing.
@@ -198,6 +204,14 @@ On the first `pass` for an unfamiliar part, confirm in `report.json`:
    vocabulary, and `imports` says which distributions the model loaded and whether their
    bytes were read or their installer taken at its word (SPEC-report §8.3). An unrecognised
    `unseen` token is a gap, not noise; `imports` absent means the question was never asked.
+   `imports` **over-reports in a multi-target run** — one interpreter, one `sys.modules` —
+   and `preloaded` names the entries this part cannot be credited with. Such an entry may
+   have been loaded by this part or by an earlier target — nothing in the report can say
+   which — so treat its arrival between two runs as unresolved: not as a build input that
+   appeared, and equally not as one that did not (§8.3 rule 7). In a diff this shows up as
+   `source.closure: "changed"` with the name in `source.imports.unattributable`: the field
+   says the two reports recorded different closures, never that the part's inputs moved,
+   so read the two together and not `source.closure` alone.
    `diff` classifies those gaps rather than counting them: `native_reads` is irreducible on
    the Python tier and reaches no verdict — it is printed on every outcome as `not covered:`
    — while every other token, recognised or not, still blocks `identical` (SPEC-diff §2

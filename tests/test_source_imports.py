@@ -413,6 +413,42 @@ def test_a_later_targets_imports_are_not_lost_to_the_cache(tmp_path: Path, fresh
     assert "late" in second and "early" in second
 
 
+def test_a_snapshot_names_exactly_what_the_inventory_would(tmp_path: Path, fresh: None):
+    """`names_of` is intersected with an `inventory`, so a name the two spell
+    differently is a `preloaded` entry that either goes missing or is invented.
+    They share one scan; this holds them to the same answer over both identity
+    tiers and a namespace package at once."""
+    site = tmp_path / "site"
+    _install(site, "owned", "1.0", {"owned/__init__.py": "VALUE = 1\n"})
+    checkout = tmp_path / "checkout"
+    (checkout / "unowned").mkdir(parents=True)
+    (checkout / "unowned" / "__init__.py").write_text("VALUE = 2\n")
+    _activate(site, checkout)
+    importlib.import_module("owned")
+    importlib.import_module("unowned")
+
+    assert imports.names_of(frozenset(sys.modules)) == set(imports.inventory())
+    assert {"owned", "unowned"} <= imports.names_of(frozenset(sys.modules))
+
+
+def test_a_snapshot_covers_only_the_modules_it_was_taken_over(tmp_path: Path, fresh: None):
+    """The point of the snapshot: what was loaded BEFORE this target began.
+    A name imported after it must not appear, or every import a part made
+    itself would read as inherited."""
+    site = tmp_path / "site"
+    _install(site, "before", "1.0", {"before/__init__.py": "VALUE = 1\n"})
+    _install(site, "after", "1.0", {"after/__init__.py": "VALUE = 1\n"})
+    _activate(site)
+
+    importlib.import_module("before")
+    snapshot = frozenset(sys.modules)
+    importlib.import_module("after")
+
+    assert "before" in imports.names_of(snapshot)
+    assert "after" not in imports.names_of(snapshot)
+    assert "after" in imports.inventory(), "and the inventory still records it"
+
+
 def test_the_entry_point_is_not_an_import(whole_process: None):
     """`__main__` under a console script is a venv-generated launcher whose
     shebang embeds an absolute path, and `__mp_main__` is multiprocessing's

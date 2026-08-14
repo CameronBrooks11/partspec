@@ -163,12 +163,17 @@ _DECLARATION = re.compile(r"\s*(?:function|module)\s+\w+\s*\(")
 def _signature_default_offsets(line_text: str) -> set[int]:
     """Offsets covered by the DEFAULT VALUES in a declaration's parameter list.
 
-    The paren-depth exemption below cannot reach a `function`/`module` header:
-    `depth` is still 0 on that line, and the line starts with the keyword
-    rather than `name =`, so a signature default was flagged on the
-    single-line form and exempt on the continuation form — the same defaults,
-    two answers (#205). This exempts the DEFAULTS specifically rather than the
-    whole line, because a one-line module carries its body on that line too:
+    The exemption below cannot reach a `function`/`module` header, and the
+    reason is the line-leading `name =` it matches on: a header line leads
+    with the keyword and never matches, while a wrapped signature's
+    continuation line (`    h = 40`) always does. So a signature default was
+    flagged on the single-line form and exempt on the continuation form — the
+    same defaults, two answers (#205). Paren depth is not what decides it:
+    `depth` feeds the multi-line assignment opener alone and never `skip`,
+    which is why advancing it earlier was measured to change nothing.
+
+    This exempts the DEFAULTS specifically rather than the whole line, because
+    a one-line module carries its body on that line too:
 
         module post(h = 40) { translate([0, 0, 37.5]) cube(1); }
 

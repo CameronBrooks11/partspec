@@ -51,6 +51,7 @@ def run(
     timeout_s: float | None = None,
     expected_claims: dict[str, str] | None = None,
     artifact_out: list[Any] | None = None,
+    loaded_before: frozenset[str] = frozenset(),
 ) -> Report:
     """Evaluate every declared check and return the report.
 
@@ -65,6 +66,12 @@ def run(
     differences are named in the artifact, because "the contract is not the
     one reviewed" must survive `--quiet` and MCP the same way `attribution`
     does. An empty dict means the pin does not vouch for this part at all.
+
+    `loaded_before` is `sys.modules` as it stood before this target's contract
+    was resolved, and only the caller that owns the loop can take it — by the
+    time this function runs, the contract has been imported and its imports
+    are this part's own. Empty says "one target in this process", which is
+    true of every entry point but `check`'s batch loop.
     """
     started = time.perf_counter()
     ident = identity(part, contract_path)
@@ -103,7 +110,13 @@ def run(
 
     try:
         _evaluate(
-            part, report, out_dir, contract_path, timeout_s=timeout_s, artifact_out=artifact_out
+            part,
+            report,
+            out_dir,
+            contract_path,
+            timeout_s=timeout_s,
+            artifact_out=artifact_out,
+            loaded_before=loaded_before,
         )
     except ContractError as exc:
         # A malformed question has no answer: every declared check is reported
@@ -137,6 +150,7 @@ def _evaluate(
     *,
     timeout_s: float | None = None,
     artifact_out: list[Any] | None = None,
+    loaded_before: frozenset[str] = frozenset(),
 ) -> None:
     parameter_specs = [s for s in part.checks if s.phase != GEOMETRY]
     geometry_specs = [s for s in part.checks if s.phase == GEOMETRY]
@@ -193,7 +207,7 @@ def _evaluate(
     # once it has run, and helpers imported lazily inside the factory would be
     # invisible to a snapshot taken any earlier.
     if part.source.engine != "openscad":
-        report.source_closure = _python_closure(part.source, contract_path)
+        report.source_closure = _python_closure(part.source, contract_path, loaded_before)
 
     results.append(CheckResult(id="builds", kind="builds", phase=GEOMETRY, status=Status.PASS))
     if artifact_out is not None:
@@ -1043,7 +1057,9 @@ def _digest(path: Path | None) -> str | None:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _python_closure(source: Any, contract_path: Path | None) -> dict[str, Any]:
+def _python_closure(
+    source: Any, contract_path: Path | None, loaded_before: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     """The local modules a Python model actually imported.
 
     Scoped to the model's own directory, which is not an arbitrary boundary:
@@ -1062,6 +1078,25 @@ def _python_closure(source: Any, contract_path: Path | None) -> dict[str, Any]:
     the third-party library a wrapper contract exists to check (#190). Without
     it the closure of the fleet-01 gridfinity bin was `files: 1`, and the
     seventeen files that produced the geometry appeared nowhere.
+
+    `preloaded` names the entries of `imports` that were already in
+    `sys.modules` when this target began, and it exists because `imports` is
+    read from a **process** while the closure describes a **part**. Several
+    targets share one interpreter, so a Python part behind another one
+    inherits its imports: measured, the same build123d cube recorded 38
+    imports alone and 44 behind a CadQuery target, `cadquery` among them.
+    Keeping the over-report is deliberate — a snapshot delta would drop a
+    library the second target genuinely uses because the first loaded it
+    first, which is the under-reporting direction §8.3 refuses. So the map
+    stays wide and this field says which of it this run cannot claim
+    (SPEC-report §8.3 rule 7).
+
+    `loaded_before` is the caller's snapshot of `sys.modules` from before the
+    contract was resolved, because resolving it imports it and a contract's
+    own imports ARE this part's. Empty by default, which is the truth for a
+    process that runs one target — `measure`, `render` and MCP's
+    subprocess-per-call — and what the `check` batch loop overrides per
+    target.
 
     `partial` is derived from `unseen` and stays unconditionally true, because
     `native_reads` is always there: a C extension can read a file with no
@@ -1098,6 +1133,7 @@ def _python_closure(source: Any, contract_path: Path | None) -> dict[str, Any]:
         "scope": "model_directory",
         "partial": bool(unseen),
         "imports": found,
+        "preloaded": sorted(imports.names_of(loaded_before) & found.keys()),
         "unseen": sorted(unseen),
     }
 

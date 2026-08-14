@@ -29,8 +29,9 @@ DIFF_SCHEMA_VERSION = 2
 
 Bumped to 2 by #190 stage 3: `source` gained `imports`, `unseen`, `covered`
 and `closure_digest_changed`, and `source.closure` keys on named gaps rather
-than on the `partial` boolean. It is diff's *output* contract, so no stored
-report is refused by the change.
+than on the `partial` boolean; `source.imports.unattributable` landed in the
+same unreleased version.
+It is diff's *output* contract, so no stored report is refused by the change.
 """
 
 CLAIM_FIELDS = ("kind", "expr", "limit", "region", "hole", "source", "direction")
@@ -198,6 +199,32 @@ vocabularies leak, and an older reader of a newer report must go inconclusive
 rather than silently ignore a gap it cannot name.
 """
 
+_GAP_REMEDIES = {
+    "imports_not_recorded": (
+        "re-record the baseline with this version — run `partspec check` over the old "
+        "side again and keep that report — so both sides carry an import map"
+    ),
+}
+"""What a reader can actually DO about a bounded gap, where anything can be.
+
+`SPEC-diff.md` §2 rule 3 says this comparison "names re-recording the baseline
+as the fix"; through v0.7.4 it named the cause and stopped, in the output and
+in the artifact alike, and this is the one exit 2 that every upgrading user
+meets. Two releases in a row were about exactly that gap — naming a fault and
+withholding its remedy — which is why the remedy travels with the token
+instead of being appended to a sentence: the gap phrase ends where the caller
+chains its own `so` clause (`SPEC-diff.md` §2 rule 3 fixes that sentence
+verbatim), so a remedy spliced in there would read as the consequence of the
+remedy rather than of the gap.
+
+Most tokens are deliberately absent. `native_reads` is irreducible;
+`unidentified_imports` is a property of how a package is distributed and no
+partspec option closes it; `malformed_closure` and `unnamed_partial` are
+reports that violate §8.3, whose fix is not a step this tool can name. An
+invented remedy is worse than none — it sends a reader to do work that cannot
+help, which is what the `imports_not_recorded` cause alone already did.
+"""
+
 
 def _gap_tokens(closure: dict[str, Any]) -> set[str]:
     """The gaps a closure names, synthesising them for pre-0.7.5 reports.
@@ -262,10 +289,25 @@ def _gap_tokens(closure: dict[str, Any]) -> set[str]:
 
 
 def _malformed_fields(closure: dict[str, Any]) -> list[str]:
-    """The stage-2 fields a closure carries in a shape §8.3 does not define."""
+    """The stage-2 fields a closure carries in a shape §8.3 does not define.
+
+    `preloaded` is here for the reason the other two are, and its omission
+    failed in the one direction that matters: a non-list read as "nothing
+    preloaded" let `_preloaded` return an empty set, which put the entry back
+    in the appeared group and printed `inputs appeared: cadquery 2.8.0` at
+    exit 0 — the exact positive claim the field exists to prevent, made out
+    of a field the reader could not interpret.
+
+    Presence is what is checked, never absence, which is what keeps this off
+    every older producer: a pre-0.7.5 closure carries no `preloaded`, and
+    neither does a 0.7.5 OpenSCAD one, whose render imports nothing (§8.3
+    rule 7). Absence dates nothing and means nothing here; only a producer
+    that writes the field in a shape §8.3 does not define is refused, and no
+    released partspec ever has.
+    """
     return [
         field
-        for field, shape in (("unseen", list), ("imports", dict))
+        for field, shape in (("unseen", list), ("imports", dict), ("preloaded", list))
         if field in closure and not isinstance(closure[field], shape)
     ]
 
@@ -383,6 +425,30 @@ def _imports_delta(
     A side with no usable map yields `uncomparable`, never an empty delta: an
     omission would read as "no build input moved", which is a claim this
     comparison did not make.
+
+    `unattributable` names the entries whose appearance or disappearance
+    either side already said it could not attribute to its own target
+    (`preloaded`, SPEC-report §8.3 rule 7). They stay in `added`/`removed` —
+    they really are on one side only — but they are the one movement this
+    comparison must not report as a *finding*, because it cannot tell which of
+    two things produced it: a part behind another one in a batch inherits its
+    imports, AND a part that genuinely started importing a library the earlier
+    target also loads looks identical from here. Measured: a follower whose
+    model began importing a shared module, at batch position 2 of 2 in both
+    runs, is a real new build input landing in exactly this set. What this
+    field carries is the inability, never a cause.
+
+    It does not follow that the closure is `same`. The two reports recorded
+    different maps, which is an observed fact and is what `closure: "changed"`
+    states; whose import it was is the separate question this field answers.
+    The batch-contamination case therefore reports `changed` too — 44 entries
+    against 38, nothing in the model moved — and that is correct: the recorded
+    maps did differ, and what the tool cannot say is whether the part's inputs
+    did. The summary line carries that distinction in words.
+
+    Only `added` and `removed` can be affected. A `changed` entry is present
+    on both sides with something moved between them, which is a fact about the
+    distribution whoever loaded it.
     """
     old_imports = (old_closure or {}).get("imports")
     new_imports = (new_closure or {}).get("imports")
@@ -397,15 +463,37 @@ def _imports_delta(
             "uncomparable": f"no source_closure.imports map on {where}, so whether an "
             "imported distribution moved is unknown"
         }
+    added = {name: e for name, e in sorted(new_imports.items()) if name not in old_imports}
+    removed = {name: e for name, e in sorted(old_imports.items()) if name not in new_imports}
+    carried = _preloaded(old_closure) | _preloaded(new_closure)
     return {
         "changed": {
             name: {"old": entry, "new": new_imports[name]}
             for name, entry in sorted(old_imports.items())
             if name in new_imports and _import_moved(entry, new_imports[name])
         },
-        "added": {name: e for name, e in sorted(new_imports.items()) if name not in old_imports},
-        "removed": {name: e for name, e in sorted(old_imports.items()) if name not in new_imports},
+        "added": added,
+        "removed": removed,
+        "unattributable": sorted((added.keys() | removed.keys()) & carried),
     }
+
+
+def _preloaded(closure: dict[str, Any] | None) -> set[str]:
+    """What a closure says was already loaded when its target began.
+
+    Absent on the OpenSCAD tier, whose render is a subprocess that imports
+    nothing, and on every report written before 0.7.5 — both of which already
+    reach this comparator through `imports`, so absence needs no synthesised
+    gap here. Empty means the target ran first, or alone.
+    """
+    names = (closure or {}).get("preloaded")
+    return {str(name) for name in names} if isinstance(names, list) else set()
+
+
+def _attributed(imports: dict[str, Any], group: str) -> dict[str, Any]:
+    """One group of the imports delta, minus what no side could attribute."""
+    carried = set(imports.get("unattributable") or ())
+    return {name: e for name, e in (imports.get(group) or {}).items() if name not in carried}
 
 
 def _covered_clause(
@@ -420,15 +508,14 @@ def _covered_clause(
     parts = [f"{where}, changed" if digest_moved else where]
     entries = new_closure.get("imports")
     if isinstance(entries, dict) and entries and "uncomparable" not in imports:
+        groups = (("changed", "changed"), ("added", "appeared"), ("removed", "disappeared"))
         counts = [
-            f"{len(imports[group])} {word}"
-            for group, word in (
-                ("changed", "changed"),
-                ("added", "appeared"),
-                ("removed", "disappeared"),
-            )
-            if imports[group]
+            f"{len(attributed)} {word}"
+            for group, word in groups
+            if (attributed := _attributed(imports, group))
         ]
+        if carried := imports.get("unattributable"):
+            counts.append(f"{len(carried)} not attributable")
         parts.append(
             f"{len(entries)} imported distribution{'' if len(entries) == 1 else 's'}, "
             + (", ".join(counts) if counts else "all unchanged")
@@ -444,6 +531,12 @@ def _moved_phrases(
     Counts rather than names for the imports, because `_imports_clause` puts
     the names on the same line; the point here is that the *reason* string
     stands up on its own in the artifact, where no clause follows it.
+
+    An unattributable entry is phrased as the qualification it is rather than
+    counted as movement: it belongs here because something was observed and
+    the reason must not then claim nothing was seen, and it is worded apart
+    from the three groups because what was observed cannot be attributed —
+    which is a statement about this comparison, not about the batch.
     """
     scope = (
         "the model directory digest"
@@ -457,8 +550,13 @@ def _moved_phrases(
             ("added", "import", "appeared"),
             ("removed", "import", "disappeared"),
         ):
-            if count := len(imports[group]):
+            if count := len(_attributed(imports, group)):
                 phrases.append(f"{count} {noun}{'' if count == 1 else 's'} {verb}")
+        if count := len(imports.get("unattributable") or ()):
+            phrases.append(
+                f"{count} import{'' if count == 1 else 's'} on one side only cannot be "
+                "attributed to either target"
+            )
     return phrases
 
 
@@ -509,6 +607,7 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
             "digest_changed": None,
             "imports": imports,
             "unseen": {"irreducible": {}, "bounded": {}},
+            "remedies": [],
             "covered": None,
         }
 
@@ -524,6 +623,16 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
     bounded = {t: p for t, p in classified.items() if t not in _IRREDUCIBLE_GAPS}
 
     digest_moved = old_closure.get("digest") != new_closure.get("digest")
+    # Every recorded difference, attributable or not. `changed` is a statement
+    # about what the two reports RECORDED, and two maps that differ differ;
+    # `unattributable` is the statement about attribution, and neither field
+    # needs the other's job. Suppressing here made the artifact assert `same`
+    # over a difference it was carrying in `imports.added` in the same object
+    # — the B2 finding of the stage-3 review, one field over: what the
+    # comparison actually saw stays in the artifact, and the verdict rule
+    # decides separately what to do about it. `different` is computed from
+    # checks alone and only `inconclusive` is outcome-bearing, so a `changed`
+    # closure falls through to `identical` and no exit code moves.
     imports_moved = "uncomparable" not in imports and any(
         imports[group] for group in ("changed", "added", "removed")
     )
@@ -547,6 +656,10 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
         "digest_changed": digest_moved,
         "imports": imports,
         "unseen": {"irreducible": irreducible, "bounded": bounded},
+        # Only for the gaps that HAVE one, and only for the gaps that blocked:
+        # a remedy printed under a caveat that reached no verdict is work
+        # suggested for a state nobody has to act on.
+        "remedies": [_GAP_REMEDIES[token] for token in bounded if token in _GAP_REMEDIES],
         # Only where a side knows what coverage means, so two pre-0.7.5
         # reports reach the same outcome and exit code with no coverage block
         # invented for them.
@@ -564,7 +677,51 @@ def _packages_of(environment: Any) -> dict[str, Any] | None:
     return packages if isinstance(packages, dict) else None
 
 
-def _packages_delta(old_env: Any, new_env: Any) -> dict[str, Any] | None:
+_LEGACY_PACKAGES = frozenset({"build123d", "cadquery", "cadquery-ocp", "trimesh", "manifold3d"})
+"""What `environment.packages` held before #211 widened it to every install.
+
+Kept as data because it is the only thing that tells the two halves of an
+`added` group apart on the first comparison after an upgrade: a name outside
+this set is one the old field COULD NOT have recorded whatever was installed,
+while one inside it was genuinely absent from that environment. Reporting all
+of them as "recorded for the first time" would misname the second kind —
+`trimesh` installed since the baseline is a real appearance, and the whole
+point of the split is that a reader can act on the difference.
+"""
+
+
+def _first_recorded(added: dict[str, Any], old_predates_widening: bool) -> list[str]:
+    """The `added` names that are the field widening rather than an install.
+
+    `SPEC-diff.md` §3 and the #211 changelog entry both say of this case
+    "nothing was installed; re-record the baseline to clear it", and the
+    comparator said `packages appeared: PyJWT 2.13.0, PyYAML 6.0.3, +107 more`
+    — 109 positive findings, on the first diff every upgrading user runs. It
+    could always tell: an old report whose closure carries no `imports` was
+    written before 0.7.5, which `_gap_tokens` already reads for the Python
+    tier, and this reads it for both because the widening was not tier-bound.
+    """
+    if not old_predates_widening:
+        return []
+    return [name for name in added if name not in _LEGACY_PACKAGES]
+
+
+def _predates_imports(report: dict[str, Any]) -> bool:
+    """Whether this report was written before 0.7.5 recorded `imports`.
+
+    Structural rather than a `tool.version` comparison: SPEC-report §8.3
+    already rules that a closure with no `imports` was written before the
+    question was asked, and a version string is a claim the report makes about
+    itself while the missing field is the evidence. A report carrying no
+    closure at all cannot be dated this way, and is not claimed to be.
+    """
+    closure = report.get("part", {}).get("source_closure")
+    return isinstance(closure, dict) and "imports" not in closure
+
+
+def _packages_delta(
+    old_env: Any, new_env: Any, *, old_predates_widening: bool = False
+) -> dict[str, Any] | None:
     """Compare `environment.packages` — the field SPEC-report §8 rule 2 says in
     bold MUST NOT be excluded, and which this comparator excluded entirely.
 
@@ -585,6 +742,11 @@ def _packages_delta(old_env: Any, new_env: Any) -> dict[str, Any] | None:
     which are reported only when they changed. When a side carries no usable
     map the result is NOT None: an omission would read as "no package moved",
     which is a claim this comparison did not make.
+
+    `old_predates_widening` splits `first_recorded` out of `added` — the names
+    the pre-0.7.5 five-name field could never have carried. They stay in
+    `added`, because they are installed on one side only and that is what the
+    group means; what they are not is an installation, and the summary says so.
     """
     old_packages, new_packages = _packages_of(old_env), _packages_of(new_env)
     if old_packages is None or new_packages is None:
@@ -607,7 +769,12 @@ def _packages_delta(old_env: Any, new_env: Any) -> dict[str, Any] | None:
     removed = {name: v for name, v in sorted(old_packages.items()) if name not in new_packages}
     if not (changed or added or removed):
         return None
-    return {"changed": changed, "added": added, "removed": removed}
+    return {
+        "changed": changed,
+        "added": added,
+        "removed": removed,
+        "first_recorded": _first_recorded(added, old_predates_widening),
+    }
 
 
 def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str) -> dict[str, Any]:
@@ -811,6 +978,11 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 ),
             }
         )
+        # A separate key, not more prose: the reason ends in a sentence §2
+        # rule 3 fixes verbatim, and a consumer that acts on this needs the
+        # step by itself rather than by parsing it back out of a paragraph.
+        if closure["remedies"]:
+            indeterminate[-1]["remedy"] = "; ".join(closure["remedies"])
         outcome = "indeterminate"
     else:
         outcome = "identical"
@@ -832,7 +1004,11 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         if old_value != new_value:
             environment[key] = {"old": old_value, "new": new_value}
 
-    packages = _packages_delta(old.get("environment"), new.get("environment"))
+    packages = _packages_delta(
+        old.get("environment"),
+        new.get("environment"),
+        old_predates_widening=_predates_imports(old),
+    )
     if packages is not None:
         environment["packages"] = packages
 
@@ -927,16 +1103,45 @@ def _imports_clause(doc: dict[str, Any]) -> str:
     *loaded*, byte-identified — and the fleet's own configuration is the case
     where they disagree, a `sys.path` checkout moving under a version string
     that never changed.
+
+    An entry either side could not attribute to its own target is named in a
+    clause of its own and never as an appearance. Reported as one, it is a
+    positive finding — *this build input arrived* — drawn from a fact about
+    which targets shared an interpreter: measured, one build123d cube diffed
+    against itself behind a CadQuery target said `inputs appeared: cadquery
+    2.8.0, casadi 3.7.2, +4 more`, and nothing had appeared.
+
+    The clause states the inability and stops. Asserting the cause — "the
+    difference is its position in a batch" — is the same defect pointing the
+    other way, and it was measured too: a follower whose model began importing
+    a shared module, at batch position 2 of 2 in *both* runs, had a genuine
+    new build input reported as a non-event. `preloaded` evidences that this
+    comparison cannot attribute the entry; it evidences nothing about why the
+    entry is on one side.
+
+    Where the movement does not touch that set the wording is unchanged,
+    because there the appearance is exactly what it says.
     """
     imports = _imports_groups(doc)
     clauses = []
-    if imports.get("changed"):
-        moved = [_import_move_label(n, v["old"], v["new"]) for n, v in imports["changed"].items()]
+    if changed := _attributed(imports, "changed"):
+        moved = [_import_move_label(n, v["old"], v["new"]) for n, v in changed.items()]
         clauses.append(f"inputs moved: {_bounded(moved)}")
     for group, verb in (("added", "appeared"), ("removed", "disappeared")):
-        if imports.get(group):
-            named = [_import_label(n, e) for n, e in imports[group].items()]
+        if group_entries := _attributed(imports, group):
+            named = [_import_label(n, e) for n, e in group_entries.items()]
             clauses.append(f"inputs {verb}: {_bounded(named)}")
+    if carried := imports.get("unattributable"):
+        # Both directions in one clause: naming which side an entry landed on
+        # would suggest this comparison knows why it landed there, which is
+        # the one thing it does not.
+        entries = {**(imports.get("added") or {}), **(imports.get("removed") or {})}
+        named = [_import_label(name, entries.get(name)) for name in carried]
+        clauses.append(
+            f"inputs not attributable: {_bounded(named)} — on one side only, and already "
+            "loaded when that target began, so this comparison cannot tell an input that "
+            "moved from one inherited from an earlier target"
+        )
     return ("; " + "; ".join(clauses)) if clauses else ""
 
 
@@ -953,6 +1158,15 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     matching them by name alone dropped `packages moved: numpy 1.0.0 → 2.0.0`
     from the line entirely, which v0.7.4 printed. The artifact keeps both
     maps whole either way; this is the courtesy line, not the evidence.
+
+    A name the pre-0.7.5 field could not have carried is reported as the
+    record widening, with its remedy, and never as a package that appeared.
+    Measured on the first diff an upgrading OpenSCAD-tier user runs:
+    `identical: example-spacer — no semantic differences; packages appeared:
+    PyJWT 2.13.0, PyYAML 6.0.3, +107 more` at exit 0 — 109 installations
+    reported, none of which happened, while both `SPEC-diff.md` §3 and the
+    #211 entry said "nothing was installed; re-record the baseline to clear
+    it".
     """
     packages = doc.get("environment", {}).get("packages")
     if not packages:
@@ -960,6 +1174,7 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     if "uncomparable" in packages:
         return f"; packages not compared: {packages['uncomparable']}"
     already_moved = set(_imports_groups(doc).get("changed", {}))
+    first_recorded = set(packages.get("first_recorded") or ())
 
     clauses = []
     if moved := [
@@ -969,8 +1184,14 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     ]:
         clauses.append(f"packages moved: {_bounded(moved)}")
     for group, verb in (("added", "appeared"), ("removed", "disappeared")):
-        if listed := [f"{n} {v}" for n, v in packages[group].items()]:
+        if listed := [f"{n} {v}" for n, v in packages[group].items() if n not in first_recorded]:
             clauses.append(f"packages {verb}: {_bounded(listed)}")
+    if widened := [f"{n} {v}" for n, v in packages["added"].items() if n in first_recorded]:
+        clauses.append(
+            f"{len(widened)} packages recorded for the first time: {_bounded(widened)} — the "
+            "baseline predates 0.7.5, when this field held five engine names; nothing was "
+            "installed, and re-recording the baseline clears it"
+        )
     return ("; " + "; ".join(clauses)) if clauses else ""
 
 
@@ -998,7 +1219,19 @@ def _coverage_lines(doc: dict[str, Any]) -> list[str]:
         # Only under a `covered:` line, which is its antecedent. Two pre-0.7.5
         # reports get no coverage block, and this sentence alone under their
         # headline referred to a change nothing on the screen had named.
-        if doc["outcome"] == "identical" and source.get("closure") == "changed":
+        #
+        # And only where a change was attributed. `closure: "changed"` is a
+        # statement about the recorded maps, which is the right thing for the
+        # artifact to say; this sentence names "the change" as the part's, so
+        # it needs movement the comparison could attribute — a moved closure
+        # digest, or an import move outside `unattributable`. Where the only
+        # recorded difference is unattributable, the headline states the
+        # inability and there is no change here to hold a claim across.
+        imports = _imports_groups(doc)
+        attributed = source.get("closure_digest_changed") or any(
+            _attributed(imports, group) for group in ("changed", "added", "removed")
+        )
+        if doc["outcome"] == "identical" and source.get("closure") == "changed" and attributed:
             lines.append("  every declared claim held across the change")
     stated = {entry["reason"] for entry in doc.get("indeterminate", [])}
     lines.extend(
@@ -1035,4 +1268,9 @@ def summary_of(doc: dict[str, Any]) -> str:
             if n:
                 parts.append(f"{n} {change}")
         headline = f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}{moved}"
-    return "\n".join([headline, *_coverage_lines(doc)])
+    # Above the coverage block, because it is the one line the reader can act
+    # on: `check`'s own diagnostics put `hint:` directly under the fault for
+    # the same reason (v0.7.3), and this verb was still stating a cause and
+    # stopping.
+    remedies = [f"  remedy: {e['remedy']}" for e in doc["indeterminate"] if e.get("remedy")]
+    return "\n".join([headline, *remedies, *_coverage_lines(doc)])

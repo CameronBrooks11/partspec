@@ -679,6 +679,13 @@ def _check_one(
     pins: dict[str, dict[str, str]] | None = None,
     covered_ids: set[str] | None = None,
 ) -> int:
+    # Before the contract is resolved, because resolving it IMPORTS it: a
+    # contract's own imports are this part's, and a snapshot taken any later
+    # would report them as inherited. Names only — `sys.modules` keys cost
+    # nothing here, and an OpenSCAD target never turns them into an inventory
+    # (SPEC-report §8.3 rule 7).
+    loaded_before = frozenset(sys.modules)
+
     # The placeholder is already on disk — written by `_cmd_check` for every
     # target before any ran — so a resolution failure here (a contract that
     # raises on import, a typo in a keyword argument) leaves an artifact
@@ -708,7 +715,9 @@ def _check_one(
         pins[part.id] = claims_of(part)
 
     try:
-        return _check_resolved(spec, args, argv, timeout_s, part, target, out, expected_claims)
+        return _check_resolved(
+            spec, args, argv, timeout_s, part, target, out, expected_claims, loaded_before
+        )
     finally:
         # Every exit path evicts — the --render usage refusal used to return
         # with the sibling record cached but not evicted (#114).
@@ -724,6 +733,7 @@ def _check_resolved(
     target: Target,
     out: Path,
     expected_claims: dict[str, str] | None,
+    loaded_before: frozenset[str],
 ) -> int:
     built: list[object] = []
     report = run(
@@ -734,6 +744,7 @@ def _check_resolved(
         timeout_s=timeout_s,
         expected_claims=expected_claims,
         artifact_out=built,
+        loaded_before=loaded_before,
     )
 
     render_error = None

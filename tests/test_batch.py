@@ -8,6 +8,8 @@ owns, POST-V0 §8: `sys.modules` must not serve a later build a stale helper.
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -332,6 +334,151 @@ def test_a_batch_records_one_environment_for_every_target(tmp_path: Path):
     light_env = _report(light)["environment"]
     assert light_env["packages"] == heavy_env["packages"]
     assert light_env["packages"], "an empty map on both sides would satisfy equality"
+
+
+def _install(site: Path, distribution: str, module: str) -> None:
+    """A distribution whose NAME differs from the module it installs.
+
+    `imports` keys a RECORD-owned entry by DISTRIBUTION and an unowned one by
+    module, and `preloaded` is intersected with it, so a snapshot taken over
+    raw `sys.modules` names silently drops every entry whose two names differ
+    — 7 of 39 in this repo's own venv (`cadquery-ocp`, `Pygments`,
+    `charset-normalizer`, …), each then claimed as this part's own. A
+    single-file module named for its distribution is the one shape that
+    cannot tell the two apart, which is why this fixture exists.
+
+    The RECORD's digests are never verified against the files; ownership is
+    the row's path, which is what this is here to exercise.
+    """
+    site.mkdir(parents=True, exist_ok=True)
+    (site / f"{module}.py").write_text("VALUE = 29\n")
+    info = site / f"{distribution.replace('-', '_')}-1.0.dist-info"
+    info.mkdir(exist_ok=True)
+    (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {distribution}\nVersion: 1.0\n")
+    (info / "RECORD").write_text(f"{module}.py,sha256=0000,12\n")
+
+
+def _inheriting_target(d: Path, part_id: str, imports: dict[str, Path], model: str) -> str:
+    """A build123d part whose CONTRACT imports modules from other directories.
+
+    Other, because `_invalidate_after` evicts what was loaded from beside the
+    contract and beside the model, and a leader's imports must survive into
+    the next target — that survival is the subject. Imported by the contract
+    rather than by the model so the name is in `sys.modules` however the build
+    goes, and so the FOLLOWER's own contract import lands after the snapshot
+    the runner takes for it.
+    """
+    d.mkdir(exist_ok=True)
+    (d / "model.py").write_text(model)
+    spec = d / "spec.py"
+    paths = "".join(f"sys.path.insert(0, {str(p)!r})\n" for p in imports.values())
+    names = "".join(f"import {name}\n" for name in imports)
+    spec.write_text(
+        f"import sys\n\n{paths}{names}"
+        "from partspec import Part, build123d\n\n\n"
+        "def make():\n"
+        f"    p = Part({part_id!r}, build123d('model.py'))\n"
+        "    p.volume(min=0.0)\n"
+        "    return p\n"
+    )
+    return f"{spec}:make"
+
+
+def _cold(*argv: str) -> None:
+    """One `partspec` invocation in a fresh interpreter.
+
+    This process has imported engines and libraries for other tests, and
+    `imports._BASELINE` is captured when partspec is — under pytest that is
+    after the runner is loaded and before most of the suite, so an in-process
+    run cannot tell an inherited import from a pre-existing one. The claim
+    here is about what a user's `partspec check` records, so it is measured in
+    the shape a user runs it (the pattern `test_refs_import_pulls_no_engine`
+    uses, for the same reason).
+    """
+    proc = subprocess.run(
+        [sys.executable, "-m", "partspec", *argv], capture_output=True, text=True, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_a_batch_says_which_imports_it_did_not_load_itself(tmp_path: Path):
+    """`source_closure.imports` must not read as a per-part fact either.
+
+    The same hazard as the test above, one field down and one release later:
+    `imports` is read from `sys.modules`, so a Python part behind another one
+    inherits every distribution the earlier target loaded. Measured on the
+    v0.7.5 pre-tag audit, a build123d cube recorded 38 imports alone and 44
+    behind a CadQuery target, `cadquery` among them — and `diff` over those
+    two reports of one part said `inputs appeared: cadquery 2.8.0, casadi
+    3.7.2, +4 more` at exit 0, which is a positive finding built out of the
+    batch order.
+
+    Two PYTHON-tier targets, deliberately: the guard above pairs an OpenSCAD
+    part with a build123d one, and OpenSCAD emits `imports: {}`
+    unconditionally, so that combination is the one that cannot catch this.
+
+    The map itself stays wide — over-reporting never turns a real build input
+    into silence, and a `sys.modules` delta would drop a library the second
+    target genuinely uses because the first loaded it first. What must not be
+    wide is the claim, so the closure names what it inherited.
+
+    Three decisions inside that claim are pinned here, each of which survived
+    the whole suite when mutated during review: the snapshot's boundary, the
+    name it is keyed by, and its scope.
+    """
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    site = tmp_path / "site"
+    _install(site, "batch-lib-29", "batchlib29")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "followerlib29.py").write_text("VALUE = 1\n")
+
+    follower_dir = tmp_path / "follower"
+    follower_dir.mkdir()
+    (follower_dir / "fhelper29.py").write_text("SIZE = 1.0\n")
+    follower = _inheriting_target(
+        follower_dir,
+        "follower",
+        {"followerlib29": elsewhere},
+        "import fhelper29\nfrom build123d import Box\n\n\n"
+        "def make_part():\n    return Box(fhelper29.SIZE, 1, 1)\n",
+    )
+    # The leader loads all three: an installed distribution, and the
+    # follower's OWN model-directory helper, which the follower's map
+    # excludes because its closure digest already covers it.
+    leader = _inheriting_target(
+        tmp_path / "leader",
+        "leader",
+        {"batchlib29": site, "fhelper29": follower_dir},
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n",
+    )
+
+    _cold("check", follower, "--quiet", "--out", str(tmp_path / "alone"))
+    alone = report_of(tmp_path / "alone")["part"]["source_closure"]
+    assert alone["preloaded"] == [], "one target in a process inherits nothing"
+    assert "batch-lib-29" not in alone["imports"]
+
+    _cold("check", leader, follower, "--quiet")
+    behind = _report(follower)["part"]["source_closure"]
+    assert "batch-lib-29" in behind["imports"], "the map over-reports on purpose"
+    assert set(behind["imports"]) - set(alone["imports"]) <= set(behind["preloaded"]), (
+        "every entry the batch position added must be named as unattributable"
+    )
+
+    # Keyed the way `imports` is, by distribution — a snapshot of raw
+    # `sys.modules` names would drop this entry and claim it as the part's.
+    assert "batch-lib-29" in behind["preloaded"]
+    assert "batchlib29" not in behind["preloaded"]
+    # Taken BEFORE the contract is resolved: this part's contract imported
+    # `followerlib29` itself, and a snapshot taken after resolution would
+    # report the part's own import as inherited.
+    assert "followerlib29" in behind["imports"]
+    assert "followerlib29" not in behind["preloaded"]
+    # Scoped to entries of `imports` (SPEC-report §8.3 rule 7). The leader
+    # loaded the follower's model-directory helper, which the map excludes,
+    # so naming it here would be a claim about an entry the map does not have.
+    assert "fhelper29" not in behind["imports"]
+    assert set(behind["preloaded"]) <= set(behind["imports"])
 
 
 def test_resolving_a_contract_records_its_sibling_imports(tmp_path: Path):

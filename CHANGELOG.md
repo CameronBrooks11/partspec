@@ -53,8 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an edit to a file a RECORD *does* declare leaves that entry `metadata` with
   an unmoved digest, since ownership is decided by path and hashing every
   loaded file is the cost this tier exists to avoid (§8.3 rules 5 and 6,
-  §7.1). **No `diff` behaviour, verdict or exit code changes**; stage 3 of
-  #190 owns what the comparator does with the new fields. Cost, measured
+  §7.1). **Recording the fields changes no `diff` behaviour, verdict or exit
+  code by itself** — what the comparator does with them is the `diff` entry
+  under **Changed** in this same release, and that one does move verdicts and
+  exit codes (stage 3 of #190). Cost, measured
   against 6e9b67e: the OpenSCAD tier is unchanged (+1.6 ms, +0.29%, it builds
   no index — `_record_index.cache_info()` after a full run is
   `hits=0, misses=0`), and the Python tier pays one RECORD
@@ -130,6 +132,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two migration diagnostics stated a fault and withheld the remedy their
+  own specs promised.** `SPEC-diff.md` §2 rule 3 said this comparison "names
+  re-recording the baseline as the fix", the #190 stage-3 entry above said it
+  "keeps returning exit 2 with the remedy named", and `diff.py`'s comment and
+  its test said it too — while the run printed the cause and stopped:
+  *"indeterminate: … the old report was written before partspec recorded
+  imports (0.7.4 or earlier): its source identity covers one directory, so
+  nothing this diff can see changed…"*, with no remedy in the output or the
+  artifact. That is the only exit 2 an upgrading user hits. A bounded gap that
+  has a remedy now carries it on the `indeterminate` entry as `remedy` and
+  prints it as its own line under the headline — its own field because the
+  `reason` ends in a sentence §2 rule 3 fixes verbatim, so a step spliced in
+  there would read as the consequence of the step. A gap with no remedy is
+  not given one: `unidentified_imports` is a property of how a package is
+  distributed, and an invented remedy sends a reader to do work that cannot
+  help, which is what the bare cause already did. Second, the
+  `environment.packages` widening printed as a positive finding: the first
+  diff after an upgrade said *"identical: example-spacer — no semantic
+  differences; packages appeared: PyJWT 2.13.0, PyYAML 6.0.3, +107 more"* at
+  exit 0 — 109 installations reported, none of which happened — while
+  `SPEC-diff.md` §3 and the #211 entry below both already said "nothing was
+  installed; re-record the baseline to clear it". The comparator could always
+  tell: an old report's closure carries no `imports`, which is the same
+  structural evidence the gap rule reads to date one, and no `tool.version`
+  has to be parsed. Those names are now listed in
+  `environment.packages.first_recorded` — still inside `added`, which is what
+  that group means — and reported as *"N packages recorded for the first
+  time: … nothing was installed, and re-recording the baseline clears it"*.
+  The split is by name against the pre-0.7.5 five: `trimesh` absent from an
+  old report genuinely was not installed, so it stays an appearance and is
+  reported as one on the same line. No verdict or exit code changes in either
+  half (#190, #211).
+- **`source_closure.imports` recorded a per-process fact as a per-part one.**
+  The map is read from `sys.modules`, and `partspec check` runs *"several
+  targets share one process, one report each"* — so a Python part behind
+  another one inherits every distribution the earlier target loaded. Measured:
+  the same build123d cube recorded **38 imports alone and 44 behind a CadQuery
+  target**, `cadquery` among them, and `diff` over those two reports of one
+  part — same source, same versions — said `identical: b3-cube — no semantic
+  differences; inputs appeared: cadquery 2.8.0, casadi 3.7.2, +4 more` at exit
+  0. Six build inputs positively claimed to have arrived, and none had. The
+  bound was known and lived in one private docstring, while `SPEC-report.md`
+  §8.3 headed the field *"the distributions the model loaded"*. The map is
+  **unchanged and still wide**: a producer reporting only what arrived after
+  its target began would drop a library the second target genuinely uses
+  whenever the first loaded it first, which is the under-reporting direction
+  the field exists to refuse. What is new is the claim it makes.
+  `part.source_closure.preloaded` lists, sorted, the entries that were already
+  in `sys.modules` when that target's contract was resolved — the ones the
+  report cannot claim as its own — and it is `[]` for a target that ran first
+  or alone, verified from a cold CLI. Only the caller that owns the loop can
+  take that snapshot: by the time the runner has a part, its contract has been
+  imported, and a contract's own imports are its part's. Python tier only, the
+  OpenSCAD render being a subprocess that imports nothing, and malformed the
+  way `unseen` and `imports` already are — a `preloaded` **present** in a
+  shape §8.3 does not define is `malformed_closure` at exit 2, since reading
+  an uninterpretable field as an empty one put the entry straight back into
+  `inputs appeared` at exit 0. Absence is not a shape and stays untouched, so
+  no older producer and no OpenSCAD report is affected. `diff` **qualifies
+  rather than asserts**: an `added`/`removed` entry either side named there is
+  reported as `inputs not attributable: …`, stating that this comparison
+  cannot tell an input that moved from one inherited from an earlier target —
+  the inability `preloaded` evidences, and never a cause it does not, since a
+  part that genuinely starts importing a library its batch neighbour also
+  loads is indistinguishable from here (measured at batch position 2 of 2 in
+  both runs). They are counted apart under `covered:` and listed in
+  `source.imports.unattributable`. They still make `source.closure`
+  `changed` — that field says the two reports **recorded** different closures,
+  which two differing maps do, while `unattributable` says whose import nobody
+  can tell; a reader keying on `source.closure` alone must consult it, and the
+  spec now says so. Suppressing it there made the artifact assert `same` over
+  a difference it was carrying in `imports.added` in the same object.
+  Movement the `preloaded` sets do not explain keeps its wording exactly, a
+  version that moved under an inherited import is still a move, and two
+  reports carrying the same `preloaded` set with nothing moved print nothing
+  at all. **No verdict and no exit code changes** — the comparison above is
+  `identical` at exit 0 before and after — and this is deliberately not an
+  `unseen` gap: a bounded gap there would make every multi-target Python diff
+  indeterminate, which is the state #190 stage 3 removed (#190).
 - **`environment.packages` recorded five hardcoded names and `diff` read none
   of them.** `SPEC-report.md` §8 rule 2 says in bold that the field MUST NOT be
   excluded from comparison — it is what distinguishes "a trimesh upgrade moved
@@ -147,8 +228,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the first cut of this change, `examples/spacer` recorded 6 distributions
   alone and 41 behind a build123d part, claiming `build123d` and `cadquery-ocp`
   as inputs to an OpenSCAD build that never touched them, which rule 2 forbids.
-  Which distributions *a part* loaded is a per-part question, and it belongs to
-  `part.source_closure`, where byte-level identity lives (#190). `diff`
+  Which distributions *a part* loaded belongs to `part.source_closure`, where
+  byte-level identity lives — which reads the same shared `sys.modules` and so
+  carries the same batch dependence, stated there as a bound (`preloaded`,
+  §8.3 rule 7) rather than escaped: scoping the question to the part is what
+  made it statable, not what removed it (#190). `diff`
   compares the map in three groups, because a version that **moved** is a
   changed build input that explains a moved measurement, while a package that
   **appeared or disappeared** is usually two machines resolving different
@@ -173,12 +257,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`scad-magic-number` flagged two positions where the literal already has a
   name, or is not a dimension at all.** A parameter default on a
   `function`/`module` **declaration line** fired (`module post(h = 40)`), while
-  the identical default wrapped onto a continuation line did not: the rule
-  decides its paren-depth exemption before counting the line's own parens, so
-  on a header line the depth is still 0 and the exemption — which the rule's
-  own comment says covers "the named argument and signature-default case" —
-  never applied. The common form was flagged and the rare form was tested,
-  which is how it survived. Defaults are exempt whether scalar or vector —
+  the identical default wrapped onto a continuation line did not: the
+  exemption — which the rule's own comment says covers "the named argument and
+  signature-default case" — is keyed on a **line-leading `name =`**, and a
+  declaration line never is one, because it leads with `module` or `function`.
+  A wrapped signature's continuation line is (`    h = 40`), which is the
+  whole of why the rare form escaped. Paren depth is not the cause and #205's
+  suggested remedy was measured not to work: `depth` feeds the multi-line
+  assignment opener alone and never the exemption, so advancing it earlier
+  leaves the output byte-identical. The common form was flagged and the rare
+  form was tested, which is how it survived. Defaults are exempt whether scalar or vector —
   `module plate(size = [60, 40, 4])` is the ordinary way to spell a size, and
   exempting only the offset past `name =` would have left that half of the
   report unfixed — and it is the DEFAULTS that are exempt, not the line: the
