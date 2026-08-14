@@ -232,6 +232,130 @@ def _out_dir(target_spec: str, explicit: Path | None) -> Path:
     return target.path.resolve().parent / "outputs" / target.slug
 
 
+_SOURCE_ROOT = Path(__file__).resolve().parent
+
+
+def _is_partspec_frame(frame: traceback.FrameSummary) -> bool:
+    if frame.filename.startswith("<"):
+        # `<string>` is usually a dataclass-generated `__init__` and
+        # `<frozen ...>` the import machinery — partspec's implementation
+        # under another name, with no source line to show. A contract MODULE
+        # always has a real path (the loader imports it from a file), but code
+        # the contract itself compiles does not, so this also hides frames
+        # that are the reader's. They are counted in the marker, and where the
+        # exception is not partspec's own they take the whole stack
+        # unfiltered: the conservative side of a distinction the frame does
+        # not carry.
+        return True
+    return Path(frame.filename).resolve().is_relative_to(_SOURCE_ROOT)
+
+
+def _print_contract_traceback(exc: BaseException) -> None:
+    """Print the traceback of an exception a contract raised, with partspec's
+    own frames dropped (#188).
+
+    The traceback stays because a contract is arbitrary Python: for a `TypeError`
+    in user code it is the only thing that says *where*. What the reader did not
+    ask for is partspec's call path to that line — six internal frames around one
+    useful one, and for a `ContractError` (deliberately raised, with a message
+    written for the reader) the internals are never the answer.
+
+    Frames from a third-party library the contract called are kept: they are not
+    partspec explaining itself, and a CadQuery operation that raised four calls
+    deep is genuinely where the failure happened.
+
+    What survives is printed *contiguously*, so every gap carries a
+    `[N frames hidden]` marker. Without it the reprint reads as a direct call
+    chain that never happened, and the reader most likely to be misled is an
+    agent parsing it.
+
+    Four cases print the whole thing unfiltered, because a filter that hides a
+    partspec bug is the silence this tool exists to refuse:
+
+    - **No contract frames at all** — the exception came from inside partspec
+      before user code ran, so its frames are all there is.
+    - **A partspec frame at or below the contract's own** and the exception is
+      not partspec's — partspec code participated in the failure rather than
+      merely reaching the contract, so an `AttributeError` from `region.py` is
+      a partspec bug and its frames are the bug report. The leading frames that
+      only got the process to the contract (`cli`, `target`) do not count: they
+      are on every stack and are what #188 is about. A `ContractError` from the
+      same position is a diagnosis written for the reader, and its frames are
+      noise — the exception's own module is what separates the two.
+    - **An exception group** — `format_exception_only` renders a group as its
+      header alone ("2 sub-exceptions"), losing every sub-exception *and* the
+      contract frames inside them, which is the opposite of the point.
+    - **A chained exception** (`raise ... from`, or one raised while handling
+      another) — the other segments of the chain are information.
+
+    The chain case is a real limitation, not a rounding error: a contract doing
+    `try/except → raise ContractError(...)` is idiomatic, and implicit
+    `__context__` chaining sends it here. Filtering each segment independently
+    was considered and refused for v1 — walking the chain means reproducing
+    CPython's connector prose and its group tree by hand, and a filter that
+    prints a *misleading* chain is worse than one that prints a noisy true one.
+
+    Presentation only: the exit code (`EXIT_ERROR`), the "the contract is wrong,
+    not the part" classification and the report on disk are untouched. Nothing
+    is filtered out of an artifact — this path's report is `write_placeholder`'s,
+    and the diagnosis lives on stderr alone (`AGENT-CONTRACT.md` §2.3), which is
+    the only reason its shape is worth this much care.
+    """
+    frames = traceback.extract_tb(exc.__traceback__)
+    first_contract = next((i for i, f in enumerate(frames) if not _is_partspec_frame(f)), None)
+    chained = exc.__cause__ is not None or (
+        exc.__context__ is not None and not exc.__suppress_context__
+    )
+    partspec_raised_it = type(exc).__module__.split(".")[0] == "partspec"
+    partspec_in_the_failure = first_contract is not None and any(
+        _is_partspec_frame(f) for f in frames[first_contract:]
+    )
+    if (
+        first_contract is None
+        or chained
+        or isinstance(exc, BaseExceptionGroup)
+        or (partspec_in_the_failure and not partspec_raised_it)
+    ):
+        # `print_exception`, not `print_exc`: the exception is passed in, so
+        # the fallback must not depend on being inside its `except` block.
+        traceback.print_exception(exc)
+        return
+
+    out = ["Traceback (most recent call last):\n"]
+    hidden = 0
+    # Surviving frames are formatted in RUNS, never one at a time:
+    # `[Previous line repeated N more times]` is something `format_list`
+    # can only see across a list, and formatting frame by frame deletes it.
+    # A recursive contract printed 1995 stderr lines that way against 20
+    # collapsed ones — a 125x amplification out of a change whose whole
+    # purpose is removing six lines of noise, and it would reach the MCP
+    # adapter as a stderr tail (`mcp.py`) holding nothing but identical
+    # frames.
+    run: list[traceback.FrameSummary] = []
+    for frame in frames:
+        if _is_partspec_frame(frame):
+            out.extend(traceback.format_list(run))
+            run = []
+            hidden += 1
+            continue
+        out.append(_hidden_marker(hidden))
+        hidden = 0
+        run.append(frame)
+    out.extend(traceback.format_list(run))
+    out.append(_hidden_marker(hidden))
+    out.extend(traceback.format_exception_only(exc))
+    sys.stderr.write("".join(out))
+
+
+def _hidden_marker(hidden: int) -> str:
+    if hidden == 0:
+        return ""
+    # Not "partspec frames": a `<string>` frame the CONTRACT generated is
+    # hidden by the same rule, and the count would be honest while the word
+    # was not.
+    return f"  [{hidden} frame{'s' if hidden > 1 else ''} hidden]\n"
+
+
 def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
     """Resolve a target, turning any failure into an exit code rather than a
     traceback.
@@ -279,7 +403,7 @@ def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
         # `sys.exit(3)` as `empty`. No exit code from user code may become a
         # partspec verdict. Scoped to resolution, so argparse's own SystemExit
         # (`--version`, a usage error) is untouched.
-        traceback.print_exc()
+        _print_contract_traceback(exc)
         print(f"\npartspec: the contract raised {type(exc).__name__}: {exc}", file=sys.stderr)
         print("  the contract is wrong, not the part", file=sys.stderr)
         return exit_code(Verdict.ERROR)
