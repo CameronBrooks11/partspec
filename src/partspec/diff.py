@@ -289,10 +289,25 @@ def _gap_tokens(closure: dict[str, Any]) -> set[str]:
 
 
 def _malformed_fields(closure: dict[str, Any]) -> list[str]:
-    """The stage-2 fields a closure carries in a shape §8.3 does not define."""
+    """The stage-2 fields a closure carries in a shape §8.3 does not define.
+
+    `preloaded` is here for the reason the other two are, and its omission
+    failed in the one direction that matters: a non-list read as "nothing
+    preloaded" let `_preloaded` return an empty set, which put the entry back
+    in the appeared group and printed `inputs appeared: cadquery 2.8.0` at
+    exit 0 — the exact positive claim the field exists to prevent, made out
+    of a field the reader could not interpret.
+
+    Presence is what is checked, never absence, which is what keeps this off
+    every older producer: a pre-0.7.5 closure carries no `preloaded`, and
+    neither does a 0.7.5 OpenSCAD one, whose render imports nothing (§8.3
+    rule 7). Absence dates nothing and means nothing here; only a producer
+    that writes the field in a shape §8.3 does not define is refused, and no
+    released partspec ever has.
+    """
     return [
         field
-        for field, shape in (("unseen", list), ("imports", dict))
+        for field, shape in (("unseen", list), ("imports", dict), ("preloaded", list))
         if field in closure and not isinstance(closure[field], shape)
     ]
 

@@ -185,7 +185,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or alone, verified from a cold CLI. Only the caller that owns the loop can
   take that snapshot: by the time the runner has a part, its contract has been
   imported, and a contract's own imports are its part's. Python tier only, the
-  OpenSCAD render being a subprocess that imports nothing. `diff` **qualifies
+  OpenSCAD render being a subprocess that imports nothing, and malformed the
+  way `unseen` and `imports` already are — a `preloaded` **present** in a
+  shape §8.3 does not define is `malformed_closure` at exit 2, since reading
+  an uninterpretable field as an empty one put the entry straight back into
+  `inputs appeared` at exit 0. Absence is not a shape and stays untouched, so
+  no older producer and no OpenSCAD report is affected. `diff` **qualifies
   rather than asserts**: an `added`/`removed` entry either side named there is
   reported as `inputs not attributable: …`, stating that this comparison
   cannot tell an input that moved from one inherited from an earlier target —

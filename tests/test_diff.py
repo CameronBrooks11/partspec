@@ -708,6 +708,28 @@ def test_a_library_that_moved_under_an_unchanged_part_is_identical_and_named():
     assert "  not covered: files read inside C extensions" in summary
 
 
+def test_a_moved_model_directory_alone_still_holds_the_claims_line():
+    """The other half of the gate on that sentence, and the commonest real
+    case: an edited model directory with no import movement at all.
+
+    Every positive test around it holds the closure digest equal and moves a
+    version instead, so the digest half went unexecuted — mutating
+    `closure_digest_changed` out of the gate deleted the line from exactly
+    this case with 934 tests still green.
+    """
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+    old = _python_doc(dict(imports))
+    new = _python_doc(dict(imports))
+    new["part"]["source_closure"]["digest"] = "sha256:moved"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical"
+    assert doc["source"]["closure"] == "changed"
+    assert doc["source"]["closure_digest_changed"] is True
+    assert doc["source"]["imports"]["changed"] == {}, "the digest alone, no import movement"
+    assert "  every declared claim held across the change" in summary_of(doc).splitlines()
+
+
 def test_a_regression_beside_a_moved_library_names_the_input_that_moved():
     """SPEC-report §8 rule 2's stated purpose: the reader must not have to
     guess whether the dependency bump or the design moved the number."""
@@ -945,6 +967,18 @@ def test_an_unattributable_import_is_not_denied_to_have_moved():
     for denial in ("not an input that moved", "position in a batch", "not the part"):
         assert denial not in summary, f"a real appearance reported as a non-event: {summary}"
 
+    # Executed, not merely claimed: the disappearance is the OLD side's
+    # `preloaded`, so this is also what holds the union to both halves —
+    # reading only the new side's leaves this reporting `inputs disappeared`.
+    backwards = _diff(new, old)
+    assert list(backwards["source"]["imports"]["removed"]) == ["helper29"]
+    assert backwards["source"]["imports"]["unattributable"] == ["helper29"]
+    reversed_summary = summary_of(backwards)
+    assert "disappeared" not in reversed_summary, (
+        f"a real disappearance reported as a non-event: {reversed_summary}"
+    )
+    assert "inputs not attributable: helper29" in reversed_summary
+
 
 def test_a_version_that_moved_under_an_inherited_import_is_still_a_move():
     """Attribution qualifies *who loaded it*, not *whether it moved*. A
@@ -1103,6 +1137,48 @@ def test_an_unreadable_closure_fails_closed_on_both_tiers(scope: str | None):
         "diff cannot read (unseen is not the shape SPEC-report.md §8.3 defines), and a "
         f"closure that cannot be read is read as a gap, so {SENTENCE}"
     )
+
+
+def test_a_preloaded_field_in_the_wrong_shape_fails_closed():
+    """An uninterpretable field must not read as an empty one.
+
+    A non-list `preloaded` was silently taken as "nothing preloaded", which
+    put the entry back in the appeared group: measured, two closures carrying
+    `"preloaded": "build123d,cadquery"` reported `identical: p — no semantic
+    differences; inputs appeared: cadquery 2.8.0` at exit 0 — the positive
+    claim this field exists to prevent, assembled out of a field the reader
+    could not read. SPEC-diff §2 rule 3 already ruled it: a field present in
+    the wrong shape is `malformed_closure`, on either tier.
+    """
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")}, preloaded=[])
+    new = _python_doc({"build123d": _dist("0.10.1", "aaa"), "cadquery": _dist("2.8.0", "bbb")})
+    for doc_ in (old, new):
+        doc_["part"]["source_closure"]["preloaded"] = "build123d,cadquery"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "indeterminate", "an unreadable field must not exit 0"
+    assert exit_code_of(doc["outcome"]) == 2
+    assert list(doc["source"]["unseen"]["bounded"]) == ["malformed_closure"]
+    assert "preloaded is not the shape" in doc["indeterminate"][0]["reason"]
+
+
+@pytest.mark.parametrize(
+    "closure",
+    [
+        {"digest": "sha256:k1", "files": 16},
+        {"digest": "sha256:k1", "files": 16, "imports": {}, "unseen": []},
+    ],
+    ids=["pre-0.7.5", "0.7.5-openscad"],
+)
+def test_an_absent_preloaded_is_not_a_malformed_one(closure: dict):
+    """The direction the shape check must never reach. `preloaded` is absent
+    from every pre-0.7.5 closure and from every OpenSCAD one — whose render is
+    a subprocess that imports nothing (§8.3 rule 7) — and absence is not a
+    shape. Reading it as one would flip both to exit 2 on upgrade, which is
+    the false alarm the whole absence rule exists to avoid."""
+    doc = _diff(_legacy(dict(closure)), _legacy(dict(closure)))
+    assert doc["outcome"] == "identical"
+    assert exit_code_of(doc["outcome"]) == 0
 
 
 def test_a_malformed_0_7_5_closure_is_not_blamed_on_its_age():
