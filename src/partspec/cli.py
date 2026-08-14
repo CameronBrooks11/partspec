@@ -1004,7 +1004,46 @@ def _measure_resolved(
     if unavailable:
         measured["unavailable"] = unavailable
 
+    # An unfulfillable `--out` is an entry, never an absence (#204). The
+    # filename form of this same request exits 64 and says why; the directory
+    # form accepted the path, wrote nothing and exited 0 in silence — two
+    # spellings of "put the artifact here" on a tier that has no artifact, one
+    # named and one not. The exit stays 0 because the MEASUREMENT succeeded and
+    # is this verb's product: discarding it over an unfulfillable side-request
+    # costs the caller more than the no-op flag does. The filename form keeps
+    # its 64, because there the caller named a path they will go looking for.
+    #
+    # In BOTH channels. Stderr is for the human, and the payload for the
+    # machine, because `measure`'s whole design principle is that a fact living
+    # only on stderr is machine-invisible exactly where a machine is the
+    # audience (#47). One `reason` string feeds both, so the two cannot drift.
+    #
+    # Only when `--out` was passed: nothing was asked for otherwise, and there
+    # is nothing to report. `check --out` is untouched — it writes `report.json`
+    # into that directory on every tier, so the flag is no no-op there.
+    # Additive key, so `SCHEMA_VERSION` does not move.
+    reason = (
+        f"the {part.source.engine} tier builds in memory and exports nothing to put there"
+        if args.out is not None and part.source.engine != "openscad"
+        else None
+    )
+    if reason is not None:
+        # `written` states the outcome as a value rather than leaving it to be
+        # inferred from the key's presence, so a consumer reads one field and
+        # a later `written: true` would need no schema change.
+        measured["artifact"] = {"requested": args.out, "written": False, "reason": reason}
+
     print(json.dumps(measured, indent=2, allow_nan=False))
+    if reason is not None:
+        print(
+            f"partspec: --out {args.out} names a directory for the build artifact, but {reason}",
+            file=sys.stderr,
+        )
+        print(
+            f"  hint: nothing was created at {args.out}; the measurements on stdout are "
+            f"this verb's whole product, and only the OpenSCAD tier also writes an artifact",
+            file=sys.stderr,
+        )
     return 0
 
 

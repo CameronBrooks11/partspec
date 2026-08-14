@@ -34,7 +34,16 @@ never left implicit), and `cut_triangles` counts the facets lying on the plane, 
 states the plane passed only through voids rather than looking like an uncut render. A
 plane outside the part's span on its axis MUST be refused (a section that misses the
 part renders an image that looks fine — the documented failure), and the refusal names
-the span. On any failure after the target resolves, both
+the span. `measure --out` names where the engine's build artifact goes, and only the
+OpenSCAD tier produces one (#204): where `--out` was passed and the tier exports nothing,
+the payload MUST carry an `artifact` entry — `{requested, written: false, reason}` — and
+stderr MUST say the same, because a request the run could not fulfil must not read as one
+it did (§1.1), and a fact living only on stderr is invisible to the machine this payload
+is for. The two spellings of that request differ in the exit code alone: a *filename*
+destination is refused (§6.2's `64`, the caller named a path they will go looking for),
+while a *directory* keeps `0`, because the measurement itself succeeded and is the verb's
+product. `check --out` is out of scope here — it writes `report.json` into that directory
+on every tier. On any failure after the target resolves, both
 MUST emit a JSON object carrying that identity plus `error`/`hint` — `renders` empty
 rather than absent — so a consumer always learns which file and revision it was talking
 about. A target that never resolves has no identity to emit: those failures are stderr +

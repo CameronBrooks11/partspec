@@ -352,16 +352,26 @@ def test_measure_out_reports_a_destination_it_cannot_write(tmp_path: Path, capsy
     assert doc["geometry"] == {}
 
 
-@pytest.mark.parametrize(
-    ("engine", "model"),
-    [
-        ("build123d", "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n"),
-        (
-            "cadquery",
-            "import cadquery\n\n\ndef make_part():\n    return cadquery.Workplane().box(2, 1, 1)\n",
-        ),
-    ],
-)
+def _occt_target(tmp_path: Path, engine: str, model: str) -> str:
+    (tmp_path / "m.py").write_text(model)
+    module = tmp_path / "spec.py"
+    module.write_text(
+        f"from partspec import Part, {engine}\n\n\ndef make():\n"
+        f"    return Part('subject', {engine}('m.py'))\n"
+    )
+    return f"{module}:make"
+
+
+OCCT_MODELS = [
+    ("build123d", "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n"),
+    (
+        "cadquery",
+        "import cadquery\n\n\ndef make_part():\n    return cadquery.Workplane().box(2, 1, 1)\n",
+    ),
+]
+
+
+@pytest.mark.parametrize(("engine", "model"), OCCT_MODELS)
 def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(
     tmp_path: Path, capsys, engine: str, model: str
 ):
@@ -373,20 +383,83 @@ def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(
     resolves, and a machine passing `--out` is exactly who hits this one.
     """
     pytest.importorskip(engine, reason=f"{engine} extra not installed")
-    (tmp_path / "m.py").write_text(model)
-    module = tmp_path / "spec.py"
-    module.write_text(
-        f"from partspec import Part, {engine}\n\n\ndef make():\n"
-        f"    return Part('subject', {engine}('m.py'))\n"
-    )
+    target = _occt_target(tmp_path, engine, model)
     dest = tmp_path / "a.stl"
-    assert main(["measure", f"{module}:make", "--out", str(dest)]) == 64
+    assert main(["measure", target, "--out", str(dest)]) == 64
     assert not dest.exists()
     doc = json.loads(capsys.readouterr().out)
     assert doc["part"]["id"] == "subject", "the refusal says which part it refused"
     assert "names a file" in doc["error"]
     assert engine in doc["error"]
     assert "drop --out" in doc["hint"]
+
+
+@pytest.mark.parametrize(("engine", "model"), OCCT_MODELS)
+def test_measure_out_directory_says_nothing_was_written_on_a_tier_with_no_artifact(
+    tmp_path: Path, capsys, engine: str, model: str
+):
+    """The other spelling of the request the line above refuses (#204).
+
+    A filename destination on this tier exits 64 and names the problem; a
+    directory accepted the path, wrote nothing, said nothing and exited 0 —
+    two spellings of "put the artifact here" on a tier that has no artifact,
+    one named and one silent.
+
+    Exit 0 stays, because the measurement succeeded and IS this verb's
+    product; what changes is that the unfulfilled half is stated. In both
+    channels: stderr for the reader, and the payload for the machine, because
+    a fact living only on stderr is invisible exactly where a machine is the
+    audience (#47). One `reason` string feeds both, so they cannot drift.
+    """
+    pytest.importorskip(engine, reason=f"{engine} extra not installed")
+    target = _occt_target(tmp_path, engine, model)
+    out = tmp_path / "somedir"
+    assert main(["measure", target, "--out", str(out)]) == 0
+    assert not out.exists(), "and no empty directory is left to be wondered about"
+
+    captured = capsys.readouterr()
+    doc = json.loads(captured.out)
+    assert doc["measurements"]["bbox"]["value"] == [2.0, 1.0, 1.0], "the measurement is the product"
+    assert doc["artifact"] == {
+        "requested": str(out),
+        "written": False,
+        "reason": f"the {engine} tier builds in memory and exports nothing to put there",
+    }
+    assert "names a directory for the build artifact" in captured.err
+    assert doc["artifact"]["reason"] in captured.err, "one reason, both channels"
+    assert f"nothing was created at {out}" in captured.err
+
+
+@pytest.mark.parametrize(("engine", "model"), OCCT_MODELS)
+def test_measure_says_nothing_about_an_artifact_when_none_was_asked_for(
+    tmp_path: Path, capsys, engine: str, model: str
+):
+    """No `--out` is no request, and a report of a request nobody made is
+    noise in a payload whose whole value is that everything in it was
+    asked."""
+    pytest.importorskip(engine, reason=f"{engine} extra not installed")
+    target = _occt_target(tmp_path, engine, model)
+    assert main(["measure", target]) == 0
+    captured = capsys.readouterr()
+    assert "artifact" not in json.loads(captured.out)
+    assert captured.err == ""
+
+
+@needs_scad_tier
+def test_measure_out_says_nothing_when_the_artifact_was_written(tmp_path: Path, capsys):
+    """The notice is about an unfulfillable request, not about `--out`.
+
+    On the one tier that exports something the flag does exactly what it says,
+    so there is nothing to report and the payload gains no key — which is what
+    makes the key's presence mean something.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    out = tmp_path / "art"
+    assert main(["measure", target, "--out", str(out)]) == 0
+    assert (out / "block_with_hole.stl").stat().st_size > 0
+    captured = capsys.readouterr()
+    assert "artifact" not in json.loads(captured.out)
+    assert captured.err == ""
 
 
 # --------------------------------------------------------------------------

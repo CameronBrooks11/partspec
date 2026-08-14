@@ -45,6 +45,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refusal is `origin="environment"`, so `check` reports it as a run-level fault
   with every check skipped rather than as a failing `builds` (SPEC-report
   §6.1), and both verbs exit 4.
+- **`measure --out DIR` on a tier that exports nothing now says so, in both
+  channels.** The OCCT tiers build in memory, so there is no artifact for
+  `--out` to place. The *filename* spelling of that request has exited 64 with
+  a named reason since 0.7.5; the *directory* spelling accepted the path, wrote
+  nothing and exited 0 in silence — two spellings of "put the artifact here" on
+  a tier that has none, one named and one not (#204). The payload now carries
+  `artifact: {requested, written: false, reason}` and stderr says the same
+  sentence, because a fact living only on stderr is invisible exactly where a
+  machine is the audience (#47) — one `reason` string feeds both. Exit stays 0:
+  the measurement succeeded and is this verb's product, and discarding it over
+  an unfulfillable side-request costs the caller more than the no-op flag does.
+  The key is present only where `--out` was passed and nothing could be
+  written, so its presence means something; it is additive, and
+  `SCHEMA_VERSION` does not move. `check --out` is untouched — it writes
+  `report.json` into that directory on every tier. `SPEC-report.md`'s Scope
+  states the rule. **The issue's other half does not reproduce and did not need
+  fixing:** `measure --out DIR` was reported to leave an empty directory
+  behind, and it never created one — not at v0.7.5, not at the commit the issue
+  was filed against (`aa08dc0`), and not at v0.7.4, v0.7.0 or v0.6.0, on either
+  OCCT engine. The OCCT backend's `build()` has documented `out_dir` as unused
+  since it was written, and nothing else in `measure`'s directory path calls
+  `mkdir`. The directory in the report was `check`'s, which creates it and
+  writes a report into it.
 
 ## [0.7.5] - 2026-08-14
 
