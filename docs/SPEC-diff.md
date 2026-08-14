@@ -96,9 +96,21 @@ Rules:
    from one `sys.modules` shared by every target of a batch, and `preloaded` names what
    that costs. An entry of `added` or `removed` that either side listed there is reported
    as **unattributable** — named on the summary line, counted apart in `covered`, and
-   listed in `source.imports.unattributable` — and it does not make the closure
-   `changed`. The wording elsewhere is untouched: an appearance the `preloaded` sets do
-   not explain is exactly what this verb has always said it was. This qualifies the
+   listed in `source.imports.unattributable`. The wording elsewhere is untouched: an
+   appearance the `preloaded` sets do not explain is exactly what this verb has always
+   said it was.
+
+   **It still makes the closure `changed`, and `source.closure` MUST NOT be read as a
+   claim about the part's inputs.** That field says whether the two reports *recorded*
+   different closures, and two `imports` maps that differ differ — the batch case,
+   44 entries against 38 with nothing in the model moved, is `changed` on those grounds.
+   Whose import it was is the separate question `unattributable` answers, and a reader
+   keying on `source.closure` alone MUST consult it. Suppressing the entry here made the
+   artifact assert `closure: "same"` while carrying the difference in `imports.added` in
+   the same object; keeping what the comparison saw is the same rule that gave
+   `closure_digest_changed` its own field. It costs no verdict: `different` is computed
+   from the checks alone and only `inconclusive` is outcome-bearing, so a `changed`
+   closure falls through to `identical` at exit `0`. This qualifies the
    *claim*, not the verdict: it moves no outcome and no exit code, and it is deliberately
    NOT a gap token, because a bounded gap here would make every multi-target Python
    comparison indeterminate and rebuild what rule 3 exists to remove. Measured before the
@@ -300,7 +312,11 @@ It does not change the outcome: an old report that predates the field still diff
   },
   "source": {
     "digest_changed": false,         // the entry file
-    "closure": "changed",            // same | changed | inconclusive
+    "closure": "changed",            // same | changed | inconclusive — whether the two
+                                     // reports RECORDED different closures, not whether
+                                     // the part's inputs moved: an entry in
+                                     // `imports.unattributable` makes it "changed" while
+                                     // saying nobody can tell whose import it was
     "closure_digest_changed": true,  // the closure digest, on its own field because a
                                      // bounded gap collapses `closure` to "inconclusive";
                                      // null when a side carries no closure at all

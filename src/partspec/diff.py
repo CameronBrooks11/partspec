@@ -415,13 +415,21 @@ def _imports_delta(
     either side already said it could not attribute to its own target
     (`preloaded`, SPEC-report §8.3 rule 7). They stay in `added`/`removed` —
     they really are on one side only — but they are the one movement this
-    comparison must not report as a finding, because it cannot tell which of
+    comparison must not report as a *finding*, because it cannot tell which of
     two things produced it: a part behind another one in a batch inherits its
     imports, AND a part that genuinely started importing a library the earlier
     target also loads looks identical from here. Measured: a follower whose
     model began importing a shared module, at batch position 2 of 2 in both
     runs, is a real new build input landing in exactly this set. What this
     field carries is the inability, never a cause.
+
+    It does not follow that the closure is `same`. The two reports recorded
+    different maps, which is an observed fact and is what `closure: "changed"`
+    states; whose import it was is the separate question this field answers.
+    The batch-contamination case therefore reports `changed` too — 44 entries
+    against 38, nothing in the model moved — and that is correct: the recorded
+    maps did differ, and what the tool cannot say is whether the part's inputs
+    did. The summary line carries that distinction in words.
 
     Only `added` and `removed` can be affected. A `changed` entry is present
     on both sides with something moved between them, which is a fact about the
@@ -600,17 +608,18 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
     bounded = {t: p for t, p in classified.items() if t not in _IRREDUCIBLE_GAPS}
 
     digest_moved = old_closure.get("digest") != new_closure.get("digest")
-    # Attributed movement only. This vocabulary has three values and none of
-    # them is "movement seen, attribution unknown": `inconclusive` is
-    # verdict-bearing and would make every multi-target Python comparison
-    # exit 2, so the choice is between `same` and `changed`, and `changed`
-    # is the one that puts "every declared claim held across the change"
-    # under a comparison whose only movement may be an inherited import. The
-    # fact itself is never dropped — `source.imports.unattributable` names
-    # every entry, and the summary line states the inability. Neither `same`
-    # nor `changed` is outcome-bearing, so this moves no verdict and no exit.
+    # Every recorded difference, attributable or not. `changed` is a statement
+    # about what the two reports RECORDED, and two maps that differ differ;
+    # `unattributable` is the statement about attribution, and neither field
+    # needs the other's job. Suppressing here made the artifact assert `same`
+    # over a difference it was carrying in `imports.added` in the same object
+    # — the B2 finding of the stage-3 review, one field over: what the
+    # comparison actually saw stays in the artifact, and the verdict rule
+    # decides separately what to do about it. `different` is computed from
+    # checks alone and only `inconclusive` is outcome-bearing, so a `changed`
+    # closure falls through to `identical` and no exit code moves.
     imports_moved = "uncomparable" not in imports and any(
-        _attributed(imports, group) for group in ("changed", "added", "removed")
+        imports[group] for group in ("changed", "added", "removed")
     )
     if bounded:
         state = "inconclusive"
@@ -1195,7 +1204,19 @@ def _coverage_lines(doc: dict[str, Any]) -> list[str]:
         # Only under a `covered:` line, which is its antecedent. Two pre-0.7.5
         # reports get no coverage block, and this sentence alone under their
         # headline referred to a change nothing on the screen had named.
-        if doc["outcome"] == "identical" and source.get("closure") == "changed":
+        #
+        # And only where a change was attributed. `closure: "changed"` is a
+        # statement about the recorded maps, which is the right thing for the
+        # artifact to say; this sentence names "the change" as the part's, so
+        # it needs movement the comparison could attribute — a moved closure
+        # digest, or an import move outside `unattributable`. Where the only
+        # recorded difference is unattributable, the headline states the
+        # inability and there is no change here to hold a claim across.
+        imports = _imports_groups(doc)
+        attributed = source.get("closure_digest_changed") or any(
+            _attributed(imports, group) for group in ("changed", "added", "removed")
+        )
+        if doc["outcome"] == "identical" and source.get("closure") == "changed" and attributed:
             lines.append("  every declared claim held across the change")
     stated = {entry["reason"] for entry in doc.get("indeterminate", [])}
     lines.extend(

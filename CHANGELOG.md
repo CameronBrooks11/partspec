@@ -192,8 +192,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the inability `preloaded` evidences, and never a cause it does not, since a
   part that genuinely starts importing a library its batch neighbour also
   loads is indistinguishable from here (measured at batch position 2 of 2 in
-  both runs). They are counted apart under `covered:`, listed in
-  `source.imports.unattributable`, and no longer make the closure `changed`.
+  both runs). They are counted apart under `covered:` and listed in
+  `source.imports.unattributable`. They still make `source.closure`
+  `changed` — that field says the two reports **recorded** different closures,
+  which two differing maps do, while `unattributable` says whose import nobody
+  can tell; a reader keying on `source.closure` alone must consult it, and the
+  spec now says so. Suppressing it there made the artifact assert `same` over
+  a difference it was carrying in `imports.added` in the same object.
   Movement the `preloaded` sets do not explain keeps its wording exactly, a
   version that moved under an inherited import is still a move, and two
   reports carrying the same `preloaded` set with nothing moved print nothing

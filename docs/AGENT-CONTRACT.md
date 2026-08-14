@@ -208,7 +208,10 @@ On the first `pass` for an unfamiliar part, confirm in `report.json`:
    and `preloaded` names the entries this part cannot be credited with. Such an entry may
    have been loaded by this part or by an earlier target — nothing in the report can say
    which — so treat its arrival between two runs as unresolved: not as a build input that
-   appeared, and equally not as one that did not (§8.3 rule 7).
+   appeared, and equally not as one that did not (§8.3 rule 7). In a diff this shows up as
+   `source.closure: "changed"` with the name in `source.imports.unattributable`: the field
+   says the two reports recorded different closures, never that the part's inputs moved,
+   so read the two together and not `source.closure` alone.
    `diff` classifies those gaps rather than counting them: `native_reads` is irreducible on
    the Python tier and reaches no verdict — it is printed on every outcome as `not covered:`
    — while every other token, recognised or not, still blocks `identical` (SPEC-diff §2

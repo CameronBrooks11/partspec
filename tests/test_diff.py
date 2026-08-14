@@ -825,7 +825,7 @@ def test_an_inherited_import_is_not_reported_as_an_appearance():
         "the entry stays in the delta — the artifact loses nothing"
     )
     assert doc["source"]["imports"]["unattributable"] == ["cadquery"]
-    assert doc["source"]["closure"] == "same"
+    assert doc["source"]["closure"] == "changed", "the recorded maps did differ"
 
     summary = summary_of(doc)
     assert "appeared" not in summary, f"an inherited import read as a finding: {summary}"
@@ -838,6 +838,35 @@ def test_an_inherited_import_is_not_reported_as_an_appearance():
         summary.splitlines()
     )
     assert "every declared claim held across the change" not in summary
+
+
+def test_an_unattributable_difference_is_still_a_recorded_difference():
+    """`closure` says what the two reports RECORDED; `unattributable` says
+    what is unknown about it. Neither field does the other's job.
+
+    Suppressing the entry here made the artifact read `closure: "same"` while
+    carrying `imports.added: ["helper29"]` in the same object — sameness
+    asserted over a difference it had recorded, which is the stage-3 review's
+    B2 finding one field over. It costs no verdict: `different` is computed
+    from checks alone and only `inconclusive` is outcome-bearing, so a
+    `changed` closure falls through to `identical` at exit 0.
+    """
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")}, preloaded=["build123d"])
+    new = _python_doc(
+        {"build123d": _dist("0.10.1", "aaa"), "helper29": _dist("1.0", "bbb")},
+        preloaded=["build123d", "helper29"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["source"]["closure"] == "changed"
+    assert doc["source"]["imports"]["unattributable"] == ["helper29"]
+    assert doc["source"]["closure_digest_changed"] is False, "the map alone, not the digest"
+    assert doc["outcome"] == "identical", "recording it moves no verdict"
+    assert exit_code_of(doc["outcome"]) == 0
+
+    # The sentence names "the change" as the part's, and no change was
+    # attributed to the part — the headline states the inability instead.
+    assert "every declared claim held across the change" not in summary_of(doc)
 
 
 def test_two_reports_carrying_one_preloaded_set_say_nothing_about_it():
