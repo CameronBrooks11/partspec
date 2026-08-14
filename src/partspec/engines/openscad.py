@@ -258,8 +258,9 @@ def _output_over_an_input(source: OpenSCADSource, out_dir: Path, stl: Path) -> B
     resolves nothing when the path is computed, which is the case
     `reads_external_data` exists to admit, so it would refuse in the easy case
     and stay silent in the hard one. The real remedy is a signal that says
-    which files a render actually READ — the engine's own dependency output —
-    and that is tracked separately rather than guessed at here.
+    which files a render actually READ — the engine's own dependency output,
+    which 2021.01 already emits under `-d` and which lists a resolved
+    `import()` target by full path — and that is #226 rather than a guess here.
     """
     if out_dir.resolve() != source.path.parent.resolve() or not stl.exists():
         return None

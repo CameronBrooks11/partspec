@@ -60,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[70,10,10]`). It ships that way because every rule wide enough to catch a
   subdirectory import also refuses legitimate output directories, and
   over-refusal breaks the ordinary run rather than a rare one; the real remedy
-  is a signal saying which files a render actually READ, tracked separately.
+  is a signal saying which files a render actually READ, tracked as #226.
   The compounding is pinned by an executing test, not described. The
   refusal is `origin="environment"`, so `check` reports it as a run-level fault
   with every check skipped rather than as a failing `builds` (SPEC-report
