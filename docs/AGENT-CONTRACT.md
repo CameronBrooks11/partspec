@@ -155,11 +155,19 @@ swapping a strict check for a lax one, stripping a `source` citation, or droppin
 pinned part from the invocation — from where you sit these are indistinguishable from
 "fixed it", which is exactly why they are forbidden and instrumented:
 
-- the **claims pin** (`--expect claims.lock`) fails the run before the engine starts,
-  naming every removed/added/changed claim (exit 4, `expectation` block in the report).
-  The dropped-part variant is the one guard with **no report evidence**: the surviving
-  parts' reports look normal, the confession is stderr + exit 4 alone — a harness must
-  watch the exit, not only the artifacts;
+- the **claims pin** (`--expect claims.lock`) catches all of that, but its guards do not
+  cost the same, and the difference is a build budget. A lock that is missing or the wrong
+  schema is refused before any target runs (exit 64). A **claim mismatch** — the declared
+  claims differ from the lock — is adjudicated from the resolved contract, so *that part*
+  never builds and every removed/added/changed claim is named (exit 4, `expectation` block
+  in the report): free in a single-target run, but a batch keeps going, so the other pinned
+  targets still build. A **dropped part** — the lock covers a part no target in this
+  invocation produced — is compared only after the target loop has finished, so today every
+  surviving target **builds first** and the run fails after them: budget a full build per
+  surviving part, tens of seconds each on the OCCT tier. That variant is also the one guard
+  with **no report evidence**: the surviving parts' reports look normal (`verdict: "pass"`,
+  no `error`), the confession is stderr + exit 4 alone — a harness must watch the exit, not
+  only the artifacts;
 - **re-pinning after weakening** (`--pin`) defeats nothing: the lock is committed, and
   its diff is the confession in your PR — treat running `--pin` as requiring the same
   human sign-off as the contract edit itself;
