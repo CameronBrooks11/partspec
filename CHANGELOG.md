@@ -66,6 +66,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hashing everything imported measured 836 ms warm / 1921 ms cold over 1270 MB,
   70% of it `vtk` and `casadi` (#190, stage 2 of 4).
 
+### Changed
+
+- **`diff` is no longer permanently indeterminate for a contract that wraps a
+  library.** `SPEC-diff.md` §2 rule 3 keyed on `source_closure.partial`, which
+  the Python tier sets unconditionally, so the version-bump gate — *re-run this
+  evidence when the library moves, tell me if the part moved* — could never
+  answer on that tier. Measured in the fleet-01 adoption study: 3/3 CadQuery
+  replicates indeterminate over 73 real invocations, 0/3 OpenSCAD ones, same
+  command and same version, the only variable being that OpenSCAD libraries are
+  source on disk and Python ones are installed distributions. The rule now keys
+  on the **class of each named gap** in `unseen`. `native_reads` — a C
+  extension reading a file with no Python event to observe it — is
+  *irreducible*: it is a property of the tier, present in every Python report
+  that will ever be written, so it cannot discriminate between two of them and
+  no longer produces a verdict. It is printed instead, on **every** outcome,
+  permanently, as a `not covered:` line beside a `covered:` line saying what
+  the comparison did reach. That trade is empirical and is the one thing in
+  this change to scrutinise: all three CadQuery agents responded to the blanket
+  exit 2 by writing shell to suppress it, and a universally suppressed verdict
+  protects less than a universally printed caveat. Every other token stays
+  **bounded** and still blocks `identical`, *including a token this version does
+  not recognise* (`SPEC-report.md` §8.3 makes failing closed a MUST), so
+  OpenSCAD's external-data and unresolved-include cases are unchanged — #198's
+  behaviour is narrowed by no case. `diff` also compares the closure's
+  `imports` map entry by entry and reports it as `source.imports`, splitting a
+  version that **moved** from an import that **appeared or disappeared**; a
+  distribution whose identity tier flipped (`metadata` ↔ `content` — an
+  ordinary install against an editable one) is a changed build input, not a
+  gap, since the two digests are over different things. A moved library with no
+  moved check is **`identical` at exit 0**, with the distribution named on the
+  summary line: OpenSCAD already got exit 0 for a changed `.scad` closure under
+  unmoved checks, and a second rule for Python would rebuild the very asymmetry
+  this fixes. `DIFF_SCHEMA_VERSION` is now `2` — diff's own output, so no
+  stored report is refused — and the report `schema_version` is untouched.
+  **Upgrading: re-record your Python baseline to get exit 0 again.** A report
+  written by 0.7.4 or earlier carries no `imports`, which is not "nothing
+  imported" but "never asked", so `diff` synthesises the bounded gap
+  `imports_not_recorded` and keeps returning exit 2 with the remedy named —
+  exactly what such a comparison already returned, so no gate changes verdict
+  behind anyone's back. That absence rule applies only where the field could
+  have carried an answer: a pre-0.7.5 **OpenSCAD** closure that was complete
+  keeps its exit 0, because synthesising a gap there would raise a first alarm,
+  on upgrade, about a question that tier never had. One behaviour does tighten:
+  a bounded gap beside a **moved** closure digest is now `indeterminate` where
+  it was `identical` at exit 0, since "changed" was never outcome-bearing and
+  the identical claim was unearned (#190, stage 3 of 4).
+
 ### Fixed
 
 - **`environment.packages` recorded five hardcoded names and `diff` read none

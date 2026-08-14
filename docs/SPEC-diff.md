@@ -1,12 +1,14 @@
 # SPEC — `partspec diff`
 
-**Status:** draft 2 · 2026-08-09 · `kind` and `expr` join the claim fields; the digests
-are stated as recorded-not-outcome-bearing
+**Status:** draft 3 · 2026-08-14 · §2 rule 3 keys on the class of a **named** gap rather
+than on the `partial` boolean, and the closure's `imports` map is compared (#190); draft 2
+put `kind` and `expr` in the claim fields and stated the digests as
+recorded-not-outcome-bearing
 **Scope:** the semantic comparison of two reports of one part, its artifact, and its exit
 codes. Written before the implementation, like the other specs.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
 **Backing:** `SPEC-report.md` §7.1 (the silent-weakening gap), §7.2 (measurements on pass),
-§8.3 (partial closures); `POST-V0.md` §2; D5 (the report is the product surface).
+§8.3 (closures, their `imports` and their named gaps); `POST-V0.md` §2; D5 (the report is the product surface).
 
 ---
 
@@ -26,12 +28,19 @@ partspec diff <old-report.json> <new-report.json>
 The artifact is written to **stdout** (it is the product; it pipes); a one-line courtesy
 summary goes to stderr. `diff` takes no out-directory because it owns no run.
 
-The summary stays one line. Where a group of `environment.packages` differences could run
-to dozens of entries, it names at most two per group and counts the remainder (`+7 more`);
-the artifact on stdout carries the complete lists. It names them on **every** outcome,
-`identical` included, because a dependency that moved under an unchanged part is exactly
-the case an unqualified "no semantic differences" would misreport as nothing having
-happened.
+The summary's **finding** stays one line. Where a group of `environment.packages` or
+`source.imports` differences could run to dozens of entries, it names at most two per group
+and counts the remainder (`+7 more`); the artifact on stdout carries the complete lists. It
+names them on **every** outcome, `identical` included, because a build input that moved
+under an unchanged part is exactly the case an unqualified "no semantic differences" would
+misreport as nothing having happened. A distribution the `inputs` clause names is not
+repeated by the `packages` clause: every imported distribution is also an installed one, so
+a library bump would otherwise be reported twice on one line.
+
+Below that line, and on every outcome, the summary states the **coverage** the finding
+rests on — what was covered, and what §2 rule 3 classifies as irreducible and so can never
+be. That is the whole of what replaces the exit code an irreducible gap used to produce, so
+it is not suppressible.
 
 ## 2. Outcomes and exit codes
 
@@ -51,13 +60,48 @@ Rules:
    runs of one part, and comparing strangers is a usage error, not a finding.
 2. A report whose `verdict` is `"error"` compares nothing — its checks are all `skipped` and
    its run did not complete. Either input erroring MUST make the outcome `indeterminate`.
-3. **The partial-closure rule** (§8.3): when no differences are found but the inputs' source
-   identity rests on a closure marked `partial` — or absent from either input, which is the
-   ordinary v0.1.0 upgrade path for Python-engine reports — matching digests mean "nothing
-   we looked at changed", not "nothing changed". The outcome MUST be `indeterminate`, with the reason
-   stated — claiming `identical` there is the silence-as-success mistake at the provenance
-   layer. Found differences are real regardless of closure partiality, so this rule only
-   ever blocks the `identical` claim, never the `different` one.
+3. **The gap-class rule** (`SPEC-report.md` §8.3). The comparison covers the closure
+   `digest` **and** the `imports` map, entry by entry, and every gap the two closures name
+   in `unseen` is classified:
+
+   - `native_reads` is **irreducible** — a property of the tier, present in every Python
+     report that will ever be written.
+   - every other token is **bounded**, **including one this reader does not recognise**.
+     Failing closed is a MUST there (§8.3): a closed vocabulary must be safe to extend.
+
+   Then: a **bounded** gap on either side, or a closure absent from either input, MUST make
+   the outcome `indeterminate` when no differences were found — matching digests there mean
+   "nothing we looked at changed", not "nothing changed", and claiming `identical` is the
+   silence-as-success mistake at the provenance layer. Otherwise any difference in the
+   digest or the `imports` map is `closure: "changed"` and none is `"same"`.
+
+   An **irreducible** gap MUST NOT make the outcome `indeterminate`, and MUST be printed on
+   every outcome, in every mode. Through v0.7.4 the rule keyed on the `partial` boolean,
+   which the Python tier sets unconditionally, so `diff` was permanently indeterminate for
+   every contract wrapping an installed library: fleet-01 measured 3/3 CadQuery replicates
+   indeterminate against 0/3 OpenSCAD ones on the same command and version, the only
+   variable being that OpenSCAD libraries are source on disk and Python ones are installed
+   distributions (#190). A signal constant across every possible input cannot discriminate
+   between two of them, and all three CadQuery agents wrote shell to suppress the exit 2
+   rather than go and look — a universally suppressed verdict protects less than a
+   universally printed caveat. The caveat is therefore permanent output, not an option.
+
+   Found differences are real regardless of any gap, so this rule only ever blocks the
+   `identical` claim, never the `different` one. A `changed` closure is likewise never a
+   difference on its own (§3): the library moved and no declared claim moved with it is
+   `identical` at exit `0`, with the moved distribution named on the summary line, which is
+   what OpenSCAD already got for a changed `.scad` closure with no moved check.
+
+   **Migration.** A closure carrying no `unseen` predates 0.7.5. Where the field could have
+   carried an answer — a Python closure, `scope: "model_directory"` — `diff` synthesises the
+   bounded gap `imports_not_recorded`, which reproduces that report's existing exit 2 and
+   names re-recording the baseline as the fix. A pre-0.7.5 **OpenSCAD** closure is
+   classified from the legacy fields instead (`unresolved` → `unresolved_includes`,
+   `reads_external_data` → `external_data_reads`, and a bare `partial: true` →
+   `unnamed_partial`), because a complete one has no gap and flipping it to exit 2 on
+   upgrade would be a false alarm about a question that tier never had. Those three plus
+   `imports_not_recorded` are synthesised by this verb and are not part of the producer
+   vocabulary §8.3 defines.
 4. **Check ids MUST be unique within each input**, refused with exit `64` (#148). The
    comparator joins on `id`, so a report carrying two checks under one id does not merely
    lose a check — the second silently replaces the first and two unrelated claims are
@@ -112,17 +156,22 @@ equality would bury signal under noise. Non-numeric values compare exactly.
 Also compared, at the top level, and **outcome-bearing**: `verdict` and `counts.total` (a
 shrink is named, not implied).
 
-**Recorded but never outcome-bearing**: `contract_digest`, `source_digest`, and the closure
-digest. All three appear in the artifact as `digest_changed` / `closure` so a reader can
-see the inputs moved, and none of them can make an outcome `different` on its own. The
+**Recorded but never outcome-bearing**: `contract_digest`, `source_digest`, the closure
+digest and the closure's `imports` map. All four appear in the artifact as `digest_changed`
+/ `closure` / `source.imports` so a reader can see the inputs moved, and none of them can
+make an outcome `different` on its own. The
 contract digest is module-scoped and over-fires deliberately (`SPEC-report.md` §7.1) — an
 unrelated docstring edit moves it — and a comment added to a `.scad` is not a semantic
 difference of the part. A verb that reported `different` on either would be piped through
 `|| true` inside a week, and what this comparison actually covers *is* the contract's
 observable content: every check id, every field in `CLAIM_FIELDS`, every status and every
-measurement. The closure digest is the exception that proves the rule: it cannot make an
-outcome `different`, but under §2 rule 3 an absent or partial closure does block
-`identical`, because there the question is whether the inputs were fully identified at all.
+measurement. The closure is the exception that proves the rule: neither its digest nor a
+moved `imports` entry can make an outcome `different`, but under §2 rule 3 an absent
+closure or a bounded gap does block `identical`, because there the question is whether the
+inputs were fully identified at all. Holding the line at "a moved library is not by itself
+a difference of the part" is what keeps arm A and arm B one tool: OpenSCAD has always got
+exit `0` for a changed `.scad` closure under unmoved checks, and the summary line naming
+the distribution that moved is what carries that fact to the reader (#190).
 
 Alongside them, the environment facts that *explain* differences without being differences
 of the part — `tool_version`, `engine.version`, `engine.render_backend` and
@@ -152,14 +201,16 @@ It does not change the outcome: an old report that predates the field still diff
 
 ```jsonc
 {
-  "schema_version": 1,              // this artifact's own version, not the report's
+  "schema_version": 2,              // this artifact's own version, not the report's
   "tool": { "name": "partspec-diff", "version": "0.2.0" },
   "part": "example-spacer",
   "outcome": "different",           // identical | different | indeterminate
   "indeterminate": [],              // {code, reason} entries when indeterminate; codes are
                                     // machine-readable: "input_error" | "partial_closure",
-                                    // so CI can tolerate the honest Python-tier case
-                                    // narrowly instead of tolerating exit 2 wholesale
+                                    // so CI can tolerate one narrowly instead of tolerating
+                                    // exit 2 wholesale. `partial_closure` now covers only
+                                    // bounded gaps and absent closures; the reason names
+                                    // each one, and `source.unseen.bounded` keys them
   "verdict": { "old": "pass", "new": "fail" },
   "counts_total": { "old": 8, "new": 7 },
   "contract": {
@@ -167,7 +218,25 @@ It does not change the outcome: an old report that predates the field still diff
     "removed": ["wall_gt_2"],       // the headline finding, by id
     "added": []
   },
-  "source": { "digest_changed": false, "closure": "same" },  // same | changed | inconclusive | null
+  "source": {
+    "digest_changed": false,
+    "closure": "changed",            // same | changed | inconclusive
+    "imports": {                     // the distributions the model loaded (SPEC-report 8.3),
+                                     // three groups for the reason `environment.packages`
+                                     // has three; `{ "uncomparable": "…" }` when a side
+                                     // recorded no map, never an empty delta
+      "changed": { "cqgridfinity": { "old": { "…": "…" }, "new": { "…": "…" } } },
+      "added": {},
+      "removed": {}
+    },
+    "unseen": {                      // the gaps by class, token -> what it says to a reader
+      "irreducible": { "native_reads": "files read inside C extensions — …" },
+      "bounded": {}                  // non-empty here means `closure: "inconclusive"`
+    },
+    "covered": "model directory (2 files); 14 imported distributions, all unchanged"
+                                     // null where neither closure carries `unseen`, i.e.
+                                     // two pre-0.7.5 reports, whose output is unchanged
+  },
   "checks": [                        // one entry per difference; empty when identical
     {
       "id": "envelope", "kind": "envelope", "change": "drifted",

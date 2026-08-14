@@ -965,9 +965,22 @@ property of the tier and is present in every report that tier will ever write.
 
 **A consumer that meets a token it does not recognise MUST treat it as a bounded gap.**
 Closed vocabularies leak, and the failure must be closed: an older reader of a newer
-report goes inconclusive rather than silently ignoring a gap it does not understand. The
-same rule covers the field's absence — a closure missing `unseen` **or** `imports` was
-written before the question was asked, and MUST NOT be read as an answer to it.
+report goes inconclusive rather than silently ignoring a gap it does not understand.
+
+**The same rule covers the field's absence, wherever the field could have carried an
+answer.** A closure missing `unseen` **or** `imports` was written before the question was
+asked, and MUST NOT be read as an answer to it — so a consumer synthesises a bounded gap
+for it. The qualifier is load-bearing and is not a softening: on the Python tier the
+absence is exactly the pre-0.7.5 state this section describes, where `partial` was
+unconditional and every comparison was already inconclusive, so the rule reproduces what
+that reader already did. A pre-0.7.5 **OpenSCAD** closure is the case the qualifier
+excludes: a complete one carries no `partial` key at all and compares conclusively today,
+and synthesising a gap for it would raise a first alarm, on upgrade, about a question that
+tier never had — the render happens in a subprocess and loads no Python. Such a closure is
+classified from the legacy fields it does carry (`unresolved`, `reads_external_data`,
+`partial`), which name the same gaps this vocabulary does. This is why `imports` is `{}`
+and not absent on that tier from 0.7.5 on: an empty map is the answer "nothing was
+imported", and only absence means "never asked".
 
 > **Reversed 2026-08-05.** This section previously specified that the Python engines emit no
 > closure at all, on the grounds that partial coverage would "assert coverage that does not
