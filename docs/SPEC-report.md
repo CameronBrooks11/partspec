@@ -566,7 +566,8 @@ an unknown major version rather than best-effort parse it.
   "environment": {
     "python": "3.12.7",
     "packages": { "build123d": "0.11.1", "cadquery-ocp": "7.9.3.1.1",
-                  "trimesh": "5.0.0", "manifold3d": "3.5.2" },
+                  "cqgridfinity": "0.5.7", "numpy": "2.5.2" },  // every imported
+                                                                // distribution, name-sorted
     "platform": "linux-x86_64",
     "duration_ms": 812
   },
@@ -670,6 +671,20 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   tells an agent to read, and it was emitted by every report since v0.4.0 while appearing in
   this document only in passing; the omission is what let two faults ship misclassified into
   the v0.7.0 audit.
+- **`environment.packages`** — the installed distributions **this run actually imported**,
+  name → version, sorted by name. Derived from the modules loaded at the moment the report
+  is written, resolved back to an owning distribution through the `dist-info/RECORD`
+  index — so it names the library a contract wraps, not just the engines. Through v0.7.4
+  it was a five-name allowlist of engine packages (`build123d`, `cadquery`, `cadquery-ocp`,
+  `trimesh`, `manifold3d`), which could not see the library under test and therefore could
+  not explain a number that moved when *that* was upgraded (#211). Two consequences of
+  deriving it from imports rather than from installs: a distribution that is installed but
+  was never imported is **absent**, because it is not an input to this build; and a module
+  imported from a `sys.path` source checkout is **also absent**, because it belongs to no
+  distribution and recording the same-named installed version would describe code that
+  never ran. A module may be claimed by more than one distribution — `OCP` is claimed by
+  both `cadquery-ocp` and `cadquery-ocp-novtk` where both are installed — and **all**
+  claimants are recorded, since no in-process check can say which one wrote the file.
 - **`checks[].requires`** — present only on `unsupported`, naming the tier that would answer
   **for an equivalent part**. The hedge is load-bearing: porting a 16-gon bore to build123d
   does not merely enable the check, it **changes the part** (investigation 04 §4). This is

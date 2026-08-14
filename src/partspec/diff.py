@@ -192,6 +192,60 @@ def _closure_state(old_part: dict[str, Any], new_part: dict[str, Any]) -> str:
     return "same"
 
 
+def _packages_of(environment: Any) -> dict[str, Any] | None:
+    """The `environment.packages` map, or None when there is nothing to compare."""
+    if not isinstance(environment, dict):
+        return None
+    packages = environment.get("packages")
+    return packages if isinstance(packages, dict) else None
+
+
+def _packages_delta(old_env: Any, new_env: Any) -> dict[str, Any] | None:
+    """Compare `environment.packages` — the field SPEC-report §8 rule 2 says in
+    bold MUST NOT be excluded, and which this comparator excluded entirely.
+
+    It is the field that distinguishes "a trimesh upgrade moved this number"
+    from "the design changed". Without it a dependency bump produced a
+    `different` verdict with nothing on the page to explain it, and the reader
+    had to guess which of the two had happened — the guess the field exists to
+    remove.
+
+    Three groups, not one, because two facts are being reported and they are
+    not the same fact. A version that *moved* is a change to a build input and
+    explains a moved measurement. A package that *appeared or disappeared* is
+    usually two machines resolving different transitive dependency sets — a CI
+    runner against a laptop — and explains nothing on its own. Folding them
+    together would make the reader do that separation by hand.
+
+    Returns None when nothing differs, matching the other environment keys,
+    which are reported only when they changed. When a side carries no usable
+    map the result is NOT None: an omission would read as "no package moved",
+    which is a claim this comparison did not make.
+    """
+    old_packages, new_packages = _packages_of(old_env), _packages_of(new_env)
+    if old_packages is None or new_packages is None:
+        missing = [
+            label
+            for label, packages in (("old", old_packages), ("new", new_packages))
+            if packages is None
+        ]
+        where = "both sides" if len(missing) == 2 else f"the {missing[0]} side"
+        return {
+            "uncomparable": f"no environment.packages map on {where}, so whether a "
+            "dependency moved is unknown"
+        }
+    changed = {
+        name: {"old": version, "new": new_packages[name]}
+        for name, version in sorted(old_packages.items())
+        if name in new_packages and new_packages[name] != version
+    }
+    added = {name: v for name, v in sorted(new_packages.items()) if name not in old_packages}
+    removed = {name: v for name, v in sorted(old_packages.items()) if name not in new_packages}
+    if not (changed or added or removed):
+        return None
+    return {"changed": changed, "added": added, "removed": removed}
+
+
 def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str) -> dict[str, Any]:
     """Compare two parsed reports. Raises DiffUsageError on unusable input."""
     for label, report in (("old", old), ("new", new)):
@@ -386,6 +440,10 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         if old_value != new_value:
             environment[key] = {"old": old_value, "new": new_value}
 
+    packages = _packages_delta(old.get("environment"), new.get("environment"))
+    if packages is not None:
+        environment["packages"] = packages
+
     return {
         "schema_version": DIFF_SCHEMA_VERSION,
         "tool": {"name": "partspec-diff", "version": tool_version},
@@ -411,13 +469,52 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
     }
 
 
+_SUMMARY_PACKAGE_LIMIT = 2
+"""How many distributions the one-line summary names per group.
+
+`environment.packages` now records every distribution the run imported — 15 on
+the fleet's cadquery venv, 84 installed — so two runs on different machines can
+differ in dozens of entries. Spilling all of them onto the summary line would
+bury the finding the line exists to state. The artifact on stdout carries the
+complete lists; the line names a couple and counts the rest."""
+
+
+def _packages_clause(doc: dict[str, Any]) -> str:
+    """The summary's `packages` fragment, or an empty string when nothing moved."""
+    packages = doc.get("environment", {}).get("packages")
+    if not packages:
+        return ""
+    if "uncomparable" in packages:
+        return f"; packages not compared: {packages['uncomparable']}"
+
+    def bounded(entries: list[str]) -> str:
+        shown = entries[:_SUMMARY_PACKAGE_LIMIT]
+        rest = len(entries) - len(shown)
+        return ", ".join(shown) + (f", +{rest} more" if rest else "")
+
+    clauses = []
+    if packages["changed"]:
+        moved = [f"{n} {v['old']} → {v['new']}" for n, v in packages["changed"].items()]
+        clauses.append(f"packages moved: {bounded(moved)}")
+    for group, verb in (("added", "appeared"), ("removed", "disappeared")):
+        if packages[group]:
+            named = [f"{n} {v}" for n, v in packages[group].items()]
+            clauses.append(f"packages {verb}: {bounded(named)}")
+    return "; " + "; ".join(clauses)
+
+
 def summary_of(doc: dict[str, Any]) -> str:
     """The one-line stderr courtesy summary."""
+    # The packages clause rides every outcome, `identical` included. A
+    # dependency that moved under an unchanged part is precisely the case
+    # `identical: no semantic differences` would otherwise report as an
+    # unqualified nothing-happened.
+    moved = _packages_clause(doc)
     if doc["outcome"] == "identical":
-        return f"identical: {doc['part']} — no semantic differences"
+        return f"identical: {doc['part']} — no semantic differences{moved}"
     if doc["outcome"] == "indeterminate":
         reasons = "; ".join(entry["reason"] for entry in doc["indeterminate"])
-        return f"indeterminate: {doc['part']} — {reasons}"
+        return f"indeterminate: {doc['part']} — {reasons}{moved}"
     contract = doc["contract"]
     parts = []
     if contract["removed"]:
@@ -430,4 +527,4 @@ def summary_of(doc: dict[str, Any]) -> str:
         n = sum(1 for c in doc["checks"] if c["change"] == change)
         if n:
             parts.append(f"{n} {change}")
-    return f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}"
+    return f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}{moved}"

@@ -26,6 +26,13 @@ partspec diff <old-report.json> <new-report.json>
 The artifact is written to **stdout** (it is the product; it pipes); a one-line courtesy
 summary goes to stderr. `diff` takes no out-directory because it owns no run.
 
+The summary stays one line. Where a group of `environment.packages` differences could run
+to dozens of entries, it names at most two per group and counts the remainder (`+7 more`);
+the artifact on stdout carries the complete lists. It names them on **every** outcome,
+`identical` included, because a dependency that moved under an unchanged part is exactly
+the case an unqualified "no semantic differences" would misreport as nothing having
+happened.
+
 ## 2. Outcomes and exit codes
 
 Silence must never read as "no difference". "No differences found" is a **positive claim**
@@ -118,9 +125,23 @@ outcome `different`, but under §2 rule 3 an absent or partial closure does bloc
 `identical`, because there the question is whether the inputs were fully identified at all.
 
 Alongside them, the environment facts that *explain* differences without being differences
-of the part — `tool_version`, `engine.version`, `engine.render_backend` — reported only
-when they changed (`SPEC-report.md` §8's principle: a dependency upgrade moving a number is
-a different explanation than the design changing).
+of the part — `tool_version`, `engine.version`, `engine.render_backend` and
+`environment.packages` — reported only when they changed (`SPEC-report.md` §8's principle:
+a dependency upgrade moving a number is a different explanation than the design changing).
+
+**`environment.packages` is compared in three groups, and the split is normative.**
+`changed` names a distribution whose version moved: a build input changed, and it is the
+thing that explains a moved measurement. `added` and `removed` name distributions present
+on one side only, which is most often two machines resolving different transitive
+dependency sets — CI against a laptop — and explains nothing about the part on its own.
+Reporting both under one heading would leave the reader to separate them by hand.
+`SPEC-report.md` §8 rule 2 says in bold that this field MUST NOT be excluded from
+comparison; through v0.7.4 this comparator excluded it entirely (#211).
+
+When a side carries no usable `packages` map the artifact says so — `environment.packages`
+becomes `{ "uncomparable": "…" }` — rather than omitting the key. An omission is
+indistinguishable from "no dependency moved", which is a claim the comparison did not make.
+It does not change the outcome: an old report that predates the field still diffs.
 
 ## 4. The artifact
 
@@ -153,7 +174,14 @@ a different explanation than the design changing).
       "status": { "old": "pass", "new": "fail" }
     }
   ],
-  "environment": { "engine_version": { "old": "2021.01", "new": "2026.08.01" } }
+  "environment": {
+    "engine_version": { "old": "2021.01", "new": "2026.08.01" },
+    "packages": {                    // present only when a package differs
+      "changed": { "trimesh": { "old": "5.0.0", "new": "5.1.0" } },   // a version moved
+      "added":   { "shapely": "2.1.2" },   // present on the new side only
+      "removed": {}                        // present on the old side only
+    }
+  }
 }
 ```
 
