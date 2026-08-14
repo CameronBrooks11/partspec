@@ -194,7 +194,10 @@ On the first `pass` for an unfamiliar part, confirm in `report.json`:
    `Referenced` value deliberately sheds the citation (a derived number is the
    author's), so cite the un-derived bound, not an expression over it;
 3. `part.source_closure.partial` — a partial closure means "nothing *we looked at*
-   changed"; treat identity claims accordingly;
+   changed"; treat identity claims accordingly. `unseen` says *which* gaps, from a closed
+   vocabulary, and `imports` says which distributions the model loaded and whether their
+   bytes were read or their installer taken at its word (SPEC-report §8.3). An unrecognised
+   `unseen` token is a gap, not noise; `imports` absent means the question was never asked;
 4. when a pin is in play, `expectation.matched` is `true` in this same report.
 
 ---

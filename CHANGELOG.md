@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`part.source_closure` now says which distributions the model imported, and
+  names its own gaps.** Two additive fields on both tiers, `schema_version`
+  unchanged. `imports` maps each import to how it was identified: `metadata`
+  where every loaded file of a distribution is declared in its installer's
+  RECORD — version plus a digest over the RECORD's own hashes, ~0.1 ms — and
+  `content` where a loaded file is declared by no RECORD, which byte-hashes the
+  package tree. The second tier is the one the fleet-01 study needed and the
+  one no cheap mechanism can replace: all three arm-A agents imported a
+  `sys.path` checkout of `cq-gridfinity` (17 files) while the venv reported
+  0.5.7 from a different, 12-file copy, so `importlib.metadata.version()`
+  described code that never ran. Ownership is checked per file against **whole
+  RECORD rows**, never a first path segment, because distributions routinely
+  share a top-level directory (`zope.*`, `google.*`, `sphinxcontrib.*`,
+  `ruamel.*`, `jaraco.*`) and this repo's venv holds a five-way `trame`
+  collision. Distributions whose RECORD-declared bytes were not loaded are
+  never named — and neither are those whose only loaded file is setuptools'
+  `__editable___<name>_finder.py`, which `pip install -e .` writes into
+  site-packages and lists in the RECORD: counting it hands a `metadata` entry
+  to a library nothing imported, over a shim whose `MAPPING` embeds the
+  checkout's absolute path, so two byte-identical editable installs at two
+  paths disagree. The map covers what was imported **after partspec was**,
+  which keeps the tool itself and `_virtualenv` out of every part's inputs:
+  `partspec` is already `tool.version`, and in a dogfood loop it is
+  editable-installed, so recording it would move an input on every part after
+  any edit to the tool; `_virtualenv` says which program created the venv.
+  Measured across the fleet's three venvs and this repo's, that baseline is
+  exactly those two names and nothing else. `unseen` names the gaps from a
+  closed vocabulary —
+  `native_reads`, `unidentified_imports`, `external_data_reads`,
+  `unresolved_includes` — and `partial` is now **derived** from it,
+  `partial == bool(unseen)`, with the same value in every case it had before: a
+  namespace package with no `__file__` is now a named gap instead of a silent
+  omission. An unrecognised token MUST be read as a bounded gap, so an older
+  consumer of a newer report fails closed. An **absent** `imports` is not
+  "nothing imported" — it is a report written before the question was asked,
+  which is why the OpenSCAD tier emits `{}`. Two bounds are stated rather than
+  implied, because a spec that overclaims is the defect this field exists to
+  fix: a `content` digest covers the package tree it was loaded from and
+  cannot reach a distribution's vendored sibling directory when no RECORD
+  exists to associate them (which is why the `cadquery_ocp.libs` case is
+  defended on the `metadata` tier, where the RECORD names all 69 of them), and
+  an edit to a file a RECORD *does* declare leaves that entry `metadata` with
+  an unmoved digest, since ownership is decided by path and hashing every
+  loaded file is the cost this tier exists to avoid (§8.3 rules 5 and 6,
+  §7.1). **No `diff` behaviour, verdict or exit code changes**; stage 3 of
+  #190 owns what the comparator does with the new fields. Cost, measured
+  against 6e9b67e: the OpenSCAD tier is unchanged (+1.6 ms, +0.29%, it builds
+  no index — `_record_index.cache_info()` after a full run is
+  `hits=0, misses=0`), and the Python tier pays one RECORD
+  index per process — 62.5 ms cold / 57.9 ms warm in the fleet's
+  84-distribution venv, 100.9 / 65.2 in this repo's 114-distribution one — for
+  +62 ms warm and +29 ms cold end to end on a 5.2 s cadquery run (+1.2% /
+  +0.6%), +86 ms warm and +119 ms cold on a 2.7 s build123d run (+3.2% /
+  +4.3%). Distributions the installer already describes are **not** byte-hashed:
+  hashing everything imported measured 836 ms warm / 1921 ms cold over 1270 MB,
+  70% of it `vtk` and `casadi` (#190, stage 2 of 4).
+
 ### Fixed
 
 - **`environment.packages` recorded five hardcoded names and `diff` read none

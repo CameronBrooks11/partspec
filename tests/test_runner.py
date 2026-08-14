@@ -184,6 +184,62 @@ def test_a_complete_closure_carries_no_partial_flag(tmp_path: Path):
     assert "partial" not in _closure_of(openscad(entry))
 
 
+@pytest.mark.parametrize(
+    ("body", "unseen"),
+    [
+        ("cube([1,2,3]);\n", []),
+        ("include <gone.scad>\n", ["unresolved_includes"]),
+        ('import("part.stl");\n', ["external_data_reads"]),
+        ('import_stl("part.stl");\n', ["external_data_reads"]),
+        ('surface("h.dat");\n', ["external_data_reads"]),
+        (
+            'include <gone.scad>\nsurface("h.dat");\n',
+            ["external_data_reads", "unresolved_includes"],
+        ),
+    ],
+)
+def test_partial_is_exactly_whether_anything_was_left_unseen(
+    tmp_path: Path, body: str, unseen: list[str]
+):
+    """`partial == bool(unseen)`, in every case the OpenSCAD tier can reach.
+
+    `partial` used to be `bool(unresolved) or reads_external_data` and is now
+    derived from the named gaps. The two must agree exactly, or #190's stage 3
+    inherits a `diff` whose verdicts moved under it: `_closure_state` keys on
+    this boolean and on nothing else in the closure.
+    """
+    entry = tmp_path / "a.scad"
+    entry.write_text(body)
+    closure = _closure_of(openscad(entry))
+    assert closure["unseen"] == unseen
+    assert closure.get("partial", False) is bool(unseen)
+
+
+def test_the_openscad_tier_records_an_empty_imports_map_not_a_missing_one(tmp_path: Path):
+    """This tier renders in a subprocess and imports nothing, which is a
+    different statement from "not recorded" — the reading an absent `imports`
+    carries in a report written before 0.7.5."""
+    entry = tmp_path / "a.scad"
+    entry.write_text("cube([1,2,3]);\n")
+    assert _closure_of(openscad(entry))["imports"] == {}
+
+
+def test_the_python_tier_is_partial_because_of_reads_no_python_can_see(tmp_path: Path):
+    """The irreducible gap, and the reason `partial` cannot become false here:
+    `OCP.StlAPI_Reader().Read()` read an STL off disk and produced zero `open`
+    audit events. A closure on this tier is never complete, whatever it
+    covers."""
+    from partspec import build123d
+    from partspec.runner import _python_closure
+
+    model = tmp_path / "m.py"
+    model.write_text("def make_part():\n    pass\n")
+    closure = _python_closure(build123d(model), None)
+    assert "native_reads" in closure["unseen"]
+    assert closure["partial"] is True
+    assert closure["partial"] is bool(closure["unseen"])
+
+
 def test_the_python_closure_is_not_computed_before_the_build(tmp_path: Path):
     """A Python model's imports are not knowable until it has run.
 

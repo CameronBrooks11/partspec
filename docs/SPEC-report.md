@@ -461,7 +461,9 @@ an unknown major version rather than best-effort parse it.
     "source_digest": "sha256:9f2c...",
     "source_closure": {                // §8.3 — every file the render reads
       "digest": "sha256:b304...",      // over sorted content hashes, not paths
-      "files": 16
+      "files": 16,
+      "imports": {},                   // distributions the model loaded; {} is a claim, absent is not
+      "unseen": []                     // the closed gap vocabulary; partial == bool(unseen)
     }
   },
 
@@ -822,7 +824,9 @@ An OpenSCAD report therefore carries:
   "files": 16,
   "unresolved": ["some/missing.scad"],
   "reads_external_data": true,
-  "partial": true
+  "partial": true,
+  "imports": {},
+  "unseen": ["external_data_reads", "unresolved_includes"]
 }
 ```
 
@@ -842,11 +846,16 @@ An OpenSCAD report therefore carries:
   reader can resolve them. **The deprecated spellings count**: the version floor executes
   them, so a reader that recognised only the modern two reported a complete closure for a
   build that reads a file.
-- **`partial`** is `true` whenever either of the previous two is non-empty. It is stated
-  positively so a consumer cannot read the *absence* of those fields as a completeness
-  guarantee the closure never made. **A comparator MUST treat a `partial` closure as
-  inconclusive evidence of sameness**, exactly as `unsupported` is treated for a check:
-  matching digests then mean "nothing we looked at changed", not "nothing changed".
+- **`partial`** is `true` whenever the closure left anything unseen — `partial ==
+  bool(unseen)`, which for this tier is exactly "either of the previous two is non-empty".
+  It is stated positively so a consumer cannot read the *absence* of those fields as a
+  completeness guarantee the closure never made. **A comparator MUST treat a `partial`
+  closure as inconclusive evidence of sameness**, exactly as `unsupported` is treated for a
+  check: matching digests then mean "nothing we looked at changed", not "nothing changed".
+- **`imports`** is `{}` on this tier and MUST be present anyway. The render happens in a
+  subprocess and loads no Python, and *that is a finding*: an absent `imports` means the
+  question was never asked, which is what every report written before 0.7.5 says.
+- **`unseen`** names the gaps; see below.
 
 A **Python** report carries a closure too, of a different shape:
 
@@ -855,21 +864,110 @@ A **Python** report carries a closure too, of a different shape:
   "digest": "sha256:…",
   "files": 2,
   "scope": "model_directory",
-  "partial": true
+  "partial": true,
+  "imports": {
+    "cadquery":     { "identity": "metadata", "version": "2.8.0", "digest": "sha256:…" },
+    "cqgridfinity": { "identity": "content",  "version": null, "digest": "sha256:…", "files": 16 }
+  },
+  "unseen": ["native_reads"]
 }
 ```
 
-- **`scope`** names the boundary: local modules imported from the model's own directory.
-  That is not arbitrary. `engines/pycad.py` puts exactly that directory on `sys.path` before
-  exec'ing the model, so a model can import helpers beside it — which makes those helpers
-  build inputs by design.
+- **`scope`** names the boundary of `digest`/`files`: local modules imported from the
+  model's own directory. That is not arbitrary. `engines/pycad.py` puts exactly that
+  directory on `sys.path` before exec'ing the model, so a model can import helpers beside
+  it — which makes those helpers build inputs by design.
 - Membership is read from `sys.modules` **after the build**, so it records what was
   imported rather than what appears importable, and catches helpers imported lazily inside
   the factory.
 - The contract file is excluded. `contract_digest` already covers it, and a *source* closure
   that moved whenever a claim changed would answer a different question than its name.
-- **`partial` is unconditional here.** Python can import from anywhere on `sys.path`, read
-  data files at run time and load C extensions, none of which this sees.
+- **`partial` is unconditional here**, because `native_reads` always is. Python can import
+  from anywhere on `sys.path`, read data files at run time and load C extensions, none of
+  which this sees — measured: an audit hook watching `OCP.StlAPI_Reader().Read()` load an
+  STL saw zero `open` events.
+
+#### `imports` — the distributions the model loaded
+
+A contract that wraps a third-party library identifies none of the code that built the
+part: `scope` is the model's directory, and the library is not in it. The fleet-01 study
+that produced #190 recorded `files: 1` for a bin whose sixteen files of `cqgridfinity`
+did all the work, so every `diff` over it was permanently indeterminate and both agents
+wrote their own tree hash outside the tool.
+
+Each entry is keyed by **distribution** name where `identity` is `metadata`, and by
+**top-level module** name where it is `content` or `unidentified`, because a distribution
+is what carries a version and an unowned source tree has none.
+
+The map covers what was imported **after partspec was**, which excludes the tool itself
+and the interpreter's own scenery — `partspec` is already `tool.version` and would
+otherwise report an input moving on every part whenever the tool was edited, and
+`_virtualenv` records which program created the venv rather than anything a model reads.
+Everything a contract loads happens after that point, engines included: they import their
+CAD kernel lazily at build time.
+
+| `identity` | when | `digest` covers | `version` |
+| --- | --- | --- | --- |
+| `metadata` | every loaded file of that distribution is declared in its installer RECORD | the RECORD's own declared hashes, `path,hash` rows sorted by path | the distribution's |
+| `content` | a loaded file no RECORD declares — an editable install, a `sys.path` checkout, a package no installer wrote | the bytes of the package tree the import was loaded from, sorted content hashes as `digest` above, with `files` | `null` |
+| `unidentified` | `__file__ is None` and nothing under the name is identifiable | `null` | `null` |
+
+Rules a producer MUST follow:
+
+1. **`metadata` identity requires positive proof of ownership.** A distribution appears
+   with `identity: "metadata"` only because a file it declares was actually loaded.
+   Without that check the tier is vacuous where it matters most: an editable install's
+   RECORD lists only a `.pth` and a finder shim, so a material source edit left both the
+   version and the RECORD digest unmoved while the bytes that ran had changed.
+   Correspondingly, **a row that is not the distribution's code MUST NOT be proof**:
+   setuptools writes `__editable___<name>_finder.py` into site-packages and lists it, and
+   accepting it hands a `metadata` entry to a library nothing imported, with a digest over
+   a shim that embeds the checkout's absolute path.
+2. **Rows beginning `../` MUST be excluded from a `metadata` digest**, with `__editable__`
+   rows, `.pyc` rows and the `dist-info` metadata. Console-script shebangs embed the
+   venv's absolute path: unfiltered, numpy 2.5.2's digest differed across all five fleet
+   venvs and agreed across none. The rule is by location, not by kind, and so also drops
+   stable rows outside site-packages such as installed man pages — a reproducible digest
+   over slightly less is worth more than a complete one that differs per machine.
+3. **A `metadata` digest MUST cover every row of the distribution, not the imported
+   package's directory.** `cadquery_ocp.libs/` holds 69 vendored OCCT shared objects,
+   105 MB, beside the `OCP/` package rather than inside it, and `sys.modules` never names
+   it; the RECORD does, so a digest scoped to the distribution catches it and one scoped
+   to the imported directory silently does not.
+4. **An import that cannot be identified MUST still be listed.** A map that omits it reads
+   as an import that never happened.
+5. `identity: "metadata"` is the installer's word, taken deliberately (§7.1: digests are
+   comparison-based tamper *evidence*, not tamper-proofing). Ownership is decided by path,
+   so **a post-install edit to a file the RECORD declares does not move a `metadata`
+   digest** and does not demote the entry to `content`. Detecting it would mean hashing
+   every loaded file to compare against its declared hash, which is the cost this tier
+   exists to avoid. What rule 1 bounds is vacuity, not tampering.
+6. A `content` digest covers **the package tree the import was loaded from**. Where a
+   distribution's unit is wider than that tree — vendored shared objects in a sibling
+   directory, as in rule 3 — nothing outside RECORD can discover the association, so a
+   `content` entry MUST NOT be read as covering it. This is a stated bound rather than a
+   gap token because a Python-tier closure is `partial` unconditionally (`native_reads`),
+   so no reader may treat any of it as complete coverage.
+
+#### `unseen` — the gaps, by name
+
+A closed vocabulary. `partial` is derived from it: `partial == bool(unseen)`.
+
+| token | tier | class | meaning |
+| --- | --- | --- | --- |
+| `native_reads` | Python | irreducible | a C extension may read files Python cannot observe |
+| `unidentified_imports` | Python | bounded | an import with no `__file__`, listed in `imports` |
+| `external_data_reads` | OpenSCAD | bounded | `import()`/`surface()`/`import_stl()`/… in the closure |
+| `unresolved_includes` | OpenSCAD | bounded | named `include`/`use` targets not found |
+
+A **bounded** gap is one a run could in principle close; an **irreducible** one is a
+property of the tier and is present in every report that tier will ever write.
+
+**A consumer that meets a token it does not recognise MUST treat it as a bounded gap.**
+Closed vocabularies leak, and the failure must be closed: an older reader of a newer
+report goes inconclusive rather than silently ignoring a gap it does not understand. The
+same rule covers the field's absence — a closure missing `unseen` **or** `imports` was
+written before the question was asked, and MUST NOT be read as an answer to it.
 
 > **Reversed 2026-08-05.** This section previously specified that the Python engines emit no
 > closure at all, on the grounds that partial coverage would "assert coverage that does not
