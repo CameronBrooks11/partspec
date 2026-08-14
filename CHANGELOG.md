@@ -37,6 +37,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contract is wrong, not the part" classification and the report are
   unchanged. (#188)
 
+- **`measure --out` described the artifact and took a directory, so a filename
+  became a directory of that name.** `--out out/a.stl` created a *directory*
+  called `a.stl`, wrote `spacer.stl` inside it and exited 0 — silent success,
+  the one outcome this tool exists to refuse — while the same command against
+  a path that already existed as a file exited 4, so prior state decided what
+  the flag meant. An adoption agent hit it four times in a row.
+
+  A path ending in **`.stl`** — matched exactly, the one thing the OpenSCAD
+  tier writes — is now the artifact itself, and the mesh lands exactly there.
+  Every other path is the directory it has always been: an existing directory
+  whatever it is called, a path with a trailing separator
+  (`--out run.2026-08-13/`), any other suffix (`--out v1.2`), and `.STL`,
+  which partspec never writes and so is far likelier to be someone's input.
+  Gating on `.stl` rather than on "has a suffix" was found in review: while
+  any suffix counted, `--out models/spacer.scad` replaced the run's own source
+  with binary STL at exit 0, a worse defect than the one being fixed.
+
+  **The destination is written only once the build succeeds.** The engine runs
+  in a scratch directory beside it and the result is moved into place with
+  `os.replace`, so the file is the old one or the new one and never neither: a
+  failed build, a blown timeout or a Ctrl-C leaves what was already there.
+  (Directory mode still removes `DIR/<source>.stl` before the engine runs.
+  That is not defended as better here, only left alone: it is a path partspec
+  derived rather than one the caller typed, and it is pre-existing behaviour
+  this change does not reach.) Building in the scratch directory is also what
+  stops the export from overwriting a neighbour called `<source>.stl` on the
+  way. A symlink at the destination is replaced rather than written through,
+  so its target is untouched.
+
+  **A file destination is refused when partspec cannot account for every
+  input.** `import()` reads an `.stl`, which makes the suffix an input
+  extension as well as an output one, and a closure that reads external data
+  cannot say *which* file it reads (SPEC-report §8.3). Writing the artifact
+  over an input changes what the next run measures — measured on a model
+  importing its own destination: `[5, 5, 5]` reported at exit 0 for a part
+  that measures `[10, 10, 10]`, with the input destroyed. The test is the
+  closure's `partial`, not `reads_external_data` alone: a model with an
+  unresolved `include` cannot be read to find out whether *it* imports data
+  either. Refused (exit 64) rather than guessed at; a directory still works
+  and is what the hint recommends.
+
+  Likewise on the OCCT tier, which builds in memory and exports nothing: a
+  filename is refused rather than accepted and quietly not written. Both
+  refusals are artifacts — identity plus `error`/`hint` on stdout, as
+  SPEC-report's Scope requires of any failure after the target resolves.
+
+  `check --out` and `render --out` are unchanged: they hold several files, so
+  they remain directories.
+
+- **A closure claimed to be complete for models that read a file through any
+  spelling but `import()`.** `reads_external_data` matched `import(` and
+  `surface(` only, so `import_stl(`, `import_dxf(`, `import_off(`, the
+  deprecated `dxf_linear_extrude(`/`dxf_rotate_extrude(`/`dxf_dim(`/
+  `dxf_cross(`, and `linear_extrude(... file=)`/`rotate_extrude(... file=)`
+  all read data while the report said the closure was whole. OpenSCAD 2021.01
+  — what this tier targets, and what Debian and Ubuntu ship — still executes
+  every one of them. `source_closure.partial` is therefore now `true` for
+  models where it used to be `false`, which **changes report contents**: a
+  `diff` of two such reports will start declaring `partial_closure`
+  indeterminacy it previously missed. That is the honest answer to a question
+  the tool was getting wrong, and it is a correction rather than a new policy.
+  Found by an adversarial review of the `--out` fix above, which asks this
+  question before overwriting anything: `import_stl("input.stl")` walked
+  through the guard, and three consecutive runs ate their own input and
+  reported `[30,10,10]`, `[50,10,10]`, `[70,10,10]`, each at exit 0.
+
 ## [0.7.4] - 2026-08-13
 
 **A remedy that cannot be run is not a remedy.** One fix, found the way the last

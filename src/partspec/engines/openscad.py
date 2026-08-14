@@ -695,7 +695,31 @@ def _first_error_line(stderr: str) -> str | None:
 # --------------------------------------------------------------------------
 
 _INCLUDE_RE = re.compile(r"\b(?:include|use)\s*<([^>\n]*)>")
-_EXTERNAL_DATA_RE = re.compile(r"\b(?:import|surface)\s*\(")
+
+_EXTERNAL_DATA_RE = re.compile(
+    # Modules and functions whose NAME is the claim that a file is read.
+    r"\b(?:import_stl|import_dxf|import_off|import|surface"
+    r"|dxf_linear_extrude|dxf_rotate_extrude|dxf_dim|dxf_cross)\s*\("
+    # And the two whose name is not: an extrude reads a DXF only when it is
+    # given `file=`, and matching the bare name would fire on nearly every
+    # OpenSCAD model ever written.
+    r"|\b(?:linear_extrude|rotate_extrude)\s*\([^)]*\bfile\s*="
+)
+"""Every way an OpenSCAD source reads a data file, not just the modern two.
+
+`import()` was the whole pattern until an adversarial review of #187 found
+`import_stl(` walking through it: `\\s*\\(` demands the paren straight after
+`import`, and 2021.01 — the version this tier targets, and what Debian and
+Ubuntu ship — still executes the deprecated spelling, warning and all. Missing
+it made `reads_external_data` false for a file the render genuinely reads, so
+the closure claimed a completeness it did not have (SPEC-report §8.3), and the
+`measure --out` guard that asks this question was answered wrongly: three runs
+against `import_stl("input.stl")` ate their own input and reported
+`[30,10,10]`, `[50,10,10]`, `[70,10,10]`, each at exit 0.
+
+The deprecated `dxf_*` forms are matched by name because a file is all they
+take. `linear_extrude`/`rotate_extrude` are matched only with `file=`, since
+the overwhelming majority of their uses extrude a child and read nothing."""
 
 
 @dataclass(frozen=True, slots=True)

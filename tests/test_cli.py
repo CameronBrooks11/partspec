@@ -113,6 +113,283 @@ def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
 
 
 # --------------------------------------------------------------------------
+# measure --out (#187): the flag means what a reader passes
+# --------------------------------------------------------------------------
+
+
+@needs_scad_tier
+def test_measure_writes_the_artifact_at_the_filename_it_was_given(tmp_path: Path, capsys):
+    """An `.stl` path is honoured as the artifact.
+
+    Found by an adoption agent, four times in a row: `--out .../a.stl` made a
+    DIRECTORY called `a.stl` holding `block_with_hole.stl`, and exited 0. A
+    run that reports success having written something else, somewhere else,
+    is the silent success this tool is built to refuse.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    dest = tmp_path / "art" / "a.stl"
+    assert main(["measure", target, "--out", str(dest)]) == 0
+    assert dest.is_file(), "the path named a file, so the artifact is that file"
+    assert dest.stat().st_size > 0
+    assert list(dest.parent.iterdir()) == [dest], "and nothing else was left beside it"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_overwrites_a_path_that_already_exists_as_a_file(tmp_path: Path, capsys):
+    """The second case of #187: the same command exited 4 ("could not create
+    the output directory ...: File exists") purely because the path already
+    existed. Prior state decided what the flag meant; now the flag does."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    dest = tmp_path / "a.stl"
+    dest.write_text("stale")
+    assert main(["measure", target, "--out", str(dest)]) == 0
+    assert dest.is_file()
+    assert dest.read_bytes() != b"stale"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+@pytest.mark.parametrize(
+    "name",
+    [
+        "out",  # the documented shape
+        "run.2026-08-13",  # a dated directory is not a filename
+        "v1.2",  # nor a versioned one
+        "renders.d/",  # a trailing separator is directory intent, stated
+        "a.stl/",  # even when the name is one the engine could write
+        "UP.STL",  # partspec never writes this spelling, so it is not output
+    ],
+)
+def test_measure_out_takes_a_directory_unless_the_name_is_an_stl(tmp_path: Path, capsys, name: str):
+    """Only `.stl` — the one format the OpenSCAD tier exports — makes `--out`
+    a filename. "Any suffix" was the first attempt at #187 and it turned
+    `--out run.2026-08-13/` into a mesh FILE with that name: exit 0, wrong
+    noun, which is case 1 of the bug mirrored. A trailing separator settles it
+    outright, which is why the flag keeps the raw string rather than a Path.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    assert main(["measure", target, "--out", f"{tmp_path}/{name}"]) == 0
+    out = tmp_path / name
+    assert out.is_dir(), "a directory was asked for"
+    assert (out / "block_with_hole.stl").stat().st_size > 0
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_out_leaves_an_existing_directory_a_directory(tmp_path: Path, capsys):
+    """Whatever it is called. `--out a.stl` where `a.stl/` is already a
+    directory writes into it rather than trying to replace it."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    out = tmp_path / "a.stl"
+    out.mkdir()
+    assert main(["measure", target, "--out", str(out)]) == 0
+    assert (out / "block_with_hole.stl").stat().st_size > 0
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+@pytest.mark.parametrize("victim", ["block_with_hole.scad", "spec.py"])
+def test_measure_out_never_overwrites_a_path_the_engine_could_not_have_written(
+    tmp_path: Path, capsys, victim: str
+):
+    """The fix's own worst failure mode, caught in review before it shipped.
+
+    While `--out` honoured *any* suffix, `--out ds/spacer.scad` replaced the
+    run's own source with 13 KB of binary STL and exited 0 — printing a
+    complete, correct measurement payload for a part whose source no longer
+    existed. `--out ds/spec.py` did the same to the contract. One tab
+    completion in a models directory was the whole trigger. A name the engine
+    cannot produce is not a filename this flag understands, so it falls
+    through to the directory rule and is refused there, exactly as it was
+    before #187 was touched.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    dest = tmp_path / victim
+    before = dest.read_bytes()
+    assert main(["measure", target, "--out", str(dest)]) == exit_code(Verdict.ERROR)
+    assert dest.read_bytes() == before, "the source of the run is not an output path"
+    assert "File exists" in json.loads(capsys.readouterr().out)["error"]
+
+
+@needs_scad_tier
+def test_measure_out_does_not_overwrite_a_neighbour_of_the_file_it_was_given(
+    tmp_path: Path, capsys
+):
+    """The engine names its export after the source, so building straight into
+    the destination's directory would unlink the caller's own
+    `block_with_hole.stl` on the way to writing `a.stl`."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    neighbour = tmp_path / "art" / "block_with_hole.stl"
+    neighbour.parent.mkdir()
+    neighbour.write_text("mine")
+    assert main(["measure", target, "--out", str(neighbour.parent / "a.stl")]) == 0
+    assert neighbour.read_text() == "mine"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_out_leaves_the_destination_alone_when_the_build_fails(tmp_path: Path, capsys):
+    """Nothing touches the destination until there is an artifact for it.
+
+    A revision of this fix unlinked the destination up front, to match the
+    target unlink in `openscad.render`. Two things were wrong with that.
+    `notes/FINDINGS.md` W9 offers the unlink *or* a temp path moved into place
+    — this is the second, and the staleness W9 describes cannot arise here
+    anyway, since the build runs in a fresh scratch directory and the
+    measurement is read from there, never from `dest`. What the unlink did
+    reach was the caller's file: a blown timeout, a build error or a Ctrl-C
+    deleted it for nothing. `os.replace` gives the whole guarantee — the old
+    file or the new one, never neither, never half of one.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    dest = tmp_path / "a.stl"
+    assert main(["measure", target, "--out", str(dest)]) == 0
+    before = dest.read_bytes()
+    capsys.readouterr()
+
+    code = main(["measure", target, "--out", str(dest), "--timeout", "0.001"])
+    assert code == exit_code(Verdict.ERROR)
+    assert dest.read_bytes() == before, "a failed run may not consume the file it was given"
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".partspec-build-")]
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+@pytest.mark.parametrize("source", ["imports_data.scad", "imports_stl_data.scad"])
+def test_measure_out_refuses_a_file_when_the_model_reads_external_data(
+    tmp_path: Path, capsys, source: str
+):
+    """`.stl` is an input extension as well as an output one.
+
+    `import()` reads one, and SPEC-report §8.3 says so — those paths "genuinely
+    are build inputs", and may be computed at render time, so no static reader
+    can resolve them. Writing the artifact over one changes what the NEXT run
+    measures: with the destination consumed, the model built without its
+    import and reported a confident `[5, 5, 5]` for a part that measures
+    `[10, 10, 10]`, at exit 0. That is the defect #187 exists to abolish,
+    reached through its own fix.
+
+    Both spellings, because the first fix only closed one. `import_stl()` is
+    deprecated and 2021.01 still runs it, and the guard's `import(` pattern
+    demanded the paren straight after the name — so three consecutive runs of
+    the `import_stl` model ate their own input and answered `[30,10,10]`,
+    `[50,10,10]`, `[70,10,10]`, each at exit 0, with nothing on stderr.
+    """
+    (tmp_path / "input.stl").write_bytes(b"donor")
+    target = scad_target(tmp_path, source=source, claims="")
+    dest = tmp_path / "input.stl"
+    assert main(["measure", target, "--out", str(dest)]) == 64
+    assert dest.read_bytes() == b"donor", "an input is not an output path"
+    doc = json.loads(capsys.readouterr().out)
+    assert "reads external data" in doc["error"]
+    assert "input.stl" in doc["error"]
+    assert "pass a directory" in doc["hint"]
+
+
+@needs_scad_tier
+def test_measure_out_refuses_a_file_when_an_include_cannot_be_resolved(tmp_path: Path, capsys):
+    """A closure that cannot read one of its members cannot say what that
+    member imports either, so `partial` — not `reads_external_data` — is the
+    question this guard asks. Both are "there are inputs I cannot account
+    for", and only one of them is the whole of it."""
+    (tmp_path / "a.stl").write_bytes(b"mine")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "m.scad").write_text("include <nowhere/missing.scad>\ncube([2, 2, 2]);\n")
+    target = scad_target(tmp_path, source=tmp_path / "src" / "m.scad", claims="")
+    dest = tmp_path / "a.stl"
+    assert main(["measure", target, "--out", str(dest)]) == 64
+    assert dest.read_bytes() == b"mine"
+    doc = json.loads(capsys.readouterr().out)
+    assert "could not resolve" in doc["error"]
+    assert "nowhere/missing.scad" in doc["error"]
+
+
+@needs_scad_tier
+def test_measure_still_takes_a_directory_for_a_model_that_reads_external_data(
+    tmp_path: Path, capsys
+):
+    """The refusal is about the destination, not the model. A directory has a
+    derived name the caller did not type, so the ambiguity does not arise."""
+    (tmp_path / "input.stl").write_bytes(b"donor")
+    target = scad_target(tmp_path, source="imports_data.scad", claims="")
+    out = tmp_path / "out"
+    assert main(["measure", target, "--out", str(out)]) == 0
+    assert (out / "imports_data.stl").stat().st_size > 0
+    assert (tmp_path / "input.stl").read_bytes() == b"donor"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_out_replaces_a_symlink_rather_than_what_it_points_at(tmp_path: Path, capsys):
+    """`--out link.stl` is a statement about `link.stl`. Following the link
+    would write through to a file the caller did not name."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    pointee = tmp_path / "pointee.stl"
+    pointee.write_text("theirs")
+    link = tmp_path / "link.stl"
+    link.symlink_to(pointee)
+    assert main(["measure", target, "--out", str(link)]) == 0
+    assert not link.is_symlink(), "the link itself is what was named"
+    assert link.stat().st_size > 0
+    assert pointee.read_text() == "theirs"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_out_reports_a_destination_it_cannot_write(tmp_path: Path, capsys):
+    """The filesystem refusing is an environment fault, and it arrives as the
+    identity-prefixed artifact rather than as a traceback."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    try:
+        assert main(["measure", target, "--out", str(locked / "a.stl")]) == exit_code(Verdict.ERROR)
+    finally:
+        locked.chmod(0o700)
+    doc = json.loads(capsys.readouterr().out)
+    assert "could not write the build artifact" in doc["error"]
+    assert doc["geometry"] == {}
+
+
+@pytest.mark.parametrize(
+    ("engine", "model"),
+    [
+        ("build123d", "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n"),
+        (
+            "cadquery",
+            "import cadquery\n\n\ndef make_part():\n    return cadquery.Workplane().box(2, 1, 1)\n",
+        ),
+    ],
+)
+def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(
+    tmp_path: Path, capsys, engine: str, model: str
+):
+    """The OCCT tier builds in memory, on both its engines. Accepting a
+    filename there would exit 0 with nothing at the path the caller named —
+    the same silent success, one tier over — so the invocation is refused
+    before anything builds, and the refusal is an artifact (#47): SPEC-report
+    §Scope requires identity + `error`/`hint` on any failure after the target
+    resolves, and a machine passing `--out` is exactly who hits this one.
+    """
+    pytest.importorskip(engine, reason=f"{engine} extra not installed")
+    (tmp_path / "m.py").write_text(model)
+    module = tmp_path / "spec.py"
+    module.write_text(
+        f"from partspec import Part, {engine}\n\n\ndef make():\n"
+        f"    return Part('subject', {engine}('m.py'))\n"
+    )
+    dest = tmp_path / "a.stl"
+    assert main(["measure", f"{module}:make", "--out", str(dest)]) == 64
+    assert not dest.exists()
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["part"]["id"] == "subject", "the refusal says which part it refused"
+    assert "names a file" in doc["error"]
+    assert engine in doc["error"]
+    assert "drop --out" in doc["hint"]
+
+
+# --------------------------------------------------------------------------
 # measure — identity (#47): as identifiable as a report
 # --------------------------------------------------------------------------
 
@@ -598,6 +875,33 @@ def test_a_contract_calling_sys_exit_still_says_where(tmp_path: Path, capsys):
     err = capsys.readouterr().err
     assert "sys.exit(0)" in err and "SystemExit" in err
     assert SOURCE_ROOT not in err
+
+
+@needs_scad_tier
+def test_a_contract_that_raises_under_measure_out_prints_only_the_traceback(tmp_path: Path, capsys):
+    """Where #188's filtering and #187's `--out` meet, which is nowhere.
+
+    Both landed in `measure`'s path in the same week, one printing tracebacks
+    and one printing a JSON failure artifact, and neither had been run against
+    the other. They cannot collide: the traceback belongs to a target that
+    never resolved, and SPEC-report's Scope gives that case stderr and an exit
+    code only — there is no identity to emit and no `--out` yet to honour. So
+    the assertion is that each stays on its own side, and that a `--out` file
+    named by a run that never built is not created.
+    """
+    target = _raising_contract(
+        tmp_path,
+        "    from partspec.status import ContractError\n\n"
+        "    raise ContractError('the bore diameter is not declared')\n",
+    )
+    dest = tmp_path / "a.stl"
+    assert main(["measure", target, "--out", str(dest)]) == exit_code(Verdict.ERROR)
+    captured = capsys.readouterr()
+    assert _markers(captured.err), "the filtered traceback is intact"
+    assert "ContractError: the bore diameter is not declared" in captured.err
+    assert SOURCE_ROOT not in captured.err
+    assert captured.out == "", "an unresolved target has no identity to print"
+    assert not dest.exists(), "and nothing was written where it never got to build"
 
 
 def test_render_on_the_occt_tier_from_the_same_verb(tmp_path: Path, capsys):
