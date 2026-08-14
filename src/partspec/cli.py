@@ -237,10 +237,15 @@ _SOURCE_ROOT = Path(__file__).resolve().parent
 
 def _is_partspec_frame(frame: traceback.FrameSummary) -> bool:
     if frame.filename.startswith("<"):
-        # `<string>` is a dataclass-generated `__init__`, `<frozen ...>` the
-        # import machinery: partspec's implementation under another name, and
-        # a frame with no source line to show either way. A contract always
-        # has a real path — the loader imports it from a file.
+        # `<string>` is usually a dataclass-generated `__init__` and
+        # `<frozen ...>` the import machinery — partspec's implementation
+        # under another name, with no source line to show. A contract MODULE
+        # always has a real path (the loader imports it from a file), but code
+        # the contract itself compiles does not, so this also hides frames
+        # that are the reader's. They are counted in the marker, and where the
+        # exception is not partspec's own they take the whole stack
+        # unfiltered: the conservative side of a distinction the frame does
+        # not carry.
         return True
     return Path(frame.filename).resolve().is_relative_to(_SOURCE_ROOT)
 
@@ -260,9 +265,9 @@ def _print_contract_traceback(exc: BaseException) -> None:
     deep is genuinely where the failure happened.
 
     What survives is printed *contiguously*, so every gap carries a
-    `[N partspec frames hidden]` marker. Without it the reprint reads as a
-    direct call chain that never happened, and the reader most likely to be
-    misled is an agent parsing it.
+    `[N frames hidden]` marker. Without it the reprint reads as a direct call
+    chain that never happened, and the reader most likely to be misled is an
+    agent parsing it.
 
     Four cases print the whole thing unfiltered, because a filter that hides a
     partspec bug is the silence this tool exists to refuse:
@@ -318,13 +323,25 @@ def _print_contract_traceback(exc: BaseException) -> None:
 
     out = ["Traceback (most recent call last):\n"]
     hidden = 0
+    # Surviving frames are formatted in RUNS, never one at a time:
+    # `[Previous line repeated N more times]` is something `format_list`
+    # can only see across a list, and formatting frame by frame deletes it.
+    # A recursive contract printed 1995 stderr lines that way against 20
+    # collapsed ones — a 125x amplification out of a change whose whole
+    # purpose is removing six lines of noise, and it would reach the MCP
+    # adapter as a stderr tail (`mcp.py`) holding nothing but identical
+    # frames.
+    run: list[traceback.FrameSummary] = []
     for frame in frames:
         if _is_partspec_frame(frame):
+            out.extend(traceback.format_list(run))
+            run = []
             hidden += 1
             continue
         out.append(_hidden_marker(hidden))
         hidden = 0
-        out.extend(traceback.format_list([frame]))
+        run.append(frame)
+    out.extend(traceback.format_list(run))
     out.append(_hidden_marker(hidden))
     out.extend(traceback.format_exception_only(exc))
     sys.stderr.write("".join(out))
@@ -333,7 +350,10 @@ def _print_contract_traceback(exc: BaseException) -> None:
 def _hidden_marker(hidden: int) -> str:
     if hidden == 0:
         return ""
-    return f"  [{hidden} partspec frame{'s' if hidden > 1 else ''} hidden]\n"
+    # Not "partspec frames": a `<string>` frame the CONTRACT generated is
+    # hidden by the same rule, and the count would be honest while the word
+    # was not.
+    return f"  [{hidden} frame{'s' if hidden > 1 else ''} hidden]\n"
 
 
 def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:

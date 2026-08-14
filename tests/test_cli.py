@@ -350,16 +350,18 @@ traceback, asserted by path rather than by module name so a message that
 merely mentions `cli.py` cannot pass for a frame."""
 
 
-def _markers_around(err: str, position: int) -> tuple[list[int], list[int]]:
-    """The `[N partspec frames hidden]` counts before and after `position`.
+def _markers(err: str) -> list[tuple[int, int]]:
+    """Every `[N frames hidden]` marker as `(position, count)`, in order.
 
-    Counts rather than literal strings, and split by where they sit, because
-    the claim is "every gap is announced where it is" — not how deep partspec's
-    own call path happens to be this week.
+    Counts and positions rather than literal strings, because the claim is
+    "every gap is announced where it is" — not how deep partspec's own call
+    path happens to be this week.
     """
-    found = [
-        (m.start(), int(m.group(1))) for m in re.finditer(r"\[(\d+) partspec frames? hidden\]", err)
-    ]
+    return [(m.start(), int(m.group(1))) for m in re.finditer(r"\[(\d+) frames? hidden\]", err)]
+
+
+def _markers_around(err: str, position: int) -> tuple[list[int], list[int]]:
+    found = _markers(err)
     return ([n for at, n in found if at < position], [n for at, n in found if at > position])
 
 
@@ -524,6 +526,66 @@ def test_a_chained_failure_keeps_its_chain(tmp_path: Path, capsys):
     assert "could not convert string to float" in err, "the cause survives"
     assert "direct cause" in err
     assert "ContractError: wall_mm must be a number" in err
+
+
+def test_a_chain_the_contract_suppressed_stays_suppressed(tmp_path: Path, capsys):
+    """`raise ... from None` is an author saying the cause is not the reader's
+    business, and `__suppress_context__` is how they said it. That is not a
+    chain, so it filters like any other single exception."""
+    target = _raising_contract(
+        tmp_path,
+        "    try:\n        float('not a number')\n"
+        "    except ValueError:\n"
+        "        from partspec.status import ContractError\n\n"
+        "        raise ContractError('wall_mm must be a number') from None\n",
+    )
+    assert main(["check", target, "--out", str(tmp_path / "out")]) == exit_code(Verdict.ERROR)
+    err = capsys.readouterr().err
+    assert "could not convert string to float" not in err, "the author suppressed the cause"
+    assert "During handling" not in err and "direct cause" not in err
+    assert "raise ContractError" in err, "the contract's own line still says where"
+    assert SOURCE_ROOT not in err, "and it is filtered like any other single exception"
+
+
+def test_a_recursive_contract_keeps_the_repeated_frame_collapse(tmp_path: Path, capsys):
+    """`[Previous line repeated N more times]` is something `format_list` can
+    only see across a LIST of frames, so formatting the survivors one at a time
+    deleted it: 1995 stderr lines where the unfiltered traceback printed 20. A
+    125x amplification out of a change whose purpose is removing six lines —
+    and `mcp.py`'s stderr tail would carry nothing but identical frames."""
+    target = _raising_contract(
+        tmp_path, "    def down(n):\n        return down(n + 1)\n\n    down(0)\n"
+    )
+    assert main(["check", target, "--out", str(tmp_path / "out")]) == exit_code(Verdict.ERROR)
+    err = capsys.readouterr().err
+    assert "[Previous line repeated" in err, "the collapse survives filtering"
+    assert "RecursionError" in err
+    assert err.count("\n") < 60, "a thousand identical frames are not a diagnosis"
+
+
+def test_a_gap_between_two_kept_frames_is_announced_too(tmp_path: Path, capsys):
+    """The interleaved shape, which one gap before and one gap after cannot
+    pin: partspec's `openscad()` calls `pathlib`, which calls back into the
+    contract's own `__fspath__`. The contract's two frames are kept with a
+    marker BETWEEN them, and the stdlib frame in the middle is kept as any
+    third party's would be."""
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\nfrom partspec.status import ContractError\n\n\n"
+        "class Bad:\n    def __fspath__(self) -> str:\n"
+        "        raise ContractError('the source path is not decided yet')\n\n\n"
+        "def make() -> Part:\n    return Part('x', openscad(Bad()))\n"
+    )
+    assert main(["check", f"{spec}:make", "--out", str(tmp_path / "out")]) == exit_code(
+        Verdict.ERROR
+    )
+    err = capsys.readouterr().err
+    assert "pathlib" in err, "the stdlib frame between them is not partspec's to hide"
+    assert "in make" in err and "in __fspath__" in err, "both contract frames survive"
+    markers = _markers(err)
+    assert len(markers) == 2, "one marker per gap, and the second is not at either end"
+    assert markers[0][0] < err.index("in make") < markers[1][0] < err.index("pathlib")
+    assert SOURCE_ROOT not in err
 
 
 def test_a_contract_calling_sys_exit_still_says_where(tmp_path: Path, capsys):

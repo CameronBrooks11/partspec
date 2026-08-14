@@ -18,8 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says *where*; partspec's frames are dropped from it. Frames from a library
   the contract called are kept — a CadQuery operation that raised four calls
   deep is where the failure happened. Every gap left by a dropped frame carries
-  a `[N partspec frames hidden]` marker, so the reprint cannot be read as a
-  call chain that never happened. Four cases still print unfiltered, because a
+  a `[N frames hidden]` marker, so the reprint cannot be read as a call chain
+  that never happened, and surviving frames are formatted in runs so CPython's
+  `[Previous line repeated N more times]` collapse survives — formatting them
+  one at a time turned a recursive contract's 20-line traceback into 1995
+  lines. Four cases still print unfiltered, because a
   filter that hides a partspec bug is the silence this tool exists to refuse: a
   stack with no contract frame at all; a non-partspec exception with a partspec
   frame *inside* the failure rather than merely on the way to the contract (an
