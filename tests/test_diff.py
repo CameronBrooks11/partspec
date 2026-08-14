@@ -267,9 +267,12 @@ def test_a_package_that_appeared_is_not_reported_as_a_version_move():
     explains nothing on its own. Folding them into one list would leave the
     reader to work out which had happened, which is the work the field exists
     to remove.
+
+    Two 0.7.5-shaped reports, because an appearance against a baseline that
+    predates the field's widening is a third thing and is reported as one.
     """
-    old = _with_packages(_doc(), {"trimesh": "5.0.0", "vtk": "9.6.2"})
-    new = _with_packages(_doc(), {"trimesh": "5.0.0", "shapely": "2.1.2"})
+    old = _with_packages(_python_doc(), {"trimesh": "5.0.0", "vtk": "9.6.2"})
+    new = _with_packages(_python_doc(), {"trimesh": "5.0.0", "shapely": "2.1.2"})
 
     packages = _diff(old, new)["environment"]["packages"]
     assert packages["changed"] == {}
@@ -1157,8 +1160,10 @@ def test_a_pre_0_7_5_report_diffs_exactly_as_it_did_before(closure: dict, outcom
     assert doc["outcome"] == outcome
     assert exit_code_of(doc["outcome"]) == (0 if outcome == "identical" else 2)
     # A pre-0.7.5 pair also gets the output it got before: no coverage block
-    # is invented for a report that never recorded coverage.
-    assert summary_of(doc).splitlines()[0] == summary_of(doc)
+    # is invented for a report that never recorded coverage. The remedy is the
+    # one line added under the headline, and only where there is one to name.
+    trailing = summary_of(doc).splitlines()[1:]
+    assert all(line.startswith("  remedy: ") for line in trailing), trailing
 
 
 def test_a_pre_0_7_5_pair_whose_closure_moved_gets_no_orphaned_line():
@@ -1180,13 +1185,95 @@ def test_a_pre_0_7_5_pair_whose_closure_moved_gets_no_orphaned_line():
 
 def test_the_message_for_a_pre_0_7_5_baseline_names_the_remedy():
     """Message (f): what a user upgrading sees, and why re-recording the
-    baseline is the fix rather than a flag."""
+    baseline is the fix rather than a flag.
+
+    Named in the output and in the artifact, not only in the specs: three
+    documents and a comment said this comparison "names re-recording the
+    baseline as the fix" while the code printed the cause and stopped, on the
+    one exit 2 every upgrading user meets.
+    """
     doc = _diff(_legacy(dict(LEGACY_PYTHON)), _python_doc())
     assert doc["indeterminate"][0]["reason"] == (
         "no differences found, but the old report was written before partspec recorded "
         f"imports (0.7.4 or earlier): its source identity covers one directory, so {SENTENCE}"
     )
+    assert doc["indeterminate"][0]["remedy"] == (
+        "re-record the baseline with this version — run `partspec check` over the old side "
+        "again and keep that report — so both sides carry an import map"
+    )
+    assert summary_of(doc).splitlines()[1] == (
+        "  remedy: re-record the baseline with this version — run `partspec check` over "
+        "the old side again and keep that report — so both sides carry an import map"
+    )
     assert doc["source"]["imports"]["uncomparable"].startswith("no source_closure.imports map")
+
+
+def test_a_gap_with_no_remedy_is_not_given_one():
+    """An invented remedy is worse than none: it sends a reader to do work
+    that cannot help, which is what naming the cause alone already did. A
+    namespace package has no file to hash and no partspec option closes it."""
+    imports = {"shims": _unidentified()}
+    unseen = ["native_reads", "unidentified_imports"]
+    doc = _diff(_python_doc(imports, unseen), _python_doc(imports, unseen))
+
+    assert doc["outcome"] == "indeterminate"
+    assert "remedy" not in doc["indeterminate"][0]
+    assert "remedy:" not in summary_of(doc)
+
+
+def test_the_widened_packages_field_is_not_reported_as_installations():
+    """`SPEC-diff.md` §3 and the #211 entry both say "nothing was installed;
+    re-record the baseline to clear it" — and the tool said `packages
+    appeared: PyJWT 2.13.0, PyYAML 6.0.3, +107 more`, on the first diff after
+    an upgrade. It can tell: the old report's closure carries no `imports`,
+    which is the same signal `_gap_tokens` reads to date a report.
+    """
+    old = _with_packages(_legacy(dict(LEGACY_SCAD_COMPLETE)), {"trimesh": "4.0.0"})
+    new = _with_packages(_python_doc(), {"trimesh": "4.0.0", "PyJWT": "2.13.0", "PyYAML": "6.0.3"})
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical", "a widened record is not a finding about the part"
+    assert exit_code_of(doc["outcome"]) == 0
+    assert doc["environment"]["packages"]["added"] == {"PyJWT": "2.13.0", "PyYAML": "6.0.3"}, (
+        "the group is unchanged — the artifact loses nothing"
+    )
+    assert doc["environment"]["packages"]["first_recorded"] == ["PyJWT", "PyYAML"]
+
+    summary = summary_of(doc)
+    assert "packages appeared" not in summary, f"a widened record read as an install: {summary}"
+    assert (
+        "2 packages recorded for the first time: PyJWT 2.13.0, PyYAML 6.0.3 — the baseline "
+        "predates 0.7.5, when this field held five engine names; nothing was installed, and "
+        "re-recording the baseline clears it"
+    ) in summary
+
+
+def test_a_package_the_old_field_did_record_still_appears():
+    """The split is why the widening is nameable at all. The pre-0.7.5 field
+    held five engine names, so those five it could record — `trimesh` absent
+    from an old report means it genuinely was not installed, and calling that
+    a first recording would misname a real install on the same line."""
+    old = _with_packages(_legacy(dict(LEGACY_SCAD_COMPLETE)), {"cadquery": "2.8.0"})
+    new = _with_packages(_python_doc(), {"cadquery": "2.8.0", "trimesh": "4.0.0", "idna": "3.11"})
+
+    doc = _diff(old, new)
+    assert doc["environment"]["packages"]["first_recorded"] == ["idna"]
+    summary = summary_of(doc)
+    assert "packages appeared: trimesh 4.0.0" in summary
+    assert "1 packages recorded for the first time: idna 3.11" in summary
+
+
+def test_a_0_7_5_baseline_reports_an_install_as_an_install():
+    """The qualification is bounded by the baseline's age, not by the group.
+    Two 0.7.5 reports get v0.7.5's wording, because there the appearance is
+    exactly what it says."""
+    old = _with_packages(_python_doc(), {"cadquery": "2.8.0"})
+    new = _with_packages(_python_doc(), {"cadquery": "2.8.0", "idna": "3.11"})
+
+    doc = _diff(old, new)
+    assert doc["environment"]["packages"]["first_recorded"] == []
+    assert "packages appeared: idna 3.11" in summary_of(doc)
+    assert "recorded for the first time" not in summary_of(doc)
 
 
 def test_an_openscad_model_reading_external_data_keeps_its_message():

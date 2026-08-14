@@ -199,6 +199,32 @@ vocabularies leak, and an older reader of a newer report must go inconclusive
 rather than silently ignore a gap it cannot name.
 """
 
+_GAP_REMEDIES = {
+    "imports_not_recorded": (
+        "re-record the baseline with this version — run `partspec check` over the old "
+        "side again and keep that report — so both sides carry an import map"
+    ),
+}
+"""What a reader can actually DO about a bounded gap, where anything can be.
+
+`SPEC-diff.md` §2 rule 3 says this comparison "names re-recording the baseline
+as the fix"; through v0.7.4 it named the cause and stopped, in the output and
+in the artifact alike, and this is the one exit 2 that every upgrading user
+meets. Two releases in a row were about exactly that gap — naming a fault and
+withholding its remedy — which is why the remedy travels with the token
+instead of being appended to a sentence: the gap phrase ends where the caller
+chains its own `so` clause (`SPEC-diff.md` §2 rule 3 fixes that sentence
+verbatim), so a remedy spliced in there would read as the consequence of the
+remedy rather than of the gap.
+
+Most tokens are deliberately absent. `native_reads` is irreducible;
+`unidentified_imports` is a property of how a package is distributed and no
+partspec option closes it; `malformed_closure` and `unnamed_partial` are
+reports that violate §8.3, whose fix is not a step this tool can name. An
+invented remedy is worse than none — it sends a reader to do work that cannot
+help, which is what the `imports_not_recorded` cause alone already did.
+"""
+
 
 def _gap_tokens(closure: dict[str, Any]) -> set[str]:
     """The gaps a closure names, synthesising them for pre-0.7.5 reports.
@@ -551,6 +577,7 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
             "digest_changed": None,
             "imports": imports,
             "unseen": {"irreducible": {}, "bounded": {}},
+            "remedies": [],
             "covered": None,
         }
 
@@ -594,6 +621,10 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
         "digest_changed": digest_moved,
         "imports": imports,
         "unseen": {"irreducible": irreducible, "bounded": bounded},
+        # Only for the gaps that HAVE one, and only for the gaps that blocked:
+        # a remedy printed under a caveat that reached no verdict is work
+        # suggested for a state nobody has to act on.
+        "remedies": [_GAP_REMEDIES[token] for token in bounded if token in _GAP_REMEDIES],
         # Only where a side knows what coverage means, so two pre-0.7.5
         # reports reach the same outcome and exit code with no coverage block
         # invented for them.
@@ -611,7 +642,51 @@ def _packages_of(environment: Any) -> dict[str, Any] | None:
     return packages if isinstance(packages, dict) else None
 
 
-def _packages_delta(old_env: Any, new_env: Any) -> dict[str, Any] | None:
+_LEGACY_PACKAGES = frozenset({"build123d", "cadquery", "cadquery-ocp", "trimesh", "manifold3d"})
+"""What `environment.packages` held before #211 widened it to every install.
+
+Kept as data because it is the only thing that tells the two halves of an
+`added` group apart on the first comparison after an upgrade: a name outside
+this set is one the old field COULD NOT have recorded whatever was installed,
+while one inside it was genuinely absent from that environment. Reporting all
+of them as "recorded for the first time" would misname the second kind —
+`trimesh` installed since the baseline is a real appearance, and the whole
+point of the split is that a reader can act on the difference.
+"""
+
+
+def _first_recorded(added: dict[str, Any], old_predates_widening: bool) -> list[str]:
+    """The `added` names that are the field widening rather than an install.
+
+    `SPEC-diff.md` §3 and the #211 changelog entry both say of this case
+    "nothing was installed; re-record the baseline to clear it", and the
+    comparator said `packages appeared: PyJWT 2.13.0, PyYAML 6.0.3, +107 more`
+    — 109 positive findings, on the first diff every upgrading user runs. It
+    could always tell: an old report whose closure carries no `imports` was
+    written before 0.7.5, which `_gap_tokens` already reads for the Python
+    tier, and this reads it for both because the widening was not tier-bound.
+    """
+    if not old_predates_widening:
+        return []
+    return [name for name in added if name not in _LEGACY_PACKAGES]
+
+
+def _predates_imports(report: dict[str, Any]) -> bool:
+    """Whether this report was written before 0.7.5 recorded `imports`.
+
+    Structural rather than a `tool.version` comparison: SPEC-report §8.3
+    already rules that a closure with no `imports` was written before the
+    question was asked, and a version string is a claim the report makes about
+    itself while the missing field is the evidence. A report carrying no
+    closure at all cannot be dated this way, and is not claimed to be.
+    """
+    closure = report.get("part", {}).get("source_closure")
+    return isinstance(closure, dict) and "imports" not in closure
+
+
+def _packages_delta(
+    old_env: Any, new_env: Any, *, old_predates_widening: bool = False
+) -> dict[str, Any] | None:
     """Compare `environment.packages` — the field SPEC-report §8 rule 2 says in
     bold MUST NOT be excluded, and which this comparator excluded entirely.
 
@@ -632,6 +707,11 @@ def _packages_delta(old_env: Any, new_env: Any) -> dict[str, Any] | None:
     which are reported only when they changed. When a side carries no usable
     map the result is NOT None: an omission would read as "no package moved",
     which is a claim this comparison did not make.
+
+    `old_predates_widening` splits `first_recorded` out of `added` — the names
+    the pre-0.7.5 five-name field could never have carried. They stay in
+    `added`, because they are installed on one side only and that is what the
+    group means; what they are not is an installation, and the summary says so.
     """
     old_packages, new_packages = _packages_of(old_env), _packages_of(new_env)
     if old_packages is None or new_packages is None:
@@ -654,7 +734,12 @@ def _packages_delta(old_env: Any, new_env: Any) -> dict[str, Any] | None:
     removed = {name: v for name, v in sorted(old_packages.items()) if name not in new_packages}
     if not (changed or added or removed):
         return None
-    return {"changed": changed, "added": added, "removed": removed}
+    return {
+        "changed": changed,
+        "added": added,
+        "removed": removed,
+        "first_recorded": _first_recorded(added, old_predates_widening),
+    }
 
 
 def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str) -> dict[str, Any]:
@@ -858,6 +943,11 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 ),
             }
         )
+        # A separate key, not more prose: the reason ends in a sentence §2
+        # rule 3 fixes verbatim, and a consumer that acts on this needs the
+        # step by itself rather than by parsing it back out of a paragraph.
+        if closure["remedies"]:
+            indeterminate[-1]["remedy"] = "; ".join(closure["remedies"])
         outcome = "indeterminate"
     else:
         outcome = "identical"
@@ -879,7 +969,11 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         if old_value != new_value:
             environment[key] = {"old": old_value, "new": new_value}
 
-    packages = _packages_delta(old.get("environment"), new.get("environment"))
+    packages = _packages_delta(
+        old.get("environment"),
+        new.get("environment"),
+        old_predates_widening=_predates_imports(old),
+    )
     if packages is not None:
         environment["packages"] = packages
 
@@ -1020,6 +1114,15 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     matching them by name alone dropped `packages moved: numpy 1.0.0 → 2.0.0`
     from the line entirely, which v0.7.4 printed. The artifact keeps both
     maps whole either way; this is the courtesy line, not the evidence.
+
+    A name the pre-0.7.5 field could not have carried is reported as the
+    record widening, with its remedy, and never as a package that appeared.
+    Measured on the first diff an upgrading OpenSCAD-tier user runs:
+    `identical: example-spacer — no semantic differences; packages appeared:
+    PyJWT 2.13.0, PyYAML 6.0.3, +107 more` at exit 0 — 109 installations
+    reported, none of which happened, while both `SPEC-diff.md` §3 and the
+    #211 entry said "nothing was installed; re-record the baseline to clear
+    it".
     """
     packages = doc.get("environment", {}).get("packages")
     if not packages:
@@ -1027,6 +1130,7 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     if "uncomparable" in packages:
         return f"; packages not compared: {packages['uncomparable']}"
     already_moved = set(_imports_groups(doc).get("changed", {}))
+    first_recorded = set(packages.get("first_recorded") or ())
 
     clauses = []
     if moved := [
@@ -1036,8 +1140,14 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     ]:
         clauses.append(f"packages moved: {_bounded(moved)}")
     for group, verb in (("added", "appeared"), ("removed", "disappeared")):
-        if listed := [f"{n} {v}" for n, v in packages[group].items()]:
+        if listed := [f"{n} {v}" for n, v in packages[group].items() if n not in first_recorded]:
             clauses.append(f"packages {verb}: {_bounded(listed)}")
+    if widened := [f"{n} {v}" for n, v in packages["added"].items() if n in first_recorded]:
+        clauses.append(
+            f"{len(widened)} packages recorded for the first time: {_bounded(widened)} — the "
+            "baseline predates 0.7.5, when this field held five engine names; nothing was "
+            "installed, and re-recording the baseline clears it"
+        )
     return ("; " + "; ".join(clauses)) if clauses else ""
 
 
@@ -1102,4 +1212,9 @@ def summary_of(doc: dict[str, Any]) -> str:
             if n:
                 parts.append(f"{n} {change}")
         headline = f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}{moved}"
-    return "\n".join([headline, *_coverage_lines(doc)])
+    # Above the coverage block, because it is the one line the reader can act
+    # on: `check`'s own diagnostics put `hint:` directly under the fault for
+    # the same reason (v0.7.3), and this verb was still stating a cause and
+    # stopping.
+    remedies = [f"  remedy: {e['remedy']}" for e in doc["indeterminate"] if e.get("remedy")]
+    return "\n".join([headline, *remedies, *_coverage_lines(doc)])

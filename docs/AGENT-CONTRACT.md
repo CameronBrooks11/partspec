@@ -172,7 +172,13 @@ pinned part from the invocation — from where you sit these are indistinguishab
   its diff is the confession in your PR — treat running `--pin` as requiring the same
   human sign-off as the contract edit itself;
 - `partspec diff old/report.json new/report.json` reports `removed` and `limit_changed`
-  on comparison, including a stripped citation;
+  on comparison, including a stripped citation. The **first** comparison against a
+  baseline recorded before v0.7.5 is a migration, not a finding about the part: a Python
+  baseline is `indeterminate` at exit 2 because it carries no import map, and either tier
+  reports the widened `environment.packages` as names recorded for the first time. Both
+  name the same remedy — re-record the baseline (`indeterminate[].remedy`,
+  `environment.packages.first_recorded`) — and it is one step, not a per-run condition to
+  tolerate;
 - the run-level `attribution` block discloses when every dimensional limit is
   unattributed — bounds derived from the model's own numbers prove the model matches
   itself; take limits from `partspec.refs` (`iso15`, `nema17`) or the drawing.

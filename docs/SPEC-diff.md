@@ -142,7 +142,15 @@ Rules:
    **Migration.** A closure carrying no `unseen` predates 0.7.5. Where the field could have
    carried an answer — a Python closure, `scope: "model_directory"` — `diff` synthesises the
    bounded gap `imports_not_recorded`, which reproduces that report's existing exit 2 and
-   names re-recording the baseline as the fix. A pre-0.7.5 **OpenSCAD** closure is
+   names re-recording the baseline as the fix. **Naming it is a MUST, in the artifact and
+   in the output**: a bounded gap that has a remedy carries it on the `indeterminate`
+   entry as `remedy`, printed as its own line directly under the headline, because the
+   `reason` ends in a sentence this rule fixes verbatim and a step spliced into that
+   sentence would read as its consequence. Through v0.7.4 this comparison stated the cause
+   and stopped — on the one exit `2` every upgrading user meets — while this document, the
+   changelog, the code's own comment and its test all said the remedy was named. A gap with
+   no remedy MUST NOT be given one: `unidentified_imports` is a property of how a package is
+   distributed, and inventing a step sends a reader to do work that cannot help. A pre-0.7.5 **OpenSCAD** closure is
    classified from the legacy fields instead (`unresolved` → `unresolved_includes`,
    `reads_external_data` → `external_data_reads`, and a bare `partial: true` →
    `unnamed_partial`), because a complete one has no gap and flipping it to exit 2 on
@@ -237,10 +245,19 @@ Reporting both under one heading would leave the reader to separate them by hand
 `SPEC-report.md` §8 rule 2 says in bold that this field MUST NOT be excluded from
 comparison; through v0.7.4 this comparator excluded it entirely (#211).
 
-**The first comparison against a pre-v0.7.5 baseline reports appearances, not
+**The first comparison against a pre-v0.7.5 baseline MUST NOT report the widening as
 installations.** The old field held at most five engine names, so every other installed
-distribution is `added` against it. Nothing was installed; the recorded surface widened.
-Re-record the baseline to clear it — the same one-time step an upgrade already asks for.
+distribution is `added` against it. Nothing was installed; the recorded surface widened,
+and the summary says that in those words with its remedy — re-record the baseline, the
+same one-time step an upgrade already asks for. The names are listed in
+`environment.packages.first_recorded`, and they stay in `added`, which is what that group
+means. The split is by name against the old five: `trimesh` absent from a pre-0.7.5 report
+genuinely was not installed, so it is an appearance and is reported as one on the same
+line. Through v0.7.4 the whole group printed as `packages appeared: PyJWT 2.13.0, PyYAML
+6.0.3, +107 more` — 109 installations reported, none of which happened — while this
+paragraph already said what had actually occurred. An old report is dated by its closure
+carrying no `imports` (`SPEC-report.md` §8.3), the same evidence rule 3 above reads, and
+never by parsing `tool.version`.
 
 When a side carries no usable `packages` map the artifact says so — `environment.packages`
 becomes `{ "uncomparable": "…" }` — rather than omitting the key. An omission is
@@ -255,7 +272,9 @@ It does not change the outcome: an old report that predates the field still diff
   "tool": { "name": "partspec-diff", "version": "0.2.0" },
   "part": "example-spacer",
   "outcome": "different",           // identical | different | indeterminate
-  "indeterminate": [],              // {code, reason} entries when indeterminate; codes are
+  "indeterminate": [],              // {code, reason[, remedy]} entries when indeterminate;
+                                    // `remedy` is present only where the gap has one, and
+                                    // is printed under the headline; codes are
                                     // machine-readable: "input_error" | "partial_closure",
                                     // so CI can tolerate one narrowly instead of tolerating
                                     // exit 2 wholesale. `partial_closure` now covers only
@@ -312,7 +331,10 @@ It does not change the outcome: an old report that predates the field still diff
                                      // absent when both sides carry the same map
       "changed": { "trimesh": { "old": "5.0.0", "new": "5.1.0" } },   // a version moved
       "added":   { "shapely": "2.1.2" },   // installed on the new side only
-      "removed": {}                        // installed on the old side only
+      "removed": {},                       // installed on the old side only
+      "first_recorded": []                 // names in `added` the pre-0.7.5 five-name
+                                           // field could not have carried: the record
+                                           // widening, never an install
     }
   }
 }

@@ -130,6 +130,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two migration diagnostics stated a fault and withheld the remedy their
+  own specs promised.** `SPEC-diff.md` §2 rule 3 said this comparison "names
+  re-recording the baseline as the fix", the #190 stage-3 entry below said it
+  "keeps returning exit 2 with the remedy named", and `diff.py`'s comment and
+  its test said it too — while the run printed the cause and stopped:
+  *"indeterminate: … the old report was written before partspec recorded
+  imports (0.7.4 or earlier): its source identity covers one directory, so
+  nothing this diff can see changed…"*, with no remedy in the output or the
+  artifact. That is the only exit 2 an upgrading user hits. A bounded gap that
+  has a remedy now carries it on the `indeterminate` entry as `remedy` and
+  prints it as its own line under the headline — its own field because the
+  `reason` ends in a sentence §2 rule 3 fixes verbatim, so a step spliced in
+  there would read as the consequence of the step. A gap with no remedy is
+  not given one: `unidentified_imports` is a property of how a package is
+  distributed, and an invented remedy sends a reader to do work that cannot
+  help, which is what the bare cause already did. Second, the
+  `environment.packages` widening printed as a positive finding: the first
+  diff after an upgrade said *"identical: example-spacer — no semantic
+  differences; packages appeared: PyJWT 2.13.0, PyYAML 6.0.3, +107 more"* at
+  exit 0 — 109 installations reported, none of which happened — while
+  `SPEC-diff.md` §3 and the #211 entry below both already said "nothing was
+  installed; re-record the baseline to clear it". The comparator could always
+  tell: an old report's closure carries no `imports`, which is the same
+  structural evidence the gap rule reads to date one, and no `tool.version`
+  has to be parsed. Those names are now listed in
+  `environment.packages.first_recorded` — still inside `added`, which is what
+  that group means — and reported as *"N packages recorded for the first
+  time: … nothing was installed, and re-recording the baseline clears it"*.
+  The split is by name against the pre-0.7.5 five: `trimesh` absent from an
+  old report genuinely was not installed, so it stays an appearance and is
+  reported as one on the same line. No verdict or exit code changes in either
+  half (#190, #211).
 - **`source_closure.imports` recorded a per-process fact as a per-part one.**
   The map is read from `sys.modules`, and `partspec check` runs *"several
   targets share one process, one report each"* — so a Python part behind
