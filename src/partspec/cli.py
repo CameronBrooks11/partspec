@@ -449,10 +449,10 @@ def _build_to_file(backend: Any, source: Any, dest: Path, timeout_s: float) -> A
     target is untouched.
 
     The scratch directory is removed on every exit from this function,
-    including exceptions; only SIGKILL can leave a `.partspec-build-*` behind.
-    Sweeping older ones is deliberately not done here — a concurrent `measure`
-    writing another file in the same directory owns one of them, and this
-    function cannot tell which.
+    including exceptions and SIGINT; an uncaught signal — SIGTERM, SIGKILL —
+    leaves a `.partspec-build-*` behind. Sweeping older ones is deliberately
+    not done here: a concurrent `measure` writing another file in the same
+    directory owns one of them, and this function cannot tell which.
     """
     import tempfile
 
@@ -888,19 +888,30 @@ def _measure_resolved(
 
         # `.stl` is an INPUT extension too — `import()` reads one — so a
         # destination that looks like this run's output may be one of its
-        # inputs. The closure records that the model reads external data and
-        # deliberately cannot say what: the argument may be computed at render
-        # time (SPEC-report §8.3). Writing the artifact over an input changes
-        # what the NEXT run measures, so this is refused rather than guessed
-        # at, and the refusal says which two files it cannot tell apart.
-        if include_closure(source.path).reads_external_data:
+        # inputs. Writing the artifact over an input changes what the NEXT run
+        # measures, so this is refused rather than guessed at, and the refusal
+        # says which two files it cannot tell apart.
+        #
+        # The question asked is `partial`, not `reads_external_data`, because
+        # those are the same question: a closure with an UNRESOLVED include
+        # cannot see inside that file, so it cannot know whether the file
+        # imports data either. `partial` is exactly "there are inputs I cannot
+        # account for", which is the precondition for this refusal, and it is
+        # already computed (SPEC-report §8.3).
+        closure = include_closure(source.path)
+        if closure.partial:
+            reason = (
+                "reads external data (import()/surface())"
+                if closure.reads_external_data
+                else f"has include(s) partspec could not resolve ({', '.join(closure.unresolved)})"
+            )
             _measure_failure(
                 part,
                 target,
                 backend,
-                f"--out {dest} names a file, but {source.path.name} reads external data "
-                f"(import()/surface()), and partspec cannot prove {dest.name} is not one "
-                f"of its inputs",
+                f"--out {dest} names a file, but {source.path.name} {reason}, so partspec "
+                f"cannot account for every input and cannot prove {dest.name} is not one "
+                f"of them",
                 f"pass a directory — the artifact lands in it as "
                 f"{source.path.stem}{ARTIFACT_SUFFIX}",
             )

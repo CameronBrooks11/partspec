@@ -817,9 +817,14 @@ An OpenSCAD report therefore carries:
 - **`unresolved`** lists `include`/`use` targets not found on any search path. Resolution
   follows OpenSCAD's rule — relative to the file containing the statement, then
   `OPENSCADPATH`, then the library directories.
-- **`reads_external_data`** is `true` when `import()` or `surface()` appears anywhere in the
-  closure. Those name STL/DXF/DAT files that genuinely are build inputs, and their paths may
-  be computed at render time, so no static reader can resolve them.
+- **`reads_external_data`** is `true` when any file-reading construct appears anywhere in the
+  closure: `import()` and its deprecated `import_stl()`/`import_dxf()`/`import_off()`
+  spellings, `surface()`, the `dxf_*` extrudes and dimension functions, and
+  `linear_extrude()`/`rotate_extrude()` given a `file=`. Those name STL/DXF/DAT files that
+  genuinely are build inputs, and their paths may be computed at render time, so no static
+  reader can resolve them. **The deprecated spellings count**: the version floor executes
+  them, so a reader that recognised only the modern two reported a complete closure for a
+  build that reads a file.
 - **`partial`** is `true` whenever either of the previous two is non-empty. It is stated
   positively so a consumer cannot read the *absence* of those fields as a completeness
   guarantee the closure never made. **A comparator MUST treat a `partial` closure as

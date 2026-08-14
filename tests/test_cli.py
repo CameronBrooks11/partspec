@@ -256,7 +256,10 @@ def test_measure_out_leaves_the_destination_alone_when_the_build_fails(tmp_path:
 
 
 @needs_scad_tier
-def test_measure_out_refuses_a_file_when_the_model_reads_external_data(tmp_path: Path, capsys):
+@pytest.mark.parametrize("source", ["imports_data.scad", "imports_stl_data.scad"])
+def test_measure_out_refuses_a_file_when_the_model_reads_external_data(
+    tmp_path: Path, capsys, source: str
+):
     """`.stl` is an input extension as well as an output one.
 
     `import()` reads one, and SPEC-report §8.3 says so — those paths "genuinely
@@ -265,13 +268,16 @@ def test_measure_out_refuses_a_file_when_the_model_reads_external_data(tmp_path:
     measures: with the destination consumed, the model built without its
     import and reported a confident `[5, 5, 5]` for a part that measures
     `[10, 10, 10]`, at exit 0. That is the defect #187 exists to abolish,
-    reached through its own fix, so a file destination is refused for any
-    model whose closure reads external data — the one signal partspec has, and
-    an honest one: it says the two files cannot be told apart, not that they
-    are the same.
+    reached through its own fix.
+
+    Both spellings, because the first fix only closed one. `import_stl()` is
+    deprecated and 2021.01 still runs it, and the guard's `import(` pattern
+    demanded the paren straight after the name — so three consecutive runs of
+    the `import_stl` model ate their own input and answered `[30,10,10]`,
+    `[50,10,10]`, `[70,10,10]`, each at exit 0, with nothing on stderr.
     """
     (tmp_path / "input.stl").write_bytes(b"donor")
-    target = scad_target(tmp_path, source="imports_data.scad", claims="")
+    target = scad_target(tmp_path, source=source, claims="")
     dest = tmp_path / "input.stl"
     assert main(["measure", target, "--out", str(dest)]) == 64
     assert dest.read_bytes() == b"donor", "an input is not an output path"
@@ -279,6 +285,24 @@ def test_measure_out_refuses_a_file_when_the_model_reads_external_data(tmp_path:
     assert "reads external data" in doc["error"]
     assert "input.stl" in doc["error"]
     assert "pass a directory" in doc["hint"]
+
+
+@needs_scad_tier
+def test_measure_out_refuses_a_file_when_an_include_cannot_be_resolved(tmp_path: Path, capsys):
+    """A closure that cannot read one of its members cannot say what that
+    member imports either, so `partial` — not `reads_external_data` — is the
+    question this guard asks. Both are "there are inputs I cannot account
+    for", and only one of them is the whole of it."""
+    (tmp_path / "a.stl").write_bytes(b"mine")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "m.scad").write_text("include <nowhere/missing.scad>\ncube([2, 2, 2]);\n")
+    target = scad_target(tmp_path, source=tmp_path / "src" / "m.scad", claims="")
+    dest = tmp_path / "a.stl"
+    assert main(["measure", target, "--out", str(dest)]) == 64
+    assert dest.read_bytes() == b"mine"
+    doc = json.loads(capsys.readouterr().out)
+    assert "could not resolve" in doc["error"]
+    assert "nowhere/missing.scad" in doc["error"]
 
 
 @needs_scad_tier

@@ -229,6 +229,58 @@ def test_external_data_makes_the_closure_partial(tmp_path: Path):
     assert not closure.unresolved, "this is a different gap from a missing include"
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        'import("part.stl");',
+        'import_stl("part.stl");',
+        'import_dxf("plan.dxf");',
+        'import_off("part.off");',
+        'surface(file = "height.dat");',
+        'dxf_linear_extrude(file = "plan.dxf", height = 3);',
+        'dxf_rotate_extrude(file = "plan.dxf");',
+        'x = dxf_dim(file = "plan.dxf", name = "width");',
+        'p = dxf_cross(file = "plan.dxf");',
+        'linear_extrude(height = 3, file = "plan.dxf");',
+        'rotate_extrude(file = "plan.dxf");',
+        'linear_extrude(\n  height = 3,\n  file = "plan.dxf");',
+    ],
+)
+def test_every_way_of_reading_a_file_makes_the_closure_partial(tmp_path: Path, body: str):
+    """`import()` was the whole of this until an adversarial review of #187.
+
+    `import_stl(` did not match — the pattern wanted the paren straight after
+    `import` — and 2021.01, the version floor, still executes it. The closure
+    called itself complete for a build that reads a file, and the
+    `measure --out` guard that asks this question overwrote the file being
+    read: three runs, `[30,10,10]`, `[50,10,10]`, `[70,10,10]`, all exit 0.
+    Every spelling the engine honours has to answer the same way.
+    """
+    closure = openscad.include_closure(_scad(tmp_path, "a.scad", body + "\n"))
+    assert closure.reads_external_data, body
+    assert closure.partial, body
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "importantValue = 3;",
+        "imports(3);",
+        "linear_extrude(height = 3, twist = 0) polygon([[0,0],[1,0],[1,1]]);",
+        "rotate_extrude($fn = 64) circle(2);",
+        "module my_import(x) { cube(x); }\nmy_import(2);",
+    ],
+)
+def test_a_name_that_merely_looks_like_a_reader_does_not_make_it_partial(tmp_path: Path, body: str):
+    """The other direction, and it is not symmetric with a false negative: a
+    closure that claims to be partial when it is whole makes `diff` return
+    indeterminate for a comparison it could have decided. An extrude with no
+    `file=` reads nothing, and `importantValue` is a variable."""
+    closure = openscad.include_closure(_scad(tmp_path, "a.scad", body + "\n"))
+    assert not closure.reads_external_data, body
+    assert not closure.partial, body
+
+
 # --------------------------------------------------------------------------
 # build errors
 # --------------------------------------------------------------------------
