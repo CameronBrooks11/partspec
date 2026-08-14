@@ -130,6 +130,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`source_closure.imports` recorded a per-process fact as a per-part one.**
+  The map is read from `sys.modules`, and `partspec check` runs *"several
+  targets share one process, one report each"* — so a Python part behind
+  another one inherits every distribution the earlier target loaded. Measured:
+  the same build123d cube recorded **38 imports alone and 44 behind a CadQuery
+  target**, `cadquery` among them, and `diff` over those two reports of one
+  part — same source, same versions — said `identical: b3-cube — no semantic
+  differences; inputs appeared: cadquery 2.8.0, casadi 3.7.2, +4 more` at exit
+  0. Six build inputs positively claimed to have arrived, and none had. The
+  bound was known and lived in one private docstring, while `SPEC-report.md`
+  §8.3 headed the field *"the distributions the model loaded"*. The map is
+  **unchanged and still wide**: a producer reporting only what arrived after
+  its target began would drop a library the second target genuinely uses
+  whenever the first loaded it first, which is the under-reporting direction
+  the field exists to refuse. What is new is the claim it makes.
+  `part.source_closure.preloaded` lists, sorted, the entries that were already
+  in `sys.modules` when that target's contract was resolved — the ones the
+  report cannot claim as its own — and it is `[]` for a target that ran first
+  or alone, verified from a cold CLI. Only the caller that owns the loop can
+  take that snapshot: by the time the runner has a part, its contract has been
+  imported, and a contract's own imports are its part's. Python tier only, the
+  OpenSCAD render being a subprocess that imports nothing. `diff` **qualifies
+  rather than asserts**: an `added`/`removed` entry either side named there is
+  reported as `inputs not attributable: …`, naming batch position as the
+  reason, counted apart under `covered:`, listed in
+  `source.imports.unattributable`, and no longer making the closure `changed`.
+  Movement the `preloaded` sets do not explain keeps its wording exactly, a
+  version that moved under an inherited import is still a move, and two
+  reports carrying the same `preloaded` set with nothing moved print nothing
+  at all. **No verdict and no exit code changes** — the comparison above is
+  `identical` at exit 0 before and after — and this is deliberately not an
+  `unseen` gap: a bounded gap there would make every multi-target Python diff
+  indeterminate, which is the state #190 stage 3 removed (#190).
 - **`environment.packages` recorded five hardcoded names and `diff` read none
   of them.** `SPEC-report.md` §8 rule 2 says in bold that the field MUST NOT be
   excluded from comparison — it is what distinguishes "a trimesh upgrade moved
@@ -147,8 +180,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the first cut of this change, `examples/spacer` recorded 6 distributions
   alone and 41 behind a build123d part, claiming `build123d` and `cadquery-ocp`
   as inputs to an OpenSCAD build that never touched them, which rule 2 forbids.
-  Which distributions *a part* loaded is a per-part question, and it belongs to
-  `part.source_closure`, where byte-level identity lives (#190). `diff`
+  Which distributions *a part* loaded belongs to `part.source_closure`, where
+  byte-level identity lives — which reads the same shared `sys.modules` and so
+  carries the same batch dependence, stated there as a bound (`preloaded`,
+  §8.3 rule 7) rather than escaped: scoping the question to the part is what
+  made it statable, not what removed it (#190). `diff`
   compares the map in three groups, because a version that **moved** is a
   changed build input that explains a moved measurement, while a package that
   **appeared or disappeared** is usually two machines resolving different

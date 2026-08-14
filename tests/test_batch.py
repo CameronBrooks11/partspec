@@ -8,6 +8,8 @@ owns, POST-V0 §8: `sys.modules` must not serve a later build a stale helper.
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -332,6 +334,91 @@ def test_a_batch_records_one_environment_for_every_target(tmp_path: Path):
     light_env = _report(light)["environment"]
     assert light_env["packages"] == heavy_env["packages"]
     assert light_env["packages"], "an empty map on both sides would satisfy equality"
+
+
+def _inheriting_target(d: Path, library: Path) -> str:
+    """A build123d part whose CONTRACT imports a library from a third directory.
+
+    Third, because `_invalidate_after` evicts what was loaded from beside the
+    contract and beside the model, and this import must survive into the next
+    target — that survival is the subject. Imported by the contract rather
+    than by the model so the name is in `sys.modules` however the build goes.
+    """
+    d.mkdir(exist_ok=True)
+    (d / "model.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n"
+    )
+    spec = d / "spec.py"
+    spec.write_text(
+        "import sys\n\n"
+        f"sys.path.insert(0, {str(library)!r})\n"
+        "import batchlib29\n"
+        "from partspec import Part, build123d\n\n\n"
+        "def make():\n"
+        "    p = Part('leader', build123d('model.py'))\n"
+        "    p.volume(min=0.0, max=batchlib29.VALUE)\n"
+        "    return p\n"
+    )
+    return f"{spec}:make"
+
+
+def _cold(*argv: str) -> None:
+    """One `partspec` invocation in a fresh interpreter.
+
+    This process has imported engines and libraries for other tests, and
+    `imports._BASELINE` is captured when partspec is — under pytest that is
+    after the runner is loaded and before most of the suite, so an in-process
+    run cannot tell an inherited import from a pre-existing one. The claim
+    here is about what a user's `partspec check` records, so it is measured in
+    the shape a user runs it (the pattern `test_refs_import_pulls_no_engine`
+    uses, for the same reason).
+    """
+    proc = subprocess.run(
+        [sys.executable, "-m", "partspec", *argv], capture_output=True, text=True, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_a_batch_says_which_imports_it_did_not_load_itself(tmp_path: Path):
+    """`source_closure.imports` must not read as a per-part fact either.
+
+    The same hazard as the test above, one field down and one release later:
+    `imports` is read from `sys.modules`, so a Python part behind another one
+    inherits every distribution the earlier target loaded. Measured on the
+    v0.7.5 pre-tag audit, a build123d cube recorded 38 imports alone and 44
+    behind a CadQuery target, `cadquery` among them — and `diff` over those
+    two reports of one part said `inputs appeared: cadquery 2.8.0, casadi
+    3.7.2, +4 more` at exit 0, which is a positive finding built out of the
+    batch order.
+
+    Two PYTHON-tier targets, deliberately: the guard above pairs an OpenSCAD
+    part with a build123d one, and OpenSCAD emits `imports: {}`
+    unconditionally, so that combination is the one that cannot catch this.
+
+    The map itself stays wide — over-reporting never turns a real build input
+    into silence, and a `sys.modules` delta would drop a library the second
+    target genuinely uses because the first loaded it first. What must not be
+    wide is the claim, so the closure names what it inherited.
+    """
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    library = tmp_path / "elsewhere"
+    library.mkdir()
+    (library / "batchlib29.py").write_text("VALUE = 29\n")
+    leader = _inheriting_target(tmp_path / "leader", library)
+    follower = _closure_target(tmp_path / "follower", 1.0)
+
+    _cold("check", follower, "--quiet", "--out", str(tmp_path / "alone"))
+    alone = report_of(tmp_path / "alone")["part"]["source_closure"]
+    assert alone["preloaded"] == [], "one target in a process inherits nothing"
+    assert "batchlib29" not in alone["imports"]
+
+    _cold("check", leader, follower, "--quiet")
+    behind = _report(follower)["part"]["source_closure"]
+    assert "batchlib29" in behind["imports"], "the map over-reports on purpose"
+    assert "batchlib29" in behind["preloaded"], "and must say it cannot claim this one"
+    assert set(behind["imports"]) - set(alone["imports"]) <= set(behind["preloaded"]), (
+        "every entry the batch position added must be named as unattributable"
+    )
 
 
 def test_resolving_a_contract_records_its_sibling_imports(tmp_path: Path):

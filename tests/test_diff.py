@@ -627,7 +627,12 @@ while the rule around it does: an indeterminate that stopped saying this
 would be an exit code with no argument attached."""
 
 
-def _python_doc(imports: dict | None = None, unseen: list[str] | None = None, **overrides) -> dict:
+def _python_doc(
+    imports: dict | None = None,
+    unseen: list[str] | None = None,
+    preloaded: list[str] | None = None,
+    **overrides,
+) -> dict:
     """A report whose closure has the 0.7.5 shape — the Python tier's."""
     doc = _doc(**overrides)
     doc["part"]["source_closure"] = {
@@ -636,6 +641,7 @@ def _python_doc(imports: dict | None = None, unseen: list[str] | None = None, **
         "scope": "model_directory",
         "partial": True,
         "imports": {} if imports is None else imports,
+        "preloaded": [] if preloaded is None else preloaded,
         "unseen": ["native_reads"] if unseen is None else unseen,
     }
     return doc
@@ -788,6 +794,128 @@ def test_an_import_that_appeared_is_not_reported_as_a_version_move():
     assert "inputs appeared: shapely 2.1.2" in summary
     assert "inputs disappeared: vtk 9.6.2" in summary
     assert "moved" not in summary.splitlines()[0], f"an appearance read as a move: {summary}"
+
+
+def test_an_inherited_import_is_not_reported_as_an_appearance():
+    """The v0.7.5 pre-tag audit's blocker, reproduced from its own numbers.
+
+    `imports` is read from `sys.modules`, so a Python part behind another
+    target in one batch inherits its imports: the same build123d cube
+    recorded 38 imports alone and 44 behind a CadQuery target. Diffed against
+    itself — same part, same source, same versions — that said `inputs
+    appeared: cadquery 2.8.0, casadi 3.7.2, +4 more`, which is a positive
+    finding about build inputs assembled out of the batch order.
+
+    The map still names all 44, because over-reporting cannot turn a real
+    build input into silence. What changes is the claim made over it.
+    """
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")})
+    new = _python_doc(
+        {"build123d": _dist("0.10.1", "aaa"), "cadquery": _dist("2.8.0", "bbb")},
+        preloaded=["build123d", "cadquery"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical", "the outcome is unchanged by the qualification"
+    assert exit_code_of(doc["outcome"]) == 0
+    assert doc["source"]["imports"]["added"] == {"cadquery": _dist("2.8.0", "bbb")}, (
+        "the entry stays in the delta — the artifact loses nothing"
+    )
+    assert doc["source"]["imports"]["unattributable"] == ["cadquery"]
+    assert doc["source"]["closure"] == "same"
+
+    summary = summary_of(doc)
+    assert "appeared" not in summary, f"an inherited import read as a finding: {summary}"
+    assert summary.splitlines()[0] == (
+        "identical: p — no semantic differences; inputs not attributable: cadquery 2.8.0 — "
+        "already loaded when one of these targets began, so the difference is its position "
+        "in a batch, not an input that moved"
+    )
+    assert "  covered: model directory (2 files); 2 imported distributions, 1 not attributable" in (
+        summary.splitlines()
+    )
+    assert "every declared claim held across the change" not in summary
+
+
+def test_two_reports_carrying_one_preloaded_set_say_nothing_about_it():
+    """The qualification fires on movement, never on the field's presence.
+
+    Two runs of one part in the same batch position inherit the same imports,
+    and there is nothing to qualify: a caveat printed on every comparison
+    would be noise, and noise is what taught three fleet agents to filter the
+    `not covered:` line.
+    """
+    imports = {"build123d": _dist("0.10.1", "aaa"), "cadquery": _dist("2.8.0", "bbb")}
+    doc = _diff(
+        _python_doc(dict(imports), preloaded=["cadquery"]),
+        _python_doc(dict(imports), preloaded=["cadquery"]),
+    )
+    assert doc["source"]["imports"]["unattributable"] == []
+    summary = summary_of(doc)
+    assert summary.splitlines()[0] == "identical: p — no semantic differences"
+    assert "attributable" not in summary
+    assert "  covered: model directory (2 files); 2 imported distributions, all unchanged" in (
+        summary.splitlines()
+    )
+
+
+def test_an_appearance_the_batch_cannot_explain_keeps_todays_wording():
+    """The qualification is bounded by the `preloaded` set, not by its
+    existence. An import that appeared and was not inherited is exactly what
+    v0.7.5 says it is, on the same line as one that was."""
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")})
+    new = _python_doc(
+        {
+            "build123d": _dist("0.10.1", "aaa"),
+            "cadquery": _dist("2.8.0", "bbb"),
+            "shapely": _dist("2.1.2", "ccc"),
+        },
+        preloaded=["build123d", "cadquery"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["source"]["imports"]["unattributable"] == ["cadquery"]
+    assert doc["source"]["closure"] == "changed", "the unexplained appearance is still movement"
+    summary = summary_of(doc)
+    assert "inputs appeared: shapely 2.1.2" in summary
+    assert "inputs not attributable: cadquery 2.8.0" in summary
+
+
+def test_a_version_that_moved_under_an_inherited_import_is_still_a_move():
+    """Attribution qualifies *who loaded it*, not *whether it moved*. A
+    distribution present on both sides at two versions is a changed build
+    input whichever target imported it first, and dropping that would be the
+    under-report the wide map exists to avoid."""
+    old = _python_doc({"cqgridfinity": _dist("0.5.7", "aaa")}, preloaded=["cqgridfinity"])
+    new = _python_doc({"cqgridfinity": _dist("0.6.0", "bbb")}, preloaded=["cqgridfinity"])
+
+    doc = _diff(old, new)
+    assert doc["source"]["imports"]["unattributable"] == []
+    assert doc["source"]["closure"] == "changed"
+    assert "inputs moved: cqgridfinity 0.5.7 → 0.6.0" in summary_of(doc)
+
+
+def test_an_inherited_import_beside_a_gap_does_not_claim_nothing_was_seen():
+    """The indeterminate reason has two shapes and only one is true at a
+    time (SPEC-diff §2 rule 3). An inherited import was observed, so the
+    verbatim nothing-was-seen sentence must not be uttered — and it must not
+    be counted as an import that appeared either."""
+    old = _python_doc({"shims": _unidentified()}, unseen=["native_reads", "unidentified_imports"])
+    new = _python_doc(
+        {"shims": _unidentified(), "cadquery": _dist("2.8.0", "bbb")},
+        unseen=["native_reads", "unidentified_imports"],
+        preloaded=["cadquery"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "indeterminate", "the bounded gap still blocks, as before"
+    assert exit_code_of(doc["outcome"]) == 2
+    reason = doc["indeterminate"][0]["reason"]
+    assert SENTENCE not in reason
+    assert reason.startswith(
+        "no declared claim changed, but 1 import on one side only cannot be attributed to "
+        "either target;"
+    )
 
 
 def test_one_moved_library_is_named_once_not_twice():

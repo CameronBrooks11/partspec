@@ -50,7 +50,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-__all__ = ["CONTENT", "METADATA", "UNIDENTIFIED", "inventory"]
+__all__ = ["CONTENT", "METADATA", "UNIDENTIFIED", "inventory", "names_of"]
 
 METADATA = "metadata"
 """The imported file is owned by a distribution's RECORD; take its word."""
@@ -146,10 +146,71 @@ def inventory(
     Read from `sys.modules`, so a target that runs second in a batch may
     inherit an earlier target's imports. That over-reports and never
     under-reports, which is the direction that cannot turn a missing build
-    input into silence. It is also why nothing here caches the inventory
-    itself — only the per-file work inside it, which does not vary.
+    input into silence — and `names_of` is how a caller records which entries
+    the over-report covers, since an unqualified over-report is a claim.
+    It is also why nothing here caches the inventory itself — only the
+    per-file work inside it, which does not vary.
     """
-    owners, _rows, versions = _record_index()
+    versions = _record_index()[2]
+    dists, unowned, fileless, identified = _scan(skip_tree, exclude)
+
+    found: dict[str, dict[str, Any]] = {}
+    for dist in sorted(dists):
+        found[dist] = {
+            "identity": METADATA,
+            "version": versions.get(dist),
+            "digest": _metadata_digest(dist),
+        }
+
+    for unit, paths in sorted(unowned.items()):
+        roots = tuple(sorted({_root_of(path) for path in paths}))
+        digest, count = _content_digest(roots)
+        # Content second, so it wins a name collision with a metadata entry:
+        # it is a statement about bytes that were read, which outranks a
+        # statement about bytes an installer once wrote.
+        found[unit] = {"identity": CONTENT, "version": None, "digest": digest, "files": count}
+
+    for name in fileless - identified:
+        found.setdefault(name, {"identity": UNIDENTIFIED, "version": None, "digest": None})
+
+    # SPEC-report §8 rule 1: a derived collection is ordered by a stated key.
+    return dict(sorted(found.items()))
+
+
+def names_of(modules: frozenset[str]) -> frozenset[str]:
+    """The keys `inventory` would give these `sys.modules` names, digest-free.
+
+    One `partspec check` runs several targets in one interpreter, so a caller
+    that snapshots `sys.modules` before a target begins can say which of that
+    target's imports were already loaded when it started (SPEC-report §8.3
+    rule 7). Names only: the snapshot exists to be intersected with an
+    inventory, and the digests are the expensive half — an OpenSCAD-tier
+    target must not pay for a RECORD index it has no imports to look up, and
+    a snapshot of module names costs nothing until a Python tier asks for it.
+
+    Modules evicted since the snapshot are simply absent from the answer,
+    which is right: an import that is gone cannot be in the inventory this
+    is compared against either.
+    """
+    dists, unowned, fileless, identified = _scan(None, frozenset(), names=modules)
+    return frozenset(dists | set(unowned) | (fileless - identified))
+
+
+def _scan(
+    skip_tree: Path | None,
+    exclude: frozenset[Path],
+    *,
+    names: frozenset[str] | None = None,
+) -> tuple[set[str], dict[str, set[Path]], set[str], set[str]]:
+    """Classify the loaded modules: RECORD-owned, unowned, and fileless.
+
+    Shared by `inventory` and `names_of` so the two cannot disagree about
+    what is in the map — one of them naming an entry the other does not would
+    make `preloaded` either miss an inherited import or invent one.
+
+    `names` restricts the walk to those `sys.modules` keys; None walks all.
+    """
+    owners = _record_index()[0]
     skip = str(skip_tree) if skip_tree is not None else None
     excluded = {str(path) for path in exclude}
 
@@ -161,6 +222,8 @@ def inventory(
     for name, module in list(sys.modules.items()):
         unit = name.partition(".")[0]
         if module is None or name in _INVOCATION or unit in _BASELINE:
+            continue
+        if names is not None and name not in names:
             continue
         if unit.startswith(_EDITABLE):
             continue
@@ -196,27 +259,7 @@ def inventory(
             # import that never happened.
             fileless.add(unit)
 
-    found: dict[str, dict[str, Any]] = {}
-    for dist in sorted(dists):
-        found[dist] = {
-            "identity": METADATA,
-            "version": versions.get(dist),
-            "digest": _metadata_digest(dist),
-        }
-
-    for unit, paths in sorted(unowned.items()):
-        roots = tuple(sorted({_root_of(path) for path in paths}))
-        digest, count = _content_digest(roots)
-        # Content second, so it wins a name collision with a metadata entry:
-        # it is a statement about bytes that were read, which outranks a
-        # statement about bytes an installer once wrote.
-        found[unit] = {"identity": CONTENT, "version": None, "digest": digest, "files": count}
-
-    for name in fileless - identified:
-        found.setdefault(name, {"identity": UNIDENTIFIED, "version": None, "digest": None})
-
-    # SPEC-report §8 rule 1: a derived collection is ordered by a stated key.
-    return dict(sorted(found.items()))
+    return dists, unowned, fileless, identified
 
 
 def _is_unresolved_namespace(name: str, module: Any, skip: str | None) -> bool:

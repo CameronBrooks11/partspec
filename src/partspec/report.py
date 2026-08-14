@@ -335,8 +335,11 @@ class Report:
         alone and 41 in a batch behind a build123d part — the same part, the
         same venv, the same second, and `diff` reporting 35 packages
         "appeared". An environment is a property of the venv. What *this part*
-        loaded is a per-part fact and belongs in `part.source_closure`, which
-        is where byte-level identity lives (#190).
+        loaded belongs in `part.source_closure`, which is where byte-level
+        identity lives — and which reads the same shared `sys.modules`, so it
+        over-reports in a batch and names what it cannot attribute in
+        `preloaded` (SPEC-report §8.3 rule 7). Scoping the question to the
+        part is what made that bound statable; it did not remove it (#190).
         """
         env: dict[str, Any] = {
             "python": platform.python_version(),
@@ -398,8 +401,9 @@ def _installed_versions() -> dict[str, str]:
     only `duration_ms` and `platform` as varying between two runs of identical
     inputs; a `sys.modules`-derived value fails that, because the batch loop
     shares one interpreter and a part would inherit whatever an unrelated
-    earlier target happened to import. What *this part* loaded is a per-part
-    fact belonging to `part.source_closure` (#190), not to the environment.
+    earlier target happened to import. What *this part* loaded belongs to
+    `part.source_closure` (#190), not to the environment — where the shared
+    interpreter is stated as a bound rather than escaped (§8.3 rule 7).
 
     Measured on this repo's 114-distribution full-extras venv: 57 ms cold (page
     cache evicted), 26 ms warm; on the fleet's 84-distribution cadquery venv,

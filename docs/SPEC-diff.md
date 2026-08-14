@@ -91,6 +91,23 @@ Rules:
    rather than go and look — a universally suppressed verdict protects less than a
    universally printed caveat. The caveat is therefore permanent output, not an option.
 
+   **An import either side could not attribute to its own target MUST NOT be reported as
+   one that appeared or disappeared.** `SPEC-report.md` §8.3 rule 7: `imports` is read
+   from one `sys.modules` shared by every target of a batch, and `preloaded` names what
+   that costs. An entry of `added` or `removed` that either side listed there is reported
+   as **unattributable** — named on the summary line, counted apart in `covered`, and
+   listed in `source.imports.unattributable` — and it does not make the closure
+   `changed`. The wording elsewhere is untouched: an appearance the `preloaded` sets do
+   not explain is exactly what this verb has always said it was. This qualifies the
+   *claim*, not the verdict: it moves no outcome and no exit code, and it is deliberately
+   NOT a gap token, because a bounded gap here would make every multi-target Python
+   comparison indeterminate and rebuild what rule 3 exists to remove. Measured before the
+   qualification: one build123d cube diffed against itself, run behind a CadQuery target
+   in a batch, reported `inputs appeared: cadquery 2.8.0, casadi 3.7.2, +4 more` at exit
+   `0` — six build inputs positively claimed to have arrived, and nothing had. Only
+   `added` and `removed` can be affected; a `changed` entry is present on both sides with
+   something moved between them, which is a fact about the distribution whoever loaded it.
+
    Found differences are real regardless of any gap, so this rule only ever blocks the
    `identical` claim, never the `different` one. A `changed` closure is likewise never a
    difference on its own (§3): the library moved and no declared claim moved with it is
@@ -263,7 +280,10 @@ It does not change the outcome: an old report that predates the field still diff
                                      // recorded no map, never an empty delta
       "changed": { "cqgridfinity": { "old": { "…": "…" }, "new": { "…": "…" } } },
       "added": {},
-      "removed": {}
+      "removed": {},
+      "unattributable": []           // names in `added`/`removed` that a side's
+                                     // `preloaded` covers: on one side only because of
+                                     // batch position, never reported as an appearance
     },
     "unseen": {                      // the gaps by class, token -> what it says to a reader
       "irreducible": { "native_reads": "files read inside C extensions — …" },

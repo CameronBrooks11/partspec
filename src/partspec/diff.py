@@ -29,8 +29,9 @@ DIFF_SCHEMA_VERSION = 2
 
 Bumped to 2 by #190 stage 3: `source` gained `imports`, `unseen`, `covered`
 and `closure_digest_changed`, and `source.closure` keys on named gaps rather
-than on the `partial` boolean. It is diff's *output* contract, so no stored
-report is refused by the change.
+than on the `partial` boolean; `source.imports.unattributable` landed in the
+same unreleased version.
+It is diff's *output* contract, so no stored report is refused by the change.
 """
 
 CLAIM_FIELDS = ("kind", "expr", "limit", "region", "hole", "source", "direction")
@@ -383,6 +384,16 @@ def _imports_delta(
     A side with no usable map yields `uncomparable`, never an empty delta: an
     omission would read as "no build input moved", which is a claim this
     comparison did not make.
+
+    `unattributable` names the entries whose appearance or disappearance
+    either side already said it could not attribute to its own target
+    (`preloaded`, SPEC-report §8.3 rule 7). They stay in `added`/`removed` —
+    they really are on one side only — but they are the one movement this
+    comparison must not report as a finding: a Python part behind another one
+    in a batch inherits its imports, so the difference between two runs of the
+    same part is the batch, not the part. Only `added` and `removed` can be
+    affected. A `changed` entry is present on both sides with something moved
+    between them, which is a fact about the distribution whoever loaded it.
     """
     old_imports = (old_closure or {}).get("imports")
     new_imports = (new_closure or {}).get("imports")
@@ -397,15 +408,37 @@ def _imports_delta(
             "uncomparable": f"no source_closure.imports map on {where}, so whether an "
             "imported distribution moved is unknown"
         }
+    added = {name: e for name, e in sorted(new_imports.items()) if name not in old_imports}
+    removed = {name: e for name, e in sorted(old_imports.items()) if name not in new_imports}
+    carried = _preloaded(old_closure) | _preloaded(new_closure)
     return {
         "changed": {
             name: {"old": entry, "new": new_imports[name]}
             for name, entry in sorted(old_imports.items())
             if name in new_imports and _import_moved(entry, new_imports[name])
         },
-        "added": {name: e for name, e in sorted(new_imports.items()) if name not in old_imports},
-        "removed": {name: e for name, e in sorted(old_imports.items()) if name not in new_imports},
+        "added": added,
+        "removed": removed,
+        "unattributable": sorted((added.keys() | removed.keys()) & carried),
     }
+
+
+def _preloaded(closure: dict[str, Any] | None) -> set[str]:
+    """What a closure says was already loaded when its target began.
+
+    Absent on the OpenSCAD tier, whose render is a subprocess that imports
+    nothing, and on every report written before 0.7.5 — both of which already
+    reach this comparator through `imports`, so absence needs no synthesised
+    gap here. Empty means the target ran first, or alone.
+    """
+    names = (closure or {}).get("preloaded")
+    return {str(name) for name in names} if isinstance(names, list) else set()
+
+
+def _attributed(imports: dict[str, Any], group: str) -> dict[str, Any]:
+    """One group of the imports delta, minus what no side could attribute."""
+    carried = set(imports.get("unattributable") or ())
+    return {name: e for name, e in (imports.get(group) or {}).items() if name not in carried}
 
 
 def _covered_clause(
@@ -420,15 +453,14 @@ def _covered_clause(
     parts = [f"{where}, changed" if digest_moved else where]
     entries = new_closure.get("imports")
     if isinstance(entries, dict) and entries and "uncomparable" not in imports:
+        groups = (("changed", "changed"), ("added", "appeared"), ("removed", "disappeared"))
         counts = [
-            f"{len(imports[group])} {word}"
-            for group, word in (
-                ("changed", "changed"),
-                ("added", "appeared"),
-                ("removed", "disappeared"),
-            )
-            if imports[group]
+            f"{len(attributed)} {word}"
+            for group, word in groups
+            if (attributed := _attributed(imports, group))
         ]
+        if carried := imports.get("unattributable"):
+            counts.append(f"{len(carried)} not attributable")
         parts.append(
             f"{len(entries)} imported distribution{'' if len(entries) == 1 else 's'}, "
             + (", ".join(counts) if counts else "all unchanged")
@@ -444,6 +476,11 @@ def _moved_phrases(
     Counts rather than names for the imports, because `_imports_clause` puts
     the names on the same line; the point here is that the *reason* string
     stands up on its own in the artifact, where no clause follows it.
+
+    An unattributable entry is phrased as the qualification it is rather than
+    counted as movement: it belongs here because something was observed and
+    the reason must not then claim nothing was seen, and it is worded apart
+    from the three groups because what was observed is a batch position.
     """
     scope = (
         "the model directory digest"
@@ -457,8 +494,13 @@ def _moved_phrases(
             ("added", "import", "appeared"),
             ("removed", "import", "disappeared"),
         ):
-            if count := len(imports[group]):
+            if count := len(_attributed(imports, group)):
                 phrases.append(f"{count} {noun}{'' if count == 1 else 's'} {verb}")
+        if count := len(imports.get("unattributable") or ()):
+            phrases.append(
+                f"{count} import{'' if count == 1 else 's'} on one side only cannot be "
+                "attributed to either target"
+            )
     return phrases
 
 
@@ -524,8 +566,13 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
     bounded = {t: p for t, p in classified.items() if t not in _IRREDUCIBLE_GAPS}
 
     digest_moved = old_closure.get("digest") != new_closure.get("digest")
+    # Attributed movement only: an entry present on one side because that
+    # target ran second in a batch is not the closure changing, and calling
+    # it `changed` puts "every declared claim held across the change" under a
+    # comparison where nothing changed. Neither `same` nor `changed` is
+    # outcome-bearing, so this moves no verdict and no exit code.
     imports_moved = "uncomparable" not in imports and any(
-        imports[group] for group in ("changed", "added", "removed")
+        _attributed(imports, group) for group in ("changed", "added", "removed")
     )
     if bounded:
         state = "inconclusive"
@@ -927,16 +974,36 @@ def _imports_clause(doc: dict[str, Any]) -> str:
     *loaded*, byte-identified — and the fleet's own configuration is the case
     where they disagree, a `sys.path` checkout moving under a version string
     that never changed.
+
+    An entry either side could not attribute to its own target is named in a
+    clause of its own and never as an appearance. Reported as one, it is a
+    positive finding — *this build input arrived* — drawn from a fact about
+    which targets shared an interpreter: measured, one build123d cube diffed
+    against itself behind a CadQuery target said `inputs appeared: cadquery
+    2.8.0, casadi 3.7.2, +4 more`, and nothing had appeared. Where the
+    movement does not touch that set the wording is unchanged, because there
+    the appearance is exactly what it says.
     """
     imports = _imports_groups(doc)
     clauses = []
-    if imports.get("changed"):
-        moved = [_import_move_label(n, v["old"], v["new"]) for n, v in imports["changed"].items()]
+    if changed := _attributed(imports, "changed"):
+        moved = [_import_move_label(n, v["old"], v["new"]) for n, v in changed.items()]
         clauses.append(f"inputs moved: {_bounded(moved)}")
     for group, verb in (("added", "appeared"), ("removed", "disappeared")):
-        if imports.get(group):
-            named = [_import_label(n, e) for n, e in imports[group].items()]
+        if group_entries := _attributed(imports, group):
+            named = [_import_label(n, e) for n, e in group_entries.items()]
             clauses.append(f"inputs {verb}: {_bounded(named)}")
+    if carried := imports.get("unattributable"):
+        # Both directions in one clause: which side an inherited import landed
+        # on is a property of the batch order, so naming the direction would
+        # dress the same non-finding up as two.
+        entries = {**(imports.get("added") or {}), **(imports.get("removed") or {})}
+        named = [_import_label(name, entries.get(name)) for name in carried]
+        clauses.append(
+            f"inputs not attributable: {_bounded(named)} — already loaded when one of these "
+            "targets began, so the difference is its position in a batch, not an input "
+            "that moved"
+        )
     return ("; " + "; ".join(clauses)) if clauses else ""
 
 

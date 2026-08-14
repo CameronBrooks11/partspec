@@ -685,8 +685,11 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   part recorded 6 distributions alone and 41 in a batch behind a build123d part, from
   identical inputs on one machine. An environment is a property of the venv. Which
   distributions *a given part* loaded, and whether the bytes that ran are the ones the
-  installer recorded, is a per-part question answered by `part.source_closure` (§8.3), not
-  here.
+  installer recorded, is answered by `part.source_closure` (§8.3), not here — with the
+  same shared interpreter still in the way there: `source_closure.imports` scopes the
+  question to the part but is still read from one `sys.modules`, so it over-reports in a
+  batch and §8.3 rule 7 requires it to name what it cannot attribute. Moving the field did
+  not remove the sharing; it made the bound statable per part.
 - **`checks[].requires`** — present only on `unsupported`, naming the tier that would answer
   **for an equivalent part**. The hedge is load-bearing: porting a 16-gon bore to build123d
   does not merely enable the check, it **changes the part** (investigation 04 §4). This is
@@ -869,6 +872,7 @@ A **Python** report carries a closure too, of a different shape:
     "cadquery":     { "identity": "metadata", "version": "2.8.0", "digest": "sha256:…" },
     "cqgridfinity": { "identity": "content",  "version": null, "digest": "sha256:…", "files": 16 }
   },
+  "preloaded": [],
   "unseen": ["native_reads"]
 }
 ```
@@ -882,6 +886,8 @@ A **Python** report carries a closure too, of a different shape:
   the factory.
 - The contract file is excluded. `contract_digest` already covers it, and a *source* closure
   that moved whenever a claim changed would answer a different question than its name.
+- **`preloaded`** names the entries of `imports` this run cannot attribute to itself,
+  because a batch shares one interpreter; rule 7 below states the bound in full.
 - **`partial` is unconditional here**, because `native_reads` always is. Python can import
   from anywhere on `sys.path`, read data files at run time and load C extensions, none of
   which this sees — measured: an audit hook watching `OCP.StlAPI_Reader().Read()` load an
@@ -948,6 +954,25 @@ Rules a producer MUST follow:
    `content` entry MUST NOT be read as covering it. This is a stated bound rather than a
    gap token because a Python-tier closure is `partial` unconditionally (`native_reads`),
    so no reader may treat any of it as complete coverage.
+7. **`imports` is read from a process and describes a part, so it over-reports in a
+   batch, and `preloaded` MUST name what it cannot attribute.** Several targets share one
+   interpreter (§8 rule 2 is the same fact one block up), and `sys.modules` does not
+   record which target imported what: measured, one build123d cube recorded 38 imports
+   alone and 44 behind a CadQuery target, `cadquery` among them. The map stays wide,
+   because a producer that reported only the delta since the target began would drop a
+   library the second target genuinely uses whenever the first loaded it first — the
+   under-reporting direction this whole section refuses. So the bound is stated instead:
+   `preloaded` lists, sorted, the entries of `imports` that were already in `sys.modules`
+   when this target's contract was resolved, and an entry named there is one **this report
+   cannot claim as its own**. It is `[]` for a target that ran first or alone, present
+   whenever `imports` is — absence means the question was never asked, exactly as for
+   `imports` — and it is a **Python-tier field**: the OpenSCAD render is a subprocess that
+   imports nothing, which is what `imports: {}` already says. A consumer MUST NOT report
+   an entry it names as a build input that appeared; the honest reading is that this
+   comparison cannot attribute it (SPEC-diff.md §2 rule 3). It is not an `unseen` token:
+   the coverage is not incomplete, the attribution is, and routing it through the gap
+   vocabulary would make every multi-target Python comparison indeterminate — the exact
+   outcome #190 removed.
 
 #### `unseen` — the gaps, by name
 
