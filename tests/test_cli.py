@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from support import (
     decode_png,
+    needs_build123d,
     needs_openscad,
     needs_scad_tier,
     py_target,
@@ -110,6 +111,91 @@ def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
     """
     doc = _measure(scad_target(tmp_path, source="open_box.scad", claims=""), capsys)
     assert "verdict" not in doc and "checks" not in doc
+
+
+# --------------------------------------------------------------------------
+# measure --out (#187): the flag means what a reader passes
+# --------------------------------------------------------------------------
+
+
+@needs_scad_tier
+def test_measure_writes_the_artifact_at_the_filename_it_was_given(tmp_path: Path, capsys):
+    """A filename is honoured as one.
+
+    Found by an adoption agent, four times in a row: `--out .../a.stl` made a
+    DIRECTORY called `a.stl` holding `block_with_hole.stl`, and exited 0. A
+    run that reports success having written something else, somewhere else,
+    is the silent success this tool is built to refuse.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    dest = tmp_path / "art" / "a.stl"
+    assert main(["measure", target, "--out", str(dest)]) == 0
+    assert dest.is_file(), "the path named a file, so the artifact is that file"
+    assert dest.stat().st_size > 0
+    assert list(dest.parent.iterdir()) == [dest], "and nothing else was left beside it"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_overwrites_a_path_that_already_exists_as_a_file(tmp_path: Path, capsys):
+    """The second case of #187: the same command exited 4 ("could not create
+    the output directory ...: File exists") purely because the path already
+    existed. Prior state decided what the flag meant; now the flag does."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    dest = tmp_path / "a.stl"
+    dest.write_text("stale")
+    assert main(["measure", target, "--out", str(dest)]) == 0
+    assert dest.is_file()
+    assert dest.read_bytes() != b"stale"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+@pytest.mark.parametrize("existing", [False, True])
+def test_measure_out_still_takes_a_directory(tmp_path: Path, capsys, existing: bool):
+    """The documented shape keeps working, and an existing directory stays a
+    directory whatever it is called — `--out renders.d/` is not a filename
+    just because it has a suffix."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    out = tmp_path / ("renders.d" if existing else "out")
+    if existing:
+        out.mkdir()
+    assert main(["measure", target, "--out", str(out)]) == 0
+    assert (out / "block_with_hole.stl").stat().st_size > 0
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_out_does_not_overwrite_a_neighbour_of_the_file_it_was_given(
+    tmp_path: Path, capsys
+):
+    """The engine names its export after the source, so building straight into
+    the destination's directory would unlink the caller's own
+    `block_with_hole.stl` on the way to writing `a.stl`."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    neighbour = tmp_path / "art" / "block_with_hole.stl"
+    neighbour.parent.mkdir()
+    neighbour.write_text("mine")
+    assert main(["measure", target, "--out", str(neighbour.parent / "a.stl")]) == 0
+    assert neighbour.read_text() == "mine"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_build123d
+def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(tmp_path: Path, capsys):
+    """The OCCT tier builds in memory. Accepting a filename there would exit 0
+    with nothing at the path the caller named — the same silent success, one
+    tier over — so the invocation is refused before anything builds."""
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
+    )
+    target = py_target(tmp_path)
+    dest = tmp_path / "a.stl"
+    assert main(["measure", target, "--out", str(dest)]) == 64
+    assert not dest.exists()
+    err = capsys.readouterr().err
+    assert "names a file" in err
+    assert "build123d" in err
 
 
 # --------------------------------------------------------------------------

@@ -155,14 +155,20 @@ def build_parser() -> argparse.ArgumentParser:
     # `measure` writes no report by design (SPEC-report.md scope — the payload
     # is stdout), so `--out DIR` on the OCCT tier accepted a path, exited 0 and
     # created nothing. Same flag name, different noun, no help text to tell
-    # them apart.
+    # them apart. The help that fixed that reading invited the next one (#187):
+    # "where the .stl goes" reads as a filename, and a filename made a
+    # DIRECTORY of that name — so a filename is now honoured as one.
     measure.add_argument(
         "--out",
         type=Path,
         default=None,
-        help="where the engine's build artifact goes (an .stl on OpenSCAD; the "
-        "OCCT tier builds in memory and writes nothing). The measurements "
-        "themselves go to stdout — this verb emits no report file",
+        metavar="PATH",
+        help="where the engine's build artifact goes: a PATH that names a file "
+        "(it has a suffix, or already exists as one) IS the .stl; any other "
+        "PATH is a directory to write it in. Only OpenSCAD exports one — the "
+        "OCCT tier builds in memory, so naming a file there is refused rather "
+        "than silently producing nothing. The measurements themselves go to "
+        "stdout — this verb emits no report file",
     )
     measure.add_argument(
         "--timeout",
@@ -354,6 +360,58 @@ def _hidden_marker(hidden: int) -> str:
     # hidden by the same rule, and the count would be honest while the word
     # was not.
     return f"  [{hidden} frame{'s' if hidden > 1 else ''} hidden]\n"
+
+
+def _names_a_file(path: Path) -> bool:
+    """Whether `--out` names the artifact rather than a directory to hold it.
+
+    `measure --out DIR` writes exactly one file, so a caller reading "where
+    the .stl goes" passes the .stl. That used to make a *directory* called
+    `a.stl` holding `spacer.stl` and exit 0 — a run that reported success
+    having done something else — and the same command against an existing
+    file exited 4 (#187). Both are the same question answered by prior state
+    instead of by the flag.
+
+    An existing directory stays a directory, whatever it is called; a path
+    that already exists as a file is one; otherwise the suffix decides, which
+    is the rule a reader is already using when they type the name.
+    """
+    if path.is_dir():
+        return False
+    return path.is_file() or bool(path.suffix)
+
+
+def _build_to_file(backend: Any, source: Any, dest: Path, timeout_s: float) -> Any | BuildError:
+    """Build so the artifact lands at exactly `dest`.
+
+    The engine names its export after the source file, so the build runs in a
+    scratch directory beside `dest` and the result is moved into place.
+    Building straight into `dest.parent` would export `<source-stem>.stl`
+    there first and unlink whatever the caller already had under that name —
+    `--out models/a.stl` would destroy `models/spacer.stl`. Beside rather than
+    in the system temp dir so the move is a rename on one filesystem.
+    """
+    import tempfile
+
+    # One clause for all three ways the filesystem can refuse — an
+    # uncreatable parent, an unwritable one, a failed move — because the
+    # caller's question is the same in each: the artifact is not where you
+    # asked for it, and that is the environment's doing, not the part's.
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            dir=dest.parent, prefix=".partspec-build-", ignore_cleanup_errors=True
+        ) as scratch:
+            built = backend.build(source, Path(scratch), timeout_s=timeout_s)
+            if isinstance(built, BuildError):
+                return built
+            (Path(scratch) / f"{source.path.stem}.stl").replace(dest)
+            return built
+    except OSError as exc:
+        return BuildError(
+            f"could not write the build artifact to {dest}: {exc.strerror}",
+            origin="environment",
+        )
 
 
 def _resolve_or_report(spec: str) -> tuple[Part, Target] | int:
@@ -703,8 +761,26 @@ def _measure_resolved(
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
-    out = _out_dir(args.target, args.out)
-    artifact = backend.build(_engine_source(part), out, timeout_s=timeout_s)
+    source = _engine_source(part)
+    if args.out is not None and _names_a_file(args.out):
+        if part.source.engine != "openscad":
+            # Refused, not warned: the caller asked for a file this tier
+            # cannot produce, and exiting 0 with nothing at that path is the
+            # silent success this tool exists to refuse (#187).
+            print(
+                f"partspec: --out {args.out} names a file, but the {part.source.engine} "
+                f"tier builds in memory and exports nothing to write there",
+                file=sys.stderr,
+            )
+            print(
+                "  only the OpenSCAD tier writes a build artifact; pass a directory, or drop --out",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
+        artifact = _build_to_file(backend, source, args.out, timeout_s)
+    else:
+        out = _out_dir(args.target, args.out)
+        artifact = backend.build(source, out, timeout_s=timeout_s)
     if isinstance(artifact, BuildError):
         # The failure is an artifact too (#47): a caller parsing stdout used
         # to get an empty string and a bare exit code, with the reason living

@@ -37,6 +37,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contract is wrong, not the part" classification and the report are
   unchanged. (#188)
 
+- **`measure --out` described the artifact and took a directory, so a filename
+  became a directory of that name.** `--out out/a.stl` created a *directory*
+  called `a.stl`, wrote `spacer.stl` inside it and exited 0 — silent success,
+  the one outcome this tool exists to refuse — while the same command against
+  a path that already existed as a file exited 4, so prior state decided what
+  the flag meant. An adoption agent hit it four times in a row. A path that
+  names a file (it has a suffix, or already exists as one) is now the artifact
+  itself and the `.stl` lands exactly there; any other path is still the
+  directory it has always been, and an existing directory stays one whatever
+  it is called. The build runs in a scratch directory beside the destination,
+  because exporting `<source-stem>.stl` into the destination's own directory
+  first would have overwritten a neighbour of that name. On the OCCT tier,
+  which builds in memory and exports nothing, a filename is **refused** (exit
+  64) rather than accepted and quietly not written. `check --out` and
+  `render --out` are unchanged: they hold several files, so they remain
+  directories.
+
 ## [0.7.4] - 2026-08-13
 
 **A remedy that cannot be run is not a remedy.** One fix, found the way the last
