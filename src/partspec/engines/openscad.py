@@ -227,9 +227,10 @@ def _output_over_an_input(source: OpenSCADSource, out_dir: Path, stl: Path) -> B
     3. `<stem>.stl` is already there to be destroyed.
 
     Each clause is load-bearing in the direction of NOT over-refusing. Without
-    (1) every repeat run against the default `outputs/<slug>` sees run 1's own
-    artifact and refuses — the whole ordinary path, broken. Without (2) no
-    model could ever write beside its source. Without (3) a first run into the
+    (1) the second run of any external-data model against the default
+    `outputs/<slug>` finds run 1's own artifact there and is refused — the
+    ordinary path, broken. Without (2) any model rendering twice into its own
+    directory is refused on the second run. Without (3) a first run into the
     source directory is refused over a file that does not exist.
 
     It therefore **under-refuses**, deliberately: `--out sub` where the model
@@ -270,10 +271,11 @@ def render(
     **Nothing in `out_dir` is touched until there is an artifact to put there.**
     The engine writes into a scratch directory under `out_dir` and the result
     is moved into place with `os.replace`, so the destination holds the old
-    file or the new one and never neither. This is what SPEC-backend §5 step 1
-    already describes (`-o <tmp>.stl`), and the shape `cli._build_to_file`
+    file or the new one and never neither. It is the shape `cli._build_to_file`
     settled on for the filename form of `--out` — the directory form never got
-    it (#208).
+    it (#208) — and the one SPEC-backend §5 step 1 already spells the
+    invocation with (`-o <tmp>.stl`), though the spec is illustrating the
+    command rather than requiring the temporary.
 
     An earlier revision unlinked the target up front, so that the
     exists/non-empty guards below could not be answered by a *stale* file from
