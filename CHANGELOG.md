@@ -98,7 +98,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moved check is **`identical` at exit 0**, with the distribution named on the
   summary line: OpenSCAD already got exit 0 for a changed `.scad` closure under
   unmoved checks, and a second rule for Python would rebuild the very asymmetry
-  this fixes. `DIFF_SCHEMA_VERSION` is now `2` — diff's own output, so no
+  this fixes. A gap discards observed movement from the **verdict** and from
+  nothing else: the closure digest keeps its own artifact field
+  (`source.closure_digest_changed`), since a bounded gap collapses
+  `source.closure` to `inconclusive` and would otherwise take the only record
+  of closure movement with it; and where movement *was* observed the
+  indeterminate message names it and drops the sentence *"nothing this diff
+  can see changed…"*, which through v0.7.4 was unreachable in that state and
+  would now be asserting nothing-was-seen one line above the line naming what
+  moved. Where nothing moved, that sentence is unchanged and verbatim.
+  Malformation fails closed and is kept distinct from age: a field **absent**
+  is "written before the question was asked" (`imports_not_recorded`, whose
+  remedy is to re-record), a field in the **wrong shape** is
+  `malformed_closure` on either tier, and `partial` disagreeing with
+  `bool(unseen)` is `unnamed_partial` — v0.7.4 exits 2 on `partial: true`, and
+  each of those states exited 0 somewhere before review caught it.
+  `DIFF_SCHEMA_VERSION` is now `2` — diff's own output, so no
   stored report is refused — and the report `schema_version` is untouched.
   **Upgrading: re-record your Python baseline to get exit 0 again.** A report
   written by 0.7.4 or earlier carries no `imports`, which is not "nothing
