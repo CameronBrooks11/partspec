@@ -374,6 +374,56 @@ def test_a_stale_artifact_cannot_answer_the_post_render_guards(tmp_path: Path, m
     assert (out / "part.stl").read_bytes() == b"the previous run's mesh"
 
 
+@needs_openscad
+def test_a_first_render_into_the_source_directory_is_not_refused(tmp_path: Path):
+    """Clause (3) of the #208 guard: `<stem>.stl` must already EXIST.
+
+    Both this and the test below pin a clause whose deletion left the suite
+    green (adversarial review of #223). The guard refuses a render into the
+    model's own directory only when the derived name is already taken; a first
+    run there takes a name nothing holds, so nothing can be destroyed and
+    nothing is refused. Drop the clause and this ordinary invocation — an
+    external-data model rendered beside its own source, once — becomes a hard
+    environment error over a file that does not exist.
+
+    The second render IS refused, and that is the same boundary from the other
+    side: by then partspec's own artifact is sitting there, and nothing on disk
+    says whether it or an input owns the name.
+    """
+    (tmp_path / "input.stl").write_bytes(b"donor")
+    source = _scad(
+        tmp_path, "imports_data.scad", FIXTURES.joinpath("imports_data.scad").read_text()
+    )
+
+    first = openscad.render(OpenSCADSource(path=source), tmp_path)
+    assert isinstance(first, Path), first
+    assert first == tmp_path / "imports_data.stl"
+    assert first.stat().st_size > 0
+
+    second = openscad.render(OpenSCADSource(path=source), tmp_path)
+    assert isinstance(second, BuildError), "now the derived name is taken"
+    assert "cannot prove imports_data.stl is not one of them" in second.message
+
+
+@needs_openscad
+def test_a_model_with_a_complete_closure_renders_twice_into_its_own_directory(tmp_path: Path):
+    """Clause (2) of the #208 guard: the closure must be PARTIAL.
+
+    A model that reads no external data and resolves every include has no
+    inputs partspec cannot account for, so the derived name can only be
+    partspec's own artifact from the previous run. Refusing there would break
+    every repeat render into a source directory — the case that costs nothing
+    and is refused by nobody — and dropping the clause leaves the suite green,
+    which is why this is written down.
+    """
+    source = _scad(tmp_path, "plain.scad", "cube([2, 3, 4]);\n")
+    for run in ("first", "second"):
+        result = openscad.render(OpenSCADSource(path=source), tmp_path)
+        assert isinstance(result, Path), f"{run}: {result}"
+        assert result == tmp_path / "plain.stl"
+        assert result.stat().st_size > 0
+
+
 def test_top_level_variables_ignores_locals_and_noise(tmp_path: Path):
     """Only depth-zero assignments are reachable by `-D`; a name inside a module
     body is a local. Comments and string interiors must not be read as

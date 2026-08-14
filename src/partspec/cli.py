@@ -173,9 +173,10 @@ def build_parser() -> argparse.ArgumentParser:
         "leaves what was there. Any other PATH — a trailing "
         f"{os.sep!r}, an existing directory, any other suffix — is a directory "
         "to write <source>.stl in, and the MODEL'S OWN directory is refused "
-        "when that name is already taken and the model reads external data. A "
+        "when that name is already taken and the source closure is partial (it "
+        "reads external data, or has includes partspec could not resolve). A "
         "file is refused when nothing would be written to it (the OCCT tier "
-        "builds in memory) or when the model reads external data, because an "
+        "builds in memory) or when that same closure is partial, because an "
         "import()ed .stl is an input, not an output. The measurements "
         "themselves go to stdout — this verb emits no report file",
     )
@@ -887,13 +888,21 @@ def _measure_resolved(
             # Refused, not warned: the caller asked for a file this tier
             # cannot produce, and exiting 0 with nothing at that path is the
             # silent success this tool exists to refuse (#187).
+            #
+            # The hint no longer offers "pass a directory". It appeared to work
+            # while a directory was silently accepted; #204 makes that same
+            # request state that nothing was written, so following the old
+            # advice now lands the reader in the state one line of output
+            # complains about. `drop --out` is the whole remedy on this tier.
             _measure_failure(
                 part,
                 target,
                 backend,
                 f"--out {dest} names a file, but the {part.source.engine} tier builds "
                 f"in memory and exports nothing to write there",
-                "only the OpenSCAD tier writes a build artifact; pass a directory, or drop --out",
+                "only the OpenSCAD tier writes a build artifact — drop --out; a directory "
+                "is accepted but nothing is written to it either, and the measurements go "
+                "to stdout",
             )
             return EXIT_USAGE
         from .engines.openscad import include_closure

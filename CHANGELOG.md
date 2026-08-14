@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A build no longer destroys its own input, on `check` as well as on
-  `measure`.** `engines/openscad.render` unlinked `<out dir>/<source stem>.stl`
+- **A build no longer destroys the input it derives its own artifact name from
+  — on `check` as well as on `measure`, and not yet on every path.**
+  `engines/openscad.render` unlinked `<out dir>/<source stem>.stl`
   before invoking the engine, so a model whose `import()` target sits at that
   derived path built without it. Filed as a `measure --out DIR` bug (#208); it
   is a bug in `render`, which means `check --out DIR` reached it too, and that
@@ -21,14 +22,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   engine now exports into a scratch directory under the output directory and
   the result is moved into place with `os.replace` only once it exists and is
   non-empty, so the output directory is write-only for the whole render — the
-  shape `_build_to_file` already used for the filename form of `--out`, and
-  what `SPEC-backend.md` §5 step 1 describes (`-o <tmp>.stl`). The unlink's
+  shape `_build_to_file` already used for the filename form of `--out`, and the
+  one `SPEC-backend.md` §5 step 1 already spells the invocation with
+  (`-o <tmp>.stl`), though that spec is illustrating the command rather than
+  requiring the temporary. The unlink's
   stated reason dies with it: the exists/non-empty guards now ask about a file
   in a directory this call created empty, so no previous run's mesh can answer
   them (pinned by a test against a stub engine that exits 0 writing nothing,
   because the installed 2021.01 exits 1 on empty geometry and cannot reach that
   branch). A failed render, a blown timeout or a Ctrl-C now leaves whatever was
-  there rather than deleting it.
+  there rather than deleting it. **Two paths in the same module still unlink
+  up front and are not fixed here:** `render_views` clears
+  `<out dir>/renders/<view>.png` and `render_section_stl` clears
+  `<stem>.section.stl`. The first is reachable — `surface(file = "...")` reads
+  a PNG as a heightmap, so `render --out .` against a model reading
+  `renders/iso.png` destroys that heightmap, measured on a first run into a
+  clean directory at exit 0 with nothing on stderr. The guard below does not
+  cover it: it knows only `<stem>.stl`. Tracked as #224.
 - **A render into the model's own directory is refused when it cannot be told
   from an input.** Non-destructive building fixes the measurement and not the
   file: `os.replace` still lands the artifact on top of the input at the end.
@@ -38,10 +48,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closure is partial AND `<stem>.stl` already exists there. All three clauses
   exist to avoid over-refusing: without the first, every REPEAT run of any
   external-data model against the default `outputs/<slug>` would be refused for
-  finding its own previous artifact. It therefore **under-refuses** —
-  `--out sub` for a model importing `sub/<stem>.stl` still replaces that file,
-  and only the file: the measurement is correct there because the engine reads
-  the input before anything moves. Both directions are pinned by test. The
+  finding its own previous artifact. It therefore **under-refuses, and the cost
+  of that is not one file.** For a model importing `sub/<stem>.stl` run with
+  `--out sub`, the artifact REPLACES the import instead of deleting it, so the
+  import still resolves and the model eats its own output. Measured over three
+  identical consecutive runs against a 3x7x11 donor: `[8,7,11]`, `[13,7,11]`,
+  `[18,7,11]`, every one at exit 0 — and `check` with `envelope(min=(12,7,11))`,
+  a claim FALSE of the real part, fails at run 1 and **passes at run 2**. That
+  is #208's own headline symptom surviving in a narrower case, and the same
+  compounding the #187 review recorded (`[30,10,10]`, `[50,10,10]`,
+  `[70,10,10]`). It ships that way because every rule wide enough to catch a
+  subdirectory import also refuses legitimate output directories, and
+  over-refusal breaks the ordinary run rather than a rare one; the real remedy
+  is a signal saying which files a render actually READ, tracked separately.
+  The compounding is pinned by an executing test, not described. The
   refusal is `origin="environment"`, so `check` reports it as a run-level fault
   with every check skipped rather than as a failing `builds` (SPEC-report
   §6.1), and both verbs exit 4.
@@ -66,8 +86,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was filed against (`aa08dc0`), and not at v0.7.4, v0.7.0 or v0.6.0, on either
   OCCT engine. The OCCT backend's `build()` has documented `out_dir` as unused
   since it was written, and nothing else in `measure`'s directory path calls
-  `mkdir`. The directory in the report was `check`'s, which creates it and
-  writes a report into it.
+  `mkdir`. What the sweep establishes is that `measure` never created it; it
+  does not establish what the reporter saw. `check --out DIR` does create the
+  directory and writes `report.json` into it, which is the nearest behaviour
+  that exists.
 
 ## [0.7.5] - 2026-08-14
 

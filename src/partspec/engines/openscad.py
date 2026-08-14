@@ -233,16 +233,33 @@ def _output_over_an_input(source: OpenSCADSource, out_dir: Path, stl: Path) -> B
     directory is refused on the second run. Without (3) a first run into the
     source directory is refused over a file that does not exist.
 
-    It therefore **under-refuses**, deliberately: `--out sub` where the model
-    imports `sub/part.stl` still loses the file. What it does not lose there is
-    the answer — the scratch build reads that input before anything replaces it
-    — so the residue is one destroyed file rather than a confident wrong
-    measurement, which is the cheaper half. Over-refusing costs every user of a
-    legitimate output directory; under-refusing costs a rare corner one file.
-    Scanning the closure for the destination's NAME was the precise alternative
-    considered and rejected: it resolves nothing when the path is computed,
-    which is the case `reads_external_data` exists to admit, so it would refuse
-    in the easy case and stay silent in the hard one.
+    It therefore **under-refuses**, and the cost of that is not one file. Where
+    the import sits in a subdirectory — `import("sub/part.stl")` with
+    `--out sub` — the artifact is REPLACED at that path rather than deleted, so
+    the import still resolves and the model eats its own output. Measured,
+    three identical consecutive runs against a 3x7x11 donor:
+
+        run 1  exit 0  bbox [8, 7, 11]   (correct)
+        run 2  exit 0  bbox [13, 7, 11]
+        run 3  exit 0  bbox [18, 7, 11]
+
+    and `check` with a claim that is FALSE of the real part — `envelope(min=(12,
+    7, 11))` — fails at run 1 and **passes at run 2**. So the residue is an
+    unbounded series of confident wrong answers at exit 0, which is #208's own
+    headline symptom surviving in a narrower case, not merely a lost file. It
+    is the same compounding `_EXTERNAL_DATA_RE` records from the #187 review
+    ([30,10,10], [50,10,10], [70,10,10]).
+
+    Shipped anyway, with eyes open, because the alternative is worse in the
+    direction that matters more: any rule wide enough to catch a subdirectory
+    import refuses legitimate output directories, and over-refusal breaks every
+    ordinary run rather than a rare one. Scanning the closure for the
+    destination's NAME was the precise alternative considered and rejected: it
+    resolves nothing when the path is computed, which is the case
+    `reads_external_data` exists to admit, so it would refuse in the easy case
+    and stay silent in the hard one. The real remedy is a signal that says
+    which files a render actually READ — the engine's own dependency output —
+    and that is tracked separately rather than guessed at here.
     """
     if out_dir.resolve() != source.path.parent.resolve() or not stl.exists():
         return None
@@ -268,14 +285,24 @@ def render(
     defaults to ASCII. Choosing the format explicitly means the export does not
     silently change meaning with the installed version.
 
-    **Nothing in `out_dir` is touched until there is an artifact to put there.**
-    The engine writes into a scratch directory under `out_dir` and the result
-    is moved into place with `os.replace`, so the destination holds the old
-    file or the new one and never neither. It is the shape `cli._build_to_file`
-    settled on for the filename form of `--out` — the directory form never got
-    it (#208) — and the one SPEC-backend §5 step 1 already spells the
-    invocation with (`-o <tmp>.stl`), though the spec is illustrating the
-    command rather than requiring the temporary.
+    **No file this call did not create is touched until there is an artifact to
+    put there.** The engine writes into a scratch directory under `out_dir` and
+    the result is moved into place with `os.replace`, so the destination holds
+    the old file or the new one and never neither. It is the shape
+    `cli._build_to_file` settled on for the filename form of `--out` — the
+    directory form never got it (#208) — and the one SPEC-backend §5 step 1
+    already spells the invocation with (`-o <tmp>.stl`), though the spec is
+    illustrating the command rather than requiring the temporary.
+
+    The claim is scoped that way rather than to "nothing in `out_dir`" because
+    the scratch directory itself IS created there, before the engine runs. It
+    is removed on every exit from the `with`, including exceptions and SIGINT;
+    an uncaught signal — SIGTERM, SIGKILL — leaves a `.partspec-build-*`
+    behind (measured: exit 143, leftover confirmed). Sweeping older ones is
+    deliberately not done here, for `_build_to_file`'s reason: a concurrent
+    render in the same directory owns one of them, and this call cannot tell
+    which. A symlink at the destination is replaced by the rename rather than
+    written through, so its target is untouched.
 
     An earlier revision unlinked the target up front, so that the
     exists/non-empty guards below could not be answered by a *stale* file from
@@ -487,7 +514,13 @@ def render_section_stl(
     scratch = out_dir / f"{stl.stem}.section.scad"
     out = out_dir / f"{stl.stem}.section.stl"
     try:
-        out.unlink(missing_ok=True)  # same stale-artifact rule as render()
+        # The up-front unlink `render()` used to do and no longer does (#208):
+        # there the derived name is `<stem>.stl`, which a model plausibly
+        # imports, and deleting it destroyed a build input. `<stem>.section.stl`
+        # is a name partspec alone writes, so the hazard is remote rather than
+        # absent — this path has not been converted to build-in-scratch-and-move
+        # yet, and #224 tracks it.
+        out.unlink(missing_ok=True)
     except OSError as exc:
         return BuildError(
             f"could not clear the previous artifact in {out_dir}: {exc.strerror}",
@@ -625,7 +658,15 @@ def render_views(
         for view, rot in VIEWS.items():
             png = out_dir / "renders" / f"{view}.png"
             png.parent.mkdir(parents=True, exist_ok=True)
-            png.unlink(missing_ok=True)  # same stale-artifact rule as the STL
+            # The up-front unlink the STL no longer does (#208), and here the
+            # hazard is real rather than remote: `surface(file = "...")` reads a
+            # PNG as a heightmap, so `render --out .` against a model reading
+            # `renders/iso.png` deletes that heightmap before the engine runs,
+            # then renders and reports the part built without it — measured,
+            # first run, clean directory, exit 0, nothing on stderr. The guard
+            # in `_output_over_an_input` does not cover it: it knows only
+            # `<stem>.stl`. #224 tracks the fix.
+            png.unlink(missing_ok=True)
             cmd = [
                 executable,
                 "--camera",

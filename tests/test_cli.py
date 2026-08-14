@@ -392,6 +392,12 @@ def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(
     assert "names a file" in doc["error"]
     assert engine in doc["error"]
     assert "drop --out" in doc["hint"]
+    # The hint used to offer "pass a directory" as the alternative. It appeared
+    # to work while a directory was silently accepted; #204 makes that same
+    # request report that nothing was written, so the old advice now routes the
+    # reader into the state one line of output complains about. A remedy a
+    # reader can follow into a complaint is not a remedy.
+    assert "pass a directory" not in doc["hint"]
 
 
 @pytest.mark.parametrize(("engine", "model"), OCCT_MODELS)
@@ -556,8 +562,8 @@ def test_measure_out_measures_the_import_and_a_repeat_run_is_not_refused(tmp_pat
 
 
 @needs_scad_tier
-def test_measure_out_still_loses_an_import_it_cannot_tell_from_its_output(tmp_path: Path, capsys):
-    """The residue this fix leaves, pinned rather than left to be rediscovered.
+def test_measure_out_compounds_when_the_import_is_below_the_out_dir(tmp_path: Path, capsys):
+    """The residue this fix leaves, executed rather than predicted.
 
     The refusal covers the model's own directory and nothing else, because no
     signal distinguishes the two files anywhere else: `reads_external_data` is
@@ -565,21 +571,36 @@ def test_measure_out_still_loses_an_import_it_cannot_tell_from_its_output(tmp_pa
     `--out sub` for a model importing `sub/<stem>.stl` still writes the
     artifact over that import.
 
-    What survives is the half that matters more. The engine reads the real
-    input — the build happens in a scratch directory, and nothing is removed
-    before it — so THIS run's answer is right, `[8, 7, 11]`; only the file is
-    lost, and the next run would be refused nothing and answer `[5, 5, 5]`.
-    Trading a rare lost file for never over-refusing a legitimate output
-    directory is the deliberate choice; it is not the absence of one.
+    An earlier revision of this test said the cost was one file and that the
+    next run would answer `[5, 5, 5]` — a number that was written rather than
+    run, in a repo whose whole subject is the difference. The artifact
+    REPLACES the import rather than deleting it, so the import still resolves
+    and the model eats its own output: `[8, 7, 11]`, then `[13, 7, 11]`, then
+    `[18, 7, 11]`, every one at exit 0, and a `check` claim that is false of
+    the real part passes from run 2 onward. That is #208's own headline
+    symptom surviving in a narrower case, and the same compounding
+    `_EXTERNAL_DATA_RE`'s docstring records from the #187 review.
+
+    Pinned because it is a KNOWN residue, not an accepted behaviour: if a
+    later change closes it, this test fails and says so, which is the whole
+    point of writing the residue down where it can be executed. Widening the
+    guard to catch it is the thing that must not happen quietly — any rule
+    reaching a subdirectory import also refuses legitimate output directories.
     """
     donor = _donor_stl(tmp_path, tmp_path / "sub" / "subdir_import.stl")
     target = scad_target(tmp_path, source="subdir_import.scad", claims="")
-    assert main(["measure", target, "--out", str(tmp_path / "sub")]) == 0
-    doc = json.loads(capsys.readouterr().out)
-    assert doc["measurements"]["bbox"]["value"] == [8.0, 7.0, 11.0], "the import WAS read"
-    assert (tmp_path / "sub" / "subdir_import.stl").read_bytes() != donor, (
-        "and the artifact then replaced it — the documented residue of #208's guard"
+    out = tmp_path / "sub"
+
+    measured = []
+    for _ in range(3):
+        assert main(["measure", target, "--out", str(out)]) == 0
+        measured.append(json.loads(capsys.readouterr().out)["measurements"]["bbox"]["value"])
+
+    assert measured[0] == [8.0, 7.0, 11.0], "run 1 reads the real import and is right"
+    assert measured[1:] == [[13.0, 7.0, 11.0], [18.0, 7.0, 11.0]], (
+        "and every run after it measures the previous run's output, at exit 0"
     )
+    assert (out / "subdir_import.stl").read_bytes() != donor
 
 
 # --------------------------------------------------------------------------
