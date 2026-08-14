@@ -126,6 +126,7 @@ def test_region_json_is_self_describing():
         (lambda: cylinder(d=5, h=-1), "h > 0"),
         (lambda: cylinder(d=float("inf"), h=5), "not a number"),
         (lambda: cylinder(d=5, h=5, axis="w"), "axis"),
+        (lambda: cylinder(d=5, h=5, axis=(0, 0, 1)), "axis"),  # type: ignore[arg-type]
         (lambda: cylinder(d=5, h=5, segments=4), "at least 8"),
     ],
 )

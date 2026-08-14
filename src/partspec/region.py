@@ -103,7 +103,9 @@ class BoxRegion:
 class CylinderRegion:
     """The circumscribed n-gon prism standing for a cylinder of diameter `d`.
 
-    `at` is the centre of the base circle; the prism extends `h` along `+axis`.
+    `at` is the centre of the base circle. `axis` names the axis the prism stands
+    on — the string `'x'`, `'y'` or `'z'`, not a direction vector — and the prism
+    extends `h` from `at` in that axis's positive direction.
     """
 
     d: float
@@ -122,7 +124,9 @@ class CylinderRegion:
             raise ContractError("a cylinder region centre takes 3 components")
         object.__setattr__(self, "at", at)
         if self.axis not in _AXES:
-            raise ContractError(f"cylinder region axis must be 'x', 'y' or 'z', not {self.axis!r}")
+            raise ContractError(
+                f"cylinder region axis must be the string 'x', 'y' or 'z', not {self.axis!r}"
+            )
         if not isinstance(self.segments, int) or self.segments < 8:
             raise ContractError("a cylinder region needs at least 8 segments")
 
@@ -216,7 +220,10 @@ def cylinder(
     axis: str = "z",
     segments: int = 64,
 ) -> CylinderRegion:
-    """A cylinder region: diameter `d`, extending `h` along `+axis` from `at`.
+    """A cylinder region: diameter `d`, extending `h` from `at` along one axis.
+
+    `axis` is the string `'x'`, `'y'` or `'z'` — the axis to extend along, not a
+    direction vector — and the prism grows in that axis's positive direction.
 
     Materialized as a circumscribed polygon prism — see the module docstring for
     why, and what the over-approximation costs.
