@@ -59,9 +59,13 @@ map governs `check`).
   is that a magic number is *unnameable*; the code was the defect.
 - **A signature default is named by its parameter.** `function radius(i, r_min = 100)`
   and the same signature wrapped over three lines both lint clean. Until #205 only the
-  wrapped form did: the paren-depth exemption is decided before the declaration line's
-  own parens are counted, so the common single-line form was flagged and the rare
-  continuation form was not. **A vector default is the whole bracket group** —
+  wrapped form did, and for a reason worth stating exactly, because the plausible one is
+  wrong: the exemption was keyed on a **line-leading `name =`**, and a declaration line
+  never is one — it leads with `module` or `function`. A wrapped signature's continuation
+  line *is* (`    r_min = 100`), which is the whole of why the rare form escaped and the
+  common one was flagged. Paren depth was not the cause: it fed only the multi-line
+  assignment opener, never the exemption, so advancing it earlier changes nothing
+  (measured, byte-identical output — #205's suggested remedy, recorded on the issue). **A vector default is the whole bracket group** —
   `module plate(size = [60, 40, 4])` is clean, because a size, a position and a range
   are all spelled `[...]` in OpenSCAD. The exemption covers the DEFAULTS, not the line:
   the walk stops at the parameter list's closing paren, so a one-line module's body

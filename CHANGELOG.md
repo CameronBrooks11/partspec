@@ -53,8 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an edit to a file a RECORD *does* declare leaves that entry `metadata` with
   an unmoved digest, since ownership is decided by path and hashing every
   loaded file is the cost this tier exists to avoid (§8.3 rules 5 and 6,
-  §7.1). **No `diff` behaviour, verdict or exit code changes**; stage 3 of
-  #190 owns what the comparator does with the new fields. Cost, measured
+  §7.1). **Recording the fields changes no `diff` behaviour, verdict or exit
+  code by itself** — what the comparator does with them is the `diff` entry
+  under **Changed** in this same release, and that one does move verdicts and
+  exit codes (stage 3 of #190). Cost, measured
   against 6e9b67e: the OpenSCAD tier is unchanged (+1.6 ms, +0.29%, it builds
   no index — `_record_index.cache_info()` after a full run is
   `hits=0, misses=0`), and the Python tier pays one RECORD
@@ -241,12 +243,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`scad-magic-number` flagged two positions where the literal already has a
   name, or is not a dimension at all.** A parameter default on a
   `function`/`module` **declaration line** fired (`module post(h = 40)`), while
-  the identical default wrapped onto a continuation line did not: the rule
-  decides its paren-depth exemption before counting the line's own parens, so
-  on a header line the depth is still 0 and the exemption — which the rule's
-  own comment says covers "the named argument and signature-default case" —
-  never applied. The common form was flagged and the rare form was tested,
-  which is how it survived. Defaults are exempt whether scalar or vector —
+  the identical default wrapped onto a continuation line did not: the
+  exemption — which the rule's own comment says covers "the named argument and
+  signature-default case" — is keyed on a **line-leading `name =`**, and a
+  declaration line never is one, because it leads with `module` or `function`.
+  A wrapped signature's continuation line is (`    h = 40`), which is the
+  whole of why the rare form escaped. Paren depth is not the cause and #205's
+  suggested remedy was measured not to work: `depth` feeds the multi-line
+  assignment opener alone and never the exemption, so advancing it earlier
+  leaves the output byte-identical. The common form was flagged and the rare
+  form was tested, which is how it survived. Defaults are exempt whether scalar or vector —
   `module plate(size = [60, 40, 4])` is the ordinary way to spell a size, and
   exempting only the offset past `name =` would have left that half of the
   report unfixed — and it is the DEFAULTS that are exempt, not the line: the
