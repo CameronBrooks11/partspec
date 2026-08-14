@@ -853,6 +853,33 @@ def test_a_contract_calling_sys_exit_still_says_where(tmp_path: Path, capsys):
     assert SOURCE_ROOT not in err
 
 
+@needs_scad_tier
+def test_a_contract_that_raises_under_measure_out_prints_only_the_traceback(tmp_path: Path, capsys):
+    """Where #188's filtering and #187's `--out` meet, which is nowhere.
+
+    Both landed in `measure`'s path in the same week, one printing tracebacks
+    and one printing a JSON failure artifact, and neither had been run against
+    the other. They cannot collide: the traceback belongs to a target that
+    never resolved, and SPEC-report's Scope gives that case stderr and an exit
+    code only — there is no identity to emit and no `--out` yet to honour. So
+    the assertion is that each stays on its own side, and that a `--out` file
+    named by a run that never built is not created.
+    """
+    target = _raising_contract(
+        tmp_path,
+        "    from partspec.status import ContractError\n\n"
+        "    raise ContractError('the bore diameter is not declared')\n",
+    )
+    dest = tmp_path / "a.stl"
+    assert main(["measure", target, "--out", str(dest)]) == exit_code(Verdict.ERROR)
+    captured = capsys.readouterr()
+    assert _markers(captured.err), "the filtered traceback is intact"
+    assert "ContractError: the bore diameter is not declared" in captured.err
+    assert SOURCE_ROOT not in captured.err
+    assert captured.out == "", "an unresolved target has no identity to print"
+    assert not dest.exists(), "and nothing was written where it never got to build"
+
+
 def test_render_on_the_occt_tier_from_the_same_verb(tmp_path: Path, capsys):
     """#18: same verb, same view names, and the payload carries what this
     tier uniquely knows — the backend that ran, the build-derived closure,
