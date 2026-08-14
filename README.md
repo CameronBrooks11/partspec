@@ -2,12 +2,14 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.7.4 is on PyPI** — v0.7.3 stopped the tool naming a
-> fault and withholding its remedy, and 0.7.4 is the correction that found: the
-> remedy it had started printing said `pip`, and a `uv venv` ships none. Worse,
-> the word still resolves — to the system interpreter's pip — so the fix ran,
-> reported success, and changed nothing the failing interpreter could see.
-> Install hints now name whichever installer is actually there. It
+> **Status: pre-alpha; v0.7.5 is on PyPI** — `diff` can now answer for a
+> contract that wraps a third-party library. Until 0.7.5 every such comparison
+> was indeterminate whatever it found, because a Python closure was flagged
+> partial unconditionally; the report now records which distributions the model
+> imported and names its gaps, and `diff` keys on the *class* of gap rather
+> than a boolean. A library that moved under unmoved claims is `identical` and
+> says which library. 0.7.5 also stops `measure --out` destroying a file it was
+> told to write when that file is a build input. It
 > runs end to end — `check`, `measure` and `render` across all three engines (with
 > `--section` cuts on both tiers), `diff` on the reports and `vdiff` on
 > the renders they produce — and is dogfooded on real

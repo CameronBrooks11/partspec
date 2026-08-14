@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-08-14
+
 ### Added
 
 - **`part.source_closure` now says which distributions the model imported, and
@@ -1374,7 +1376,8 @@ callouts, and reports become comparable.
 [convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
 [dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.4...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.5...HEAD
+[0.7.5]: https://github.com/CameronBrooks11/partspec/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/CameronBrooks11/partspec/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/CameronBrooks11/partspec/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/CameronBrooks11/partspec/compare/v0.7.1...v0.7.2

@@ -10,8 +10,23 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha; **v0.7.4 released on PyPI** (2026-08-13, tag → trusted publishing via
-`release.yml`). 0.7.4 is one fix and it corrects 0.7.3: the remedy `check` had just started
+Status: pre-alpha; **v0.7.5 released on PyPI** (2026-08-14, tag → trusted publishing via
+`release.yml`). 0.7.5 closes the comparator's engine-shaped hole, measured by a nine-agent
+adoption fleet: `diff` went indeterminate on 3/3 CadQuery replicates and 0/3 OpenSCAD ones,
+same command and same version, because an OpenSCAD library is source on disk while a Python
+one is an installed distribution and `source_closure.partial` was therefore unconditional.
+`source_closure` now carries `imports` (which distributions the model loaded, and whether
+their bytes were read or their installer taken at its word) and `unseen` (the gaps, from a
+closed vocabulary), and `diff` keys on whether a gap is *bounded* or *irreducible* rather
+than on a boolean — so a library that moved under unmoved claims is `identical` and names
+the library, while a gap a run could have closed still blocks the claim. `imports` is
+process-wide where `check` runs several targets in one process, and `preloaded` names what
+a report cannot claim as its own rather than letting `diff` assert it (#216 carries the
+real attribution). Also: `measure --out` no longer unlinks a destination that is a build
+input, and `diff` compares `environment.packages`, which `SPEC-report.md` said in bold it
+must. Its pre-tag audit found the batch-position defect above and four wording defects,
+and two rounds of adversarial review then found that each fix for an overclaim had
+introduced a quieter one. 0.7.4 before it corrects 0.7.3: the remedy `check` had just started
 printing named `pip`, which a `uv venv` does not have — and on a distro that packages one
 the word still resolves, to the *system* interpreter, so the fix ran clean and changed
 nothing the failing interpreter could see. Hints are now phrased for the interpreter
