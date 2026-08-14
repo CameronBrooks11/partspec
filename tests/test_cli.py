@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 from support import (
     decode_png,
-    needs_build123d,
     needs_openscad,
     needs_scad_tier,
     py_target,
@@ -120,7 +119,7 @@ def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
 
 @needs_scad_tier
 def test_measure_writes_the_artifact_at_the_filename_it_was_given(tmp_path: Path, capsys):
-    """A filename is honoured as one.
+    """An `.stl` path is honoured as the artifact.
 
     Found by an adoption agent, four times in a row: `--out .../a.stl` made a
     DIRECTORY called `a.stl` holding `block_with_hole.stl`, and exited 0. A
@@ -151,18 +150,65 @@ def test_measure_overwrites_a_path_that_already_exists_as_a_file(tmp_path: Path,
 
 
 @needs_scad_tier
-@pytest.mark.parametrize("existing", [False, True])
-def test_measure_out_still_takes_a_directory(tmp_path: Path, capsys, existing: bool):
-    """The documented shape keeps working, and an existing directory stays a
-    directory whatever it is called — `--out renders.d/` is not a filename
-    just because it has a suffix."""
+@pytest.mark.parametrize(
+    "name",
+    [
+        "out",  # the documented shape
+        "run.2026-08-13",  # a dated directory is not a filename
+        "v1.2",  # nor a versioned one
+        "renders.d/",  # a trailing separator is directory intent, stated
+        "a.stl/",  # even when the name is one the engine could write
+    ],
+)
+def test_measure_out_takes_a_directory_unless_the_name_is_an_stl(tmp_path: Path, capsys, name: str):
+    """Only `.stl` — the one format the OpenSCAD tier exports — makes `--out`
+    a filename. "Any suffix" was the first attempt at #187 and it turned
+    `--out run.2026-08-13/` into a mesh FILE with that name: exit 0, wrong
+    noun, which is case 1 of the bug mirrored. A trailing separator settles it
+    outright, which is why the flag keeps the raw string rather than a Path.
+    """
     target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
-    out = tmp_path / ("renders.d" if existing else "out")
-    if existing:
-        out.mkdir()
+    assert main(["measure", target, "--out", f"{tmp_path}/{name}"]) == 0
+    out = tmp_path / name
+    assert out.is_dir(), "a directory was asked for"
+    assert (out / "block_with_hole.stl").stat().st_size > 0
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_out_leaves_an_existing_directory_a_directory(tmp_path: Path, capsys):
+    """Whatever it is called. `--out a.stl` where `a.stl/` is already a
+    directory writes into it rather than trying to replace it."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    out = tmp_path / "a.stl"
+    out.mkdir()
     assert main(["measure", target, "--out", str(out)]) == 0
     assert (out / "block_with_hole.stl").stat().st_size > 0
     json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+@pytest.mark.parametrize("victim", ["block_with_hole.scad", "spec.py"])
+def test_measure_out_never_overwrites_a_path_the_engine_could_not_have_written(
+    tmp_path: Path, capsys, victim: str
+):
+    """The fix's own worst failure mode, caught in review before it shipped.
+
+    While `--out` honoured *any* suffix, `--out ds/spacer.scad` replaced the
+    run's own source with 13 KB of binary STL and exited 0 — printing a
+    complete, correct measurement payload for a part whose source no longer
+    existed. `--out ds/spec.py` did the same to the contract. One tab
+    completion in a models directory was the whole trigger. A name the engine
+    cannot produce is not a filename this flag understands, so it falls
+    through to the directory rule and is refused there, exactly as it was
+    before #187 was touched.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    dest = tmp_path / victim
+    before = dest.read_bytes()
+    assert main(["measure", target, "--out", str(dest)]) == exit_code(Verdict.ERROR)
+    assert dest.read_bytes() == before, "the source of the run is not an output path"
+    assert "File exists" in json.loads(capsys.readouterr().out)["error"]
 
 
 @needs_scad_tier
@@ -181,21 +227,95 @@ def test_measure_out_does_not_overwrite_a_neighbour_of_the_file_it_was_given(
     json.loads(capsys.readouterr().out)
 
 
-@needs_build123d
-def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(tmp_path: Path, capsys):
-    """The OCCT tier builds in memory. Accepting a filename there would exit 0
-    with nothing at the path the caller named — the same silent success, one
-    tier over — so the invocation is refused before anything builds."""
-    (tmp_path / "m.py").write_text(
-        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
-    )
-    target = py_target(tmp_path)
+@needs_scad_tier
+def test_measure_out_leaves_nothing_behind_when_the_build_fails(tmp_path: Path, capsys):
+    """Both spellings of `--out` promise the same thing after a failure.
+
+    `openscad.render` unlinks its target before running so that a failed
+    render leaves nothing for a later reader to pick up — the stale-mesh class
+    in `notes/FINDINGS.md`, where a run's named output still holds an older
+    mesh that reads as current. Directory mode empties the directory; file
+    mode must empty the file, or one flag means two things.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
     dest = tmp_path / "a.stl"
-    assert main(["measure", target, "--out", str(dest)]) == 64
+    assert main(["measure", target, "--out", str(dest)]) == 0
+    assert dest.is_file()
+    capsys.readouterr()
+
+    code = main(["measure", target, "--out", str(dest), "--timeout", "0.001"])
+    assert code == exit_code(Verdict.ERROR)
+    assert not dest.exists(), "a failed run must not leave the previous mesh readable"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_out_replaces_a_symlink_rather_than_what_it_points_at(tmp_path: Path, capsys):
+    """`--out link.stl` is a statement about `link.stl`. Following the link
+    would write through to a file the caller did not name."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    pointee = tmp_path / "pointee.stl"
+    pointee.write_text("theirs")
+    link = tmp_path / "link.stl"
+    link.symlink_to(pointee)
+    assert main(["measure", target, "--out", str(link)]) == 0
+    assert not link.is_symlink(), "the link itself is what was named"
+    assert link.stat().st_size > 0
+    assert pointee.read_text() == "theirs"
+    json.loads(capsys.readouterr().out)
+
+
+@needs_scad_tier
+def test_measure_out_reports_a_destination_it_cannot_write(tmp_path: Path, capsys):
+    """The filesystem refusing is an environment fault, and it arrives as the
+    identity-prefixed artifact rather than as a traceback."""
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    try:
+        assert main(["measure", target, "--out", str(locked / "a.stl")]) == exit_code(Verdict.ERROR)
+    finally:
+        locked.chmod(0o700)
+    doc = json.loads(capsys.readouterr().out)
+    assert "could not write the build artifact" in doc["error"]
+    assert doc["geometry"] == {}
+
+
+@pytest.mark.parametrize(
+    ("engine", "model"),
+    [
+        ("build123d", "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n"),
+        (
+            "cadquery",
+            "import cadquery\n\n\ndef make_part():\n    return cadquery.Workplane().box(2, 1, 1)\n",
+        ),
+    ],
+)
+def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(
+    tmp_path: Path, capsys, engine: str, model: str
+):
+    """The OCCT tier builds in memory, on both its engines. Accepting a
+    filename there would exit 0 with nothing at the path the caller named —
+    the same silent success, one tier over — so the invocation is refused
+    before anything builds, and the refusal is an artifact (#47): SPEC-report
+    §Scope requires identity + `error`/`hint` on any failure after the target
+    resolves, and a machine passing `--out` is exactly who hits this one.
+    """
+    pytest.importorskip(engine, reason=f"{engine} extra not installed")
+    (tmp_path / "m.py").write_text(model)
+    module = tmp_path / "spec.py"
+    module.write_text(
+        f"from partspec import Part, {engine}\n\n\ndef make():\n"
+        f"    return Part('subject', {engine}('m.py'))\n"
+    )
+    dest = tmp_path / "a.stl"
+    assert main(["measure", f"{module}:make", "--out", str(dest)]) == 64
     assert not dest.exists()
-    err = capsys.readouterr().err
-    assert "names a file" in err
-    assert "build123d" in err
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["part"]["id"] == "subject", "the refusal says which part it refused"
+    assert "names a file" in doc["error"]
+    assert engine in doc["error"]
+    assert "drop --out" in doc["hint"]
 
 
 # --------------------------------------------------------------------------

@@ -42,17 +42,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   called `a.stl`, wrote `spacer.stl` inside it and exited 0 — silent success,
   the one outcome this tool exists to refuse — while the same command against
   a path that already existed as a file exited 4, so prior state decided what
-  the flag meant. An adoption agent hit it four times in a row. A path that
-  names a file (it has a suffix, or already exists as one) is now the artifact
-  itself and the `.stl` lands exactly there; any other path is still the
-  directory it has always been, and an existing directory stays one whatever
-  it is called. The build runs in a scratch directory beside the destination,
-  because exporting `<source-stem>.stl` into the destination's own directory
-  first would have overwritten a neighbour of that name. On the OCCT tier,
-  which builds in memory and exports nothing, a filename is **refused** (exit
-  64) rather than accepted and quietly not written. `check --out` and
-  `render --out` are unchanged: they hold several files, so they remain
-  directories.
+  the flag meant. An adoption agent hit it four times in a row.
+
+  A path ending in **`.stl`** — the one format the OpenSCAD tier exports — is
+  now the artifact itself, and the mesh lands exactly there. Every other path
+  is the directory it has always been: an existing directory whatever it is
+  called, a path with a trailing separator (`--out run.2026-08-13/`), and any
+  other suffix (`--out v1.2`). Gating on `.stl` rather than on "has a suffix"
+  is deliberate and was found in review: while any suffix counted,
+  `--out models/spacer.scad` replaced the run's own source with binary STL at
+  exit 0, which is a worse defect than the one being fixed. A name the engine
+  cannot write is refused as before.
+
+  Two guarantees come with the file form. The build runs in a scratch
+  directory beside the destination, so exporting `<source>.stl` on the way
+  cannot overwrite a neighbour of that name; and the destination is claimed
+  before the engine runs, so a failed build leaves nothing behind — the same
+  promise directory mode already made, which empties the directory. A symlink
+  is replaced, not followed.
+
+  On the OCCT tier, which builds in memory and exports nothing, a filename is
+  **refused** (exit 64) rather than accepted and quietly not written, and the
+  refusal is an artifact: identity plus `error`/`hint` on stdout, as
+  SPEC-report's Scope requires of any failure after the target resolves.
+
+  `check --out` and `render --out` are unchanged: they hold several files, so
+  they remain directories.
 
 ## [0.7.4] - 2026-08-13
 

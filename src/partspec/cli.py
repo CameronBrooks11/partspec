@@ -157,18 +157,25 @@ def build_parser() -> argparse.ArgumentParser:
     # created nothing. Same flag name, different noun, no help text to tell
     # them apart. The help that fixed that reading invited the next one (#187):
     # "where the .stl goes" reads as a filename, and a filename made a
-    # DIRECTORY of that name — so a filename is now honoured as one.
+    # DIRECTORY of that name — so a `.stl` filename is now honoured as one.
+    #
+    # `str`, not `type=Path`, alone among the `--out` flags: this is the one
+    # that has to tell a file from a directory, and `Path` erases the single
+    # syntactic signal that settles it — `Path("run.2026-08-13/")` is
+    # indistinguishable from `Path("run.2026-08-13")`, so a trailing separator
+    # could not mean what every shell user means by it.
     measure.add_argument(
         "--out",
-        type=Path,
         default=None,
         metavar="PATH",
-        help="where the engine's build artifact goes: a PATH that names a file "
-        "(it has a suffix, or already exists as one) IS the .stl; any other "
-        "PATH is a directory to write it in. Only OpenSCAD exports one — the "
-        "OCCT tier builds in memory, so naming a file there is refused rather "
-        "than silently producing nothing. The measurements themselves go to "
-        "stdout — this verb emits no report file",
+        help="where the engine's build artifact goes: a PATH ending in .stl IS "
+        "the artifact — an existing file there is replaced, and a failed build "
+        "leaves nothing behind. Any other PATH, including one with a trailing "
+        f"{os.sep!r} or an existing directory, is a directory to write "
+        "<source>.stl in. Only OpenSCAD exports anything; the OCCT tier builds "
+        "in memory, so naming a file there is refused rather than silently "
+        "producing nothing. The measurements themselves go to stdout — this "
+        "verb emits no report file",
     )
     measure.add_argument(
         "--timeout",
@@ -362,50 +369,82 @@ def _hidden_marker(hidden: int) -> str:
     return f"  [{hidden} frame{'s' if hidden > 1 else ''} hidden]\n"
 
 
-def _names_a_file(path: Path) -> bool:
-    """Whether `--out` names the artifact rather than a directory to hold it.
+ARTIFACT_SUFFIX = ".stl"
+"""The one thing `measure --out` can name. The OpenSCAD tier exports binary
+STL and nothing else (`--export-format binstl`, SPEC-backend §5.1 step 1), so
+this is the whole set of filenames the flag can honour — not a default among
+several."""
 
-    `measure --out DIR` writes exactly one file, so a caller reading "where
-    the .stl goes" passes the .stl. That used to make a *directory* called
-    `a.stl` holding `spacer.stl` and exit 0 — a run that reported success
-    having done something else — and the same command against an existing
-    file exited 4 (#187). Both are the same question answered by prior state
-    instead of by the flag.
 
-    An existing directory stays a directory, whatever it is called; a path
-    that already exists as a file is one; otherwise the suffix decides, which
-    is the rule a reader is already using when they type the name.
+def _names_the_artifact(raw: str) -> bool:
+    """Whether `measure --out` names the .stl rather than a directory for it.
+
+    `measure` writes exactly one file, so a caller reading "where the .stl
+    goes" passes the .stl. That used to make a *directory* called `a.stl`
+    holding `spacer.stl` and exit 0 — a run that reported success having done
+    something else — while the same path existing as a file exited 4 (#187):
+    the same question answered by prior state instead of by the flag.
+
+    Three rules, in order, and each closes a way of getting this wrong:
+
+    1. A trailing separator is directory intent, stated by the caller. This
+       is why the flag keeps the raw string.
+    2. An existing directory is a directory, whatever it is called.
+    3. Otherwise the *suffix the engine actually writes* decides — nothing
+       else. "Any suffix" was the first attempt and it was worse than the bug
+       it fixed: `--out run.2026-08-13/` made a mesh file where a dated output
+       directory was asked for, and `--out spacer.scad` overwrote the run's
+       own source with 13 KB of STL at exit 0. A path whose name the engine
+       cannot produce is not a filename this flag understands, so it falls
+       through to the directory rule and, if it exists, is refused there.
     """
+    if raw.endswith(("/", os.sep)):
+        return False
+    path = Path(raw)
     if path.is_dir():
         return False
-    return path.is_file() or bool(path.suffix)
+    return path.suffix.lower() == ARTIFACT_SUFFIX
 
 
 def _build_to_file(backend: Any, source: Any, dest: Path, timeout_s: float) -> Any | BuildError:
     """Build so the artifact lands at exactly `dest`.
 
-    The engine names its export after the source file, so the build runs in a
-    scratch directory beside `dest` and the result is moved into place.
-    Building straight into `dest.parent` would export `<source-stem>.stl`
-    there first and unlink whatever the caller already had under that name —
-    `--out models/a.stl` would destroy `models/spacer.stl`. Beside rather than
-    in the system temp dir so the move is a rename on one filesystem.
+    Two rules, both borrowed from the directory path rather than invented
+    here, because one flag may not mean two things:
+
+    **The destination is claimed before the engine runs.** `openscad.render`
+    unlinks its target first so that "a failed render leaves nothing behind
+    for a later reader to pick up" — the stale-mesh class `notes/FINDINGS.md`
+    records this project already paying for, where a run's named output still
+    holds an older mesh that reads as current. Directory mode empties the
+    directory on a failed rebuild; file mode now empties the file, so exit 4
+    means the same thing under both spellings. A symlink is unlinked, not
+    followed: the link is replaced and whatever it pointed at is untouched.
+
+    **The build itself happens in a scratch directory beside `dest`.** The
+    engine names its export after the source file, so building straight into
+    `dest.parent` would export `<source-stem>.stl` there first and unlink
+    whatever the caller already had under that name — `--out models/a.stl`
+    would destroy `models/spacer.stl`. Beside, rather than in the system temp
+    dir, so the move into place is a rename on one filesystem.
     """
     import tempfile
 
-    # One clause for all three ways the filesystem can refuse — an
-    # uncreatable parent, an unwritable one, a failed move — because the
-    # caller's question is the same in each: the artifact is not where you
-    # asked for it, and that is the environment's doing, not the part's.
+    # One clause for every way the filesystem can refuse — an uncreatable
+    # parent, an unwritable one, an unremovable destination, a failed move —
+    # because the caller's question is the same in each: the artifact is not
+    # where you asked for it, and that is the environment's doing, not the
+    # part's.
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.unlink(missing_ok=True)
         with tempfile.TemporaryDirectory(
             dir=dest.parent, prefix=".partspec-build-", ignore_cleanup_errors=True
         ) as scratch:
             built = backend.build(source, Path(scratch), timeout_s=timeout_s)
             if isinstance(built, BuildError):
                 return built
-            (Path(scratch) / f"{source.path.stem}.stl").replace(dest)
+            (Path(scratch) / f"{source.path.stem}{ARTIFACT_SUFFIX}").replace(dest)
             return built
     except OSError as exc:
         return BuildError(
@@ -747,6 +786,45 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         _invalidate_after(part, target)
 
 
+def _measure_failure(
+    part: Part, target: Target, backend: Any, message: str, hint: str | None
+) -> None:
+    """Emit `measure`'s failure artifact: the identity prefix, then the reason.
+
+    The failure is an artifact too (#47): a caller parsing stdout used to get
+    an empty string and a bare exit code, with the reason living only on
+    stderr — machine-invisible exactly where a machine is the audience. Same
+    identity prefix as the success payload, so the consumer can tell WHICH
+    file and revision failed to measure.
+
+    Every failure after the target resolves comes through here, which is what
+    SPEC-report.md's Scope requires ("On any failure after the target
+    resolves, both MUST emit a JSON object carrying that identity plus
+    `error`/`hint`") — including the `--out` refusal, which exits 64 rather
+    than 4 but is no less a thing a machine has to understand. The exit code
+    stays the caller's to choose; this only says what happened.
+    """
+    from .report import SCHEMA_VERSION
+    from .runner import engine_block, identity
+
+    failed: dict[str, object] = {
+        "schema_version": SCHEMA_VERSION,
+        "tool": {"name": "partspec", "version": tool_version()},
+        "part": identity(part, target.path),
+        "engine": engine_block(part, backend),
+        "params": dict(part.source.params),
+        # Empty rather than absent, mirroring the report's failure shape:
+        # the spec's identity-prefix claim stays exact on both verbs.
+        "geometry": {},
+        "error": message,
+        "hint": hint,
+    }
+    print(json.dumps(failed, indent=2, allow_nan=False))
+    print(f"partspec: {message}", file=sys.stderr)
+    if hint:
+        print(f"  hint: {hint}", file=sys.stderr)
+
+
 def _measure_resolved(
     args: argparse.Namespace, part: Part, target: Target, timeout_s: float
 ) -> int:
@@ -762,47 +840,27 @@ def _measure_resolved(
         return EXIT_USAGE
 
     source = _engine_source(part)
-    if args.out is not None and _names_a_file(args.out):
+    if args.out is not None and _names_the_artifact(args.out):
+        dest = Path(args.out)
         if part.source.engine != "openscad":
             # Refused, not warned: the caller asked for a file this tier
             # cannot produce, and exiting 0 with nothing at that path is the
             # silent success this tool exists to refuse (#187).
-            print(
-                f"partspec: --out {args.out} names a file, but the {part.source.engine} "
-                f"tier builds in memory and exports nothing to write there",
-                file=sys.stderr,
-            )
-            print(
-                "  only the OpenSCAD tier writes a build artifact; pass a directory, or drop --out",
-                file=sys.stderr,
+            _measure_failure(
+                part,
+                target,
+                backend,
+                f"--out {dest} names a file, but the {part.source.engine} tier builds "
+                f"in memory and exports nothing to write there",
+                "only the OpenSCAD tier writes a build artifact; pass a directory, or drop --out",
             )
             return EXIT_USAGE
-        artifact = _build_to_file(backend, source, args.out, timeout_s)
+        artifact = _build_to_file(backend, source, dest, timeout_s)
     else:
-        out = _out_dir(args.target, args.out)
+        out = _out_dir(args.target, Path(args.out) if args.out is not None else None)
         artifact = backend.build(source, out, timeout_s=timeout_s)
     if isinstance(artifact, BuildError):
-        # The failure is an artifact too (#47): a caller parsing stdout used
-        # to get an empty string and a bare exit code, with the reason living
-        # only on stderr — machine-invisible exactly where a machine is the
-        # audience. Same identity prefix as the success payload, so the
-        # consumer can tell WHICH file and revision failed to measure.
-        failed: dict[str, object] = {
-            "schema_version": SCHEMA_VERSION,
-            "tool": {"name": "partspec", "version": tool_version()},
-            "part": identity(part, target.path),
-            "engine": engine_block(part, backend),
-            "params": dict(part.source.params),
-            # Empty rather than absent, mirroring the report's failure shape:
-            # the spec's identity-prefix claim stays exact on both verbs.
-            "geometry": {},
-            "error": artifact.message,
-            "hint": artifact.hint,
-        }
-        print(json.dumps(failed, indent=2, allow_nan=False))
-        print(f"partspec: {artifact.message}", file=sys.stderr)
-        if artifact.hint:
-            print(f"  hint: {artifact.hint}", file=sys.stderr)
+        _measure_failure(part, target, backend, artifact.message, artifact.hint)
         return exit_code(Verdict.ERROR)
 
     measurements: dict[str, object] = {}
