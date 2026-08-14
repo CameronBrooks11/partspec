@@ -24,7 +24,14 @@ __all__ = [
     "summary_of",
 ]
 
-DIFF_SCHEMA_VERSION = 1
+DIFF_SCHEMA_VERSION = 2
+"""This artifact's own version — never the report's (SPEC-diff.md §4).
+
+Bumped to 2 by #190 stage 3: `source` gained `imports`, `unseen`, `covered`
+and `closure_digest_changed`, and `source.closure` keys on named gaps rather
+than on the `partial` boolean. It is diff's *output* contract, so no stored
+report is refused by the change.
+"""
 
 CLAIM_FIELDS = ("kind", "expr", "limit", "region", "hole", "source", "direction")
 """The fields that make a check the claim it is.
@@ -168,28 +175,385 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
     return None
 
 
-def _closure_state(old_part: dict[str, Any], new_part: dict[str, Any]) -> str:
-    old_closure, new_closure = old_part.get("source_closure"), new_part.get("source_closure")
-    if old_closure is None and new_closure is None:
-        # BOTH absent. SPEC-diff §2 rule 3 names this case in the same breath as
-        # one-side-absent — "the ordinary v0.1.0 upgrade path" — and the rule
-        # is the same: with no closure on either side, `identical` would rest
-        # on `source_digest` alone, which is the overclaim SPEC-report §8.3
-        # reversed itself to prevent. Returning None let it through.
-        return "inconclusive"
-    if not (old_closure and new_closure):
-        # One run recorded a closure and the other did not — the ordinary
-        # v0.1.0 upgrade path for every Python part, since its closure landed
-        # after the tag. "Changed" would be a claim about the source; nothing
-        # here supports one, and calling it changed let the identical claim
-        # through unearned (PR #88 review, B1). Inconclusive, which blocks
-        # `identical` and nothing else.
-        return "inconclusive"
-    if old_closure.get("digest") != new_closure.get("digest"):
-        return "changed"
-    if old_closure.get("partial") or new_closure.get("partial"):
-        return "inconclusive"
-    return "same"
+_IRREDUCIBLE_GAPS = frozenset({"native_reads"})
+"""The `unseen` tokens that never block the `identical` claim (#190 stage 3).
+
+An irreducible gap is a property of the *tier*, not of the comparison: a C
+extension can read a file with no Python event to observe it — measured on
+`OCP.StlAPI_Reader`, zero `open` events for a real STL read — so
+`native_reads` is present in every Python-tier report that will ever be
+written. A signal constant across every possible input cannot discriminate
+between two of them, and a verdict that cannot discriminate is not evidence.
+Keying `inconclusive` on it made `diff` permanently indeterminate for every
+contract wrapping a third-party library: fleet-01 measured 3/3 CadQuery
+replicates indeterminate against 0/3 OpenSCAD ones, same command, same
+version, and all three CadQuery agents wrote shell to suppress the exit 2
+rather than go and look. A universally suppressed verdict protects less than
+a universally printed caveat, so the honesty is kept by `summary_of` printing
+this on every outcome, permanently — never by dropping it.
+
+Every other token is **bounded** and blocks `identical`, *including one this
+version does not recognise*. SPEC-report.md §8.3 makes that a MUST: closed
+vocabularies leak, and an older reader of a newer report must go inconclusive
+rather than silently ignore a gap it cannot name.
+"""
+
+
+def _gap_tokens(closure: dict[str, Any]) -> set[str]:
+    """The gaps a closure names, synthesising them for pre-0.7.5 reports.
+
+    `unseen` is the answer where the closure carries one. Where it does not,
+    the closure was written before the question was asked (SPEC-report §8.3),
+    and the absence rule applies **only where the field could have carried an
+    answer** — which is the Python tier, `scope: "model_directory"`. There the
+    synthesised `imports_not_recorded` reproduces today's exit 2 exactly,
+    since `partial` was unconditionally true on that tier.
+
+    Applying it to both tiers would have been wrong in the one direction that
+    matters: a pre-0.7.5 OpenSCAD closure that was complete carries no
+    `partial` key at all and yields exit 0 today, and flipping those users to
+    exit 2 on upgrade is a false alarm about a question their tier never had.
+    Stage 2 emits `"imports": {}` for OpenSCAD precisely so that absence stays
+    unambiguous. So an old OpenSCAD closure is classified from the legacy
+    fields it does carry, which is today's rule with the gaps given names.
+
+    Three separate states are kept separate here, because collapsing any two
+    of them opens a hole that fails **open**, and every one of these was a
+    live defect in the first cut of this function:
+
+    - a field **absent** is "written before the question was asked", and only
+      that. It is what `imports_not_recorded` may claim, and claiming it for a
+      0.7.5 report with a malformed field would name a false cause and a
+      remedy — re-record the baseline — that would not help.
+    - a field **present and the wrong shape** is a closure this reader cannot
+      interpret. It is `malformed_closure`, and it must be reached from both
+      tiers: routing it through the pre-0.7.5 branch let a non-list `unseen`
+      on an OpenSCAD closure yield no tokens at all and exit 0, while the
+      identical malformation on a Python closure blocked, via the `scope`
+      guard. One malformation, two verdicts, and the permissive one on the
+      tier with no other gap to catch it.
+    - `partial` **disagreeing with `unseen`** violates §8.3's own invariant,
+      `partial == bool(unseen)`. `partial: true` with `unseen: []` exited 0
+      here while exiting 2 on v0.7.4 — the malformation closest to the real
+      vocabulary was the one that escaped. The check is last and applies to
+      every branch, so no route past it exists.
+    """
+    tokens: set[str] = set()
+    unseen = closure.get("unseen")
+    if _malformed_fields(closure):
+        tokens.add("malformed_closure")
+    if isinstance(unseen, list):
+        tokens.update(str(token) for token in unseen)
+        if "imports" not in closure:
+            # `unseen` without `imports` is half an answer, and SPEC-report
+            # §8.3 names both fields in the same breath.
+            tokens.add("imports_not_recorded")
+    elif "unseen" not in closure:
+        if closure.get("scope") == "model_directory":
+            tokens.add("imports_not_recorded")
+        else:
+            if closure.get("unresolved"):
+                tokens.add("unresolved_includes")
+            if closure.get("reads_external_data"):
+                tokens.add("external_data_reads")
+    if closure.get("partial") and not tokens:
+        tokens.add("unnamed_partial")
+    return tokens
+
+
+def _malformed_fields(closure: dict[str, Any]) -> list[str]:
+    """The stage-2 fields a closure carries in a shape §8.3 does not define."""
+    return [
+        field
+        for field, shape in (("unseen", list), ("imports", dict))
+        if field in closure and not isinstance(closure[field], shape)
+    ]
+
+
+def _sides_label(sides: set[str]) -> tuple[str, bool]:
+    """ "the old report" / "the new report" / "the old and new reports", plural."""
+    if len(sides) == 2:
+        return "the old and new reports", True
+    return f"the {next(iter(sides))} report", False
+
+
+def _unidentified_names(sides: set[str], closures: dict[str, dict[str, Any]]) -> list[str]:
+    return sorted(
+        {
+            name
+            for side in sides
+            for name, entry in (closures[side].get("imports") or {}).items()
+            if isinstance(entry, dict) and entry.get("identity") == "unidentified"
+        }
+    )
+
+
+def _gap_phrase(token: str, sides: set[str], closures: dict[str, dict[str, Any]]) -> str:
+    """What a gap token says to a reader, named rather than counted.
+
+    The unknown-token branch is the fail-closed one: it states the token it
+    could not interpret, because "this diff is older than the report it read"
+    is a different remedy from any of the gaps above it.
+    """
+    label, plural = _sides_label(sides)
+    if token == "native_reads":
+        return "files read inside C extensions — irreducible on the Python tier"
+    if token == "unidentified_imports":
+        names = _unidentified_names(sides, closures)
+        if not names:
+            return "an import could not be identified, and the map does not say which"
+        # The remedy clause is there because there is no remedy to look for,
+        # and a reader who hit this would otherwise go hunting for a flag: the
+        # gap is a property of how that package is distributed, not of any
+        # setting. Measured frequency across five fleet venvs is zero.
+        if len(names) == 1:
+            return (
+                f"1 import could not be identified ({names[0]}: a namespace package, "
+                "which has no file on disk for partspec to hash, and no partspec option "
+                "closes that)"
+            )
+        return (
+            f"{len(names)} imports could not be identified ({_bounded(names)}: namespace "
+            "packages, which have no file on disk for partspec to hash, and no partspec "
+            "option closes that)"
+        )
+    if token == "external_data_reads":
+        return (
+            "the model reads external data: import()/surface() name files whose paths "
+            "partspec cannot resolve statically"
+        )
+    if token == "unresolved_includes":
+        return "the model include()s or use()s files partspec could not find on any search path"
+    if token == "imports_not_recorded":
+        return (
+            f"{label} {'were' if plural else 'was'} written before partspec recorded imports "
+            f"(0.7.4 or earlier): {'their' if plural else 'its'} source identity covers one "
+            "directory"
+        )
+    if token == "unnamed_partial":
+        return (
+            f"{label} {'carry' if plural else 'carries'} a closure marked partial without "
+            "naming what it missed"
+        )
+    if token == "malformed_closure":
+        fields = sorted({field for side in sides for field in _malformed_fields(closures[side])})
+        return (
+            f"{label} {'carry' if plural else 'carries'} a source closure this diff cannot "
+            f"read ({' and '.join(fields)} {'is' if len(fields) == 1 else 'are'} not the shape "
+            "SPEC-report.md §8.3 defines), and a closure that cannot be read is read as a gap"
+        )
+    return (
+        f"{label} name{'' if plural else 's'} a gap this diff does not recognise ({token}), "
+        "and an unrecognised gap is read as a gap"
+    )
+
+
+def _import_moved(old: Any, new: Any) -> bool:
+    """Whether one distribution's entry describes a different build input.
+
+    `identity` is part of the comparison rather than a gap: an entry that is
+    `metadata` on one side and `content` on the other is an ordinary install
+    against an editable one or a `sys.path` checkout, and that genuinely *is*
+    a different build input. The two digests are also over different things —
+    RECORD rows against bytes on disk — so they cannot be compared for
+    sameness, and `changed` is the only honest reading.
+
+    `files` is compared too, though `imports._content_digest` derives both
+    from one walk and they cannot honestly disagree. Where they do, the entry
+    is self-inconsistent, and reading "all unchanged" off the digest of a
+    tree whose file count moved is the failing-open direction.
+    """
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return old != new
+    return any(old.get(key) != new.get(key) for key in ("identity", "version", "digest", "files"))
+
+
+def _imports_delta(
+    old_closure: dict[str, Any] | None, new_closure: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Compare the `imports` maps entry by entry, in three groups.
+
+    The split is the one `_packages_delta` already draws, for the same reason
+    and one layer down (design risk R4): a distribution whose *version moved*
+    is a changed build input and explains a moved measurement, while one
+    present on a single side is usually two machines resolving different
+    transitive dependency sets. Folding them together leaves the reader to
+    separate them by hand.
+
+    A side with no usable map yields `uncomparable`, never an empty delta: an
+    omission would read as "no build input moved", which is a claim this
+    comparison did not make.
+    """
+    old_imports = (old_closure or {}).get("imports")
+    new_imports = (new_closure or {}).get("imports")
+    if not isinstance(old_imports, dict) or not isinstance(new_imports, dict):
+        missing = [
+            side
+            for side, entries in (("old", old_imports), ("new", new_imports))
+            if not isinstance(entries, dict)
+        ]
+        where = "both sides" if len(missing) == 2 else f"the {missing[0]} side"
+        return {
+            "uncomparable": f"no source_closure.imports map on {where}, so whether an "
+            "imported distribution moved is unknown"
+        }
+    return {
+        "changed": {
+            name: {"old": entry, "new": new_imports[name]}
+            for name, entry in sorted(old_imports.items())
+            if name in new_imports and _import_moved(entry, new_imports[name])
+        },
+        "added": {name: e for name, e in sorted(new_imports.items()) if name not in old_imports},
+        "removed": {name: e for name, e in sorted(old_imports.items()) if name not in new_imports},
+    }
+
+
+def _covered_clause(
+    new_closure: dict[str, Any], imports: dict[str, Any], digest_moved: bool
+) -> str:
+    """What the comparison *did* cover — the other half of naming the gaps."""
+    scope = "model directory" if new_closure.get("scope") == "model_directory" else "source closure"
+    files = new_closure.get("files")
+    where = (
+        f"{scope} ({files} file{'' if files == 1 else 's'})" if isinstance(files, int) else scope
+    )
+    parts = [f"{where}, changed" if digest_moved else where]
+    entries = new_closure.get("imports")
+    if isinstance(entries, dict) and entries and "uncomparable" not in imports:
+        counts = [
+            f"{len(imports[group])} {word}"
+            for group, word in (
+                ("changed", "changed"),
+                ("added", "appeared"),
+                ("removed", "disappeared"),
+            )
+            if imports[group]
+        ]
+        parts.append(
+            f"{len(entries)} imported distribution{'' if len(entries) == 1 else 's'}, "
+            + (", ".join(counts) if counts else "all unchanged")
+        )
+    return "; ".join(parts)
+
+
+def _moved_phrases(
+    new_closure: dict[str, Any], imports: dict[str, Any], digest_moved: bool
+) -> list[str]:
+    """What this comparison actually observed move, named for a message.
+
+    Counts rather than names for the imports, because `_imports_clause` puts
+    the names on the same line; the point here is that the *reason* string
+    stands up on its own in the artifact, where no clause follows it.
+    """
+    scope = (
+        "the model directory digest"
+        if new_closure.get("scope") == "model_directory"
+        else "the source closure digest"
+    )
+    phrases = [f"{scope} moved"] if digest_moved else []
+    if "uncomparable" not in imports:
+        for group, noun, verb in (
+            ("changed", "imported distribution", "moved"),
+            ("added", "import", "appeared"),
+            ("removed", "import", "disappeared"),
+        ):
+            if count := len(imports[group]):
+                phrases.append(f"{count} {noun}{'' if count == 1 else 's'} {verb}")
+    return phrases
+
+
+def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[str, Any]:
+    """The state of the source closure, the gaps by class, and what moved.
+
+    SPEC-diff §2 rule 3, rewritten by #190 stage 3: the old rule keyed
+    `inconclusive` on the `partial` boolean, which the Python tier sets
+    unconditionally, so every comparison of a contract wrapping an installed
+    library was indeterminate whatever it found. It now keys on the *class* of
+    the named gaps — bounded blocks the claim, irreducible is printed — and
+    compares the `imports` map alongside the digest.
+    """
+    old_closure = old_part.get("source_closure")
+    new_closure = new_part.get("source_closure")
+    old_closure = old_closure if isinstance(old_closure, dict) else None
+    new_closure = new_closure if isinstance(new_closure, dict) else None
+    imports = _imports_delta(old_closure, new_closure)
+
+    if old_closure is None or new_closure is None:
+        # One run recorded a closure and the other did not — or neither did,
+        # the ordinary v0.1.0 upgrade path for every Python part, since its
+        # closure landed after the tag. "Changed" would be a claim about the
+        # source and nothing here supports one; calling it changed let the
+        # identical claim through unearned (PR #88 review, B1). Both-absent is
+        # the same case and was returning early past this rule until #88, at
+        # which point `identical` rested on `source_digest` alone — the
+        # overclaim SPEC-report §8.3 reversed itself to prevent.
+        missing = [
+            side
+            for side, closure in (("old", old_closure), ("new", new_closure))
+            if closure is None
+        ]
+        where = (
+            "neither report carries a source closure"
+            if len(missing) == 2
+            else f"the {missing[0]} report carries no source closure"
+        )
+        # No trailing `so` clause: the caller appends one, and this branch
+        # read "…beyond its entry file, so nothing this diff can see changed"
+        # — two consequences chained off one observation.
+        return {
+            "state": "inconclusive",
+            "blocking": [
+                f"{where}, leaving source_digest — one file — as the whole of the input's identity"
+            ],
+            "moved": [],
+            "digest_changed": None,
+            "imports": imports,
+            "unseen": {"irreducible": {}, "bounded": {}},
+            "covered": None,
+        }
+
+    closures = {"old": old_closure, "new": new_closure}
+    sides_of: dict[str, set[str]] = {}
+    for side, closure in closures.items():
+        for token in _gap_tokens(closure):
+            sides_of.setdefault(token, set()).add(side)
+    classified = {
+        token: _gap_phrase(token, sides, closures) for token, sides in sorted(sides_of.items())
+    }
+    irreducible = {t: p for t, p in classified.items() if t in _IRREDUCIBLE_GAPS}
+    bounded = {t: p for t, p in classified.items() if t not in _IRREDUCIBLE_GAPS}
+
+    digest_moved = old_closure.get("digest") != new_closure.get("digest")
+    imports_moved = "uncomparable" not in imports and any(
+        imports[group] for group in ("changed", "added", "removed")
+    )
+    if bounded:
+        state = "inconclusive"
+    elif digest_moved or imports_moved:
+        state = "changed"
+    else:
+        state = "same"
+
+    return {
+        "state": state,
+        "blocking": list(bounded.values()),
+        # Movement is kept even when a bounded gap discards it from the
+        # verdict. Dropping it from the verdict is the rule; dropping it from
+        # the message let the comparison say "nothing this diff can see
+        # changed" one line above a line naming what moved, and dropping it
+        # from the artifact left a consumer keying on `source.closure` blind
+        # to input movement on every inconclusive comparison.
+        "moved": _moved_phrases(new_closure, imports, digest_moved),
+        "digest_changed": digest_moved,
+        "imports": imports,
+        "unseen": {"irreducible": irreducible, "bounded": bounded},
+        # Only where a side knows what coverage means, so two pre-0.7.5
+        # reports reach the same outcome and exit code with no coverage block
+        # invented for them.
+        "covered": _covered_clause(new_closure, imports, digest_moved)
+        if any("unseen" in closure for closure in closures.values())
+        else None,
+    }
 
 
 def _packages_of(environment: Any) -> dict[str, Any] | None:
@@ -399,24 +763,52 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         if entry is not None
     ]
 
-    closure = _closure_state(old_part, new_part)
+    closure = _closure_delta(old_part, new_part)
     verdict_changed = old.get("verdict") != new.get("verdict")
+    # A `changed` closure is deliberately NOT a difference, and this line is
+    # the decision (#190 stage 3). When the library moved and no check moved
+    # with it, the outcome is `identical` at exit 0 with the moved
+    # distribution named on the summary line — because OpenSCAD already gets
+    # exit 0 for a changed `.scad` closure with no moved check, and a
+    # different rule for Python would rebuild the arm-A/arm-B asymmetry #190
+    # exists to remove.
     different = bool(removed or added or entries or verdict_changed)
     if indeterminate:
         outcome = "indeterminate"
     elif different:
         outcome = "different"
-    elif closure == "inconclusive":
-        # The partial-closure rule (SPEC-diff.md §2 rule 3): matching digests on a
-        # partial closure mean "nothing we looked at changed". Claiming
-        # `identical` on that evidence is silence-as-success at the
-        # provenance layer.
+    elif closure["state"] == "inconclusive":
+        # The gap-class rule (SPEC-diff.md §2 rule 3): a bounded gap means
+        # "nothing we looked at changed". Claiming `identical` on that
+        # evidence is silence-as-success at the provenance layer.
+        #
+        # Two shapes, because there are two situations and one sentence
+        # cannot honestly serve both. Through v0.7.4 `digest != digest`
+        # returned `"changed"` BEFORE the partial check, so the sentence
+        # below was only ever reachable with matching digests and was always
+        # true. Removing that short-circuit — correctly, since `changed` was
+        # never outcome-bearing and the exit 0 it produced was unearned — put
+        # the sentence on comparisons that had demonstrably seen movement,
+        # one line above the line naming what moved. The load-bearing
+        # sentence is unchanged and stays verbatim (#190 is explicit that it
+        # must); it is now only uttered where it is true.
         indeterminate.append(
             {
                 "code": "partial_closure",
-                "reason": "no differences found, but the source identity rests on a "
-                "closure marked partial or absent: nothing this diff can see changed, "
-                "which is not the same claim as nothing changed",
+                "reason": (
+                    "no declared claim changed, but "
+                    + " and ".join(closure["moved"])
+                    + "; "
+                    + "; ".join(closure["blocking"])
+                    + " — so the change this diff names is not necessarily all that changed"
+                )
+                if closure["moved"]
+                else (
+                    "no differences found, but "
+                    + "; ".join(closure["blocking"])
+                    + ", so nothing this diff can see changed, which is not the same claim "
+                    "as nothing changed"
+                ),
             }
         )
         outcome = "indeterminate"
@@ -462,15 +854,23 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         },
         "source": {
             "digest_changed": old_part.get("source_digest") != new_part.get("source_digest"),
-            "closure": closure,
+            "closure": closure["state"],
+            # Separate from `closure`, because a bounded gap collapses that
+            # field to `inconclusive` and would otherwise take the only
+            # record of a moved closure digest with it. `null` where a side
+            # carries no closure and the question cannot be asked.
+            "closure_digest_changed": closure["digest_changed"],
+            "imports": closure["imports"],
+            "unseen": closure["unseen"],
+            "covered": closure["covered"],
         },
         "checks": entries,
         "environment": environment,
     }
 
 
-_SUMMARY_PACKAGE_LIMIT = 2
-"""How many distributions the one-line summary names per group.
+_SUMMARY_NAME_LIMIT = 2
+"""How many distributions the summary's headline names per group.
 
 `environment.packages` now records every distribution the run imported — 15 on
 the fleet's cadquery venv, 84 installed — so two runs on different machines can
@@ -479,52 +879,160 @@ bury the finding the line exists to state. The artifact on stdout carries the
 complete lists; the line names a couple and counts the rest."""
 
 
+def _bounded(entries: list[str]) -> str:
+    """At most `_SUMMARY_NAME_LIMIT` names, then a count of the remainder."""
+    shown = entries[:_SUMMARY_NAME_LIMIT]
+    rest = len(entries) - len(shown)
+    return ", ".join(shown) + (f", +{rest} more" if rest else "")
+
+
+def _import_move_label(name: str, old: Any, new: Any) -> str:
+    """How one moved distribution is named on the headline.
+
+    A version arrow where there is one, because that is the fact a reader
+    acts on. Where there is not — a `content` entry has no version, and a
+    tier flip has two digests over different things — the label says which of
+    the other two happened rather than leaving a bare name to be read as a
+    version bump that did not happen.
+    """
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return name
+    old_version, new_version = old.get("version"), new.get("version")
+    if old_version != new_version:
+        return f"{name} {old_version or 'unversioned'} → {new_version or 'unversioned'}"
+    if old.get("identity") != new.get("identity"):
+        return f"{name} {old.get('identity')} → {new.get('identity')} install"
+    return f"{name} {new_version} contents moved" if new_version else f"{name} contents moved"
+
+
+def _import_label(name: str, entry: Any) -> str:
+    version = entry.get("version") if isinstance(entry, dict) else None
+    return f"{name} {version}" if version else name
+
+
+def _imports_groups(doc: dict[str, Any]) -> dict[str, Any]:
+    imports = doc.get("source", {}).get("imports") or {}
+    return {} if "uncomparable" in imports else imports
+
+
+def _imports_clause(doc: dict[str, Any]) -> str:
+    """The summary's `inputs` fragment — the distributions the model loaded.
+
+    This is #190's headline: "the library moved and no declared claim moved
+    with it" is the statement the gate exists to make, and naming the moved
+    distribution here is the whole of what makes exit 0 acceptable for it.
+
+    It is not a duplicate of the packages clause even where both fire.
+    `environment.packages` is what was *installed*; this is what was
+    *loaded*, byte-identified — and the fleet's own configuration is the case
+    where they disagree, a `sys.path` checkout moving under a version string
+    that never changed.
+    """
+    imports = _imports_groups(doc)
+    clauses = []
+    if imports.get("changed"):
+        moved = [_import_move_label(n, v["old"], v["new"]) for n, v in imports["changed"].items()]
+        clauses.append(f"inputs moved: {_bounded(moved)}")
+    for group, verb in (("added", "appeared"), ("removed", "disappeared")):
+        if imports.get(group):
+            named = [_import_label(n, e) for n, e in imports[group].items()]
+            clauses.append(f"inputs {verb}: {_bounded(named)}")
+    return ("; " + "; ".join(clauses)) if clauses else ""
+
+
 def _packages_clause(doc: dict[str, Any]) -> str:
-    """The summary's `packages` fragment, or an empty string when nothing moved."""
+    """The summary's `packages` fragment, or an empty string when nothing moved.
+
+    A distribution whose version the imports clause already reported as moved
+    is dropped from *this* clause's `moved` group, and nowhere else: every
+    entry of `source_closure.imports` is also an installed distribution, so a
+    library bump would otherwise be reported twice on one line in the exact
+    case #190 exists for. Only `changed` against `changed` is a true
+    duplicate. Suppressing across groups measured as data loss — an import
+    that *appeared* while its installed version *moved* is two facts, and
+    matching them by name alone dropped `packages moved: numpy 1.0.0 → 2.0.0`
+    from the line entirely, which v0.7.4 printed. The artifact keeps both
+    maps whole either way; this is the courtesy line, not the evidence.
+    """
     packages = doc.get("environment", {}).get("packages")
     if not packages:
         return ""
     if "uncomparable" in packages:
         return f"; packages not compared: {packages['uncomparable']}"
-
-    def bounded(entries: list[str]) -> str:
-        shown = entries[:_SUMMARY_PACKAGE_LIMIT]
-        rest = len(entries) - len(shown)
-        return ", ".join(shown) + (f", +{rest} more" if rest else "")
+    already_moved = set(_imports_groups(doc).get("changed", {}))
 
     clauses = []
-    if packages["changed"]:
-        moved = [f"{n} {v['old']} → {v['new']}" for n, v in packages["changed"].items()]
-        clauses.append(f"packages moved: {bounded(moved)}")
+    if moved := [
+        f"{n} {v['old']} → {v['new']}"
+        for n, v in packages["changed"].items()
+        if n not in already_moved
+    ]:
+        clauses.append(f"packages moved: {_bounded(moved)}")
     for group, verb in (("added", "appeared"), ("removed", "disappeared")):
-        if packages[group]:
-            named = [f"{n} {v}" for n, v in packages[group].items()]
-            clauses.append(f"packages {verb}: {bounded(named)}")
-    return "; " + "; ".join(clauses)
+        if listed := [f"{n} {v}" for n, v in packages[group].items()]:
+            clauses.append(f"packages {verb}: {_bounded(listed)}")
+    return ("; " + "; ".join(clauses)) if clauses else ""
+
+
+def _coverage_lines(doc: dict[str, Any]) -> list[str]:
+    """What was covered, and what was not — on every outcome, permanently.
+
+    The irreducible line is the entire mitigation for `_IRREDUCIBLE_GAPS` not
+    reaching a verdict: the caveat that used to be an exit code is now a
+    sentence, and a sentence that is sometimes printed would be worth less
+    than the verdict it replaced.
+
+    Bounded gaps print here too, on the outcomes that do not already state
+    them in the headline — which means `different`, where they were silent.
+    "This diff is older than the report it read" is a fact about the tool and
+    does not stop mattering because a check regressed; and a `different` line
+    reading "1 regressed" with no note that the input inventory could not be
+    compared invites exactly the reading that the named regression is the
+    whole story.
+    """
+    source = doc.get("source", {})
+    unseen = source.get("unseen", {})
+    lines = []
+    if covered := source.get("covered"):
+        lines.append(f"  covered: {covered}")
+        # Only under a `covered:` line, which is its antecedent. Two pre-0.7.5
+        # reports get no coverage block, and this sentence alone under their
+        # headline referred to a change nothing on the screen had named.
+        if doc["outcome"] == "identical" and source.get("closure") == "changed":
+            lines.append("  every declared claim held across the change")
+    stated = {entry["reason"] for entry in doc.get("indeterminate", [])}
+    lines.extend(
+        f"  not covered: {phrase}"
+        for phrase in [*unseen.get("irreducible", {}).values(), *unseen.get("bounded", {}).values()]
+        if not any(phrase in reason for reason in stated)
+    )
+    return lines
 
 
 def summary_of(doc: dict[str, Any]) -> str:
-    """The one-line stderr courtesy summary."""
-    # The packages clause rides every outcome, `identical` included. A
-    # dependency that moved under an unchanged part is precisely the case
-    # `identical: no semantic differences` would otherwise report as an
-    # unqualified nothing-happened.
-    moved = _packages_clause(doc)
+    """The stderr courtesy summary: one headline, then the coverage it rests on."""
+    # Both clauses ride every outcome, `identical` included. A build input
+    # that moved under an unchanged part is precisely the case `identical: no
+    # semantic differences` would otherwise report as an unqualified
+    # nothing-happened.
+    moved = _imports_clause(doc) + _packages_clause(doc)
     if doc["outcome"] == "identical":
-        return f"identical: {doc['part']} — no semantic differences{moved}"
-    if doc["outcome"] == "indeterminate":
+        headline = f"identical: {doc['part']} — no semantic differences{moved}"
+    elif doc["outcome"] == "indeterminate":
         reasons = "; ".join(entry["reason"] for entry in doc["indeterminate"])
-        return f"indeterminate: {doc['part']} — {reasons}{moved}"
-    contract = doc["contract"]
-    parts = []
-    if contract["removed"]:
-        parts.append(
-            f"{len(contract['removed'])} check(s) removed: {', '.join(contract['removed'])}"
-        )
-    if contract["added"]:
-        parts.append(f"{len(contract['added'])} added")
-    for change in ("regressed", "fixed", "drifted", "limit_changed"):
-        n = sum(1 for c in doc["checks"] if c["change"] == change)
-        if n:
-            parts.append(f"{n} {change}")
-    return f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}{moved}"
+        headline = f"indeterminate: {doc['part']} — {reasons}{moved}"
+    else:
+        contract = doc["contract"]
+        parts = []
+        if contract["removed"]:
+            parts.append(
+                f"{len(contract['removed'])} check(s) removed: {', '.join(contract['removed'])}"
+            )
+        if contract["added"]:
+            parts.append(f"{len(contract['added'])} added")
+        for change in ("regressed", "fixed", "drifted", "limit_changed"):
+            n = sum(1 for c in doc["checks"] if c["change"] == change)
+            if n:
+                parts.append(f"{n} {change}")
+        headline = f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}{moved}"
+    return "\n".join([headline, *_coverage_lines(doc)])

@@ -495,6 +495,19 @@ def test_two_reports_with_no_closure_at_all_are_not_identical():
     assert result["outcome"] == "indeterminate"
     assert result["source"]["closure"] == "inconclusive"
     assert exit_code_of(result["outcome"]) == 2
+    # The reason must say the closure is ABSENT. A first cut of the #190
+    # rewrite phrased this branch as "the old report carries a source
+    # closure", which states the opposite of the condition that reached it —
+    # code right, words wrong, on the one line a reader acts on.
+    assert result["indeterminate"][0]["reason"].startswith(
+        "no differences found, but neither report carries a source closure,"
+    )
+    one_side = _doc()
+    one_side["part"].pop("source_closure")
+    assert (
+        "the old report carries no source closure"
+        in (_diff(one_side, _doc())["indeterminate"][0]["reason"])
+    )
 
 
 # --------------------------------------------------------------------------
@@ -602,35 +615,472 @@ def test_a_partial_closure_on_only_the_new_side_still_blocks_identical():
     assert _diff(old, new)["outcome"] == "indeterminate"
 
 
-@pytest.mark.parametrize("outcome", ["identical", "different", "indeterminate"])
-def test_the_closure_fields_added_in_stage_2_reach_no_verdict(outcome: str):
-    """#190 stage 2 records `imports` and `unseen`; **stage 3** decides what
-    they mean. Until then `diff` reads `digest` and `partial` and nothing
-    else, so a library that moved must not change an outcome or an exit code
-    behind a user's back — the upgrade lands the evidence before the rule.
+# --------------------------------------------------------------------------
+# #190 stage 3: the gap-class rule
+# --------------------------------------------------------------------------
 
-    Stage 3 changes this test on purpose, and that is the point of it: the
-    behaviour it pins is a decision, not an accident.
-    """
+SENTENCE = "nothing this diff can see changed, which is not the same claim as nothing changed"
+"""The load-bearing half of every indeterminate message.
+
+It says what the verdict means, and #190 is explicit that it must not change
+while the rule around it does: an indeterminate that stopped saying this
+would be an exit code with no argument attached."""
+
+
+def _python_doc(imports: dict | None = None, unseen: list[str] | None = None, **overrides) -> dict:
+    """A report whose closure has the 0.7.5 shape — the Python tier's."""
+    doc = _doc(**overrides)
+    doc["part"]["source_closure"] = {
+        "digest": "sha256:k1",
+        "files": 2,
+        "scope": "model_directory",
+        "partial": True,
+        "imports": {} if imports is None else imports,
+        "unseen": ["native_reads"] if unseen is None else unseen,
+    }
+    return doc
+
+
+def _dist(version: str | None, digest: str, identity: str = "metadata") -> dict:
+    return {"identity": identity, "version": version, "digest": f"sha256:{digest}"}
+
+
+def _unidentified() -> dict:
+    return {"identity": "unidentified", "version": None, "digest": None}
+
+
+def test_an_irreducible_gap_alone_no_longer_blocks_the_identical_claim():
+    """#190's headline. `native_reads` is present in every Python-tier report
+    that will ever be written, so it cannot discriminate between two of them,
+    and a verdict that cannot discriminate is not evidence. It is printed on
+    every outcome instead — which is the whole of the mitigation, so the line
+    is asserted here and not merely the exit code."""
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+    doc = _diff(_python_doc(imports), _python_doc(imports))
+
+    assert doc["outcome"] == "identical"
+    assert exit_code_of(doc["outcome"]) == 0
+    assert doc["source"]["closure"] == "same"
+    assert (
+        "  not covered: files read inside C extensions — irreducible on the Python tier"
+        in summary_of(doc).splitlines()
+    )
+    # Permanent output, so it is written in English: `1 distributions` was
+    # there while the `files` count on the same line was pluralised properly.
+    assert "  covered: model directory (2 files); 1 imported distribution, all unchanged" in (
+        summary_of(doc).splitlines()
+    )
+    two = {"cqgridfinity": _dist("0.5.7", "aaa"), "vtk": _dist("9.6.2", "ccc")}
+    assert "; 2 imported distributions, all unchanged" in summary_of(
+        _diff(_python_doc(two), _python_doc(two))
+    )
+
+
+def test_a_library_that_moved_under_an_unchanged_part_is_identical_and_named():
+    """The version-bump gate finally answering: exit 0, because OpenSCAD
+    already gets exit 0 for a changed `.scad` closure with no moved check and
+    a second rule for Python would rebuild the asymmetry #190 removes. The
+    moved distribution named on the headline is what makes that acceptable —
+    an unqualified "no semantic differences" here would be the silence."""
+    old = _python_doc({"cqgridfinity": _dist("0.5.7", "aaa")})
+    new = _python_doc({"cqgridfinity": _dist("0.6.0", "bbb")})
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical"
+    assert exit_code_of(doc["outcome"]) == 0
+    assert doc["source"]["closure"] == "changed"
+    assert doc["source"]["imports"]["changed"]["cqgridfinity"]["new"]["version"] == "0.6.0"
+
+    summary = summary_of(doc)
+    assert summary.splitlines()[0] == (
+        "identical: p — no semantic differences; inputs moved: cqgridfinity 0.5.7 → 0.6.0"
+    )
+    assert "  every declared claim held across the change" in summary.splitlines()
+    assert "  not covered: files read inside C extensions" in summary
+
+
+def test_a_regression_beside_a_moved_library_names_the_input_that_moved():
+    """SPEC-report §8 rule 2's stated purpose: the reader must not have to
+    guess whether the dependency bump or the design moved the number."""
+    old = _python_doc({"cqgridfinity": _dist("0.5.7", "aaa")})
+    new = _python_doc({"cqgridfinity": _dist("0.6.0", "bbb")})
+    new["checks"][0]["status"] = "fail"
+    new["counts"]["pass"] -= 1
+    new["counts"]["fail"] = 1
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "different"
+    assert exit_code_of(doc["outcome"]) == 1
+    summary = summary_of(doc)
+    assert summary.splitlines()[0] == (
+        "different: p — 1 regressed; inputs moved: cqgridfinity 0.5.7 → 0.6.0"
+    )
+    # Permanently, on every outcome — a caveat printed only on the clean path
+    # would be worth less than the verdict it replaced.
+    assert "  not covered: files read inside C extensions" in summary
+
+
+def test_a_bounded_gap_still_blocks_the_identical_claim():
+    """`unidentified_imports` is a gap a run could in principle close, so it
+    keeps doing what `partial` used to do for every gap alike."""
+    imports = {
+        "cqgridfinity": _dist("0.5.7", "aaa"),
+        "shims": {"identity": "unidentified", "version": None, "digest": None},
+    }
+    unseen = ["native_reads", "unidentified_imports"]
+    doc = _diff(_python_doc(imports, unseen), _python_doc(imports, unseen))
+
+    assert doc["outcome"] == "indeterminate"
+    assert exit_code_of(doc["outcome"]) == 2
+    assert doc["source"]["closure"] == "inconclusive"
+    assert doc["indeterminate"][0]["code"] == "partial_closure"
+    assert doc["indeterminate"][0]["reason"] == (
+        "no differences found, but 1 import could not be identified (shims: a namespace "
+        "package, which has no file on disk for partspec to hash, and no partspec option "
+        f"closes that), so {SENTENCE}"
+    )
+    assert SENTENCE in summary_of(doc)
+
+
+def test_an_unrecognised_gap_token_is_read_as_a_gap():
+    """SPEC-report §8.3 makes this a MUST, and it is the only rule that keeps
+    a closed vocabulary safe to extend: an older `diff` reading a newer
+    report goes inconclusive rather than ignoring a gap it cannot name."""
+    unseen = ["native_reads", "runtime_data_reads"]
+    doc = _diff(_python_doc(unseen=unseen), _python_doc(unseen=unseen))
+
+    assert doc["outcome"] == "indeterminate"
+    assert exit_code_of(doc["outcome"]) == 2
+    assert "runtime_data_reads" in doc["indeterminate"][0]["reason"]
+    assert SENTENCE in doc["indeterminate"][0]["reason"]
+    assert list(doc["source"]["unseen"]["bounded"]) == ["runtime_data_reads"]
+
+
+def test_an_install_that_changed_tier_is_a_changed_input_not_a_gap():
+    """`metadata` on one side and `content` on the other is an ordinary
+    install against an editable one or a `sys.path` checkout. The install
+    genuinely is a different build input, and the two digests are over
+    different things — RECORD rows against bytes — so they cannot be compared
+    for sameness at all."""
+    old = _python_doc({"cqgridfinity": _dist("0.5.7", "aaa", identity="metadata")})
+    new = _python_doc({"cqgridfinity": _dist("0.5.7", "aaa", identity="content")})
+
+    doc = _diff(old, new)
+    assert doc["source"]["closure"] == "changed"
+    assert "cqgridfinity" in doc["source"]["imports"]["changed"]
+    assert "inputs moved: cqgridfinity metadata → content install" in summary_of(doc)
+
+
+def test_an_import_that_appeared_is_not_reported_as_a_version_move():
+    """Design risk R4, one layer below the same split in
+    `environment.packages`: two machines resolving different transitive sets
+    explain nothing about the part, and folding them in with a version bump
+    would leave the reader to separate them by hand."""
+    old = _python_doc({"cqgridfinity": _dist("0.5.7", "aaa"), "vtk": _dist("9.6.2", "ccc")})
+    new = _python_doc({"cqgridfinity": _dist("0.5.7", "aaa"), "shapely": _dist("2.1.2", "ddd")})
+
+    doc = _diff(old, new)
+    imports = doc["source"]["imports"]
+    assert imports["changed"] == {}
+    assert list(imports["added"]) == ["shapely"]
+    assert list(imports["removed"]) == ["vtk"]
+    summary = summary_of(doc)
+    assert "inputs appeared: shapely 2.1.2" in summary
+    assert "inputs disappeared: vtk 9.6.2" in summary
+    assert "moved" not in summary.splitlines()[0], f"an appearance read as a move: {summary}"
+
+
+def test_one_moved_library_is_named_once_not_twice():
+    """Every entry of `source_closure.imports` is also an installed
+    distribution, so the two clauses would otherwise both name a library bump
+    on one line — in the exact case #190 exists for. The artifact keeps both
+    maps whole; only the courtesy line dedupes."""
+    old = _with_packages(
+        _python_doc({"cqgridfinity": _dist("0.5.7", "aaa")}), {"cqgridfinity": "0.5.7"}
+    )
+    new = _with_packages(
+        _python_doc({"cqgridfinity": _dist("0.6.0", "bbb")}), {"cqgridfinity": "0.6.0"}
+    )
+
+    doc = _diff(old, new)
+    assert doc["environment"]["packages"]["changed"] == {
+        "cqgridfinity": {"old": "0.5.7", "new": "0.6.0"}
+    }
+    assert summary_of(doc).splitlines()[0].count("cqgridfinity") == 1
+    assert "packages moved" not in summary_of(doc)
+
+
+# --------------------------------------------------------------------------
+# #190 stage 3 review: the sentence must only be uttered where it is true
+# --------------------------------------------------------------------------
+
+
+def test_a_gap_beside_observed_movement_does_not_claim_nothing_was_seen():
+    """Through v0.7.4 `digest != digest` returned `changed` BEFORE the partial
+    check, so the load-bearing sentence was only reachable with matching
+    digests and was always true. Removing that short-circuit — correctly —
+    put it on comparisons that had demonstrably seen movement, one line above
+    a line naming what moved. The sentence is unchanged and still verbatim
+    where it holds; here it must not appear at all."""
+    old = _python_doc({"cqgridfinity": _dist("0.5.7", "aaa"), "shims": _unidentified()})
+    new = _python_doc({"cqgridfinity": _dist("0.6.0", "bbb"), "shims": _unidentified()})
+    for doc in (old, new):
+        doc["part"]["source_closure"]["unseen"] = ["native_reads", "unidentified_imports"]
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "indeterminate"
+    reason = doc["indeterminate"][0]["reason"]
+    assert SENTENCE not in reason, f"asserted nothing was seen while naming a move: {reason}"
+    assert reason == (
+        "no declared claim changed, but 1 imported distribution moved; 1 import could not "
+        "be identified (shims: a namespace package, which has no file on disk for partspec "
+        "to hash, and no partspec option closes that) — so the change this diff names is "
+        "not necessarily all that changed"
+    )
+    summary = summary_of(doc)
+    assert "inputs moved: cqgridfinity 0.5.7 → 0.6.0" in summary
+    assert SENTENCE not in summary
+
+
+def test_a_gap_beside_a_moved_closure_digest_names_the_digest():
+    """The variant with no coverage block to contradict — two pre-0.7.5
+    OpenSCAD reports, where `covered` is null and the false sentence would
+    have stood alone under the headline."""
+    old = _legacy(dict(LEGACY_SCAD_EXTERNAL))
+    new = _legacy({**LEGACY_SCAD_EXTERNAL, "digest": "sha256:moved"})
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "indeterminate"
+    assert doc["indeterminate"][0]["reason"] == (
+        "no declared claim changed, but the source closure digest moved; the model reads "
+        "external data: import()/surface() name files whose paths partspec cannot resolve "
+        "statically — so the change this diff names is not necessarily all that changed"
+    )
+    assert SENTENCE not in summary_of(doc)
+    # And the movement reaches the artifact, not only the prose.
+    assert doc["source"]["closure_digest_changed"] is True
+
+
+def test_a_moved_closure_digest_survives_an_inconclusive_verdict():
+    """`source.closure` collapses to `inconclusive` under a bounded gap, and
+    on v0.7.4 that field was the only record of closure movement — so a
+    consumer keying on it went blind to input movement on exactly the
+    comparisons where it matters most. It has its own field now."""
+    old = _python_doc(unseen=["native_reads", "unidentified_imports"])
+    new = _python_doc(unseen=["native_reads", "unidentified_imports"])
+    new["part"]["source_closure"]["digest"] = "sha256:moved"
+
+    doc = _diff(old, new)
+    assert doc["source"]["closure"] == "inconclusive"
+    assert doc["source"]["closure_digest_changed"] is True
+    assert doc["source"]["digest_changed"] is False, "the entry-file digest is a separate fact"
+    # Null, not False, where a side carries no closure: unasked is not "no".
+    absent = _doc()
+    absent["part"].pop("source_closure")
+    assert _diff(absent, _doc())["source"]["closure_digest_changed"] is None
+
+
+def test_a_partial_flag_that_contradicts_an_empty_unseen_fails_closed():
+    """§8.3's invariant is `partial == bool(unseen)`. A report violating it is
+    malformed, and the malformation CLOSEST to the real vocabulary was the one
+    that escaped: v0.7.4 exits 2 on `partial: true`, and the first cut of the
+    gap-class rule exited 0 because `unnamed_partial` was synthesised only on
+    the pre-0.7.5 branch."""
+    doc = _diff(_python_doc(unseen=[]), _python_doc(unseen=[]))
+    assert doc["outcome"] == "indeterminate", "fail-open regression against v0.7.4"
+    assert exit_code_of(doc["outcome"]) == 2
+    assert list(doc["source"]["unseen"]["bounded"]) == ["unnamed_partial"]
+
+
+@pytest.mark.parametrize("scope", ["model_directory", None], ids=["python", "openscad"])
+def test_an_unreadable_closure_fails_closed_on_both_tiers(scope: str | None):
+    """One malformation must not get two verdicts. Routing a non-list `unseen`
+    through the pre-0.7.5 branch made it block on Python — via the `scope`
+    guard — and exit 0 on OpenSCAD, which has no other gap to catch it."""
+    closure = {"digest": "sha256:k1", "files": 2, "imports": {}, "unseen": "native_reads"}
+    if scope:
+        closure["scope"] = scope
+    doc = _diff(_legacy(dict(closure)), _legacy(dict(closure)))
+
+    assert doc["outcome"] == "indeterminate"
+    assert exit_code_of(doc["outcome"]) == 2
+    assert list(doc["source"]["unseen"]["bounded"]) == ["malformed_closure"]
+    assert doc["indeterminate"][0]["reason"] == (
+        "no differences found, but the old and new reports carry a source closure this "
+        "diff cannot read (unseen is not the shape SPEC-report.md §8.3 defines), and a "
+        f"closure that cannot be read is read as a gap, so {SENTENCE}"
+    )
+
+
+def test_a_malformed_0_7_5_closure_is_not_blamed_on_its_age():
+    """Fails closed either way, but `imports_not_recorded` names a cause —
+    "written before partspec recorded imports" — and a remedy, re-record the
+    baseline, that would not help a 0.7.5 report whose `imports` is the wrong
+    shape. Absent and malformed are different states."""
+    closure = {
+        "digest": "sha256:k1",
+        "files": 2,
+        "scope": "model_directory",
+        "imports": ["cqgridfinity"],
+        "unseen": ["native_reads"],
+    }
+    doc = _diff(_legacy(dict(closure)), _legacy(dict(closure)))
+    assert doc["outcome"] == "indeterminate"
+    assert list(doc["source"]["unseen"]["bounded"]) == ["malformed_closure"]
+    assert "0.7.4 or earlier" not in doc["indeterminate"][0]["reason"]
+    assert "imports is not the shape" in doc["indeterminate"][0]["reason"]
+
+
+def test_a_bounded_gap_is_stated_on_the_different_path_too():
+    """It was silent there. "This diff is older than the report it read" is a
+    fact about the tool and does not stop mattering because a check
+    regressed — and `different: 1 regressed` with no note that the input
+    inventory could not be compared invites the reading that the named
+    regression is the whole story."""
+    old = _python_doc(unseen=["native_reads", "runtime_data_reads"])
+    new = _python_doc(unseen=["native_reads", "runtime_data_reads"])
+    new["checks"][0]["status"] = "fail"
+    new["counts"]["pass"] -= 1
+    new["counts"]["fail"] = 1
+
+    summary = summary_of(_diff(old, new))
+    assert summary.splitlines()[0] == "different: p — 1 regressed"
+    assert "  not covered: the old and new reports name a gap this diff does not recognise" in (
+        summary
+    )
+    # And never twice: the indeterminate path states it in the headline.
+    stated = summary_of(_diff(_python_doc(unseen=["runtime_data_reads"]), _python_doc()))
+    assert stated.count("does not recognise") == 1
+
+
+def test_an_import_that_appeared_does_not_hide_a_package_that_moved():
+    """Only `changed` against `changed` is a true duplicate. Matching by name
+    across all three groups dropped a real upgrade off the human line: an
+    import that *appeared* suppressed `packages moved: numpy 1.0.0 → 2.0.0`,
+    which v0.7.4 printed."""
+    old = _with_packages(_python_doc({}), {"numpy": "1.0.0"})
+    new = _with_packages(_python_doc({"numpy": _dist("2.0.0", "n2")}), {"numpy": "2.0.0"})
+
+    summary = summary_of(_diff(old, new))
+    assert "packages moved: numpy 1.0.0 → 2.0.0" in summary
+    assert "inputs appeared: numpy 2.0.0" in summary
+
+
+def test_the_absent_closure_reason_chains_one_consequence_not_two():
+    """The blocking phrase already ended in a `so` clause, and the caller
+    appends another: "…beyond its entry file, so nothing this diff can see
+    changed…". One observation, two consequences, on the line a reader acts
+    on."""
     old, new = _doc(), _doc()
-    for doc, digest in ((old, "sha256:aaa"), (new, "sha256:bbb")):
-        doc["part"]["source_closure"]["imports"] = {
-            "cqgridfinity": {"identity": "content", "version": None, "digest": digest, "files": 16}
-        }
-        doc["part"]["source_closure"]["unseen"] = []
-    bare_old, bare_new = _doc(), _doc()
-    for doc in (new, bare_new):
-        if outcome == "different":
-            doc["checks"] = [c for c in doc["checks"] if c["id"] != "fits"]
-            doc["counts"]["total"] -= 1
-            doc["counts"]["pass"] -= 1
-        if outcome == "indeterminate":
-            doc["part"]["source_closure"]["partial"] = True
+    for doc in (old, new):
+        doc["part"].pop("source_closure")
+    reason = _diff(old, new)["indeterminate"][0]["reason"]
+    assert reason.count(", so ") == 1, reason
+    assert reason.endswith(SENTENCE)
 
-    with_fields, without = _diff(old, new), _diff(bare_old, bare_new)
-    assert with_fields["outcome"] == without["outcome"] == outcome
-    assert exit_code_of(with_fields["outcome"]) == exit_code_of(without["outcome"])
-    assert with_fields["source"] == without["source"]
+
+def test_a_files_count_that_moved_under_an_unchanged_digest_is_a_change():
+    """`_content_digest` derives both from one walk, so they cannot honestly
+    disagree; where they do, reading "all unchanged" off the digest is the
+    failing-open direction."""
+    old = _python_doc({"cqgridfinity": {**_dist(None, "aaa", "content"), "files": 16}})
+    new = _python_doc({"cqgridfinity": {**_dist(None, "aaa", "content"), "files": 17}})
+    assert _diff(old, new)["source"]["closure"] == "changed"
+
+
+# --------------------------------------------------------------------------
+# #190 stage 3 migration: what a pre-0.7.5 report gets
+# --------------------------------------------------------------------------
+
+
+def _legacy(closure: dict) -> dict:
+    doc = _doc()
+    doc["part"]["source_closure"] = closure
+    return doc
+
+
+LEGACY_PYTHON = {"digest": "sha256:k1", "files": 2, "scope": "model_directory", "partial": True}
+LEGACY_SCAD_COMPLETE = {"digest": "sha256:k1", "files": 16}
+LEGACY_SCAD_UNRESOLVED = {**LEGACY_SCAD_COMPLETE, "unresolved": ["missing.scad"], "partial": True}
+LEGACY_SCAD_EXTERNAL = {**LEGACY_SCAD_COMPLETE, "reads_external_data": True, "partial": True}
+
+
+@pytest.mark.parametrize(
+    ("closure", "outcome"),
+    [
+        (LEGACY_PYTHON, "indeterminate"),
+        (LEGACY_SCAD_COMPLETE, "identical"),
+        (LEGACY_SCAD_UNRESOLVED, "indeterminate"),
+        (LEGACY_SCAD_EXTERNAL, "indeterminate"),
+    ],
+    ids=["python", "scad-complete", "scad-unresolved", "scad-external-data"],
+)
+def test_a_pre_0_7_5_report_diffs_exactly_as_it_did_before(closure: dict, outcome: str):
+    """The absence rule applies where the field could have carried an answer.
+
+    SPEC-report §8.3 says a closure missing `imports` MUST NOT be read as an
+    answer, and for the Python tier that reproduces today's exit 2 exactly.
+    Blanket-applying it would have flipped the second row here from exit 0 to
+    exit 2 on upgrade — a false alarm on a tier where `imports` was never a
+    question that could have an answer, and stage 2 emits `"imports": {}` for
+    OpenSCAD precisely so that absence stays unambiguous.
+    """
+    doc = _diff(_legacy(dict(closure)), _legacy(dict(closure)))
+    assert doc["outcome"] == outcome
+    assert exit_code_of(doc["outcome"]) == (0 if outcome == "identical" else 2)
+    # A pre-0.7.5 pair also gets the output it got before: no coverage block
+    # is invented for a report that never recorded coverage.
+    assert summary_of(doc).splitlines()[0] == summary_of(doc)
+
+
+def test_a_pre_0_7_5_pair_whose_closure_moved_gets_no_orphaned_line():
+    """`every declared claim held across the change` sits under `covered:` and
+    reads off it. Emitted on its own — which is what two pre-0.7.5 reports
+    got, since neither carries `unseen` and so neither gets a coverage
+    block — it refers to a change nothing on the screen has named."""
+    old = _legacy(dict(LEGACY_SCAD_COMPLETE))
+    new = _legacy({**LEGACY_SCAD_COMPLETE, "digest": "sha256:moved"})
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical", "v0.7.4's answer, unchanged"
+    assert doc["source"]["closure"] == "changed"
+    assert doc["source"]["closure_digest_changed"] is True
+    summary = summary_of(doc)
+    assert summary == "identical: p — no semantic differences"
+    assert "every declared claim held" not in summary
+
+
+def test_the_message_for_a_pre_0_7_5_baseline_names_the_remedy():
+    """Message (f): what a user upgrading sees, and why re-recording the
+    baseline is the fix rather than a flag."""
+    doc = _diff(_legacy(dict(LEGACY_PYTHON)), _python_doc())
+    assert doc["indeterminate"][0]["reason"] == (
+        "no differences found, but the old report was written before partspec recorded "
+        f"imports (0.7.4 or earlier): its source identity covers one directory, so {SENTENCE}"
+    )
+    assert doc["source"]["imports"]["uncomparable"].startswith("no source_closure.imports map")
+
+
+def test_an_openscad_model_reading_external_data_keeps_its_message():
+    """#198's case, unchanged by stage 3 except that the gap now has a name:
+    the design handles both tiers through one mechanism and narrows
+    OpenSCAD's honesty by no case."""
+    closure = {
+        "digest": "sha256:k1",
+        "files": 16,
+        "reads_external_data": True,
+        "partial": True,
+        "imports": {},
+        "unseen": ["external_data_reads"],
+    }
+    doc = _diff(_legacy(dict(closure)), _legacy(dict(closure)))
+    assert doc["outcome"] == "indeterminate"
+    assert doc["indeterminate"][0]["reason"] == (
+        "no differences found, but the model reads external data: import()/surface() name "
+        f"files whose paths partspec cannot resolve statically, so {SENTENCE}"
+    )
+    # No Python tier, so no irreducible caveat to print.
+    assert "not covered" not in summary_of(doc)
 
 
 def test_weakening_that_flips_a_status_still_shows_the_moved_limit():

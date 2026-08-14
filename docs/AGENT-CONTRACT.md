@@ -197,7 +197,11 @@ On the first `pass` for an unfamiliar part, confirm in `report.json`:
    changed"; treat identity claims accordingly. `unseen` says *which* gaps, from a closed
    vocabulary, and `imports` says which distributions the model loaded and whether their
    bytes were read or their installer taken at its word (SPEC-report §8.3). An unrecognised
-   `unseen` token is a gap, not noise; `imports` absent means the question was never asked;
+   `unseen` token is a gap, not noise; `imports` absent means the question was never asked.
+   `diff` classifies those gaps rather than counting them: `native_reads` is irreducible on
+   the Python tier and reaches no verdict — it is printed on every outcome as `not covered:`
+   — while every other token, recognised or not, still blocks `identical` (SPEC-diff §2
+   rule 3). Read the `not covered:` line; do not filter it out;
 4. when a pin is in play, `expectation.matched` is `true` in this same report.
 
 ---
