@@ -187,6 +187,31 @@ def test_every_pypi_publish_action_is_pinned_to_a_digest():
     assert not unpinned, f"publish actions must be SHA-pinned, not {unpinned}"
 
 
+def test_no_action_in_the_release_workflow_floats_on_a_major():
+    """The claim the `setup-uv` comment makes about its neighbours, enforced.
+
+    That comment justified its exact pin by saying `@v9` would fail "the
+    floating-major form every other action here uses" — and no action in the
+    file used one: the rest were `@v7.0.1`, `@v7.0.1`, `@v8.0.1` and a SHA
+    (#218). The conclusion was right and the stated reason described a
+    convention this file does not have, which is worse than saying nothing:
+    the next reader concludes the exact pins are the anomaly and tidies them
+    into real floating majors.
+
+    So the comment now says the file has no floating majors, and this is what
+    keeps that true. `@vN` only — `@vN.N` and `@vN.N.N` are exact enough that
+    a release cannot change under them, and a SHA is stronger still.
+    """
+    # Comments stripped, for `_live_lines`'s reason turned around: the
+    # paragraph this test defends *discusses* `@v9`, and a check that read the
+    # raw file would eventually fail on prose about a pin rather than a pin.
+    workflow = _live_lines(REPO / ".github" / "workflows" / "release.yml")
+    refs = re.findall(r"uses:\s*(\S+)@(\S+)", workflow)
+    assert refs, "the workflow must still use actions"
+    floating = [f"{action}@{ref}" for action, ref in refs if re.fullmatch(r"v\d+", ref)]
+    assert not floating, f"the setup-uv comment states this file has no floating majors: {floating}"
+
+
 # ---------------------------------------------------------------------------
 # the sdist
 # ---------------------------------------------------------------------------
@@ -344,6 +369,50 @@ def test_the_sdist_leaves_out_what_a_consumer_cannot_use(sdist_names: set[str]):
 
     assert "pyproject.toml" in sdist_names, "and the things a build needs are still there"
     assert "README.md" in sdist_names
+
+
+def test_the_sdist_ships_nothing_at_the_top_level_that_is_not_on_the_list(
+    sdist_names: set[str],
+):
+    """The denylist above cannot catch the leak it has not been told about.
+
+    It asserts by NAME — `uv.lock`, `CLAUDE.md`, the `notes/`/`evals/` prefixes
+    — so each new tree that should not ship gets in for free until someone
+    notices. `.claude/scheduled_tasks.lock` did (#218): it sat in
+    `.git/info/exclude`, which is local to one clone and which hatchling does
+    not read, so a dev-built sdist and a CI-built one were different tarballs —
+    and being able to reproduce the published artifact locally is the whole
+    point of building one. The published artifact was never affected;
+    `release.yml` builds from a clean checkout.
+
+    An allowlist inverts the default: a new top level has to be argued for
+    here. Scoped to the TOP LEVEL because that is the granularity that holds
+    still — a per-file allowlist would fail on every module added, which is a
+    test nobody keeps.
+    """
+    top = {name.split("/", 1)[0] + ("/" if "/" in name else "") for name in sdist_names}
+    allowed = {
+        # What a consumer builds and reads.
+        "pyproject.toml",
+        "PKG-INFO",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "AGENTS.md",
+        "src/",
+        # What the suite needs in order to pass from an unpacked sdist, which
+        # is the claim `tests/` shipping at all rests on.
+        "tests/",
+        "docs/",
+        "examples/",
+        "skills/",
+        "scripts/",
+        ".github/",
+        # Read by hatchling to decide this very list, and by the suite.
+        ".gitignore",
+        "justfile",
+    }
+    assert top <= allowed, f"the sdist ships an unargued top level: {sorted(top - allowed)}"
 
 
 def test_the_ok_gate_waits_for_every_job_in_the_workflow():

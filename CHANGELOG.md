@@ -129,6 +129,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not establish what the reporter saw. `check --out DIR` does create the
   directory and writes `report.json` into it, which is the nearest behaviour
   that exists.
+- **A locally built sdist is the CI sdist again** (#218). `uv build --sdist` in
+  a working checkout shipped `.claude/scheduled_tasks.lock`: Claude Code's
+  runtime state lived only in `.git/info/exclude`, which is local to one clone
+  and which hatchling does not read, and it was absent from the sdist exclude
+  list too. **The published artifact was never affected** — `release.yml`
+  builds from a clean CI checkout — but a dev-built tarball is only worth
+  building if it is the same tarball, which is the property that makes local
+  verification mean anything. The runtime entries move into `.gitignore`, which
+  hatchling honours and which is already how `outputs/` and `notes/upstream/`
+  stay out. The same shape as the `notes/` leak #150 fixed, through a different
+  door, and the test that should have caught it could not: it asserts
+  exclusions **by name**, so each new tree gets in free until someone notices.
+  A second test now asserts the sdist's **top level against an allowlist**, so
+  a new one has to be argued for — scoped to the top level because that is the
+  granularity that holds still, where a per-file allowlist would fail on every
+  module added and be deleted within a month.
+- **`release.yml` no longer explains its `setup-uv` pin with a convention the
+  file does not follow** (#218). The comment said `astral-sh/setup-uv@v9` would
+  fail as "the floating-major form every other action here uses" — and no
+  action in that file used one: the rest are `@v7.0.1`, `@v7.0.1`, `@v8.0.1`
+  and a SHA. The conclusion was right and the pin stays; the stated reason
+  invited the next reader to conclude the exact pins were the anomaly and tidy
+  them into real floating majors. The corrected comment says the file has no
+  floating majors, and a test now enforces that rather than leaving the
+  paragraph to assert it. Pre-existing, from #173.
 
 ### Added
 

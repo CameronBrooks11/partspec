@@ -72,3 +72,21 @@ notes/audit-run1-raw.json
 # Tracker snapshots, regenerable with `gh issue list`:
 notes/issues-snapshot-*
 notes/issues-final-*
+
+# Claude Code's per-checkout runtime state. This lived only in
+# .git/info/exclude, which is local to one clone and which hatchling does not
+# read — so a locally built sdist shipped .claude/scheduled_tasks.lock while a
+# CI-built one did not, and a dev-built tarball is only worth building if it is
+# the same tarball (#218). The published artifact was never affected:
+# release.yml builds from a clean checkout. Comments on their own lines, for
+# the reason the block above gives.
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
+.claude/routines/.state/
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/agent-registry.json
+.claude/agent-memory-local
+.claude/first-run
+.claude/assistant-daemon-state.json
