@@ -312,24 +312,179 @@ def test_empty_geometry_is_a_build_error(backend: MeshBackend, tmp_path: Path):
 
 
 @needs_openscad
-def test_a_failed_render_leaves_no_stale_artifact(tmp_path: Path):
-    """The export path is deterministic, so a previous run's mesh is already
-    sitting there when the next one starts — and the post-render guards ask only
-    whether the file exists and is non-empty, which the stale file answers just
-    as well. An invocation that exits 0 without writing would have measured the
-    last run's part and reported it as this one's."""
+def test_a_failed_render_leaves_the_previous_artifact_untouched(tmp_path: Path):
+    """The opposite of what this test asserted until #208, deliberately.
+
+    It required that a failed render leave nothing behind, because `render`
+    unlinked its target up front. What the unlink also reached was the caller's
+    file, deleted for nothing — and an `.stl` beside a model may be the model's
+    own `import()`. The engine now exports into a scratch directory and the
+    result is moved into place only once it exists, so a compile error, a blown
+    timeout or a Ctrl-C leaves whatever was there: the same guarantee
+    `measure --out <file>` already gave the filename form.
+
+    The claim the unlink actually protected — that a stale file cannot answer
+    the post-render guards — is `test_a_stale_artifact_cannot_answer_the_
+    post_render_guards`, which the scratch directory keeps true without it.
+    """
     good = _scad(tmp_path, "part", "cube([10, 10, 10]);")
     first = openscad.render(OpenSCADSource(path=good), tmp_path / "out")
     assert isinstance(first, Path) and first.stat().st_size > 0
-    stale_size = first.stat().st_size
+    before = first.read_bytes()
 
     broken = tmp_path / "part.scad"
     broken.write_text("this is not openscad;\n")
     second = openscad.render(OpenSCADSource(path=broken), tmp_path / "out")
 
     assert isinstance(second, BuildError), "premise: the second render fails"
-    assert not first.exists(), (
-        f"a {stale_size}-byte mesh from the previous run survived a failed render"
+    assert first.read_bytes() == before, "a failed render consumed the file it did not write"
+    assert not [p for p in (tmp_path / "out").iterdir() if p.name.startswith(".partspec-build-")]
+
+
+def test_a_stale_artifact_cannot_answer_the_post_render_guards(tmp_path: Path, monkeypatch):
+    """The reason the up-front unlink existed, kept true without it.
+
+    OpenSCAD exits 0 on some degenerate input while writing nothing, so
+    `render` asks whether the artifact exists and is non-empty rather than
+    trusting the exit code — questions a *previous* run's mesh at the same
+    deterministic path answers just as well. Removing that mesh first was one
+    way to make the questions mean what they read as; exporting into a
+    directory created empty by this call is the other, and it is the one that
+    does not delete the caller's data on the way (#208).
+
+    Pinned to a stub engine rather than the real one, because the case is a
+    property of `render`'s bookkeeping and not of any binary: the installed
+    2021.01 exits **1** on an empty top-level object, so the branch this test
+    is about is unreachable through it.
+    """
+    stub = tmp_path / "openscad-stub"
+    stub.write_text("#!/bin/sh\nexit 0\n")
+    stub.chmod(0o755)
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "part.stl").write_bytes(b"the previous run's mesh")
+    source = _scad(tmp_path, "part.scad", "cube([10, 10, 10]);\n")
+
+    result = openscad.render(OpenSCADSource(path=source), out)
+
+    assert isinstance(result, BuildError), "an engine that wrote nothing produced nothing"
+    assert "no geometry" in result.message
+    assert (out / "part.stl").read_bytes() == b"the previous run's mesh"
+
+
+@needs_openscad
+def test_a_first_render_into_the_source_directory_is_not_refused(tmp_path: Path):
+    """Clause (3) of the #208 guard: `<stem>.stl` must already EXIST.
+
+    Both this and the test below pin a clause whose deletion left the suite
+    green (adversarial review of #223). The guard refuses a render into the
+    model's own directory only when the derived name is already taken; a first
+    run there takes a name nothing holds, so nothing can be destroyed and
+    nothing is refused. Drop the clause and this ordinary invocation — an
+    external-data model rendered beside its own source, once — becomes a hard
+    environment error over a file that does not exist.
+
+    The second render IS refused, and that is the same boundary from the other
+    side: by then partspec's own artifact is sitting there, and nothing on disk
+    says whether it or an input owns the name.
+    """
+    (tmp_path / "input.stl").write_bytes(b"donor")
+    source = _scad(
+        tmp_path, "imports_data.scad", FIXTURES.joinpath("imports_data.scad").read_text()
+    )
+
+    first = openscad.render(OpenSCADSource(path=source), tmp_path)
+    assert isinstance(first, Path), first
+    assert first == tmp_path / "imports_data.stl"
+    assert first.stat().st_size > 0
+
+    second = openscad.render(OpenSCADSource(path=source), tmp_path)
+    assert isinstance(second, BuildError), "now the derived name is taken"
+    assert "cannot prove imports_data.stl is not one of them" in second.message
+
+
+@needs_openscad
+def test_a_model_with_a_complete_closure_renders_twice_into_its_own_directory(tmp_path: Path):
+    """Clause (2) of the #208 guard: the closure must be PARTIAL.
+
+    A model that reads no external data and resolves every include has no
+    inputs partspec cannot account for, so the derived name can only be
+    partspec's own artifact from the previous run. Refusing there would break
+    every repeat render into a source directory — the case that costs nothing
+    and is refused by nobody — and dropping the clause leaves the suite green,
+    which is why this is written down.
+    """
+    source = _scad(tmp_path, "plain.scad", "cube([2, 3, 4]);\n")
+    for run in ("first", "second"):
+        result = openscad.render(OpenSCADSource(path=source), tmp_path)
+        assert isinstance(result, Path), f"{run}: {result}"
+        assert result == tmp_path / "plain.stl"
+        assert result.stat().st_size > 0
+
+
+@needs_openscad
+@pytest.mark.parametrize(
+    "body",
+    [
+        'union() { cube([5,5,5]); import("input.stl"); }',
+        'names = ["input.stl"]; i = 0; union() { cube([5,5,5]); import(names[i]); }',
+    ],
+    ids=["literal", "computed"],
+)
+def test_the_engine_names_the_data_files_a_render_read(tmp_path: Path, body: str):
+    """`openscad -d` answers the question `reads_external_data` cannot.
+
+    `_output_over_an_input` refuses conservatively because a data path may be
+    computed at render time, so no static reader can resolve it — and #226 is
+    the remedy that claim implies: ask the ENGINE what it read. This executes
+    that claim rather than asserting it in prose, on whichever binary is
+    installed, which is why it is a test and not a comment. CI runs two engine
+    versions (apt 2021.01 and a 2026.08.01 snapshot) and F13 is the finding
+    that they differ, so a claim about engine behaviour that only ever ran on
+    one of them is a claim about one machine.
+
+    The **computed** case is the load-bearing half. A literal `import("x.stl")`
+    is findable with a regex, which is roughly what `_EXTERNAL_DATA_RE` does;
+    `import(names[i])` is exactly the case the bool exists to admit defeat on,
+    and the deps file names it by absolute path anyway — because the engine
+    reports what it opened, not what it could parse.
+
+    Deliberately drives the binary rather than `render()`: partspec does not
+    pass `-d` yet. That is the point — this is the evidence #226 would build
+    on, and it should be known to hold before anything is built on it.
+    """
+    import subprocess
+
+    executable = openscad.find_executable()
+    assert executable is not None, "needs_openscad promised one"
+
+    donor = _scad(tmp_path, "input.scad", "cube([3, 7, 11]);\n")
+    built = openscad.render(OpenSCADSource(path=donor), tmp_path)
+    assert isinstance(built, Path) and built.name == "input.stl", built
+
+    source = _scad(tmp_path, "part.scad", f"{body}\n")
+    deps = tmp_path / "part.d"
+    proc = subprocess.run(
+        [
+            executable,
+            "--export-format",
+            "binstl",
+            "-o",
+            str(tmp_path / "part.stl"),
+            "-d",
+            str(deps),
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert deps.is_file(), "the engine wrote no dependency file"
+    assert str(built.resolve()) in deps.read_text(), (
+        f"the deps file does not name the import target:\n{deps.read_text()}"
     )
 
 

@@ -352,16 +352,26 @@ def test_measure_out_reports_a_destination_it_cannot_write(tmp_path: Path, capsy
     assert doc["geometry"] == {}
 
 
-@pytest.mark.parametrize(
-    ("engine", "model"),
-    [
-        ("build123d", "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n"),
-        (
-            "cadquery",
-            "import cadquery\n\n\ndef make_part():\n    return cadquery.Workplane().box(2, 1, 1)\n",
-        ),
-    ],
-)
+def _occt_target(tmp_path: Path, engine: str, model: str) -> str:
+    (tmp_path / "m.py").write_text(model)
+    module = tmp_path / "spec.py"
+    module.write_text(
+        f"from partspec import Part, {engine}\n\n\ndef make():\n"
+        f"    return Part('subject', {engine}('m.py'))\n"
+    )
+    return f"{module}:make"
+
+
+OCCT_MODELS = [
+    ("build123d", "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n"),
+    (
+        "cadquery",
+        "import cadquery\n\n\ndef make_part():\n    return cadquery.Workplane().box(2, 1, 1)\n",
+    ),
+]
+
+
+@pytest.mark.parametrize(("engine", "model"), OCCT_MODELS)
 def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(
     tmp_path: Path, capsys, engine: str, model: str
 ):
@@ -373,20 +383,239 @@ def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(
     resolves, and a machine passing `--out` is exactly who hits this one.
     """
     pytest.importorskip(engine, reason=f"{engine} extra not installed")
-    (tmp_path / "m.py").write_text(model)
-    module = tmp_path / "spec.py"
-    module.write_text(
-        f"from partspec import Part, {engine}\n\n\ndef make():\n"
-        f"    return Part('subject', {engine}('m.py'))\n"
-    )
+    target = _occt_target(tmp_path, engine, model)
     dest = tmp_path / "a.stl"
-    assert main(["measure", f"{module}:make", "--out", str(dest)]) == 64
+    assert main(["measure", target, "--out", str(dest)]) == 64
     assert not dest.exists()
     doc = json.loads(capsys.readouterr().out)
     assert doc["part"]["id"] == "subject", "the refusal says which part it refused"
     assert "names a file" in doc["error"]
     assert engine in doc["error"]
-    assert "drop --out" in doc["hint"]
+    # EQUALITY, against a literal copy written out here on purpose — do not
+    # import `cli.REFUSED_OUT_HINT` and compare it to itself, which would pass
+    # for any wording at all.
+    #
+    # The hint used to offer "pass a directory" as the alternative. It appeared
+    # to work while a directory was silently accepted; #204 makes that same
+    # request report that nothing was written, so the old advice routes the
+    # reader into the state one line of output complains about — a remedy a
+    # reader can follow into a complaint is not a remedy.
+    #
+    # The first attempt at pinning that asserted `"pass a directory" not in
+    # hint`, which pins one SPELLING of the advice and not the advice. Measured
+    # in adversarial review: restoring "use a directory instead, or drop --out"
+    # left the whole suite green at 950 passed. A synonym walks through any
+    # substring rule anyone can write here — "a folder", "a dir", "some other
+    # path" — so the whole string is the claim.
+    assert doc["hint"] == (
+        "only the OpenSCAD tier writes a build artifact — drop --out; on this tier "
+        "no --out path receives one, whatever its shape, and the measurements go to stdout"
+    )
+
+
+@pytest.mark.parametrize(("engine", "model"), OCCT_MODELS)
+def test_measure_out_directory_says_nothing_was_written_on_a_tier_with_no_artifact(
+    tmp_path: Path, capsys, engine: str, model: str
+):
+    """The other spelling of the request the line above refuses (#204).
+
+    A filename destination on this tier exits 64 and names the problem; a
+    directory accepted the path, wrote nothing, said nothing and exited 0 —
+    two spellings of "put the artifact here" on a tier that has no artifact,
+    one named and one silent.
+
+    Exit 0 stays, because the measurement succeeded and IS this verb's
+    product; what changes is that the unfulfilled half is stated. In both
+    channels: stderr for the reader, and the payload for the machine, because
+    a fact living only on stderr is invisible exactly where a machine is the
+    audience (#47). One `reason` string feeds both, so they cannot drift.
+    """
+    pytest.importorskip(engine, reason=f"{engine} extra not installed")
+    target = _occt_target(tmp_path, engine, model)
+    out = tmp_path / "somedir"
+    assert main(["measure", target, "--out", str(out)]) == 0
+    assert not out.exists(), "and no empty directory is left to be wondered about"
+
+    captured = capsys.readouterr()
+    doc = json.loads(captured.out)
+    assert doc["measurements"]["bbox"]["value"] == [2.0, 1.0, 1.0], "the measurement is the product"
+    assert doc["artifact"] == {
+        "requested": str(out),
+        "written": False,
+        "reason": f"the {engine} tier builds in memory and exports nothing to put there",
+    }
+    assert "names a directory for the build artifact" in captured.err
+    assert doc["artifact"]["reason"] in captured.err, "one reason, both channels"
+    assert f"nothing was created at {out}" in captured.err
+
+
+@pytest.mark.parametrize(("engine", "model"), OCCT_MODELS)
+def test_measure_says_nothing_about_an_artifact_when_none_was_asked_for(
+    tmp_path: Path, capsys, engine: str, model: str
+):
+    """No `--out` is no request, and a report of a request nobody made is
+    noise in a payload whose whole value is that everything in it was
+    asked."""
+    pytest.importorskip(engine, reason=f"{engine} extra not installed")
+    target = _occt_target(tmp_path, engine, model)
+    assert main(["measure", target]) == 0
+    captured = capsys.readouterr()
+    assert "artifact" not in json.loads(captured.out)
+    assert captured.err == ""
+
+
+@needs_scad_tier
+def test_measure_out_says_nothing_when_the_artifact_was_written(tmp_path: Path, capsys):
+    """The notice is about an unfulfillable request, not about `--out`.
+
+    On the one tier that exports something the flag does exactly what it says,
+    so there is nothing to report and the payload gains no key — which is what
+    makes the key's presence mean something.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    out = tmp_path / "art"
+    assert main(["measure", target, "--out", str(out)]) == 0
+    assert (out / "block_with_hole.stl").stat().st_size > 0
+    captured = capsys.readouterr()
+    assert "artifact" not in json.loads(captured.out)
+    assert captured.err == ""
+
+
+# --------------------------------------------------------------------------
+# measure/check --out DIR (#208): the DERIVED artifact path may be an input
+# --------------------------------------------------------------------------
+
+
+def _donor_stl(tmp_path: Path, dest: Path) -> bytes:
+    """Build a real 3x7x11 mesh at `dest`, for a model to `import()`.
+
+    A real one, rendered by the engine that will read it back, because these
+    tests turn on whether the import was resolved at all: the `b"donor"`
+    placeholder the file-mode tests use never reaches OpenSCAD, and a model
+    that imports it measures the same either way.
+    """
+    from partspec.engines import openscad
+
+    source = tmp_path / "donor.scad"
+    source.write_text("cube([3, 7, 11]);\n")
+    built = openscad.render(openscad.OpenSCADSource(path=source), tmp_path / "donor-out")
+    assert isinstance(built, Path), built
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(built, dest)
+    return dest.read_bytes()
+
+
+@needs_openscad
+def test_measure_out_refuses_the_model_s_own_directory_over_a_colliding_input(
+    tmp_path: Path, capsys
+):
+    """`--out .` derived `<stem>.stl`, and the model imported that file.
+
+    Filed as a `measure` bug and reproduced at exit 0 with a complete payload:
+    `part.scad` imports `part.stl`, the run unlinked `part.stl` before invoking
+    the engine, and the model then built without its import — `[5, 5, 5]` for a
+    part that measures `[8, 7, 11]`, with the input gone. Building in a scratch
+    directory fixes the number; it does not stop `os.replace` from putting the
+    output on top of the input afterwards, which is what this refusal is for.
+    """
+    donor = _donor_stl(tmp_path, tmp_path / "self_named_import.stl")
+    target = scad_target(tmp_path, source="self_named_import.scad", claims="")
+    assert main(["measure", target, "--out", str(tmp_path)]) == exit_code(Verdict.ERROR)
+    assert (tmp_path / "self_named_import.stl").read_bytes() == donor
+    doc = json.loads(capsys.readouterr().out)
+    assert "self_named_import.stl" in doc["error"], "the refusal names the file at stake"
+    assert "reads external data" in doc["error"]
+    assert "pass an output directory other than the model's own" in doc["hint"]
+
+
+@needs_openscad
+def test_check_out_refuses_rather_than_passing_a_part_it_would_have_consumed(tmp_path: Path):
+    """The half the issue did not file, and the worse one.
+
+    `check --out .` reached the same unlink, so the same consumed import
+    produced `PASS: 2 pass` — a verdict on geometry that was not the part,
+    with the input gone. The refusal is `origin="environment"`, so `builds`
+    is skipped rather than failed: nothing here disproves the design
+    (SPEC-report §6.1).
+    """
+    donor = _donor_stl(tmp_path, tmp_path / "self_named_import.stl")
+    target = scad_target(
+        tmp_path,
+        source="self_named_import.scad",
+        claims="    p.envelope(max=(20.0, 20.0, 20.0))\n",
+    )
+    assert main(["check", target, "--quiet", "--out", str(tmp_path)]) == exit_code(Verdict.ERROR)
+    assert (tmp_path / "self_named_import.stl").read_bytes() == donor
+    report = report_of(tmp_path)
+    assert report["verdict"] == "error"
+    assert report["build_origin"] == "environment"
+    assert [c["status"] for c in report["checks"]] == ["skipped", "skipped"]
+    assert "self_named_import.stl" in report["error"]
+
+
+@needs_scad_tier
+def test_measure_out_measures_the_import_and_a_repeat_run_is_not_refused(tmp_path: Path, capsys):
+    """The condition that must NOT fire, run twice.
+
+    A guard of the form "the artifact path exists and the closure is partial"
+    catches the filed repro and regresses every second run of any external-data
+    model, because run 2 finds run 1's own artifact waiting for it. So the
+    refusal also requires the destination to be the model's OWN directory,
+    which an output directory never is — and both runs measure the imported
+    solid, `[8, 7, 11]` rather than the bare `[5, 5, 5]` cube.
+    """
+    _donor_stl(tmp_path, tmp_path / "self_named_import.stl")
+    target = scad_target(tmp_path, source="self_named_import.scad", claims="")
+    out = tmp_path / "art"
+    for run in ("first", "second"):
+        assert main(["measure", target, "--out", str(out)]) == 0, run
+        doc = json.loads(capsys.readouterr().out)
+        assert doc["measurements"]["bbox"]["value"] == [8.0, 7.0, 11.0], run
+    assert (out / "self_named_import.stl").stat().st_size > 0
+
+
+@needs_scad_tier
+def test_measure_out_compounds_when_the_import_is_below_the_out_dir(tmp_path: Path, capsys):
+    """The residue this fix leaves, executed rather than predicted.
+
+    The refusal covers the model's own directory and nothing else, because no
+    signal distinguishes the two files anywhere else: `reads_external_data` is
+    a bool by design, since a data path may be computed at render time. So
+    `--out sub` for a model importing `sub/<stem>.stl` still writes the
+    artifact over that import.
+
+    An earlier revision of this test said the cost was one file and that the
+    next run would answer `[5, 5, 5]` — a number that was written rather than
+    run, in a repo whose whole subject is the difference. The artifact
+    REPLACES the import rather than deleting it, so the import still resolves
+    and the model eats its own output: `[8, 7, 11]`, then `[13, 7, 11]`, then
+    `[18, 7, 11]`, every one at exit 0, and a `check` claim that is false of
+    the real part passes from run 2 onward. That is #208's own headline
+    symptom surviving in a narrower case, and the same compounding
+    `_EXTERNAL_DATA_RE`'s docstring records from the #187 review.
+
+    Pinned because it is a KNOWN residue, not an accepted behaviour: if a
+    later change closes it, this test fails and says so, which is the whole
+    point of writing the residue down where it can be executed. Widening the
+    guard to catch it is the thing that must not happen quietly — any rule
+    reaching a subdirectory import also refuses legitimate output directories.
+    """
+    donor = _donor_stl(tmp_path, tmp_path / "sub" / "subdir_import.stl")
+    target = scad_target(tmp_path, source="subdir_import.scad", claims="")
+    out = tmp_path / "sub"
+
+    measured = []
+    for run in (1, 2, 3):
+        assert main(["measure", target, "--out", str(out)]) == 0, (
+            f"run {run} of the residue must still SUCCEED — silently, which is the point"
+        )
+        measured.append(json.loads(capsys.readouterr().out)["measurements"]["bbox"]["value"])
+
+    assert measured[0] == [8.0, 7.0, 11.0], "run 1 reads the real import and is right"
+    assert measured[1:] == [[13.0, 7.0, 11.0], [18.0, 7.0, 11.0]], (
+        "and every run after it measures the previous run's output, at exit 0"
+    )
+    assert (out / "subdir_import.stl").read_bytes() != donor
 
 
 # --------------------------------------------------------------------------

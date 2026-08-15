@@ -172,11 +172,13 @@ def build_parser() -> argparse.ArgumentParser:
         "the artifact, replaced only once the build succeeds, so a failed run "
         "leaves what was there. Any other PATH — a trailing "
         f"{os.sep!r}, an existing directory, any other suffix — is a directory "
-        "to write <source>.stl in. A file is refused when nothing would be "
-        "written to it (the OCCT tier builds in memory) or when the model reads "
-        "external data, because an import()ed .stl is an input, not an output. "
-        "The measurements themselves go to stdout — this verb emits no report "
-        "file",
+        "to write <source>.stl in, and the MODEL'S OWN directory is refused "
+        "when that name is already taken and the source closure is partial (it "
+        "reads external data, or has includes partspec could not resolve). A "
+        "file is refused when nothing would be written to it (the OCCT tier "
+        "builds in memory) or when that same closure is partial, because an "
+        "import()ed .stl is an input, not an output. The measurements "
+        "themselves go to stdout — this verb emits no report file",
     )
     measure.add_argument(
         "--timeout",
@@ -380,6 +382,22 @@ Matched exactly, so `--out UP.STL` is a directory. partspec only ever writes
 the lowercase form, which makes an uppercase `.STL` almost always a file that
 came from somewhere else — hand-authored or downloaded — and those are the
 ones least likely to be output and most expensive to lose."""
+
+
+REFUSED_OUT_HINT = (
+    "only the OpenSCAD tier writes a build artifact — drop --out; on this tier "
+    "no --out path receives one, whatever its shape, and the measurements go to stdout"
+)
+"""The remedy for `--out <file>` on a tier that exports nothing.
+
+Named rather than inlined because its exact words are a decision, not a
+phrasing: `test_measure_refuses_a_filename_on_the_tier_that_exports_nothing`
+asserts EQUALITY against its own literal copy, so changing this string fails a
+test and the change gets read by someone. That is deliberate, and it is the
+second attempt. The first pinned `"pass a directory" not in hint`, which pins
+one spelling of the advice rather than the advice: an adversarial review put
+"use a directory instead" back into the hint and the whole suite still
+reported 950 passed."""
 
 
 def _names_the_artifact(raw: str) -> bool:
@@ -886,13 +904,26 @@ def _measure_resolved(
             # Refused, not warned: the caller asked for a file this tier
             # cannot produce, and exiting 0 with nothing at that path is the
             # silent success this tool exists to refuse (#187).
+            #
+            # The hint no longer offers "pass a directory". It appeared to work
+            # while a directory was silently accepted; #204 makes that same
+            # request state that nothing was written, so following the old
+            # advice now lands the reader in the state one line of output
+            # complains about. `drop --out` is the whole remedy on this tier.
+            #
+            # It names no path of any shape, rather than naming a directory to
+            # disclaim it. Two reasons, both learned here. A disclaimed remedy
+            # still reads as a remedy to someone skimming for a path. And the
+            # earlier phrasing said nothing is written "to it", which
+            # presupposes the directory exists — it is never created, which is
+            # the #204 myth this very PR spent six CHANGELOG lines refuting.
             _measure_failure(
                 part,
                 target,
                 backend,
                 f"--out {dest} names a file, but the {part.source.engine} tier builds "
                 f"in memory and exports nothing to write there",
-                "only the OpenSCAD tier writes a build artifact; pass a directory, or drop --out",
+                REFUSED_OUT_HINT,
             )
             return EXIT_USAGE
         from .engines.openscad import include_closure
@@ -903,19 +934,16 @@ def _measure_resolved(
         # measures, so this is refused rather than guessed at, and the refusal
         # says which two files it cannot tell apart.
         #
-        # The question asked is `partial`, not `reads_external_data`, because
-        # those are the same question: a closure with an UNRESOLVED include
-        # cannot see inside that file, so it cannot know whether the file
-        # imports data either. `partial` is exactly "there are inputs I cannot
-        # account for", which is the precondition for this refusal, and it is
-        # already computed (SPEC-report §8.3).
-        closure = include_closure(source.path)
-        if closure.partial:
-            reason = (
-                "reads external data (import()/surface())"
-                if closure.reads_external_data
-                else f"has include(s) partspec could not resolve ({', '.join(closure.unresolved)})"
-            )
+        # The question asked is the whole of `partial`, not
+        # `reads_external_data`, because those are the same question: a closure
+        # with an UNRESOLVED include cannot see inside that file, so it cannot
+        # know whether the file imports data either. `partial_reason` is
+        # exactly "there are inputs I cannot account for" and says which kind,
+        # non-None on precisely the closures `partial` is true of; it is
+        # already computed (SPEC-report §8.3), and phrased in one place because
+        # `openscad.render` refuses on the same grounds (#208).
+        reason = include_closure(source.path).partial_reason
+        if reason is not None:
             _measure_failure(
                 part,
                 target,
@@ -1006,7 +1034,46 @@ def _measure_resolved(
     if unavailable:
         measured["unavailable"] = unavailable
 
+    # An unfulfillable `--out` is an entry, never an absence (#204). The
+    # filename form of this same request exits 64 and says why; the directory
+    # form accepted the path, wrote nothing and exited 0 in silence — two
+    # spellings of "put the artifact here" on a tier that has no artifact, one
+    # named and one not. The exit stays 0 because the MEASUREMENT succeeded and
+    # is this verb's product: discarding it over an unfulfillable side-request
+    # costs the caller more than the no-op flag does. The filename form keeps
+    # its 64, because there the caller named a path they will go looking for.
+    #
+    # In BOTH channels. Stderr is for the human, and the payload for the
+    # machine, because `measure`'s whole design principle is that a fact living
+    # only on stderr is machine-invisible exactly where a machine is the
+    # audience (#47). One `reason` string feeds both, so the two cannot drift.
+    #
+    # Only when `--out` was passed: nothing was asked for otherwise, and there
+    # is nothing to report. `check --out` is untouched — it writes `report.json`
+    # into that directory on every tier, so the flag is no no-op there.
+    # Additive key, so `SCHEMA_VERSION` does not move.
+    reason = (
+        f"the {part.source.engine} tier builds in memory and exports nothing to put there"
+        if args.out is not None and part.source.engine != "openscad"
+        else None
+    )
+    if reason is not None:
+        # `written` states the outcome as a value rather than leaving it to be
+        # inferred from the key's presence, so a consumer reads one field and
+        # a later `written: true` would need no schema change.
+        measured["artifact"] = {"requested": args.out, "written": False, "reason": reason}
+
     print(json.dumps(measured, indent=2, allow_nan=False))
+    if reason is not None:
+        print(
+            f"partspec: --out {args.out} names a directory for the build artifact, but {reason}",
+            file=sys.stderr,
+        )
+        print(
+            f"  hint: nothing was created at {args.out}; the measurements on stdout are "
+            f"this verb's whole product, and only the OpenSCAD tier also writes an artifact",
+            file=sys.stderr,
+        )
     return 0
 
 
