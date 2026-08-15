@@ -292,7 +292,11 @@ It does not change the outcome: an old report that predates the field still diff
 ```jsonc
 {
   "schema_version": 2,              // this artifact's own version, not the report's
-  "tool": { "name": "partspec-diff", "version": "0.2.0" },
+  "tool": { "name": "partspec-diff", "version": "0.7.5" },  // partspec's own version.
+                                    // `diff` has none of its own and never has, so a
+                                    // sample showing one invites a consumer to key on a
+                                    // number that will never appear. `schema_version`
+                                    // above is the field that versions this artifact.
   "part": "example-spacer",
   "outcome": "different",           // identical | different | indeterminate
   "indeterminate": [],              // {code, reason[, remedy]} entries when indeterminate;

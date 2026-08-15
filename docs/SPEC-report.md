@@ -475,7 +475,8 @@ an unknown major version rather than best-effort parse it.
 ```jsonc
 {
   "schema_version": 1,
-  "tool": { "name": "partspec", "version": "0.1.0" },
+  "tool": { "name": "partspec", "version": "0.7.5" },  // whatever is installed; a
+                        // consumer keys on `schema_version` above, never on this
 
   "part": {
     "id": "bayonet-lock-pin",

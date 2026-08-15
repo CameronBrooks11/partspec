@@ -9,8 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Correction to 0.7.5: the fleet-01 `diff` figure below is wrong, and the
+  right one is 87** (#217). That entry says "3/3 CadQuery replicates
+  indeterminate over **73 real invocations**". Counted from the frozen fleet-01
+  logs, arm A ran **90** `diff` invocations, 3 of them `--help`, so **87 real**,
+  of which **79 exited 2**: a1 ×3 (3 at exit 2), a2 ×71 (63), a3 ×13 (13). The
+  released section is left as shipped and corrected here, per this file's rule
+  that a published entry takes form-only edits.
+  **The qualitative claim is confirmed and unaffected** — 3/3 arm-A replicates
+  went indeterminate and 0/3 arm-B ones did, on the same command and version.
+  One nuance the original sentence flattened: only **two** of the three arm-B
+  replicates ran `diff` at all (b1 ×3, b2 ×3, both `identical` at exit 0); b3
+  never ran it, so 0/3 is true as a count of replicates that hit the defect and
+  is not a count of three that tried.
+  **Where 73 came from, since a wrong number with no story invites the same
+  mistake:** the fleet report's own table sums a1 ×3 + a2 ×57 + a3 ×13, and
+  that `a2 ×57` matches no reading of the frozen log — not 72 total, 71 real,
+  63 at exit 2, 41 excluding the agent's negative controls, nor 7 unique
+  argv. The frozen log is the authoritative record and it says 87. A figure
+  nobody can reproduce from the record it cites is a claim this project does
+  not get to make, which is the whole of why this entry exists for a number
+  that changes no conclusion.
+  The issue also cites `docs/SPEC-diff.md:87-90` as carrying the figure. It
+  does not and never has: `git log -S` puts "73 real" in this file only, and
+  the spec's version of the sentence names the ratio without a count.
+
 - **A build no longer destroys the input it derives its own artifact name from
-  — on `check` as well as on `measure`, and not yet on every path.**
+  — on `check` as well as on `measure`, and on every path in the OpenSCAD
+  engine.** ("not yet on every path" until the entry below closed #224; the
+  remaining unlinks in `cli` and `raster` clear `renders/section_<plane>.png`,
+  which is the deliberate opposite trade — a failing section must not leave the
+  previous run's image to be read as this run's, and the mesh tier has no
+  `surface()` to make a PNG an input.)
   `engines/openscad.render` unlinked `<out dir>/<source stem>.stl`
   before invoking the engine, so a model whose `import()` target sits at that
   derived path built without it. Filed as a `measure --out DIR` bug (#208); it
@@ -104,6 +134,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not establish what the reporter saw. `check --out DIR` does create the
   directory and writes `report.json` into it, which is the nearest behaviour
   that exists.
+- **A locally built sdist is the CI sdist again** (#218). `uv build --sdist` in
+  a working checkout shipped `.claude/scheduled_tasks.lock`: Claude Code's
+  runtime state lived only in `.git/info/exclude`, which is local to one clone
+  and which hatchling does not read, and it was absent from the sdist exclude
+  list too. **The published artifact was never affected** — `release.yml`
+  builds from a clean CI checkout — but a dev-built tarball is only worth
+  building if it is the same tarball, which is the property that makes local
+  verification mean anything. The runtime entries move into `.gitignore`, which
+  hatchling honours and which is already how `outputs/` and `notes/upstream/`
+  stay out. The same shape as the `notes/` leak #150 fixed, through a different
+  door, and the test that should have caught it could not: it asserts
+  exclusions **by name**, so each new tree gets in free until someone notices.
+  A second test now asserts the sdist's **top level against an allowlist**, so
+  a new one has to be argued for — scoped to the top level because that is the
+  granularity that holds still, where a per-file allowlist would fail on every
+  module added and be deleted within a month.
+- **`release.yml` no longer explains its `setup-uv` pin with a convention the
+  file does not follow** (#218). The comment said `astral-sh/setup-uv@v9` would
+  fail as "the floating-major form every other action here uses" — and no
+  action in that file used one: the rest are `@v7.0.1`, `@v7.0.1`, `@v8.0.1`
+  and a SHA. The conclusion was right and the pin stays; the stated reason
+  invited the next reader to conclude the exact pins were the anomaly and tidy
+  them into real floating majors. The corrected comment says the file has no
+  floating majors, and a test now enforces that rather than leaving the
+  paragraph to assert it. Pre-existing, from #173.
+- **`SPEC-diff`'s artifact sample no longer shows a version the tool has never
+  emitted** (#219). The sample carried `"tool": {"name": "partspec-diff",
+  "version": "0.2.0"}`; `diff` emits the **partspec** version and has never had
+  one of its own, so `0.2.0` is not a stale value but a fictional one — and
+  this is a normative document whose sample is what a reader copies when
+  writing a consumer. The sample now shows a real value and says where it comes
+  from, so the next reader does not reinvent an independent `diff` version.
+  `SPEC-report.md`'s sample was checked for the same drift and carried
+  `"version": "0.1.0"` — stale rather than fictional, since that was a real
+  release — and is corrected the same way. Both now point the reader at
+  `schema_version`, which is the field a consumer is supposed to key on.
+  Pre-existing, from #88.
 
 ### Added
 
