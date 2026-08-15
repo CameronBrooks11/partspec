@@ -31,14 +31,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them (pinned by a test against a stub engine that exits 0 writing nothing,
   because the installed 2021.01 exits 1 on empty geometry and cannot reach that
   branch). A failed render, a blown timeout or a Ctrl-C now leaves whatever was
-  there rather than deleting it. **Two paths in the same module still unlink
-  up front and are not fixed here:** `render_views` clears
-  `<out dir>/renders/<view>.png` and `render_section_stl` clears
-  `<stem>.section.stl`. The first is reachable — `surface(file = "...")` reads
-  a PNG as a heightmap, so `render --out .` against a model reading
-  `renders/iso.png` destroys that heightmap, measured on a first run into a
-  clean directory at exit 0 with nothing on stderr. The guard below does not
-  cover it: it knows only `<stem>.stl`. Tracked as #224.
+  there rather than deleting it.
+- **`render`'s two siblings no longer delete their outputs before the engine
+  reads them either** (#224). `render_views` unlinked
+  `<out dir>/renders/<view>.png` per view and `render_section_stl` unlinked
+  `<stem>.section.stl`, both citing a rule in `render()` that the fix above
+  deletes. The first is reachable: `surface(file = "...")` reads a PNG as a
+  heightmap on both engine versions, so `render --out .` against a model
+  reading `renders/iso.png` destroyed that heightmap before invoking the
+  engine, then rendered and reported the part built without it — measured on a
+  first run into a clean directory, exit 0, nothing on stderr. Both now export
+  into a scratch directory and move the result into place. **The four views
+  move together, once all four exist**, which the per-view shape would not
+  have fixed: the model is re-parsed once per view, so a view written as it
+  finished would be read by the *next* view, and the four images would depict
+  four different parts — pinned by a test that records what the engine found
+  at that path on all five invocations. A failure part-way now leaves the
+  previous set of renders intact rather than half of it overwritten, and
+  `render_section_stl` no longer writes its `<stem>.section.scad` into the
+  caller's directory at all (the cut script names the mesh it imports by
+  resolved absolute path, so it relocates with nothing to re-resolve). The
+  residue is the one `render()` also ships with and #226 closes: the move at
+  the end still replaces whatever sits at the destination.
 - **A render into the model's own directory is refused when it cannot be told
   from an input.** Non-destructive building fixes the measurement and not the
   file: `os.replace` still lands the artifact on top of the input at the end.

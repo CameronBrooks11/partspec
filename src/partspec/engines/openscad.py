@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -322,8 +323,6 @@ def render(
     unbounded (the explicit `--timeout 0` waiver). The None-means-default rule
     lives one layer up, in `effective_timeout`.
     """
-    import tempfile
-
     executable = find_executable()
     if executable is None:
         return BuildError(
@@ -494,6 +493,15 @@ def render_section_stl(
     boolean, so the exposed faces are real capped material, not a display
     trick. The discard side per plane follows `raster.SECTION_VIEWS`: the
     material between the section camera and the plane is removed.
+
+    Both files this call writes go into a scratch directory and the result is
+    moved into place, the shape `render()` settled on (#208, #224). Neither
+    `<stem>.section.stl` nor the `<stem>.section.scad` that produces it is a
+    name partspec is the only plausible author of *by extension* — both are
+    model extensions — and the old code deleted the first and truncated the
+    second in the caller's directory before the engine ran. The cut script is
+    safe to relocate because it names the mesh it imports by resolved absolute
+    path, so nothing in it resolves against its own directory.
     """
     import json as _json
 
@@ -515,58 +523,56 @@ def render_section_stl(
         mins[axis] = offset  # camera at +Z / +X: discard above the plane
     sizes = [b - a for a, b in zip(mins, maxs, strict=True)]
 
-    scratch = out_dir / f"{stl.stem}.section.scad"
     out = out_dir / f"{stl.stem}.section.stl"
     try:
-        # The up-front unlink `render()` used to do and no longer does (#208):
-        # there the derived name is `<stem>.stl`, which a model plausibly
-        # imports, and deleting it destroyed a build input. `<stem>.section.stl`
-        # is a name partspec alone writes, so the hazard is remote rather than
-        # absent — this path has not been converted to build-in-scratch-and-move
-        # yet, and #224 tracks it.
-        out.unlink(missing_ok=True)
+        with tempfile.TemporaryDirectory(
+            dir=out_dir, prefix=".partspec-build-", ignore_cleanup_errors=True
+        ) as build_dir:
+            scratch = Path(build_dir) / f"{stl.stem}.section.scad"
+            staged = Path(build_dir) / out.name
+            scratch.write_text(
+                "difference() {\n"
+                f"  import({_json.dumps(str(stl.resolve()))});\n"
+                f"  translate([{mins[0]!r}, {mins[1]!r}, {mins[2]!r}])"
+                f" cube([{sizes[0]!r}, {sizes[1]!r}, {sizes[2]!r}]);\n"
+                "}\n"
+            )
+            try:
+                proc = subprocess.run(
+                    [executable, "--export-format", "binstl", "-o", str(staged), str(scratch)],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_s,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                return BuildError(f"openscad timed out after {timeout_s}s", origin="environment")
+            except OSError as exc:
+                return BuildError(
+                    f"could not run the openscad binary at {executable!r}: {exc.strerror}",
+                    origin="environment",
+                )
+            if proc.returncode != 0:
+                return BuildError(
+                    f"openscad exited {proc.returncode} cutting the {plane} section",
+                    hint=_first_error_line(proc.stderr),
+                    stderr=proc.stderr,
+                )
+            # The staged file is the one asked about, for `render()`'s reason:
+            # the scratch directory was created empty moments ago, so an empty
+            # cut cannot be masked by a previous run's section sitting at `out`.
+            if not staged.is_file() or staged.stat().st_size == 0:
+                return BuildError(
+                    f"the {plane} section at {offset:g} mm discards the whole part",
+                    hint=_first_error_line(proc.stderr),
+                )
+            staged.replace(out)
+            return out
     except OSError as exc:
         return BuildError(
-            f"could not clear the previous artifact in {out_dir}: {exc.strerror}",
+            f"could not write the section artifact to {out}: {exc.strerror}",
             origin="environment",
         )
-    scratch.write_text(
-        "difference() {\n"
-        f"  import({_json.dumps(str(stl.resolve()))});\n"
-        f"  translate([{mins[0]!r}, {mins[1]!r}, {mins[2]!r}])"
-        f" cube([{sizes[0]!r}, {sizes[1]!r}, {sizes[2]!r}]);\n"
-        "}\n"
-    )
-    try:
-        try:
-            proc = subprocess.run(
-                [executable, "--export-format", "binstl", "-o", str(out), str(scratch)],
-                capture_output=True,
-                text=True,
-                timeout=timeout_s,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return BuildError(f"openscad timed out after {timeout_s}s", origin="environment")
-        except OSError as exc:
-            return BuildError(
-                f"could not run the openscad binary at {executable!r}: {exc.strerror}",
-                origin="environment",
-            )
-        if proc.returncode != 0:
-            return BuildError(
-                f"openscad exited {proc.returncode} cutting the {plane} section",
-                hint=_first_error_line(proc.stderr),
-                stderr=proc.stderr,
-            )
-        if not out.is_file() or out.stat().st_size == 0:
-            return BuildError(
-                f"the {plane} section at {offset:g} mm discards the whole part",
-                hint=_first_error_line(proc.stderr),
-            )
-        return out
-    finally:
-        scratch.unlink(missing_ok=True)
 
 
 VIEWS: dict[str, tuple[float, float, float]] = {
@@ -641,6 +647,23 @@ def render_views(
     frames that *look* like a rendered part. It also supplies the bounding box
     the camera framing derives from. The images carry no verdict: rendering
     never substitutes for measurement.
+
+    All four views are rendered into a scratch directory and moved into place
+    together, the shape `render()` settled on (#208, #224). Here the hazard the
+    old per-view unlink carried was not remote: `surface(file = "...")` reads a
+    PNG as a heightmap on both engine versions, so `render --out .` against a
+    model reading `renders/iso.png` deleted that heightmap before the engine
+    ran, then rendered and reported the part built without it — measured, first
+    run, clean directory, exit 0, nothing on stderr.
+
+    What survives is the narrower residue `render()` also ships with, and for
+    the same reason: the move at the end still replaces whatever sits at the
+    destination, so a model reading its own view directory gets one correct set
+    of renders and then eats its input. `_output_over_an_input` does not reach
+    it — that guard knows only `<stem>.stl` — and widening it means the same
+    under-refusing heuristic in a third place. #226 is the exact answer: the
+    engine's own dependency output names what this render actually READ, and
+    the move can then be refused on a real collision rather than a guess.
     """
     stl = render(source, out_dir, timeout_s=timeout_s)
     if isinstance(stl, BuildError):
@@ -658,61 +681,87 @@ def render_views(
 
     bbox = _stl_bbox(stl)
     renders: dict[str, Path] = {}
+    finished: list[tuple[Path, Path]] = []
+    renders_dir = out_dir / "renders"
     try:
-        for view, rot in VIEWS.items():
-            png = out_dir / "renders" / f"{view}.png"
-            png.parent.mkdir(parents=True, exist_ok=True)
-            # The up-front unlink the STL no longer does (#208), and here the
-            # hazard is real rather than remote: `surface(file = "...")` reads a
-            # PNG as a heightmap, so `render --out .` against a model reading
-            # `renders/iso.png` deletes that heightmap before the engine runs,
-            # then renders and reports the part built without it — measured,
-            # first run, clean directory, exit 0, nothing on stderr. The guard
-            # in `_output_over_an_input` does not cover it: it knows only
-            # `<stem>.stl`. #224 tracks the fix.
-            png.unlink(missing_ok=True)
-            cmd = [
-                executable,
-                "--camera",
-                _camera(bbox, rot),
-                "--imgsize",
-                f"{IMAGE_SIZE[0]},{IMAGE_SIZE[1]}",
-                "--projection",
-                "ortho",
-                "--colorscheme",
-                "Cornfield",
-                "-o",
-                str(png),
-                *defines,
-                str(render_path),
-            ]
-            try:
-                proc = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=timeout_s, check=False
-                )
-            except subprocess.TimeoutExpired:
-                return BuildError(f"openscad timed out after {timeout_s}s", origin="environment")
-            if _display_failure(proc.returncode, proc.stderr):
-                return BuildError(
-                    "this OpenSCAD cannot render PNG without a display",
-                    origin="environment",
-                    hint="run under `xvfb-run -a`, or use a 2022+ build with EGL offscreen",
-                    stderr=proc.stderr,
-                )
-            if proc.returncode != 0:
-                return BuildError(
-                    f"openscad exited {proc.returncode} rendering the {view} view",
-                    hint=_first_error_line(proc.stderr),
-                    stderr=proc.stderr,
-                )
-            if not png.is_file() or png.stat().st_size == 0:
-                return BuildError(
-                    f"openscad exited 0 but wrote no {view} view",
-                    hint=_first_error_line(proc.stderr),
-                    stderr=proc.stderr,
-                )
-            renders[view] = png
-        return renders
+        try:
+            renders_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(
+                dir=renders_dir, prefix=".partspec-build-", ignore_cleanup_errors=True
+            ) as build_dir:
+                for view, rot in VIEWS.items():
+                    png = renders_dir / f"{view}.png"
+                    staged = Path(build_dir) / png.name
+                    cmd = [
+                        executable,
+                        "--camera",
+                        _camera(bbox, rot),
+                        "--imgsize",
+                        f"{IMAGE_SIZE[0]},{IMAGE_SIZE[1]}",
+                        "--projection",
+                        "ortho",
+                        "--colorscheme",
+                        "Cornfield",
+                        "-o",
+                        str(staged),
+                        *defines,
+                        str(render_path),
+                    ]
+                    try:
+                        proc = subprocess.run(
+                            cmd, capture_output=True, text=True, timeout=timeout_s, check=False
+                        )
+                    except subprocess.TimeoutExpired:
+                        return BuildError(
+                            f"openscad timed out after {timeout_s}s", origin="environment"
+                        )
+                    except OSError as exc:
+                        # Caught here rather than by the clause below, which
+                        # would report a failure to EXEC as a failure to write.
+                        return BuildError(
+                            f"could not run the openscad binary at {executable!r}: {exc.strerror}",
+                            origin="environment",
+                        )
+                    if _display_failure(proc.returncode, proc.stderr):
+                        return BuildError(
+                            "this OpenSCAD cannot render PNG without a display",
+                            origin="environment",
+                            hint="run under `xvfb-run -a`, or use a 2022+ build with EGL offscreen",
+                            stderr=proc.stderr,
+                        )
+                    if proc.returncode != 0:
+                        return BuildError(
+                            f"openscad exited {proc.returncode} rendering the {view} view",
+                            hint=_first_error_line(proc.stderr),
+                            stderr=proc.stderr,
+                        )
+                    # Asked of the staged file: the scratch directory is this
+                    # call's own and was created empty, so a view the engine
+                    # never wrote cannot be answered by the previous run's PNG.
+                    if not staged.is_file() or staged.stat().st_size == 0:
+                        return BuildError(
+                            f"openscad exited 0 but wrote no {view} view",
+                            hint=_first_error_line(proc.stderr),
+                            stderr=proc.stderr,
+                        )
+                    finished.append((staged, png))
+                    renders[view] = png
+                # Every view is moved only once all four exist. Replacing each
+                # as it finishes would leave the LATER views reading the
+                # EARLIER ones — the same model is re-parsed per view, so a
+                # `surface(file = "renders/iso.png")` would see the freshly
+                # written iso view from the front view onward, and the four
+                # images would depict four different parts. It also means a
+                # failure at view 3 leaves the previous run's set intact
+                # rather than half of it overwritten.
+                for staged, png in finished:
+                    staged.replace(png)
+            return renders
+        except OSError as exc:
+            return BuildError(
+                f"could not write the view artifacts to {renders_dir}: {exc.strerror}",
+                origin="environment",
+            )
     finally:
         if scratch is not None:
             scratch.unlink(missing_ok=True)
