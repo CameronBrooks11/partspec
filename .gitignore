@@ -93,6 +93,14 @@ notes/issues-final-*
 # so a `history.jsonl` or a `todos/` turns up as a leak or a red local suite
 # for the next person. Nothing under `.claude/` is tracked here — `git ls-files`
 # says zero — and this repo's own agent material lives in the top-level
-# `skills/`, which ships. If something under `.claude/` ever should be tracked,
-# add a `!` negation for that one path rather than reopening the directory.
+# `skills/`, which ships.
+#
+# The directory is CLOSED, not filtered. Git cannot re-include a file whose
+# parent directory is excluded, so a bare `!.claude/settings.json` below would
+# do nothing — measured, and this comment claimed the opposite until the review
+# of #234. To track something under here, unexclude the directory first and
+# then re-exclude what stays out:
+#     !.claude/
+#     .claude/*
+#     !.claude/settings.json
 **/.claude/

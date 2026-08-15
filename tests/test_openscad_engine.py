@@ -945,17 +945,34 @@ def test_a_blocked_view_destination_is_refused_before_any_view_moves(tmp_path: P
 
 
 def test_an_unwritable_renders_directory_is_a_named_refusal(tmp_path: Path, monkeypatch):
-    """Previously an uncaught `PermissionError` out of `png.parent.mkdir` or
-    the per-view write.
+    """A characterisation test for behaviour #230 shipped and did not pin.
 
-    An unhandled exception escapes the report machinery entirely — no artifact,
-    no verdict, no exit code, just a traceback — which is the one failure mode
-    this tool cannot have. Claimed in #230's commit message and pinned by
-    nothing until now.
+    Honest about which parent it distinguishes, because the first version of
+    this docstring was not. It claimed the refusal was new here and attributed
+    the old traceback to `png.parent.mkdir` or the per-view write; **it passes
+    unchanged against its own parent**, which already had the `except OSError`
+    clause, and neither named call site is the source (adversarial review of
+    #234 — the same defect that review's own subject was written to close).
+
+    What it really distinguishes is pre-#230, where the traceback came out of
+    the per-view `png.unlink` that #230 deleted — and only when `renders/`
+    already holds images, which is why this test pre-populates it. On this
+    branch the refusal comes from `TemporaryDirectory(dir=renders_dir)`,
+    earlier still.
+
+    The property is worth a test either way: an unhandled exception escapes the
+    report machinery entirely — no artifact, no verdict, no exit code, just a
+    stack trace — which is the one failure mode this tool cannot have.
     """
     out = tmp_path / "out"
-    (out / "renders").mkdir(parents=True)
-    (out / "renders").chmod(0o500)
+    renders = out / "renders"
+    renders.mkdir(parents=True)
+    # Pre-populated, so the pre-#230 `png.unlink` this characterises is
+    # actually reached there. Empty, that history returns an ordinary
+    # `BuildError` and the test would distinguish nothing at all.
+    for view in openscad.VIEWS:
+        (renders / f"{view}.png").write_bytes(b"previous")
+    renders.chmod(0o500)
     stub = _recording_stub(tmp_path, tmp_path / "unused")
     monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
     source = tmp_path / "m.scad"
@@ -963,8 +980,81 @@ def test_an_unwritable_renders_directory_is_a_named_refusal(tmp_path: Path, monk
     try:
         result = openscad.render_views(OpenSCADSource(source), out)
     finally:
-        (out / "renders").chmod(0o700)
+        renders.chmod(0o700)
 
     assert isinstance(result, BuildError), "an unwritable directory is a refusal, not a traceback"
     assert result.origin == "environment", "the environment stopped this, not the part"
-    assert str(out / "renders") in result.message, "and it names the directory"
+    assert str(renders) in result.message, "and it names the directory"
+    for view in openscad.VIEWS:
+        assert (renders / f"{view}.png").read_bytes() == b"previous", (
+            "and the previous set is intact, since nothing could be written"
+        )
+
+
+def test_a_symlinked_view_destination_is_replaced_rather_than_refused(tmp_path: Path, monkeypatch):
+    """`rename(2)` does not follow its destination, so a symlink is replaced
+    like any other name — including one pointing at a directory.
+
+    The pre-flight above asked `png.is_dir()`, which DOES follow symlinks, so
+    it refused a render that had always worked and called the symlink a
+    directory (adversarial review of #234). The target is left alone, which is
+    the same guarantee `render()`'s docstring gives for the STL.
+    """
+    renders = tmp_path / "renders"
+    renders.mkdir()
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    (target / "keep").write_text("x")
+    (renders / "top.png").symlink_to(target)
+
+    stub = _recording_stub(tmp_path, tmp_path / "unused")
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+    source = tmp_path / "m.scad"
+    source.write_text("cube([10, 10, 10]);\n")
+
+    result = openscad.render_views(OpenSCADSource(source), tmp_path)
+
+    assert not isinstance(result, BuildError), result
+    assert not (renders / "top.png").is_symlink(), "the rename replaced the link itself"
+    assert (target / "keep").is_file(), "and never wrote through it to the directory it named"
+
+
+def test_a_move_that_fails_before_any_view_moves_says_nothing_was_touched(
+    tmp_path: Path, monkeypatch
+):
+    """The `moved == 0` wording, which had none.
+
+    "the 0 view artifact(s) already moved into ... are from this run and the
+    rest are not" described a corrupted directory that was in fact untouched —
+    the thesis inverted, in the branch added to stop exactly that. The CHANGELOG
+    claimed this layer was pinned; it was asserted (adversarial review of #234).
+    """
+    renders = tmp_path / "renders"
+    renders.mkdir()
+    for view in openscad.VIEWS:
+        (renders / f"{view}.png").write_bytes(b"previous")
+
+    stub = _recording_stub(tmp_path, tmp_path / "unused")
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+    source = tmp_path / "m.scad"
+    source.write_text("cube([10, 10, 10]);\n")
+
+    # Only the view moves fail, so `moved` never advances past 0. Scoped to
+    # `.png` because `render()` moves the STL through the same call first, and
+    # breaking that would test a different refusal entirely.
+    real_replace = openscad.Path.replace
+
+    def refuse(self, target):
+        if Path(target).suffix == ".png":
+            raise PermissionError(13, "Permission denied")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(openscad.Path, "replace", refuse)
+    result = openscad.render_views(OpenSCADSource(source), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert "no view artifact could be moved" in result.message, result.message
+    assert "0 view artifact(s)" not in result.message, "a count of zero is not a count"
+    assert "nothing in the output directory has been touched" in (result.hint or "")
+    for view in openscad.VIEWS:
+        assert (renders / f"{view}.png").read_bytes() == b"previous"

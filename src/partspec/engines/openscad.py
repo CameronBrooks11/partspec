@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from collections import deque
@@ -768,7 +769,17 @@ def render_views(
                 # view 3 left views 1-2 fresh and 3-4 stale under a message
                 # saying nothing was written — measured, and the exact mix this
                 # batch exists to prevent (adversarial review of #230).
-                blocked = [png for _, png in finished if png.is_dir()]
+                blocked = [
+                    png
+                    for _, png in finished
+                    # NOT `png.is_dir()`: that follows symlinks and `rename(2)`
+                    # does not follow its destination, so a symlink pointing at
+                    # a directory is replaced by the rename exactly as any
+                    # other symlink is — measured. Refusing it turned a working
+                    # render into a failure and called a symlink a directory
+                    # (adversarial review of #234).
+                    if (png.exists() or png.is_symlink()) and stat.S_ISDIR(png.lstat().st_mode)
+                ]
                 if blocked:
                     return BuildError(
                         f"the view artifacts cannot be moved into place: "
@@ -787,6 +798,19 @@ def render_views(
                     try:
                         staged.replace(png)
                     except OSError as exc:
+                        # Nothing moved yet is its own sentence, and carries the
+                        # pre-flight's guarantee. "the 0 view artifact(s)
+                        # already moved ... are from this run and the rest are
+                        # not" described a corrupted directory that was in fact
+                        # untouched -- the thesis inverted, in the branch added
+                        # to stop exactly that (adversarial review of #234).
+                        if moved == 0:
+                            return BuildError(
+                                f"no view artifact could be moved into {renders_dir}: "
+                                f"replacing {png.name} failed ({exc.strerror})",
+                                origin="environment",
+                                hint="nothing in the output directory has been touched",
+                            )
                         return BuildError(
                             f"the {moved} view artifact(s) already moved into {renders_dir} "
                             f"are from this run and the rest are not: replacing {png.name} "

@@ -216,7 +216,12 @@ def test_every_action_in_the_release_workflow_is_pinned_to_an_exact_ref():
     workflow = _live_lines(REPO / ".github" / "workflows" / "release.yml")
     refs = re.findall(r"uses:\s*(\S+)@(\S+)", workflow)
     assert refs, "the workflow must still use actions"
-    exact = re.compile(r"(?:[0-9a-f]{40}|v?\d+\.\d+(?:\.\d+)?)")
+    # Major.minor.patch, or a 40-hex SHA in either case. NOT `vN.N`: the
+    # comment this enforces says "an exact patch or a SHA", and a two-part tag
+    # is a published moving alias in some action repos — the pattern was looser
+    # than the sentence it is cited by (adversarial review of #234). A
+    # prerelease suffix (`v1.2.3-beta`) is exact and is allowed.
+    exact = re.compile(r"(?:[0-9a-fA-F]{40}|v?\d+\.\d+\.\d+(?:[-+][\w.]+)?)")
     loose = [
         f"{action}@{ref}".strip("\"'")
         # Quotes stripped from the ref, not matched around it: `uses: "a/b@v7"`
@@ -249,8 +254,18 @@ def sdist_names(tmp_path_factory) -> set[str]:
     """
     import shutil
 
-    if shutil.which("uv") is None or not (REPO / ".git").exists():
-        pytest.skip("inspects what this checkout publishes; needs a checkout and the uv frontend")
+    # `.git` must be a DIRECTORY, not merely present. In a git worktree it is
+    # a file, hatchling cannot read the VCS ignores through it, and the sdist
+    # ships everything — so these two tests report a leak that exists only in
+    # the worktree, and this repo's own tooling creates worktrees under
+    # `.claude/worktrees/` (adversarial review of #234). Skipping is right
+    # rather than adapting: the question is what THIS repository publishes, and
+    # a build that cannot see the ignore rules is not answering it.
+    if shutil.which("uv") is None or not (REPO / ".git").is_dir():
+        pytest.skip(
+            "inspects what this checkout publishes; needs the uv frontend and a checkout "
+            "whose .git is a directory (in a worktree hatchling cannot read the ignores)"
+        )
     out = tmp_path_factory.mktemp("dist")
     subprocess.run(
         ["uv", "build", "--sdist", "--out-dir", str(out)],

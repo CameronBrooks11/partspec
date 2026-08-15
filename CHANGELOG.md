@@ -24,11 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is not a count of three that tried.
   **Where 73 came from, since a wrong number with no story invites the same
   mistake:** the fleet report's table sums `a1 ×3 + a2 ×57 + a3 ×13`, and that
-  `a2 ×57` is arm A's **whole** non-control total sitting in a2's cell — a1 ×3
-  plus a2 ×41 plus a3 ×13 is 57 exactly. Summing the row therefore counts a1
-  and a3 twice, and 73 is the double count. The number is real and its label is
-  not, which is the same defect class as the rest of this entry rather than a
-  different one.
+  `a2 ×57` matches arm A's **whole** non-control total — a1 ×3 plus a2 ×41 plus
+  a3 ×13 is 57 exactly, so summing the row counts a1 and a3 twice and 73 is the
+  double count. **That is the reading that reproduces, not a recorded
+  lineage.** "Non-control" here means any argv element containing `control`,
+  which is this entry's definition and not the study's: `analyse.py` has no
+  notion of a control at all, and `PROTOCOL.md` codes `control` over non-zero
+  exits by argv and target names. The fleet-wide `--help` total is also exactly
+  57, three rows above in the same table, so the attribution is inference and
+  is stated as one — which is the whole point of the bullet.
   This bullet said the opposite in its first form — that `57` "matches no
   reading of the frozen log". That was false, and #217 itself prints the
   counter-example ("57 excluding controls"); the reading was applied at
@@ -45,20 +49,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A build no longer destroys the input it derives its own artifact name from
   — on `check` as well as on `measure`, and on every path in the OpenSCAD
   engine.** ("not yet on every path" until the entry below closed #224 — and
-  it is still not every path in the tool. Six unlinks remain outside
-  `engines/openscad.py`: two clear `render.json`, which is an output on any
-  tier; `raster.render_views` clears `renders/<view>.png`, reached only for the
-  OCCT tier, which has no `surface()` to make a PNG an input; and **two clear
-  `renders/section_<plane>.png` on a path the OpenSCAD tier does reach** —
-  `cli` hoists one above every refusal in its `engine == "openscad"` branch and
-  `raster.render_section` holds the other. Those two are the same defect class
-  on a section image, measured: `render --out DIR --section xy:999` deletes an
-  existing `renders/section_xy.png` and then reports `renders: {}` at exit 4.
-  Filed as #233 rather than fixed here, because unlike #224's cases it is a
-  genuine trade — the hoist exists so a failing section cannot leave the
-  previous run's image to be read as this run's — and that call deserves its
-  own slice. An earlier version of this parenthetical got both the count and
-  the tier wrong; found by the adversarial review of #230.)
+  it is still not every path in the tool. Seven `unlink` sites remain outside
+  `engines/openscad.py`; `report.py`'s is the atomic-write scratch and belongs
+  to nobody's output, leaving six that clear a derived file. Two clear
+  `render.json`, an output on every tier. One is `raster.render_views` clearing
+  `renders/<view>.png`, reached only from the OCCT branch, which has no
+  `surface()` to make a PNG an input. **Three clear
+  `renders/section_<plane>.png`, and the OpenSCAD tier reaches two of them** —
+  `cli` hoists one above every refusal inside its `engine == "openscad"` branch,
+  `raster.render_section` is called from both branches, and `cli`'s other one
+  is OCCT-only. Those two are the same defect class on a section image,
+  measured: `render --out DIR --section xy:999` deletes an existing
+  `renders/section_xy.png` and then reports `renders: {}` at exit 4. Filed as
+  #233 rather than fixed here, because unlike #224's cases it is a genuine
+  trade — the hoist exists so a failing section cannot leave the previous run's
+  image to be read as this run's — and that call deserves its own slice.
+  This parenthetical has now been wrong twice: the first version had the count
+  and the tier wrong, the second claimed six and enumerated five while missing
+  the third section unlink. Both found by adversarial review, of #230 and of
+  #234.)
   `engines/openscad.render` unlinked `<out dir>/<source stem>.stl`
   before invoking the engine, so a model whose `import()` target sits at that
   derived path built without it. Filed as a `measure --out DIR` bug (#208); it
@@ -107,12 +116,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the case that is knowable up front is now refused before the first move —
   naming the blocking path and stating that nothing was touched — and a move
   that fails anyway reports how many were replaced rather than implying none
-  were. Both pinned.
+  were — and says plainly that nothing was moved when nothing was, since
+  "the 0 view artifact(s) already moved … are from this run and the rest are
+  not" described a corrupted directory that was in fact untouched. That is the
+  thesis inverted, in the branch added to stop exactly that; it shipped in this
+  entry's first form, which also claimed both layers were pinned when the
+  second had no test at all. Found by the adversarial review of #234, along
+  with a pre-flight that refused a symlink pointing at a directory: `is_dir()`
+  follows symlinks and `rename(2)` does not follow its destination, so a render
+  that had always worked was refused and the symlink was called a directory.
+  All three now pinned, and the unwritable-directory test relabelled — it
+  passes unchanged against its own parent and characterises behaviour #230
+  shipped, which its first docstring claimed as new and attributed to two call
+  sites that are not involved.
   The residue is the one `render()` also ships with and #226 closes: the move
   at the end still replaces whatever sits at the destination. It is not a lost
-  file. Measured for views — a model reading `renders/iso.png` as a heightmap
-  renders correctly once and then reads its own output, giving a part 20x
-  oversize in x and y on run 2, at exit 0, on every run after. Unlike
+  file. Measured for views — a model reading `renders/iso.png` as a heightmap,
+  with `--out` pointing at a directory that CONTAINS that file, renders
+  correctly once and then reads its own output at exit 0 on every run after.
+  The condition matters and the first version of this sentence omitted it:
+  OpenSCAD resolves `surface(file=)` against the entry file's directory, so
+  with `--out` genuinely elsewhere the written PNG never lands on the read one
+  and three consecutive runs are identical (adversarial review of #234).
+  Unlike
   `render()`'s case there is no directory-collision refusal here at all:
   `_output_over_an_input` knows only `<stem>.stl` and fires only when the out
   dir is the source's own, which a view directory need not be.
