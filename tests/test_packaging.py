@@ -187,7 +187,7 @@ def test_every_pypi_publish_action_is_pinned_to_a_digest():
     assert not unpinned, f"publish actions must be SHA-pinned, not {unpinned}"
 
 
-def test_no_action_in_the_release_workflow_floats_on_a_major():
+def test_every_action_in_the_release_workflow_is_pinned_to_an_exact_ref():
     """The claim the `setup-uv` comment makes about its neighbours, enforced.
 
     That comment justified its exact pin by saying `@v9` would fail "the
@@ -198,9 +198,17 @@ def test_no_action_in_the_release_workflow_floats_on_a_major():
     the next reader concludes the exact pins are the anomaly and tidies them
     into real floating majors.
 
-    So the comment now says the file has no floating majors, and this is what
-    keeps that true. `@vN` only — `@vN.N` and `@vN.N.N` are exact enough that
-    a release cannot change under them, and a SHA is stronger still.
+    **The first version of this test checked less than the comment claimed**,
+    which is the same defect it was written to close. It rejected `@vN` alone,
+    so `@main` — the most mutable ref there is — passed, on the checkout step
+    the release gate's whole safety argument runs from, directly beneath a
+    sentence saying every action here is pinned exactly. So did `@latest`,
+    `@7`, `@V7`, and the quoted `"…@v7"` form, which is valid YAML and slipped
+    the regex because `(\\S+)` swallowed the closing quote (adversarial review
+    of #231). The rule is now the comment's rule: a 40-hex SHA, or a version
+    with at least a major AND a minor, so no upstream release can move under
+    it. Anything else — a branch, a tag alias, a bare major — is rejected by
+    not matching, rather than by being on a list of forms someone thought of.
     """
     # Comments stripped, for `_live_lines`'s reason turned around: the
     # paragraph this test defends *discusses* `@v9`, and a check that read the
@@ -208,8 +216,25 @@ def test_no_action_in_the_release_workflow_floats_on_a_major():
     workflow = _live_lines(REPO / ".github" / "workflows" / "release.yml")
     refs = re.findall(r"uses:\s*(\S+)@(\S+)", workflow)
     assert refs, "the workflow must still use actions"
-    floating = [f"{action}@{ref}" for action, ref in refs if re.fullmatch(r"v\d+", ref)]
-    assert not floating, f"the setup-uv comment states this file has no floating majors: {floating}"
+    # Major.minor.patch, or a 40-hex SHA in either case. NOT `vN.N`: the
+    # comment this enforces says "an exact patch or a SHA", and a two-part tag
+    # is a published moving alias in some action repos — the pattern was looser
+    # than the sentence it is cited by (adversarial review of #234). A
+    # prerelease suffix (`v1.2.3-beta`) is exact and is allowed.
+    exact = re.compile(r"(?:[0-9a-fA-F]{40}|v?\d+\.\d+\.\d+(?:[-+][\w.]+)?)")
+    loose = [
+        f"{action}@{ref}".strip("\"'")
+        # Quotes stripped from the ref, not matched around it: `uses: "a/b@v7"`
+        # is valid YAML and the closing quote otherwise rides along and makes
+        # every form fail to match the exact pattern... in the safe direction
+        # for `@v7.0.1` but not for the reader, who would see a passing test
+        # for a reason unrelated to the pin.
+        for action, ref in refs
+        if not exact.fullmatch(ref.strip("\"'"))
+    ]
+    assert not loose, (
+        f"release.yml says every action here is pinned to an exact patch or a SHA: {loose}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -229,8 +254,18 @@ def sdist_names(tmp_path_factory) -> set[str]:
     """
     import shutil
 
-    if shutil.which("uv") is None or not (REPO / ".git").exists():
-        pytest.skip("inspects what this checkout publishes; needs a checkout and the uv frontend")
+    # `.git` must be a DIRECTORY, not merely present. In a git worktree it is
+    # a file, hatchling cannot read the VCS ignores through it, and the sdist
+    # ships everything — so these two tests report a leak that exists only in
+    # the worktree, and this repo's own tooling creates worktrees under
+    # `.claude/worktrees/` (adversarial review of #234). Skipping is right
+    # rather than adapting: the question is what THIS repository publishes, and
+    # a build that cannot see the ignore rules is not answering it.
+    if shutil.which("uv") is None or not (REPO / ".git").is_dir():
+        pytest.skip(
+            "inspects what this checkout publishes; needs the uv frontend and a checkout "
+            "whose .git is a directory (in a worktree hatchling cannot read the ignores)"
+        )
     out = tmp_path_factory.mktemp("dist")
     subprocess.run(
         ["uv", "build", "--sdist", "--out-dir", str(out)],
@@ -389,6 +424,15 @@ def test_the_sdist_ships_nothing_at_the_top_level_that_is_not_on_the_list(
     here. Scoped to the TOP LEVEL because that is the granularity that holds
     still — a per-file allowlist would fail on every module added, which is a
     test nobody keeps.
+
+    **The second clause exists because the first one alone was not enough.**
+    Top-level scoping shares a blind spot with a root-anchored `.gitignore`
+    entry, and #231 shipped both: `examples/.claude/scheduled_tasks.lock` still
+    reached the tarball with this test green (adversarial review, measured).
+    Dot-directories are where tool and agent state always lands, at whatever
+    depth, so they are allowlisted by NAME anywhere in a path rather than only
+    at the root. That is a rule an editor or agent nobody has heard of still
+    trips over, which a list of known offenders is not.
     """
     top = {name.split("/", 1)[0] + ("/" if "/" in name else "") for name in sdist_names}
     allowed = {
@@ -413,6 +457,24 @@ def test_the_sdist_ships_nothing_at_the_top_level_that_is_not_on_the_list(
         "justfile",
     }
     assert top <= allowed, f"the sdist ships an unargued top level: {sorted(top - allowed)}"
+    # Not vacuous on an empty tarball, which `top <= allowed` alone would call
+    # a clean sdist. The denylist test asserts the same two, deliberately: this
+    # one must stand on its own or its name overstates it.
+    assert {"pyproject.toml", "src/"} <= top, f"the sdist is missing the package itself: {top}"
+
+    # Dot-DIRECTORIES at any depth, which the top-level clause cannot see.
+    dot_dirs = sorted(
+        {
+            part
+            for name in sdist_names
+            for part in name.split("/")[:-1]  # directories only; the last part is the file
+            if part.startswith(".")
+        }
+    )
+    assert dot_dirs == [".github"], (
+        f"the sdist carries tool or agent state: {dot_dirs}. Dot-directories are where "
+        f"editors and agents write per-checkout state; add it to .gitignore rather than here"
+    )
 
 
 def test_the_ok_gate_waits_for_every_job_in_the_workflow():
