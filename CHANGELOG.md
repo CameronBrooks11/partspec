@@ -154,6 +154,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them into real floating majors. The corrected comment says the file has no
   floating majors, and a test now enforces that rather than leaving the
   paragraph to assert it. Pre-existing, from #173.
+- **`SPEC-diff`'s artifact sample no longer shows a version the tool has never
+  emitted** (#219). The sample carried `"tool": {"name": "partspec-diff",
+  "version": "0.2.0"}`; `diff` emits the **partspec** version and has never had
+  one of its own, so `0.2.0` is not a stale value but a fictional one — and
+  this is a normative document whose sample is what a reader copies when
+  writing a consumer. The sample now shows a real value and says where it comes
+  from, so the next reader does not reinvent an independent `diff` version.
+  `SPEC-report.md`'s sample was checked for the same drift and carried
+  `"version": "0.1.0"` — stale rather than fictional, since that was a real
+  release — and is corrected the same way. Both now point the reader at
+  `schema_version`, which is the field a consumer is supposed to key on.
+  Pre-existing, from #88.
 
 ### Added
 
