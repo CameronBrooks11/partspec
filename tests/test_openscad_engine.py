@@ -424,6 +424,70 @@ def test_a_model_with_a_complete_closure_renders_twice_into_its_own_directory(tm
         assert result.stat().st_size > 0
 
 
+@needs_openscad
+@pytest.mark.parametrize(
+    "body",
+    [
+        'union() { cube([5,5,5]); import("input.stl"); }',
+        'names = ["input.stl"]; i = 0; union() { cube([5,5,5]); import(names[i]); }',
+    ],
+    ids=["literal", "computed"],
+)
+def test_the_engine_names_the_data_files_a_render_read(tmp_path: Path, body: str):
+    """`openscad -d` answers the question `reads_external_data` cannot.
+
+    `_output_over_an_input` refuses conservatively because a data path may be
+    computed at render time, so no static reader can resolve it — and #226 is
+    the remedy that claim implies: ask the ENGINE what it read. This executes
+    that claim rather than asserting it in prose, on whichever binary is
+    installed, which is why it is a test and not a comment. CI runs two engine
+    versions (apt 2021.01 and a 2026.08.01 snapshot) and F13 is the finding
+    that they differ, so a claim about engine behaviour that only ever ran on
+    one of them is a claim about one machine.
+
+    The **computed** case is the load-bearing half. A literal `import("x.stl")`
+    is findable with a regex, which is roughly what `_EXTERNAL_DATA_RE` does;
+    `import(names[i])` is exactly the case the bool exists to admit defeat on,
+    and the deps file names it by absolute path anyway — because the engine
+    reports what it opened, not what it could parse.
+
+    Deliberately drives the binary rather than `render()`: partspec does not
+    pass `-d` yet. That is the point — this is the evidence #226 would build
+    on, and it should be known to hold before anything is built on it.
+    """
+    import subprocess
+
+    executable = openscad.find_executable()
+    assert executable is not None, "needs_openscad promised one"
+
+    donor = _scad(tmp_path, "input.scad", "cube([3, 7, 11]);\n")
+    built = openscad.render(OpenSCADSource(path=donor), tmp_path)
+    assert isinstance(built, Path) and built.name == "input.stl", built
+
+    source = _scad(tmp_path, "part.scad", f"{body}\n")
+    deps = tmp_path / "part.d"
+    proc = subprocess.run(
+        [
+            executable,
+            "--export-format",
+            "binstl",
+            "-o",
+            str(tmp_path / "part.stl"),
+            "-d",
+            str(deps),
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert deps.is_file(), "the engine wrote no dependency file"
+    assert str(built.resolve()) in deps.read_text(), (
+        f"the deps file does not name the import target:\n{deps.read_text()}"
+    )
+
+
 def test_top_level_variables_ignores_locals_and_noise(tmp_path: Path):
     """Only depth-zero assignments are reachable by `-D`; a name inside a module
     body is a local. Comments and string interiors must not be read as

@@ -384,6 +384,22 @@ came from somewhere else — hand-authored or downloaded — and those are the
 ones least likely to be output and most expensive to lose."""
 
 
+REFUSED_OUT_HINT = (
+    "only the OpenSCAD tier writes a build artifact — drop --out; on this tier "
+    "no --out path receives one, whatever its shape, and the measurements go to stdout"
+)
+"""The remedy for `--out <file>` on a tier that exports nothing.
+
+Named rather than inlined because its exact words are a decision, not a
+phrasing: `test_measure_refuses_a_filename_on_the_tier_that_exports_nothing`
+asserts EQUALITY against its own literal copy, so changing this string fails a
+test and the change gets read by someone. That is deliberate, and it is the
+second attempt. The first pinned `"pass a directory" not in hint`, which pins
+one spelling of the advice rather than the advice: an adversarial review put
+"use a directory instead" back into the hint and the whole suite still
+reported 950 passed."""
+
+
 def _names_the_artifact(raw: str) -> bool:
     """Whether `measure --out` names the .stl rather than a directory for it.
 
@@ -894,15 +910,20 @@ def _measure_resolved(
             # request state that nothing was written, so following the old
             # advice now lands the reader in the state one line of output
             # complains about. `drop --out` is the whole remedy on this tier.
+            #
+            # It names no path of any shape, rather than naming a directory to
+            # disclaim it. Two reasons, both learned here. A disclaimed remedy
+            # still reads as a remedy to someone skimming for a path. And the
+            # earlier phrasing said nothing is written "to it", which
+            # presupposes the directory exists — it is never created, which is
+            # the #204 myth this very PR spent six CHANGELOG lines refuting.
             _measure_failure(
                 part,
                 target,
                 backend,
                 f"--out {dest} names a file, but the {part.source.engine} tier builds "
                 f"in memory and exports nothing to write there",
-                "only the OpenSCAD tier writes a build artifact — drop --out; a directory "
-                "is accepted but nothing is written to it either, and the measurements go "
-                "to stdout",
+                REFUSED_OUT_HINT,
             )
             return EXIT_USAGE
         from .engines.openscad import include_closure

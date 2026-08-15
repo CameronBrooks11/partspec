@@ -391,13 +391,26 @@ def test_measure_refuses_a_filename_on_the_tier_that_exports_nothing(
     assert doc["part"]["id"] == "subject", "the refusal says which part it refused"
     assert "names a file" in doc["error"]
     assert engine in doc["error"]
-    assert "drop --out" in doc["hint"]
+    # EQUALITY, against a literal copy written out here on purpose — do not
+    # import `cli.REFUSED_OUT_HINT` and compare it to itself, which would pass
+    # for any wording at all.
+    #
     # The hint used to offer "pass a directory" as the alternative. It appeared
     # to work while a directory was silently accepted; #204 makes that same
-    # request report that nothing was written, so the old advice now routes the
-    # reader into the state one line of output complains about. A remedy a
+    # request report that nothing was written, so the old advice routes the
+    # reader into the state one line of output complains about — a remedy a
     # reader can follow into a complaint is not a remedy.
-    assert "pass a directory" not in doc["hint"]
+    #
+    # The first attempt at pinning that asserted `"pass a directory" not in
+    # hint`, which pins one SPELLING of the advice and not the advice. Measured
+    # in adversarial review: restoring "use a directory instead, or drop --out"
+    # left the whole suite green at 950 passed. A synonym walks through any
+    # substring rule anyone can write here — "a folder", "a dir", "some other
+    # path" — so the whole string is the claim.
+    assert doc["hint"] == (
+        "only the OpenSCAD tier writes a build artifact — drop --out; on this tier "
+        "no --out path receives one, whatever its shape, and the measurements go to stdout"
+    )
 
 
 @pytest.mark.parametrize(("engine", "model"), OCCT_MODELS)
@@ -592,8 +605,10 @@ def test_measure_out_compounds_when_the_import_is_below_the_out_dir(tmp_path: Pa
     out = tmp_path / "sub"
 
     measured = []
-    for _ in range(3):
-        assert main(["measure", target, "--out", str(out)]) == 0
+    for run in (1, 2, 3):
+        assert main(["measure", target, "--out", str(out)]) == 0, (
+            f"run {run} of the residue must still SUCCEED — silently, which is the point"
+        )
         measured.append(json.loads(capsys.readouterr().out)["measurements"]["bbox"]["value"])
 
     assert measured[0] == [8.0, 7.0, 11.0], "run 1 reads the real import and is right"

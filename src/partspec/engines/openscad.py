@@ -245,10 +245,13 @@ def _output_over_an_input(source: OpenSCADSource, out_dir: Path, stl: Path) -> B
 
     and `check` with a claim that is FALSE of the real part — `envelope(min=(12,
     7, 11))` — fails at run 1 and **passes at run 2**. So the residue is an
-    unbounded series of confident wrong answers at exit 0, which is #208's own
-    headline symptom surviving in a narrower case, not merely a lost file. It
-    is the same compounding `_EXTERNAL_DATA_RE` records from the #187 review
-    ([30,10,10], [50,10,10], [70,10,10]).
+    unbounded series of confident wrong answers — at exit 0 for `measure`, and
+    for `check` a verdict computed on geometry that is not the part, whichever
+    way the claim points: a `min` claim flips to pass as the part grows, a
+    `max` claim flips to fail at exit 1, and neither exit describes the design.
+    That is #208's own headline symptom surviving in a narrower case, not
+    merely a lost file. It is the same compounding `_EXTERNAL_DATA_RE` records
+    from the #187 review ([30,10,10], [50,10,10], [70,10,10]).
 
     Shipped anyway, with eyes open, because the alternative is worse in the
     direction that matters more: any rule wide enough to catch a subdirectory

@@ -40,11 +40,16 @@ differently in **both** the exit code and the payload shape, and neither differe
 incidental. A *filename* destination on such a tier is a refusal: the payload is the
 failure shape below — identity plus `error`/`hint`, no measurements — at exit `64`
 (§6.2), because the caller named a path they will go looking for and nothing will be
-there. A *directory* destination keeps exit `0`, because the measurement itself succeeded
-and is the verb's product; the payload MUST then carry both the measurements and an
-`artifact` entry — `{requested, written: false, reason}` — and stderr MUST say the same,
-because a request the run could not fulfil must not read as one it did (§1.1), and a fact
-living only on stderr is invisible to the machine this payload is for. `check --out` is
+there. A *directory* destination keeps exit `0` **where the measurement succeeded**,
+because that measurement is the verb's product and an unfulfillable side-request does not
+take it away; the payload MUST then carry both the measurements and an `artifact` entry —
+`{requested, written: false, reason}` — and stderr MUST say the same, because a request
+the run could not fulfil must not read as one it did (§1.1), and a fact living only on
+stderr is invisible to the machine this payload is for. Where the measurement did **not**
+succeed — the model raised, the build failed — the run is a failure like any other and
+takes the failure shape below, carrying `error`/`hint` and no `artifact`: the unfulfilled
+`--out` is not the finding there, and reporting it beside a build that never happened
+would be noise dressed as a second problem. `check --out` is
 out of scope here — it writes `report.json` into that directory
 on every tier. On any failure after the target resolves, both
 MUST emit a JSON object carrying that identity plus `error`/`hint` — `renders` empty
