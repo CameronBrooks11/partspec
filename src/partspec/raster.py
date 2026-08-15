@@ -214,7 +214,14 @@ def render_views(
     for view, rot in VIEWS.items():
         png = out_dir / "renders" / f"{view}.png"
         png.parent.mkdir(parents=True, exist_ok=True)
-        png.unlink(missing_ok=True)  # same stale-artifact rule as the STL
+        # Cleared before writing, so a failed view cannot leave the previous
+        # run's image to be read as this run's. This said "same stale-artifact
+        # rule as the STL" until v0.7.6's pre-tag audit: #223 deleted that rule,
+        # and #224 was filed about exactly this kind of citation surviving the
+        # thing it cites. The trade is the opposite of the OpenSCAD tier's and
+        # safe to make here — this rasterizer serves the OCCT tier, which has no
+        # `surface()` to make a PNG a build input.
+        png.unlink(missing_ok=True)
         write_png(png, rasterize(points, faces, rot, center=center, half_height=half_height))
         renders[view] = png
     return (

@@ -951,7 +951,15 @@ def _measure_resolved(
                 f"--out {dest} names a file, but {source.path.name} {reason}, so partspec "
                 f"cannot account for every input and cannot prove {dest.name} is not one "
                 f"of them",
-                f"pass a directory — the artifact lands in it as "
+                # "other than the model's own". The bare "pass a directory"
+                # always worked until #223 gave the DIRECTORY form its own
+                # refusal on the same grounds — so following this hint with the
+                # obvious directory (`.`) landed the reader in a second refusal,
+                # at a different exit code, with a different message. A remedy
+                # that routes into another refusal is an answer that does
+                # nothing reading as an answer (v0.7.6 pre-tag audit).
+                f"pass a directory other than the model's own "
+                f"({source.path.parent}) — the artifact lands in it as "
                 f"{source.path.stem}{ARTIFACT_SUFFIX}",
             )
             return EXIT_USAGE
