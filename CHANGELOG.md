@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Correction to 0.7.5: the fleet-01 `diff` figure below is wrong, and the
+  right one is 87** (#217). That entry says "3/3 CadQuery replicates
+  indeterminate over **73 real invocations**". Counted from the frozen fleet-01
+  logs, arm A ran **90** `diff` invocations, 3 of them `--help`, so **87 real**,
+  of which **79 exited 2**: a1 ×3 (3 at exit 2), a2 ×71 (63), a3 ×13 (13). The
+  released section is left as shipped and corrected here, per this file's rule
+  that a published entry takes form-only edits.
+  **The qualitative claim is confirmed and unaffected** — 3/3 arm-A replicates
+  went indeterminate and 0/3 arm-B ones did, on the same command and version.
+  One nuance the original sentence flattened: only **two** of the three arm-B
+  replicates ran `diff` at all (b1 ×3, b2 ×3, both `identical` at exit 0); b3
+  never ran it, so 0/3 is true as a count of replicates that hit the defect and
+  is not a count of three that tried.
+  **Where 73 came from, since a wrong number with no story invites the same
+  mistake:** the fleet report's own table sums a1 ×3 + a2 ×57 + a3 ×13, and
+  that `a2 ×57` matches no reading of the frozen log — not 72 total, 71 real,
+  63 at exit 2, 41 excluding the agent's negative controls, nor 7 unique
+  argv. The frozen log is the authoritative record and it says 87. A figure
+  nobody can reproduce from the record it cites is a claim this project does
+  not get to make, which is the whole of why this entry exists for a number
+  that changes no conclusion.
+  The issue also cites `docs/SPEC-diff.md:87-90` as carrying the figure. It
+  does not and never has: `git log -S` puts "73 real" in this file only, and
+  the spec's version of the sentence names the ratio without a count.
+
 - **A build no longer destroys the input it derives its own artifact name from
   — on `check` as well as on `measure`, and not yet on every path.**
   `engines/openscad.render` unlinked `<out dir>/<source stem>.stl`
