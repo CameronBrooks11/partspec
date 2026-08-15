@@ -956,9 +956,21 @@ def _measure_resolved(
             )
             return EXIT_USAGE
         artifact = _build_to_file(backend, source, dest, timeout_s)
+        written_to = dest
     else:
         out = _out_dir(args.target, Path(args.out) if args.out is not None else None)
         artifact = backend.build(source, out, timeout_s=timeout_s)
+        # The name inside the directory is partspec's, not the caller's, which
+        # is the whole of #225: the caller chose `out` and cannot know the rest
+        # without re-deriving a rule this tool owns and has already changed once
+        # (#187). Spelled from `ARTIFACT_SUFFIX` for the same reason the
+        # filename refusal above is, and pinned against a real build rather
+        # than asserted, so the payload cannot promise a path nothing wrote.
+        written_to = (
+            out / f"{source.path.stem}{ARTIFACT_SUFFIX}"
+            if part.source.engine == "openscad"
+            else None
+        )
     if isinstance(artifact, BuildError):
         _measure_failure(part, target, backend, artifact.message, artifact.hint)
         return exit_code(Verdict.ERROR)
@@ -1057,11 +1069,18 @@ def _measure_resolved(
         if args.out is not None and part.source.engine != "openscad"
         else None
     )
-    if reason is not None:
+    if args.out is not None:
         # `written` states the outcome as a value rather than leaving it to be
-        # inferred from the key's presence, so a consumer reads one field and
-        # a later `written: true` would need no schema change.
-        measured["artifact"] = {"requested": args.out, "written": False, "reason": reason}
+        # inferred from the key's presence — which is what made the true case
+        # cost nothing to add (#225): the key means "what happened to your
+        # --out", not "your --out could not be honoured", and the narrower
+        # reading was only ever an artefact of `false` being the first case
+        # shipped. A consumer still reads one field.
+        measured["artifact"] = (
+            {"requested": args.out, "written": False, "reason": reason}
+            if reason is not None
+            else {"requested": args.out, "written": True, "path": str(written_to)}
+        )
 
     print(json.dumps(measured, indent=2, allow_nan=False))
     if reason is not None:

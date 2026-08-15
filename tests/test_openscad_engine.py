@@ -595,6 +595,144 @@ def test_a_consumed_part_refuses_to_render_views(tmp_path: Path):
     assert isinstance(result, BuildError)
 
 
+def _one_triangle_stl() -> bytes:
+    """The smallest binary STL `_stl_bbox` can frame a camera from."""
+    import struct
+
+    facet = struct.pack("<12fH", 0, 0, 1, 0, 0, 0, 10, 0, 0, 0, 10, 0, 0)
+    return b"\0" * 80 + struct.pack("<I", 1) + facet
+
+
+def _recording_stub(tmp_path: Path, watched: Path, *, fail_from: int | None = None) -> Path:
+    """An engine that writes to `-o` and reports what `watched` held when it ran.
+
+    A stub rather than the binary because the claim is about what the engine
+    was ALLOWED TO SEE, and the real openscad cannot be asked. `fail_from`
+    makes the Nth invocation (1-based) exit non-zero without writing.
+    """
+    stl = tmp_path / "fixture.stl"
+    stl.write_bytes(_one_triangle_stl())
+    log = tmp_path / "witness.log"
+    counter = tmp_path / "invocations"
+    stub = tmp_path / "openscad-stub"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done\n'
+        f'n=$(cat "{counter}" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "{counter}"\n'
+        f'if [ -f "{watched}" ]; then cat "{watched}" >> "{log}"; '
+        f'else echo GONE >> "{log}"; fi\n'
+        f'echo "" >> "{log}"\n'
+        + (
+            f'[ "$n" -ge {fail_from} ] && {{ echo "stub refuses" >&2; exit 1; }}\n'
+            if fail_from
+            else ""
+        )
+        + 'case "$out" in\n'
+        f'  *.stl) cp "{stl}" "$out" ;;\n'
+        '  *) printf "\\211PNG\\r\\n\\032\\n rendered" > "$out" ;;\n'
+        "esac\n"
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    return stub
+
+
+def test_render_views_leaves_the_data_file_the_model_reads_intact_while_it_runs(
+    tmp_path: Path, monkeypatch
+):
+    """#224, and the reason it is #208's defect one directory down.
+
+    `surface(file = "...")` reads a PNG as a heightmap on both engine versions,
+    so `render --out .` against a model reading `renders/iso.png` unlinked that
+    heightmap before invoking the engine, then rendered and reported the part
+    built without it — measured on 2021.01: first run, clean directory, exit 0,
+    nothing on stderr, and all four views a different part from the one the STL
+    stage had just measured correctly.
+
+    Two claims, and the second is the one a per-view move would fail. Every
+    invocation must see the donor, not merely the first: the model is re-parsed
+    once per view, so moving each view into place as it finishes would let the
+    front view read the iso view partspec had just written, and the four images
+    would depict four different parts.
+    """
+    watched = tmp_path / "renders" / "iso.png"
+    watched.parent.mkdir()
+    watched.write_text("DONOR")
+    stub = _recording_stub(tmp_path, watched)
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+
+    source = tmp_path / "m.scad"
+    source.write_text('surface(file = "renders/iso.png", center = true);\n')
+    result = openscad.render_views(OpenSCADSource(source), tmp_path)
+
+    assert not isinstance(result, BuildError), result
+    # Bytes, not text: the failing history writes the stub's own PNG over the
+    # donor, and decoding that would fail the test on a UnicodeDecodeError
+    # instead of on the sentence below.
+    seen = (tmp_path / "witness.log").read_bytes().split(b"\n")[:-1]
+    assert seen == [b"DONOR"] * 5, (
+        f"the engine saw {seen} — every invocation (the STL and all four views) must "
+        f"find the model's own data file exactly as the caller left it"
+    )
+
+
+def test_a_failed_view_leaves_the_previous_renders_untouched(tmp_path: Path, monkeypatch):
+    """A half-overwritten view set is a set that depicts two parts.
+
+    `render_views` returns a `BuildError` for the whole call when any view
+    fails, so a caller that finds three fresh images and one stale one beside
+    them has been handed a mix nothing in the report distinguishes. The moves
+    therefore happen together, after the last view exists.
+    """
+    watched = tmp_path / "unused"
+    watched.write_text("x")
+    previous = {v: (tmp_path / "renders" / f"{v}.png") for v in openscad.VIEWS}
+    (tmp_path / "renders").mkdir()
+    for view, path in previous.items():
+        path.write_text(f"previous {view}")
+
+    # 1 = the STL, 2 = the iso view, 3 = the front view and the refusal.
+    stub = _recording_stub(tmp_path, watched, fail_from=3)
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+    source = tmp_path / "m.scad"
+    source.write_text("cube([10, 10, 10]);\n")
+
+    result = openscad.render_views(OpenSCADSource(source), tmp_path)
+
+    assert isinstance(result, BuildError), "premise: the third invocation fails"
+    for view, path in previous.items():
+        assert path.read_text() == f"previous {view}", f"{view} was overwritten by a failed run"
+    assert not [p for p in (tmp_path / "renders").iterdir() if p.name.startswith(".partspec-")]
+
+
+def test_a_failed_section_cut_leaves_the_previous_section_untouched(tmp_path: Path, monkeypatch):
+    """The same guarantee for `render_section_stl`, which unlinked up front.
+
+    It also no longer writes its `<stem>.section.scad` into the caller's
+    directory: the cut script names the mesh it imports by resolved absolute
+    path, so it relocates into the scratch directory with nothing to re-resolve.
+    """
+    stl = tmp_path / "part.stl"
+    stl.write_bytes(_one_triangle_stl())
+    section = tmp_path / "part.section.stl"
+    section.write_text("the previous cut")
+
+    stub = _recording_stub(tmp_path, tmp_path / "unused", fail_from=1)
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+
+    result = openscad.render_section_stl(
+        stl, "xy", 5.0, ((0.0, 0.0, 0.0), (10.0, 10.0, 10.0)), tmp_path
+    )
+
+    assert isinstance(result, BuildError), "premise: the cut fails"
+    assert section.read_text() == "the previous cut"
+    assert not (tmp_path / "part.section.scad").exists(), (
+        "the cut script must not be written into the caller's directory"
+    )
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".partspec-")]
+
+
 # --------------------------------------------------------------------------
 # _first_error_line noise filtering (#37)
 # --------------------------------------------------------------------------

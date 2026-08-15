@@ -31,14 +31,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them (pinned by a test against a stub engine that exits 0 writing nothing,
   because the installed 2021.01 exits 1 on empty geometry and cannot reach that
   branch). A failed render, a blown timeout or a Ctrl-C now leaves whatever was
-  there rather than deleting it. **Two paths in the same module still unlink
-  up front and are not fixed here:** `render_views` clears
-  `<out dir>/renders/<view>.png` and `render_section_stl` clears
-  `<stem>.section.stl`. The first is reachable — `surface(file = "...")` reads
-  a PNG as a heightmap, so `render --out .` against a model reading
-  `renders/iso.png` destroys that heightmap, measured on a first run into a
-  clean directory at exit 0 with nothing on stderr. The guard below does not
-  cover it: it knows only `<stem>.stl`. Tracked as #224.
+  there rather than deleting it.
+- **`render`'s two siblings no longer delete their outputs before the engine
+  reads them either** (#224). `render_views` unlinked
+  `<out dir>/renders/<view>.png` per view and `render_section_stl` unlinked
+  `<stem>.section.stl`, both citing a rule in `render()` that the fix above
+  deletes. The first is reachable: `surface(file = "...")` reads a PNG as a
+  heightmap on both engine versions, so `render --out .` against a model
+  reading `renders/iso.png` destroyed that heightmap before invoking the
+  engine, then rendered and reported the part built without it — measured on a
+  first run into a clean directory, exit 0, nothing on stderr. Both now export
+  into a scratch directory and move the result into place. **The four views
+  move together, once all four exist**, which the per-view shape would not
+  have fixed: the model is re-parsed once per view, so a view written as it
+  finished would be read by the *next* view, and the four images would depict
+  four different parts — pinned by a test that records what the engine found
+  at that path on all five invocations. A failure part-way now leaves the
+  previous set of renders intact rather than half of it overwritten, and
+  `render_section_stl` no longer writes its `<stem>.section.scad` into the
+  caller's directory at all (the cut script names the mesh it imports by
+  resolved absolute path, so it relocates with nothing to re-resolve). The
+  residue is the one `render()` also ships with and #226 closes: the move at
+  the end still replaces whatever sits at the destination.
 - **A render into the model's own directory is refused when it cannot be told
   from an input.** Non-destructive building fixes the measurement and not the
   file: `os.replace` still lands the artifact on top of the input at the end.
@@ -76,8 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   machine is the audience (#47) — one `reason` string feeds both. Exit stays 0:
   the measurement succeeded and is this verb's product, and discarding it over
   an unfulfillable side-request costs the caller more than the no-op flag does.
-  The key is present only where `--out` was passed and nothing could be
-  written, so its presence means something; it is additive, and
+  The key is present wherever `--out` was passed, in one state or the other
+  (see below); it is additive, and
   `SCHEMA_VERSION` does not move. `check --out` is untouched — it writes
   `report.json` into that directory on every tier. `SPEC-report.md`'s Scope
   states the rule. **The issue's other half does not reproduce and did not need
@@ -90,6 +104,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not establish what the reporter saw. `check --out DIR` does create the
   directory and writes `report.json` into it, which is the nearest behaviour
   that exists.
+
+### Added
+
+- **`measure --out` now says where the artifact landed, on the tier that
+  writes one** (#225). The entry above only ever appeared to report a
+  shortfall, so on the OpenSCAD tier a caller who passed `--out DIR` got exit
+  0, a file on disk, and nothing in the payload saying where — leaving them to
+  re-derive `<source stem>.stl`, a name partspec owns and has already moved
+  once (#187). The directory was the caller's; the filename inside it is not.
+  A successful `--out` now carries
+  `artifact: {requested, written: true, path}` in the same key, which cost
+  nothing to add because #204 made `written` a value rather than an inference
+  from the key's presence. Both spellings report through it: for a filename
+  destination `path` merely echoes `requested`, redundant on purpose so a
+  consumer reads one field instead of branching on the caller's phrasing. No
+  `--out`, no key — a report of a request nobody made is noise. Additive, so
+  `SCHEMA_VERSION` does not move; `SPEC-report.md`'s Scope states the rule.
 
 ## [0.7.5] - 2026-08-14
 
