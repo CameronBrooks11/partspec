@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failing scalar check now prints the number it measured and the number it
+  was given** (#210). `FAIL solid_count` was the entire diagnostic: it stated
+  the fact the reader already had — that something is wrong — and withheld the
+  one they needed, while `report.json` two feet away held `{"value": 1}`
+  against `{"equals": 2}`. For that check the value *is* the finding, and the
+  two directions point at opposite causes: too few means bodies fused, too many
+  means something fragmented or a support detached. The line now reads
+  `FAIL solid_count — measured 1, limit equals=2` and
+  `FAIL volume — measured 1125 mm3, limit min=5000.0`.
+  **Only the scalar case was missing.** Vector checks have named their numbers
+  since `_failing_axes` (`FAIL envelope — z=10 outside max=5`), and `keep_out`
+  has its own sentence; the gap was every check with nothing to attribute. The
+  renderer is generic rather than per-kind, which `Limit`'s own docstring
+  licenses — a closed set of forms exists "so a consumer can render and compare
+  limits without knowing the check kind" — so it covers every present and
+  future scalar check for free. A backend that knows better still wins:
+  `<kind>_detail` is consulted first, which is how `watertight` keeps its
+  distinction between a hole and a non-manifold junction.
+  Three things fell out of writing it. A `<kind>_detail` hook is typed
+  `-> str | None` and `watertight_detail` really does return None for a case it
+  cannot characterise; the fallback is now chained rather than `elif`-ed, so
+  declining lands on the numbers instead of restoring the same emptiness one
+  layer up. `_render` handled three of `Limit`'s four forms and said nothing at
+  all about `choices` — unreachable through the contract API today, so the
+  first check to use one would have rendered `limit ` with nothing after it.
+  And the format is `:.9g`, for the reason `bolt_circle` already records: at
+  `:g`'s six significant figures a measurement and the bound it missed by a
+  micron render identically, and `measured 2 mm, limit max=2` describes no
+  failure at all.
+  The numbers land in the report's existing `detail` field, so a consumer gets
+  them too; prose stays prose and the typed `measurement`/`limit` fields are
+  unchanged, per SPEC-report §7.1's rule that data belongs in fields rather
+  than in `detail`. No schema change.
+
 - **Correction to 0.7.5: the fleet-01 `diff` figure below is wrong, and the
   right one is 87** (#217). That entry says "3/3 CadQuery replicates
   indeterminate over **73 real invocations**". Counted from the frozen fleet-01

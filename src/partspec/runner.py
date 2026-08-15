@@ -400,11 +400,23 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any) -> CheckRe
     components = _components_of(outcome, spec.limit)
     detail = None
     if status is Status.FAIL:
+        # A backend that knows something better than the numbers says it —
+        # `watertight_detail` distinguishes a hole from a non-manifold junction,
+        # which no comparison of value to limit can. But the hook may DECLINE
+        # (`-> str | None`), and the fallback is chained rather than `elif`-ed
+        # so that declining lands on the numbers instead of on silence. As an
+        # `elif` a hook returning None left `detail` None, which is the #210
+        # emptiness restored one layer up, reachable the moment any hook has a
+        # case it cannot explain.
         explain = getattr(backend, f"{spec.kind}_detail", None)
         if explain is not None:
             detail = explain(artifact)
-        elif components is not None:
-            detail = _failing_axes(outcome, spec.limit, components)
+        if detail is None:
+            detail = (
+                _failing_axes(outcome, spec.limit, components)
+                if components is not None
+                else _failing_scalar(outcome, spec.limit)
+            )
     return CheckResult(
         **common, status=status, measurement=outcome, components=components, detail=detail
     )
@@ -442,6 +454,67 @@ def _failing_axes(outcome: Measurement, limit: Limit, components: dict[str, Stat
         assert sub is not None  # a constrained status implies a constraint
         parts.append(f"{axis}={values[axis]:g} outside {_render(sub)}")
     return "; ".join(parts)
+
+
+def _failing_scalar(outcome: Measurement, limit: Limit) -> str:
+    """The two numbers a scalar failure is about.
+
+    The vector case has said this since `_failing_axes` was written. The scalar
+    case said nothing at all, so `FAIL solid_count` was the entire diagnostic
+    while `report.json` two feet away held `{"value": 1}` against
+    `{"equals": 2}` (#210). The console is a courtesy and the JSON is the
+    product, but a courtesy that states only the fact the reader already had —
+    that something is wrong — is not one. For `solid_count` the value *is* the
+    finding: too few means bodies fused, too many means something fragmented or
+    detached, and those point at opposite causes that the bare line cannot
+    distinguish.
+
+    Generic rather than per-kind, which `Limit`'s own docstring licenses: a
+    closed set of forms exists "so a consumer can render and compare limits
+    without knowing the check kind". A backend that wants better prose still
+    wins — `<kind>_detail` is consulted first, which is how `keep_out` keeps
+    its own sentence.
+
+    `:.9g` for `bolt_circle`'s reason, recorded there: at `:g`'s six
+    significant figures a measurement and the bound it missed by a micron
+    render identically, and a line reading `measured 2 mm, limit min=2`
+    describes no failure at all.
+    """
+    return f"measured {_quantity(outcome)}, limit {_render(limit)}"
+
+
+def _quantity(m: Measurement) -> str:
+    """A scalar measurement as one human-readable term.
+
+    `bool` is tested before the numeric branch because `bool` subclasses `int`
+    in Python and the obvious ordering renders `True` as `1` — the same trap
+    `scad_literal` carries a note about.
+
+    `count` and `bool` name no dimension and their unit is dropped: the check
+    id already says what was counted, and "measured 2 count" reads worse than
+    "measured 2".
+
+    The interval rides along when the measurement is not exact. That is not
+    hypothetical here: an approximate measurement whose WHOLE interval sits
+    outside the limit adjudicates to `FAIL`, not `APPROXIMATE`, so this
+    function is reached with bounds in hand and dropping them would state a
+    single number the backend never claimed to know (SPEC-report 3.1).
+    """
+    value = m.value
+    if isinstance(value, bool):
+        text = "true" if value else "false"
+    elif isinstance(value, int | float):
+        text = f"{value:.9g}"
+    else:
+        text = repr(value)
+    if m.unit not in ("count", "bool"):
+        text = f"{text} {m.unit}"
+    if m.bounds is not None:
+        # After the unit, not before it: the interval is in the same unit as
+        # the value, and "1.5 (in [1.4, 1.6]) mm" reads as though it were not.
+        lo, hi = m.bounds
+        text += f" (in [{lo:.9g}, {hi:.9g}])"
+    return text
 
 
 def _run_hole_check(
@@ -1041,6 +1114,16 @@ def _unit_for(value: Any) -> str:
 
 
 def _render(limit: Limit) -> str:
+    """Every form `Limit` defines, because it defines a CLOSED set.
+
+    `choices` was missing and is unreachable through the contract API today —
+    no check constructs one. It is rendered anyway rather than left out with a
+    note: `Limit.__post_init__` guarantees at least one form is set, so the
+    first check to use `choices` would otherwise render the empty string, and a
+    line reading `measured "x", limit ` states a bound that is not there. A
+    renderer over a closed set that handles three of its four members is the
+    silent gap this project exists to refuse, waiting for a caller.
+    """
     parts = []
     if limit.min is not None:
         parts.append(f"min={limit.min}")
@@ -1048,6 +1131,8 @@ def _render(limit: Limit) -> str:
         parts.append(f"max={limit.max}")
     if limit.equals is not None:
         parts.append(f"equals={limit.equals}")
+    if limit.choices is not None:
+        parts.append("one of " + ", ".join(repr(c) for c in limit.choices))
     return ", ".join(parts)
 
 
