@@ -319,7 +319,13 @@ def _run_parameter_check(spec: CheckSpec, params: dict[str, Any]) -> CheckResult
             source=dict(spec.source) if spec.source is not None else None,
             detail=None
             if status is Status.PASS
-            else f"{spec.expr}={value!r} outside {_render(spec.limit)}",
+            # `_number`, not `repr`. Routing only `_render` through the shared
+            # formatter made THIS line the two-notation case it was meant to
+            # remove: `p.param("hole_d", max=1e9)` printed
+            # `hole_d=10000000000.0 outside max=1e+09` (adversarial review of
+            # #232). A parameter value is whatever the contract passed, so
+            # `_number`'s non-numeric fallback carries the rest.
+            else f"{spec.expr}={_number(value)} outside {_render(spec.limit)}",
         )
 
     raise ContractError(f"unknown parameter check kind: {spec.kind!r}")
@@ -458,19 +464,28 @@ def _failing_axes(outcome: Measurement, limit: Limit, components: dict[str, Stat
             continue
         sub = component_limit(limit, axis_index[axis], n)
         assert sub is not None  # a constrained status implies a constraint
-        parts.append(f"{axis}={values[axis]:g} outside {_render(sub)}")
+        # `_number`, not `:g`: this is the caller the scalar path was modelled on,
+        # and it kept the six-figure collapse the scalar path was changed to
+        # avoid — a vector `1000.0002` against `max=1000.0` printed
+        # `x=1000 outside max=1000.0`, a failure line reading as an equality
+        # (adversarial review of #232).
+        parts.append(f"{axis}={_number(values[axis])} outside {_render(sub)}")
     return "; ".join(parts)
 
 
 DIMENSIONLESS = frozenset({"count", "bool"})
-"""Units naming no physical dimension, whose name the fail line drops.
+"""Units whose name the fail line drops, because it says nothing.
 
 "measured 2 count" reads worse than "measured 2", and the check id already
-says what was counted. Named here rather than inline so
-`test_the_dimensionless_units_are_still_the_ones_this_drops` can hold it
-against `MEASURANDS`: `rel` is equally dimensionless and is deliberately NOT
-here, because `step_roundtrip` does not reach this path and "measured 0.98
-rel" is the honest rendering if it ever does (adversarial review of #232).
+says what was counted.
+
+One criterion, not two. An earlier version of this said `rel` is excluded
+because `step_roundtrip` does not reach this path — unreachability, which
+would exclude `bool` too, since the `equals` skip in `_failing_scalar` means a
+bool never reaches `_quantity` either. The rule is simply whether the unit
+names something a reader needs: `count` and `bool` do not, `rel` does
+(a ratio wants saying so). `bool` stays for the same reason the `choices`
+branch does — the skip is a property of today's limits, not of the unit.
 """
 
 
@@ -542,11 +557,17 @@ def _number(value: Any) -> str:
         # `:.9g` renders 2.0 as "2", and a float limit that prints as an
         # integer loses information the reader uses: `solid_count` limits are
         # ints and `volume` limits are floats, and the existing vector messages
-        # (`z=10 outside max=5.0`) have always shown the difference. Restored
-        # only where the rendering has neither a point nor an exponent, so
-        # nothing else is touched. NaN and the infinities cannot arrive here —
-        # `Measurement._reject_non_finite` refuses them at construction.
-        if "." not in text and "e" not in text:
+        # have always shown the difference. Restored only where the rendering
+        # ends in a digit, so nothing else is touched.
+        #
+        # That guard is not cosmetic. `Measurement._reject_non_finite` refuses
+        # a non-finite VALUE, but `Limit` validates nothing (`__post_init__`
+        # only requires a form to be set) and `_reject_non_finite` never looks
+        # at `bounds`, so `solid_count(float("inf"))` and a bounds tuple
+        # carrying an infinity both reach here from the public API. Without the
+        # guard they rendered as `inf.0` and `nan.0` — a number that is not one,
+        # wearing a decimal point (adversarial review of #232).
+        if text[-1].isdigit() and "." not in text and "e" not in text:
             text += ".0"
         return text
     return str(value)
@@ -561,8 +582,10 @@ def _quantity(m: Measurement) -> str:
     `test_the_dimensionless_units_are_still_the_ones_this_drops` fails when it
     grows one this does not classify.
 
-    The interval rides along when the measurement is not exact, which no
-    primitive on this path emits today — `_min_wall_measurement` is the only
+    The interval rides along whenever `bounds` is present — which is the
+    code's condition, not `exact` (an exact measurement MAY carry bounds;
+    `Measurement` only forbids the converse). No primitive on this path
+    emits bounds today — `_min_wall_measurement` is the only
     `exact=False` site in either backend and `min_wall` returns from its own
     runner before reaching here. It is written anyway, on the `choices` branch's
     principle: an approximate measurement whose WHOLE interval sits outside the
@@ -1199,7 +1222,9 @@ def _render(limit: Limit) -> str:
     Joined with `and`, not a comma, because the caller puts a comma between the
     measurement and the limit — `measured 5640 mm3, limit min=1e6, max=2e6` has
     one separator doing two jobs, and `_failing_axes` already avoids that by
-    joining axes with `;`.
+    joining axes with `;`. `choices` braces its members for the same reason: it
+    is the one form with an internal list, so `limit one of a, b` reproduced
+    the ambiguity two lines after removing it (round-2 review of #232).
     """
     parts = []
     if limit.min is not None:
@@ -1209,7 +1234,7 @@ def _render(limit: Limit) -> str:
     if limit.equals is not None:
         parts.append(f"equals={_number(limit.equals)}")
     if limit.choices is not None:
-        parts.append("one of " + ", ".join(_number(c) for c in limit.choices))
+        parts.append("one of {" + ", ".join(_number(c) for c in limit.choices) + "}")
     return " and ".join(parts)
 
 

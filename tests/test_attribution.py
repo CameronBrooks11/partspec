@@ -12,9 +12,13 @@ and was wrong within one PR of being written — the same rot `GEOMETRY_KINDS`
 records ("it read 'topology and hole_diameter are the entries' long after there
 were eight"), found by the adversarial review of #232.
 
-The e2e ones run a real contract and read the report; the unit ones call the
-renderers on hand-built measurements, which is where epsilon, interval and
-number-format behaviour can be pinned without an engine.
+The e2e ones run a real contract and read the report. The rest need no engine:
+most call the renderers on hand-built measurements — where epsilon, interval
+and number-format behaviour can be pinned — while a few drive
+`_run_geometry_check` with a stub backend, or hold a constant against the
+register it is derived from. (The replacement for a sentence that counted its
+own tests; this one names shapes instead, because the count was wrong within
+one PR and the first rewrite still described only two of the three shapes.)
 `test_region_clauses_appear_as_components` stays with the region checks — its
 subject is the region clause, not the attribution.
 """
@@ -41,7 +45,12 @@ def test_a_failing_envelope_names_the_failing_axis(tmp_path: Path):
     check = next(c for c in report.checks if c.id == "envelope")
     assert check.status is Status.FAIL
     assert check.components == {"x": Status.PASS, "y": Status.PASS, "z": Status.FAIL}
-    assert check.detail == "z=10 outside max=5"
+    # `z=10.0`, not `z=10`: the axis value goes through `_number` since #232's
+    # round-2 review, which found this path still collapsing at `:g` — a vector
+    # `1000.0002` against `max=1000.0` printed `x=1000 outside max=1000.0`, a
+    # failure line reading as an equality. The limit here is an int and prints
+    # as one, which is the distinction `_number` exists to keep.
+    assert check.detail == "z=10.0 outside max=5"
 
 
 @needs_scad_tier
@@ -114,7 +123,7 @@ def test_an_approximate_axis_is_never_claimed_outside_its_bound():
     components = _components_of(m, limit)
     assert components == {"a": Status.FAIL, "b": Status.APPROXIMATE}
     assert components is not None
-    assert _failing_axes(m, limit, components) == "a=5 outside min=6.0"
+    assert _failing_axes(m, limit, components) == "a=5.0 outside min=6.0"
 
 
 # --------------------------------------------------------------------------
@@ -128,7 +137,7 @@ def test_a_failing_scalar_check_names_both_numbers(tmp_path: Path):
     """`FAIL solid_count` was the entire diagnostic.
 
     The vector case has named its numbers since `_failing_axes`; the scalar
-    case named nothing, while `report.json` held `{"value": 2}` against
+    case named nothing, while `report.json` held `{"value": 1}` against
     `{"equals": 3}`. For this check the value IS the finding — too few means
     bodies fused, too many means something fragmented — and the bare line
     cannot tell those apart (#210).
@@ -216,7 +225,7 @@ def test_a_conclusive_failure_on_an_approximate_measurement_keeps_its_interval()
     the same formatter as the value. It did not, and the mutation survived.
     """
     from partspec import Limit, adjudicate
-    from partspec.runner import _failing_scalar
+    from partspec.runner import _failing_scalar, _number
 
     lo, hi = 1234.56789, 1234.56791
     assert f"{lo:g}" == f"{hi:g}", "premise: :g collapses this interval to a point"
@@ -225,6 +234,16 @@ def test_a_conclusive_failure_on_an_approximate_measurement_keeps_its_interval()
     assert adjudicate(m, limit) is Status.FAIL, "premise: conclusively outside"
     assert _failing_scalar(m, limit) == (
         "measured 1234.5679 mm3 (in [1234.56789, 1234.56791]), limit min=99999.0"
+    )
+
+    # A second interval, at a magnitude where a bare `str()` and `_number`
+    # DIFFER. The constants above pin ":.9g or better" and nothing more, so
+    # `f"[{lo}, {hi}]"` — the mutation this test's own docstring claims to have
+    # killed — still passed (round-2 review of #232).
+    big = Measurement(2e10, "mm3", exact=False, bounds=(1.5e10, 2.5e10))
+    assert str(1.5e10) != _number(1.5e10), "premise: the two formatters disagree here"
+    assert _failing_scalar(big, Limit(min=9e10)) == (
+        "measured 2e+10 mm3 (in [1.5e+10, 2.5e+10]), limit min=9e+10"
     )
 
 
@@ -260,15 +279,74 @@ def test_a_float_limit_does_not_print_as_an_integer():
     assert _number(0.1 + 0.2) == "0.3", "and :.9g still trims float noise"
 
 
+def test_a_non_finite_limit_does_not_render_as_a_decimal():
+    """`Measurement` refuses a non-finite VALUE. `Limit` validates nothing, and
+    `_reject_non_finite` never looks at `bounds`.
+
+    So `solid_count(float("inf"))` reaches the renderer from the public API,
+    and without a guard the trailing-`.0` restoration made it `inf.0` — a
+    number that is not one, wearing a decimal point (round-2 review of #232).
+    """
+    from partspec import Limit
+    from partspec.runner import _number, _render
+
+    assert _number(float("inf")) == "inf"
+    assert _number(float("-inf")) == "-inf"
+    assert _number(float("nan")) == "nan"
+    assert _render(Limit(equals=float("inf"))) == "equals=inf"
+
+
+def test_a_choice_renders_the_way_the_same_value_renders_anywhere_else():
+    """`choices` joined with `str()` instead of `_number` survived the first
+    round: every member the test used rendered identically either way.
+
+    A bool and a large float do not, which is the whole point of having one
+    formatter (round-2 review of #232).
+    """
+    from partspec import Limit
+    from partspec.runner import _render
+
+    assert _render(Limit(choices=(True, 1e10))) == "one of {true, 1e+10}"
+
+
+def test_a_failing_parameter_check_uses_the_same_formatter_as_everything_else():
+    """The regression round 2 found: routing only `_render` through `_number`
+    made THIS line the two-notation case the change was meant to remove.
+
+    `p.param("hole_d", max=1e9)` printed
+    `hole_d=10000000000.0 outside max=1e+09` — the measurement in one notation
+    and the bound it missed in another, in the one sentence that exists to let
+    a reader compare them.
+    """
+    from partspec import Limit
+    from partspec.contract import CheckSpec
+    from partspec.runner import _run_parameter_check
+
+    spec = CheckSpec(
+        id="param:hole_d",
+        kind="param_range",
+        phase="parameter",
+        expr="hole_d",
+        limit=Limit(max=1e9),
+    )
+    check = _run_parameter_check(spec, {"hole_d": 1e10})
+    assert check.status is Status.FAIL
+    assert check.detail == "hole_d=1e+10 outside max=1e+09"
+
+
 def test_the_dimensionless_units_are_still_the_ones_this_drops():
     """`MEASURANDS` is the register of units, and the SPEC unit table is
     generated from it precisely so a new check brings its own row.
 
-    `DIMENSIONLESS` is a second, hand-kept list over the same domain, so it
-    rots the same way. `rel` is deliberately absent — `step_roundtrip` does not
-    reach this path, and "measured 0.98 rel" is the honest rendering if it ever
-    does — but a NEW dimensionless unit must be classified here rather than
-    silently printing its own name (adversarial review of #232).
+    `DIMENSIONLESS` is a second, hand-kept list over that register, so it rots
+    the same way — and this is a TRIPWIRE, not a proof. It fires when the
+    register changes at all, classified or not, and `DIMENSIONLESS <= units`
+    can only catch a fictional unit, never an unclassified one. The first
+    version of this docstring claimed the stronger thing ("a NEW dimensionless
+    unit must be classified here"); a unit added and left unclassified passes
+    it, measured (round-2 review of #232). The tripwire is still worth having —
+    it puts the decision in front of whoever adds a unit — but it does not make
+    it for them.
     """
     from partspec.contract import MEASURANDS
     from partspec.runner import DIMENSIONLESS
@@ -339,7 +417,7 @@ def test_the_limit_renderer_covers_every_form_its_type_defines():
         "min=1.0",
         "max=2.0",
         "equals=3",
-        "one of a, b",
+        "one of {a, b}",
     ], "every form must render, and say what relation it is"
 
     # Joined with `and`, because the caller puts a comma between the
@@ -348,13 +426,21 @@ def test_the_limit_renderer_covers_every_form_its_type_defines():
 
 
 def test_a_backend_that_declines_to_explain_falls_back_to_the_numbers():
-    """`<kind>_detail` is typed `-> str | None`, and `watertight_detail`
-    really does return None for a case it cannot characterise.
+    """`<kind>_detail` is typed `-> str | None`, and no hook exercises that
+    today.
 
-    Chained rather than `elif`-ed for that reason: as an `elif`, a hook
-    returning None left `detail` None and restored #210's emptiness one layer
-    up — an emptiness that only a hook's own declining could produce, so no
-    check without a hook would ever have exposed it.
+    This docstring asserted that `watertight_detail` "really does return None
+    for a case it cannot characterise". It returns None iff the mesh IS
+    watertight, which is a pass — `test_watertight_detail_is_none_when_fine`
+    next door pins exactly that. The correction was applied to the runner
+    comment, the CHANGELOG and the commit message and missed here, which is the
+    artifact a reader consults to learn what the chain is for (round-2 review
+    of #232).
+
+    Chained rather than `elif`-ed for the first hook that does decline: as an
+    `elif` it left `detail` None and restored #210's emptiness one layer up.
+    Same footing as `_render`'s `choices` branch — written for a caller that
+    does not exist yet, and labelled as such.
     """
     from partspec import Limit
     from partspec.contract import CheckSpec
