@@ -292,7 +292,7 @@ It does not change the outcome: an old report that predates the field still diff
 ```jsonc
 {
   "schema_version": 2,              // this artifact's own version, not the report's
-  "tool": { "name": "partspec-diff", "version": "0.7.5" },
+  "tool": { "name": "partspec-diff", "version": "0.7.6" },
                                     // partspec's own version. `diff` has none of its own
                                     // and never has, so a sample showing one invites a
                                     // consumer to key on a number that will never appear.

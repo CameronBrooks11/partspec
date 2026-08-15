@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-08-15
+
 ### Fixed
 
 - **A failing scalar check now prints the number it measured and the number it
@@ -1705,7 +1707,8 @@ callouts, and reports become comparable.
 [convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
 [dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.5...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/CameronBrooks11/partspec/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/CameronBrooks11/partspec/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/CameronBrooks11/partspec/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/CameronBrooks11/partspec/compare/v0.7.2...v0.7.3
