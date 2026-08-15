@@ -8,6 +8,7 @@ something a consumer would break on.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import sys
@@ -498,13 +499,21 @@ def test_measure_out_says_where_the_artifact_landed(tmp_path: Path, capsys):
 
 
 @needs_scad_tier
-def test_the_filename_form_reports_its_artifact_through_the_same_key(tmp_path: Path, capsys):
+def test_the_filename_form_reports_its_artifact_through_the_same_key(
+    tmp_path: Path, capsys, monkeypatch
+):
     """One key, both spellings.
 
-    Here `path` merely echoes `requested`, which is redundant on purpose: a
-    consumer reads the same field whichever spelling it used, instead of
-    branching on a distinction that is about the caller's phrasing rather than
-    about where the file is.
+    `path` is the NORMALISED destination, not an echo of `requested` — the
+    docstring here said "merely echoes" and this test could not see the
+    difference, because `tmp_path / "named.stl"` is already absolute and
+    normalised (adversarial review of #230). `--out ./x.stl` reports
+    `requested: "./x.stl"` and `path: "x.stl"`, which is the more useful of
+    the two and the reason to read `path` rather than assume.
+
+    Redundant-looking on purpose all the same: a consumer reads the same field
+    whichever spelling it used, instead of branching on a distinction that is
+    about the caller's phrasing rather than about where the file is.
     """
     target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
     dest = tmp_path / "named.stl"
@@ -517,6 +526,15 @@ def test_the_filename_form_reports_its_artifact_through_the_same_key(tmp_path: P
         "path": str(dest),
     }
     assert captured.err == ""
+
+    # The unnormalised spelling, which the absolute path above cannot show.
+    # `path` is where the file is; `requested` is what the caller typed.
+    scruffy = f".{os.sep}{dest.name}"
+    monkeypatch.chdir(tmp_path)
+    assert main(["measure", target, "--out", scruffy]) == 0
+    artifact = json.loads(capsys.readouterr().out)["artifact"]
+    assert artifact == {"requested": scruffy, "written": True, "path": dest.name}
+    assert Path(artifact["path"]).stat().st_size > 0, "and it names a file that is there"
 
 
 # --------------------------------------------------------------------------

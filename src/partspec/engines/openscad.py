@@ -656,14 +656,24 @@ def render_views(
     ran, then rendered and reported the part built without it — measured, first
     run, clean directory, exit 0, nothing on stderr.
 
-    What survives is the narrower residue `render()` also ships with, and for
-    the same reason: the move at the end still replaces whatever sits at the
-    destination, so a model reading its own view directory gets one correct set
-    of renders and then eats its input. `_output_over_an_input` does not reach
-    it — that guard knows only `<stem>.stl` — and widening it means the same
-    under-refusing heuristic in a third place. #226 is the exact answer: the
-    engine's own dependency output names what this render actually READ, and
-    the move can then be refused on a real collision rather than a guess.
+    A failure while RENDERING leaves the previous set of views untouched. A
+    failure while MOVING cannot: there is no atomic rename of four files, so
+    the one case that is knowable up front — a destination that is a directory
+    — is refused before the first move, and a move that fails anyway reports
+    how many were replaced instead of claiming nothing was.
+
+    What survives is the residue `render()` also ships with, and it is not a
+    lost file: the move still replaces whatever sits at the destination, so a
+    model reading its own view directory renders correctly once and then reads
+    its own output forever. Measured — `surface(file = "renders/iso.png")` with
+    `--out` elsewhere gives `render_bbox` z=62 on run 1 and a part 20x oversize
+    in x and y on run 2, at exit 0 with nothing on stderr, on every run after.
+    `_output_over_an_input` does not reach it at all here: that guard knows only
+    `<stem>.stl` and fires only when the out dir IS the source's, which for a
+    view directory it need not be. Widening it means the same under-refusing
+    heuristic in a third place. #226 is the exact answer: the engine's own
+    dependency output names what this render actually READ, and the move can
+    then be refused on a real collision rather than a guess.
     """
     stl = render(source, out_dir, timeout_s=timeout_s)
     if isinstance(stl, BuildError):
@@ -751,11 +761,38 @@ def render_views(
                 # EARLIER ones — the same model is re-parsed per view, so a
                 # `surface(file = "renders/iso.png")` would see the freshly
                 # written iso view from the front view onward, and the four
-                # images would depict four different parts. It also means a
-                # failure at view 3 leaves the previous run's set intact
-                # rather than half of it overwritten.
-                for staged, png in finished:
-                    staged.replace(png)
+                # images would depict four different parts.
+                #
+                # A destination that is a directory is refused BEFORE the first
+                # move. `os.replace` cannot replace one, and discovering that on
+                # view 3 left views 1-2 fresh and 3-4 stale under a message
+                # saying nothing was written — measured, and the exact mix this
+                # batch exists to prevent (adversarial review of #230).
+                blocked = [png for _, png in finished if png.is_dir()]
+                if blocked:
+                    return BuildError(
+                        f"the view artifacts cannot be moved into place: "
+                        f"{', '.join(str(p) for p in blocked)} "
+                        f"{'is a directory' if len(blocked) == 1 else 'are directories'}",
+                        origin="environment",
+                        hint="remove it, or render into a different output directory — "
+                        "nothing in the output directory has been touched",
+                    )
+                # And if one fails anyway — a full disk, a permission change
+                # under us — the count is reported rather than the caller being
+                # told nothing was written while half the set is new. There is
+                # no atomic rename of four files; the honest thing is to say
+                # which state the directory is actually in.
+                for moved, (staged, png) in enumerate(finished):
+                    try:
+                        staged.replace(png)
+                    except OSError as exc:
+                        return BuildError(
+                            f"the {moved} view artifact(s) already moved into {renders_dir} "
+                            f"are from this run and the rest are not: replacing {png.name} "
+                            f"failed ({exc.strerror})",
+                            origin="environment",
+                        )
             return renders
         except OSError as exc:
             return BuildError(

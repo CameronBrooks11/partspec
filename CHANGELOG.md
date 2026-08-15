@@ -23,24 +23,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never ran it, so 0/3 is true as a count of replicates that hit the defect and
   is not a count of three that tried.
   **Where 73 came from, since a wrong number with no story invites the same
-  mistake:** the fleet report's own table sums a1 ×3 + a2 ×57 + a3 ×13, and
-  that `a2 ×57` matches no reading of the frozen log — not 72 total, 71 real,
-  63 at exit 2, 41 excluding the agent's negative controls, nor 7 unique
-  argv. The frozen log is the authoritative record and it says 87. A figure
-  nobody can reproduce from the record it cites is a claim this project does
-  not get to make, which is the whole of why this entry exists for a number
-  that changes no conclusion.
+  mistake:** the fleet report's table sums `a1 ×3 + a2 ×57 + a3 ×13`, and that
+  `a2 ×57` is arm A's **whole** non-control total sitting in a2's cell — a1 ×3
+  plus a2 ×41 plus a3 ×13 is 57 exactly. Summing the row therefore counts a1
+  and a3 twice, and 73 is the double count. The number is real and its label is
+  not, which is the same defect class as the rest of this entry rather than a
+  different one.
+  This bullet said the opposite in its first form — that `57` "matches no
+  reading of the frozen log". That was false, and #217 itself prints the
+  counter-example ("57 excluding controls"); the reading was applied at
+  replicate scope and never at the arm scope the report's row is about, which
+  is where it resolves. Found by the adversarial review of this change: a
+  correction whose subject is unsupported claims, making an unsupported
+  universal negative refuted by the record it cites.
   The issue also cites `docs/SPEC-diff.md:87-90` as carrying the figure. It
-  does not and never has: `git log -S` puts "73 real" in this file only, and
-  the spec's version of the sentence names the ratio without a count.
+  does not and never has: `git log --all -S` puts "73 real" in this file only,
+  the spec's version of the sentence names the ratio without a count, and a
+  wrapping-defeat sweep of every `+`/`-` line ever touching that file finds no
+  73 in any form.
 
 - **A build no longer destroys the input it derives its own artifact name from
   — on `check` as well as on `measure`, and on every path in the OpenSCAD
-  engine.** ("not yet on every path" until the entry below closed #224; the
-  remaining unlinks in `cli` and `raster` clear `renders/section_<plane>.png`,
-  which is the deliberate opposite trade — a failing section must not leave the
-  previous run's image to be read as this run's, and the mesh tier has no
-  `surface()` to make a PNG an input.)
+  engine.** ("not yet on every path" until the entry below closed #224 — and
+  it is still not every path in the tool. Six unlinks remain outside
+  `engines/openscad.py`: two clear `render.json`, which is an output on any
+  tier; `raster.render_views` clears `renders/<view>.png`, reached only for the
+  OCCT tier, which has no `surface()` to make a PNG an input; and **two clear
+  `renders/section_<plane>.png` on a path the OpenSCAD tier does reach** —
+  `cli` hoists one above every refusal in its `engine == "openscad"` branch and
+  `raster.render_section` holds the other. Those two are the same defect class
+  on a section image, measured: `render --out DIR --section xy:999` deletes an
+  existing `renders/section_xy.png` and then reports `renders: {}` at exit 4.
+  Filed as #233 rather than fixed here, because unlike #224's cases it is a
+  genuine trade — the hoist exists so a failing section cannot leave the
+  previous run's image to be read as this run's — and that call deserves its
+  own slice. An earlier version of this parenthetical got both the count and
+  the tier wrong; found by the adversarial review of #230.)
   `engines/openscad.render` unlinked `<out dir>/<source stem>.stl`
   before invoking the engine, so a model whose `import()` target sits at that
   derived path built without it. Filed as a `measure --out DIR` bug (#208); it
@@ -76,13 +94,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have fixed: the model is re-parsed once per view, so a view written as it
   finished would be read by the *next* view, and the four images would depict
   four different parts — pinned by a test that records what the engine found
-  at that path on all five invocations. A failure part-way now leaves the
-  previous set of renders intact rather than half of it overwritten, and
+  at that path on all five invocations. A failure while **rendering** leaves
+  the previous set of renders intact rather than half of it overwritten, and
   `render_section_stl` no longer writes its `<stem>.section.scad` into the
   caller's directory at all (the cut script names the mesh it imports by
-  resolved absolute path, so it relocates with nothing to re-resolve). The
-  residue is the one `render()` also ships with and #226 closes: the move at
-  the end still replaces whatever sits at the destination.
+  resolved absolute path, so it relocates with nothing to re-resolve).
+  **A failure while MOVING cannot leave it intact**, and this entry claimed it
+  did until the adversarial review of #230 measured otherwise: with a directory
+  sitting at `renders/top.png`, two views were replaced before the third move
+  failed, and the `BuildError` said the artifacts could not be written while
+  half the set was already new. There is no atomic rename of four files, so
+  the case that is knowable up front is now refused before the first move —
+  naming the blocking path and stating that nothing was touched — and a move
+  that fails anyway reports how many were replaced rather than implying none
+  were. Both pinned.
+  The residue is the one `render()` also ships with and #226 closes: the move
+  at the end still replaces whatever sits at the destination. It is not a lost
+  file. Measured for views — a model reading `renders/iso.png` as a heightmap
+  renders correctly once and then reads its own output, giving a part 20x
+  oversize in x and y on run 2, at exit 0, on every run after. Unlike
+  `render()`'s case there is no directory-collision refusal here at all:
+  `_output_over_an_input` knows only `<stem>.stl` and fires only when the out
+  dir is the source's own, which a view directory need not be.
 - **A render into the model's own directory is refused when it cannot be told
   from an input.** Non-destructive building fixes the measurement and not the
   file: `os.replace` still lands the artifact on top of the input at the end.
@@ -141,24 +174,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list too. **The published artifact was never affected** — `release.yml`
   builds from a clean CI checkout — but a dev-built tarball is only worth
   building if it is the same tarball, which is the property that makes local
-  verification mean anything. The runtime entries move into `.gitignore`, which
-  hatchling honours and which is already how `outputs/` and `notes/upstream/`
-  stay out. The same shape as the `notes/` leak #150 fixed, through a different
-  door, and the test that should have caught it could not: it asserts
-  exclusions **by name**, so each new tree gets in free until someone notices.
-  A second test now asserts the sdist's **top level against an allowlist**, so
-  a new one has to be argued for — scoped to the top level because that is the
-  granularity that holds still, where a per-file allowlist would fail on every
-  module added and be deleted within a month.
+  verification mean anything. `.gitignore` now carries `**/.claude/`, which
+  hatchling honours and which is already how `outputs/` stays out (`notes/` has
+  a `[tool.hatch.build.targets.sdist] exclude` entry as well, so it is not a
+  clean example of the mechanism). The same shape as the `notes/` leak #150
+  fixed, through a different door, and the test that should have caught it
+  could not: it asserts exclusions **by name**, so each new tree gets in free
+  until someone notices.
+  **This shipped twice before it was right.** The first form copied the ten
+  entries `.git/info/exclude` happens to name, root-anchored — so
+  `examples/.claude/scheduled_tasks.lock` still reached the tarball with both
+  sdist tests green, and anything Claude Code wrote that was not on the list
+  (a `history.jsonl`, a `todos/`) was a leak or a red local suite waiting.
+  The adversarial review of this change measured both. It is now the whole
+  directory at any depth, and the new test grew a second clause to match: an
+  allowlist over the **top level** (a new one has to be argued for; per-file
+  would fail on every module added and be deleted within a month) *and* over
+  **dot-directories at any depth**, which is where tool and agent state always
+  lands. Nothing under `.claude/` is tracked here, and this repo's own agent
+  material lives in the top-level `skills/`, which ships.
 - **`release.yml` no longer explains its `setup-uv` pin with a convention the
   file does not follow** (#218). The comment said `astral-sh/setup-uv@v9` would
   fail as "the floating-major form every other action here uses" — and no
   action in that file used one: the rest are `@v7.0.1`, `@v7.0.1`, `@v8.0.1`
   and a SHA. The conclusion was right and the pin stays; the stated reason
   invited the next reader to conclude the exact pins were the anomaly and tidy
-  them into real floating majors. The corrected comment says the file has no
-  floating majors, and a test now enforces that rather than leaving the
-  paragraph to assert it. Pre-existing, from #173.
+  them into real floating majors. The corrected comment says every action in
+  the file is pinned to an exact patch or a SHA, and a test enforces that
+  rather than leaving the paragraph to assert it. Pre-existing, from #173.
+  **The first version of that test checked less than the comment claimed**,
+  which is the same defect in the fix for it: it rejected `@vN` alone, so
+  `@main` — the most mutable ref there is, on the checkout step the release
+  gate's whole safety argument runs from — passed, as did `@latest`, `@7`,
+  `@V7` and the quoted `"…@v7"` form, which is valid YAML and slipped the
+  pattern because `\S+` swallowed the closing quote. Found by the adversarial
+  review of this change. The rule is now the comment's rule — a 40-hex SHA or a
+  version carrying at least a major and a minor — so anything a release could
+  move under is rejected by not matching, rather than by being on a list of
+  forms someone thought of.
 - **`SPEC-diff`'s artifact sample no longer shows a version the tool has never
   emitted** (#219). The sample carried `"tool": {"name": "partspec-diff",
   "version": "0.2.0"}`; `diff` emits the **partspec** version and has never had
@@ -171,6 +224,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release — and is corrected the same way. Both now point the reader at
   `schema_version`, which is the field a consumer is supposed to key on.
   Pre-existing, from #88.
+  **And the literal is now pinned rather than trusted**, because correcting it
+  by hand fixed the instance and left the mechanism: nothing read those values,
+  so both would have gone stale again at the next bump — the adversarial review
+  of this change made exactly that point. A test asserts each sample's version
+  equals the installed one. The cost is a line per spec per release and the
+  failure names both files and the value to use.
 
 ### Added
 
@@ -184,7 +243,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `artifact: {requested, written: true, path}` in the same key, which cost
   nothing to add because #204 made `written` a value rather than an inference
   from the key's presence. Both spellings report through it: for a filename
-  destination `path` merely echoes `requested`, redundant on purpose so a
+  destination `path` is the normalised destination rather than an echo —
+  `--out ./x.stl` reports `requested: "./x.stl"` and `path: "x.stl"` — so a
   consumer reads one field instead of branching on the caller's phrasing. No
   `--out`, no key — a report of a request nobody made is noise. Additive, so
   `SCHEMA_VERSION` does not move; `SPEC-report.md`'s Scope states the rule.

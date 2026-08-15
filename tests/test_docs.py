@@ -769,3 +769,32 @@ def test_the_readme_console_block_is_what_the_console_prints():
         + "\n  ".join(missing)
         + f"\n--- actual ---\n{actual}"
     )
+
+
+def test_the_spec_samples_show_the_version_the_tool_actually_emits():
+    """A sample is what a consumer copies, so its values must be real.
+
+    `SPEC-diff.md` showed `"version": "0.2.0"` for `partspec-diff`, which emits
+    the **partspec** version and has never had one of its own — not a stale
+    value but a fictional one (#219). Correcting it to a real number fixed that
+    instance and left the mechanism: `SPEC-report.md`'s sample had drifted the
+    same way, `0.1.0` against a shipped 0.7.x, and the corrected literals would
+    have gone stale again at the next bump with nothing to notice (adversarial
+    review of #231).
+
+    So the literal is pinned rather than trusted. The cost is one line in each
+    spec per release, and the failure names both files and the value to use;
+    the alternative is a normative document quietly describing a version its
+    reader cannot get.
+    """
+    from partspec.report import tool_version
+
+    installed = tool_version()
+    for name in ("SPEC-report.md", "SPEC-diff.md"):
+        text = (DOCS / name).read_text()
+        shown = re.findall(r'"tool":\s*\{\s*"name":\s*"[\w-]+",\s*"version":\s*"([^"]+)"', text)
+        assert shown, f"{name} no longer shows a tool block; this test has lost its subject"
+        assert all(v == installed for v in shown), (
+            f"{name} samples a tool version of {sorted(set(shown))} and the package is "
+            f"{installed}. A sample is what a consumer copies: update the literal."
+        )

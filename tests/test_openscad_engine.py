@@ -690,7 +690,7 @@ def test_a_failed_view_leaves_the_previous_renders_untouched(tmp_path: Path, mon
     previous = {v: (tmp_path / "renders" / f"{v}.png") for v in openscad.VIEWS}
     (tmp_path / "renders").mkdir()
     for view, path in previous.items():
-        path.write_text(f"previous {view}")
+        path.write_bytes(f"previous {view}".encode())
 
     # 1 = the STL, 2 = the iso view, 3 = the front view and the refusal.
     stub = _recording_stub(tmp_path, watched, fail_from=3)
@@ -702,7 +702,12 @@ def test_a_failed_view_leaves_the_previous_renders_untouched(tmp_path: Path, mon
 
     assert isinstance(result, BuildError), "premise: the third invocation fails"
     for view, path in previous.items():
-        assert path.read_text() == f"previous {view}", f"{view} was overwritten by a failed run"
+        # Bytes, for the reason the donor test three functions up gives: the
+        # failing history writes real PNG bytes here, and decoding them would
+        # fail this test on a UnicodeDecodeError instead of on its own sentence.
+        assert path.read_bytes() == f"previous {view}".encode(), (
+            f"{view} was overwritten by a failed run"
+        )
     assert not [p for p in (tmp_path / "renders").iterdir() if p.name.startswith(".partspec-")]
 
 
@@ -712,11 +717,20 @@ def test_a_failed_section_cut_leaves_the_previous_section_untouched(tmp_path: Pa
     It also no longer writes its `<stem>.section.scad` into the caller's
     directory: the cut script names the mesh it imports by resolved absolute
     path, so it relocates into the scratch directory with nothing to re-resolve.
+
+    The `.section.scad` claim is pinned by a file the CALLER wrote at that
+    name, not by the absence of one afterwards. The old code wrote its script
+    there and removed it in a `finally`, so "does not exist when this returns"
+    was true of the old code too and distinguished nothing (adversarial review
+    of #230). What the old code did and this does not is destroy the caller's
+    file — measured on the parent commit — so that is what is asserted.
     """
     stl = tmp_path / "part.stl"
     stl.write_bytes(_one_triangle_stl())
     section = tmp_path / "part.section.stl"
     section.write_text("the previous cut")
+    victim = tmp_path / "part.section.scad"
+    victim.write_text("// the caller's own cut script\n")
 
     stub = _recording_stub(tmp_path, tmp_path / "unused", fail_from=1)
     monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
@@ -727,8 +741,8 @@ def test_a_failed_section_cut_leaves_the_previous_section_untouched(tmp_path: Pa
 
     assert isinstance(result, BuildError), "premise: the cut fails"
     assert section.read_text() == "the previous cut"
-    assert not (tmp_path / "part.section.scad").exists(), (
-        "the cut script must not be written into the caller's directory"
+    assert victim.read_text() == "// the caller's own cut script\n", (
+        "the cut script must not be written over a file of that name in the caller's directory"
     )
     assert not [p for p in tmp_path.iterdir() if p.name.startswith(".partspec-")]
 
@@ -883,3 +897,74 @@ def test_a_stale_artifact_in_an_unwritable_out_dir_refuses_by_name(tmp_path: Pat
     assert isinstance(result, BuildError)
     assert result.origin == "environment"
     assert str(out) in result.message
+
+
+def test_a_blocked_view_destination_is_refused_before_any_view_moves(tmp_path: Path, monkeypatch):
+    """The batch move's own guarantee, which the batch alone did not give.
+
+    Rendering all four before moving any stops the views reading each other.
+    It does not make the four moves atomic, and nothing does — so a
+    destination `os.replace` cannot replace left views 1-2 fresh and 3-4 stale
+    under a message saying nothing was written, which is exactly the mix of two
+    runs this batching exists to prevent (adversarial review of #230).
+
+    A directory at a destination is the case that is knowable before the first
+    move, so it is refused there, and the hint states the guarantee the caller
+    needs: nothing was touched.
+    """
+    renders = tmp_path / "renders"
+    renders.mkdir()
+    previous = {v: renders / f"{v}.png" for v in openscad.VIEWS}
+    for view, path in previous.items():
+        path.write_bytes(f"previous {view}".encode())
+    # `top` sorts after `iso` and `front` in VIEWS order, so an unguarded run
+    # replaces two views before finding it — the partial state, not an early
+    # bail that would pass this test for the wrong reason.
+    previous["top"].unlink()
+    previous["top"].mkdir()
+    (previous["top"] / "keep").write_text("x")
+
+    stub = _recording_stub(tmp_path, tmp_path / "unused")
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+    source = tmp_path / "m.scad"
+    source.write_text("cube([10, 10, 10]);\n")
+
+    result = openscad.render_views(OpenSCADSource(source), tmp_path)
+
+    assert isinstance(result, BuildError), "premise: the blocked destination refuses"
+    assert result.origin == "environment"
+    assert "is a directory" in result.message and "top.png" in result.message
+    assert "nothing in the output directory has been touched" in (result.hint or "")
+    for view, path in previous.items():
+        if view == "top":
+            continue
+        assert path.read_bytes() == f"previous {view}".encode(), (
+            f"{view} was replaced before the refusal — the mix this refusal exists to prevent"
+        )
+    assert (previous["top"] / "keep").is_file(), "and the blocking directory is left alone"
+
+
+def test_an_unwritable_renders_directory_is_a_named_refusal(tmp_path: Path, monkeypatch):
+    """Previously an uncaught `PermissionError` out of `png.parent.mkdir` or
+    the per-view write.
+
+    An unhandled exception escapes the report machinery entirely — no artifact,
+    no verdict, no exit code, just a traceback — which is the one failure mode
+    this tool cannot have. Claimed in #230's commit message and pinned by
+    nothing until now.
+    """
+    out = tmp_path / "out"
+    (out / "renders").mkdir(parents=True)
+    (out / "renders").chmod(0o500)
+    stub = _recording_stub(tmp_path, tmp_path / "unused")
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+    source = tmp_path / "m.scad"
+    source.write_text("cube([10, 10, 10]);\n")
+    try:
+        result = openscad.render_views(OpenSCADSource(source), out)
+    finally:
+        (out / "renders").chmod(0o700)
+
+    assert isinstance(result, BuildError), "an unwritable directory is a refusal, not a traceback"
+    assert result.origin == "environment", "the environment stopped this, not the part"
+    assert str(out / "renders") in result.message, "and it names the directory"
