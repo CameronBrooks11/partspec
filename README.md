@@ -2,14 +2,20 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.7.5 is on PyPI** — `diff` can now answer for a
-> contract that wraps a third-party library. Until 0.7.5 every such comparison
+> **Status: pre-alpha; v0.7.6 is on PyPI** — a failing check now says what it
+> measured and what you asked for. `FAIL solid_count` was the whole diagnostic
+> until 0.7.6: the fact you already had, without the one you needed, while the
+> report held both numbers. It reads `measured 1, limit equals=2` now, from a
+> renderer generic over every scalar check. `measure --out` also says where the
+> artifact landed on the tier that writes one, and `render`'s section and view
+> paths no longer delete their own outputs before the engine reads them.
+> 0.7.5 before it made `diff` able to answer for a
+> contract that wraps a third-party library: every such comparison
 > was indeterminate whatever it found, because a Python closure was flagged
 > partial unconditionally; the report now records which distributions the model
 > imported and names its gaps, and `diff` keys on the *class* of gap rather
 > than a boolean. A library that moved under unmoved claims is `identical` and
-> says which library. 0.7.5 also stops `measure --out` destroying a file it was
-> told to write when that file is a build input. It
+> says which library. It
 > runs end to end — `check`, `measure` and `render` across all three engines (with
 > `--section` cuts on both tiers), `diff` on the reports and `vdiff` on
 > the renders they produce — and is dogfooded on real

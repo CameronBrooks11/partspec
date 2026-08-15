@@ -205,10 +205,18 @@ def test_every_action_in_the_release_workflow_is_pinned_to_an_exact_ref():
     sentence saying every action here is pinned exactly. So did `@latest`,
     `@7`, `@V7`, and the quoted `"…@v7"` form, which is valid YAML and slipped
     the regex because `(\\S+)` swallowed the closing quote (adversarial review
-    of #231). The rule is now the comment's rule: a 40-hex SHA, or a version
-    with at least a major AND a minor, so no upstream release can move under
-    it. Anything else — a branch, a tag alias, a bare major — is rejected by
-    not matching, rather than by being on a list of forms someone thought of.
+    of #231). The rule is now the comment's rule: a 40-hex SHA, or an exact
+    patch version (major.minor.patch), so no upstream release can move under
+    it. Anything else — a branch, a tag alias, a bare major, a two-part `vN.N`
+    — is rejected by not matching, rather than by being on a list of forms
+    someone thought of.
+
+    This sentence said "at least a major AND a minor" until the v0.7.6 pre-tag
+    audit. The regex was tightened to three parts in review, and the summary
+    was left spelling the pre-tightening rule — directly contradicting the
+    inline comment ten lines below it, and telling the next reader `@v7.0` is
+    acceptable on the checkout step the release gate's safety argument runs
+    from.
     """
     # Comments stripped, for `_live_lines`'s reason turned around: the
     # paragraph this test defends *discusses* `@v9`, and a check that read the

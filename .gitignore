@@ -98,9 +98,17 @@ notes/issues-final-*
 # The directory is CLOSED, not filtered. Git cannot re-include a file whose
 # parent directory is excluded, so a bare `!.claude/settings.json` below would
 # do nothing — measured, and this comment claimed the opposite until the review
-# of #234. To track something under here, unexclude the directory first and
-# then re-exclude what stays out:
-#     !.claude/
-#     .claude/*
+# of #234. To track something under here, exclude the CONTENTS rather than the
+# directory, then re-include the one path:
+#     **/.claude/*
+#     !**/.claude/
 #     !.claude/settings.json
+# The `**/` on both is load-bearing. The v0.7.6 pre-tag audit followed an
+# earlier version of this recipe — `!.claude/`, `.claude/*`, `!…` — and it
+# re-opened the leak the review that wrote it had just closed: a pattern with
+# no internal separator matches at ANY depth, so `!.claude/` re-included
+# `examples/.claude/scheduled_tasks.lock`, the exact file measured shipping in
+# the sdist. Measured again on the form above: the nested file stays ignored.
+# Note the sdist allowlist test asserts the only dot-directory shipped is
+# `.github`, so tracking anything here needs that test's list changed too.
 **/.claude/

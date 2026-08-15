@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-08-15
+
 ### Fixed
+
+- **The remedy for a refused `measure --out FILE` no longer points somewhere
+  that stops working.** The hint said "pass a directory", which was true until
+  the entry below gave the DIRECTORY spelling of the same request its own
+  refusal on the same grounds (#223). The obvious directory to reach for is the
+  model's own — and `_output_over_an_input` requires `<stem>.stl` to already
+  exist, so that **works on the first run and is refused from the second**, at
+  a different exit code with a different message. A remedy that works once is
+  harder to diagnose than one that never works. The hint now excludes the
+  model's own directory by name, and a test follows it rather than reading it:
+  refuse, take the remedy, and require three consecutive runs to succeed. Found
+  by the v0.7.6 pre-tag audit, whose own account of the mechanism this
+  corrects — it read the first run as refused too.
 
 - **A failing scalar check now prints the number it measured and the number it
   was given** (#210). `FAIL solid_count` was the entire diagnostic: it stated
@@ -296,9 +311,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `@V7` and the quoted `"…@v7"` form, which is valid YAML and slipped the
   pattern because `\S+` swallowed the closing quote. Found by the adversarial
   review of this change. The rule is now the comment's rule — a 40-hex SHA or a
-  version carrying at least a major and a minor — so anything a release could
-  move under is rejected by not matching, rather than by being on a list of
-  forms someone thought of.
+  version carrying a full major.minor.patch — so anything a release could move
+  under, `@v7.0` included, is rejected by not matching rather than by being on
+  a list of forms someone thought of.
 - **`SPEC-diff`'s artifact sample no longer shows a version the tool has never
   emitted** (#219). The sample carried `"tool": {"name": "partspec-diff",
   "version": "0.2.0"}`; `diff` emits the **partspec** version and has never had
@@ -1705,7 +1720,8 @@ callouts, and reports become comparable.
 [convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
 [dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.5...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/CameronBrooks11/partspec/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/CameronBrooks11/partspec/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/CameronBrooks11/partspec/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/CameronBrooks11/partspec/compare/v0.7.2...v0.7.3

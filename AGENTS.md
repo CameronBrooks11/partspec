@@ -10,8 +10,26 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha; **v0.7.5 released on PyPI** (2026-08-14, tag → trusted publishing via
-`release.yml`). 0.7.5 closes the comparator's engine-shaped hole, measured by a nine-agent
+Status: pre-alpha; **v0.7.6 released on PyPI** (2026-08-15, tag → trusted publishing via
+`release.yml`). 0.7.6 is a maintenance release with one behavioural change and a great deal
+of self-correction. `FAIL solid_count` was the entire diagnostic on a failing scalar check —
+the fact the reader already had, without the one they needed — while `report.json` held the
+measured value and the limit two feet away; it now reads `measured 1, limit equals=2`, from
+a generic renderer that `Limit`'s closed set of forms licenses, so every present and future
+scalar check gets it. `measure --out` says where the artifact landed on the tier that writes
+one. `render`'s section and view paths stopped deleting their own outputs before the engine
+reads them, closing the residue #223 filed against itself.
+
+The rest is the project auditing its own claims, and the pattern is worth recording because
+it held every time: **each fix for an overclaim introduced a quieter overclaim one field
+over.** A correction about figures nobody can re-derive asserted that `57` matched no reading
+of the frozen fleet logs — it is arm A's non-control total, and the counter-example was
+printed in the issue being closed. The fix for that shipped a test that passed against its
+own parent. The fix for a two-notation number format created the same defect on the parameter
+path while claiming to have unified all three. A workflow comment was corrected to cite the
+test enforcing it, in the same commit that renamed the test. Every one was caught by an
+adversarial reviewer prompted to refute rather than to check, and none by the test suite —
+which is the argument for the ritual. 0.7.5 before it closes the comparator's engine-shaped hole, measured by a nine-agent
 adoption fleet: `diff` went indeterminate on 3/3 CadQuery replicates and 0/3 OpenSCAD ones,
 same command and same version, because an OpenSCAD library is source on disk while a Python
 one is an installed distribution and `source_closure.partial` was therefore unconditional.

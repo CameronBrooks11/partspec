@@ -666,9 +666,21 @@ def render_views(
     What survives is the residue `render()` also ships with, and it is not a
     lost file: the move still replaces whatever sits at the destination, so a
     model reading its own view directory renders correctly once and then reads
-    its own output forever. Measured — `surface(file = "renders/iso.png")` with
-    `--out` elsewhere gives `render_bbox` z=62 on run 1 and a part 20x oversize
-    in x and y on run 2, at exit 0 with nothing on stderr, on every run after.
+    its own output forever — but only when `--out` points at a directory
+    CONTAINING the file the model reads. OpenSCAD resolves `surface(file = ...)`
+    against the entry file's directory, so with `--out` genuinely elsewhere the
+    written PNG never lands on the read one and consecutive runs are identical.
+    This paragraph omitted that condition until the v0.7.6 pre-tag audit, which
+    measured both shapes; the CHANGELOG had already been corrected and the
+    docstring left behind, in the same commit.
+
+    Measured on 2021.01 for the case that does compound — a model reading
+    `sub/renders/iso.png`, rendered with `--out sub` — run 1 gives a correct
+    `render_bbox`, and from run 2 the heightmap IS partspec's own view, so the
+    part takes that image's extent: `IMAGE_SIZE` is 800x800 and `surface()`
+    spans one unit per pixel gap, giving 799 in x and y, at exit 0 with nothing
+    on stderr, on every run after.
+
     `_output_over_an_input` does not reach it at all here: that guard knows only
     `<stem>.stl` and fires only when the out dir IS the source's, which for a
     view directory it need not be. Widening it means the same under-refusing

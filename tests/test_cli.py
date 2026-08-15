@@ -286,6 +286,54 @@ def test_measure_out_refuses_a_file_when_the_model_reads_external_data(
     assert "reads external data" in doc["error"]
     assert "input.stl" in doc["error"]
     assert "pass a directory" in doc["hint"]
+    # …"other than the model's own". The bare form always worked until #223
+    # gave the directory spelling its own refusal on the same grounds, and the
+    # obvious directory to reach for is the model's — see the test below, which
+    # follows this hint rather than reading it.
+    assert str(tmp_path) in doc["hint"], doc["hint"]
+
+
+@needs_scad_tier
+def test_the_remedy_for_a_refused_out_file_actually_works(tmp_path: Path, capsys):
+    """A hint is a claim, and this one is executed rather than read.
+
+    "pass a directory" was true until #223 gave the DIRECTORY spelling of the
+    same request its own refusal on the same grounds. The v0.7.6 pre-tag audit
+    read that as the remedy routing straight into a second refusal; measured,
+    it is worse than that. `_output_over_an_input` requires `<stem>.stl` to
+    already EXIST, so the obvious directory — the model's own — **works on the
+    first run and is refused from the second**, at a different exit code with a
+    different message. A remedy that works once is harder to diagnose than one
+    that never works.
+
+    So the hint now excludes the model's directory, and this test takes the
+    hint at its word: refuse, read the remedy, do what it says, and require
+    that to succeed — repeatedly, since once is not the property in question.
+    """
+    (tmp_path / "input.stl").write_bytes(b"donor")
+    target = scad_target(tmp_path, source="imports_data.scad", claims="")
+
+    assert main(["measure", target, "--out", str(tmp_path / "input.stl")]) == 64
+    hint = json.loads(capsys.readouterr().out)["hint"]
+
+    # The directory the hint rules out: fine once, refused thereafter.
+    assert main(["measure", target, "--out", str(tmp_path)]) == 0
+    capsys.readouterr()
+    assert main(["measure", target, "--out", str(tmp_path)]) == 4, (
+        "premise: the model's own directory is refused once its artifact is there"
+    )
+    capsys.readouterr()
+
+    # Somewhere else, which is what the hint leaves. Following it must work.
+    elsewhere = tmp_path / "artifacts"
+    for run in (1, 2, 3):
+        assert main(["measure", target, "--out", str(elsewhere)]) == 0, (
+            f"the remedy did not work on run {run}: {hint}"
+        )
+        doc = json.loads(capsys.readouterr().out)
+        assert doc["artifact"]["written"] is True
+        assert Path(doc["artifact"]["path"]).stat().st_size > 0
+    assert (tmp_path / "input.stl").read_bytes() == b"donor", "and the input survived"
 
 
 @needs_scad_tier
