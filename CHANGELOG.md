@@ -90,8 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   machine is the audience (#47) — one `reason` string feeds both. Exit stays 0:
   the measurement succeeded and is this verb's product, and discarding it over
   an unfulfillable side-request costs the caller more than the no-op flag does.
-  The key is present only where `--out` was passed and nothing could be
-  written, so its presence means something; it is additive, and
+  The key is present wherever `--out` was passed, in one state or the other
+  (see below); it is additive, and
   `SCHEMA_VERSION` does not move. `check --out` is untouched — it writes
   `report.json` into that directory on every tier. `SPEC-report.md`'s Scope
   states the rule. **The issue's other half does not reproduce and did not need
@@ -104,6 +104,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not establish what the reporter saw. `check --out DIR` does create the
   directory and writes `report.json` into it, which is the nearest behaviour
   that exists.
+
+### Added
+
+- **`measure --out` now says where the artifact landed, on the tier that
+  writes one** (#225). The entry above only ever appeared to report a
+  shortfall, so on the OpenSCAD tier a caller who passed `--out DIR` got exit
+  0, a file on disk, and nothing in the payload saying where — leaving them to
+  re-derive `<source stem>.stl`, a name partspec owns and has already moved
+  once (#187). The directory was the caller's; the filename inside it is not.
+  A successful `--out` now carries
+  `artifact: {requested, written: true, path}` in the same key, which cost
+  nothing to add because #204 made `written` a value rather than an inference
+  from the key's presence. Both spellings report through it: for a filename
+  destination `path` merely echoes `requested`, redundant on purpose so a
+  consumer reads one field instead of branching on the caller's phrasing. No
+  `--out`, no key — a report of a request nobody made is noise. Additive, so
+  `SCHEMA_VERSION` does not move; `SPEC-report.md`'s Scope states the rule.
 
 ## [0.7.5] - 2026-08-14
 

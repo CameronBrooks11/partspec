@@ -465,19 +465,57 @@ def test_measure_says_nothing_about_an_artifact_when_none_was_asked_for(
 
 
 @needs_scad_tier
-def test_measure_out_says_nothing_when_the_artifact_was_written(tmp_path: Path, capsys):
-    """The notice is about an unfulfillable request, not about `--out`.
+def test_measure_out_says_where_the_artifact_landed(tmp_path: Path, capsys):
+    """The inverse of what this test asserted until #225, deliberately.
 
-    On the one tier that exports something the flag does exactly what it says,
-    so there is nothing to report and the payload gains no key — which is what
-    makes the key's presence mean something.
+    It required the payload to gain NO key when the artifact WAS written, on
+    the reading that `artifact` means "your --out could not be honoured". That
+    reading was an artefact of `false` being the only case #204 shipped. The
+    key means what happened to your `--out`, and on the one tier that writes
+    something the interesting half is where: the caller chose the directory and
+    partspec chose the name inside it, so a consumer reading only `requested`
+    is still re-deriving `<source stem>.stl` — a rule this tool owns and has
+    already moved once (#187).
+
+    `path` is compared against a file this test independently locates and
+    stats, so the payload cannot pass by naming somewhere nothing was written.
+
+    stderr stays empty. The notice #204 added is about a request that could not
+    be met, and nothing here fell short.
     """
     target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
     out = tmp_path / "art"
     assert main(["measure", target, "--out", str(out)]) == 0
-    assert (out / "block_with_hole.stl").stat().st_size > 0
+    landed = out / "block_with_hole.stl"
+    assert landed.stat().st_size > 0
     captured = capsys.readouterr()
-    assert "artifact" not in json.loads(captured.out)
+    assert json.loads(captured.out)["artifact"] == {
+        "requested": str(out),
+        "written": True,
+        "path": str(landed),
+    }
+    assert captured.err == ""
+
+
+@needs_scad_tier
+def test_the_filename_form_reports_its_artifact_through_the_same_key(tmp_path: Path, capsys):
+    """One key, both spellings.
+
+    Here `path` merely echoes `requested`, which is redundant on purpose: a
+    consumer reads the same field whichever spelling it used, instead of
+    branching on a distinction that is about the caller's phrasing rather than
+    about where the file is.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="")
+    dest = tmp_path / "named.stl"
+    assert main(["measure", target, "--out", str(dest)]) == 0
+    assert dest.stat().st_size > 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["artifact"] == {
+        "requested": str(dest),
+        "written": True,
+        "path": str(dest),
+    }
     assert captured.err == ""
 
 

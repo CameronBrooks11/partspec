@@ -49,7 +49,14 @@ stderr is invisible to the machine this payload is for. Where the measurement di
 succeed — the model raised, the build failed — the run is a failure like any other and
 takes the failure shape below, carrying `error`/`hint` and no `artifact`: the unfulfilled
 `--out` is not the finding there, and reporting it beside a build that never happened
-would be noise dressed as a second problem. `check --out` is
+would be noise dressed as a second problem. On the tier that **does** produce an
+artifact, either spelling succeeding at exit `0` MUST carry the same key in the other
+state — `{requested, written: true, path}` — where `path` is where the artifact actually
+landed (#225). `written` is a value rather than an inference from the key's presence
+precisely so both states fit one key, and `path` is required rather than derivable: for a
+*directory* destination the caller chose the directory and partspec chose the name inside
+it, so a consumer that had to re-derive `<source stem>.stl` would be reimplementing a rule
+this tool owns and has already changed once (#187). `check --out` is
 out of scope here — it writes `report.json` into that directory
 on every tier. On any failure after the target resolves, both
 MUST emit a JSON object carrying that identity plus `error`/`hint` — `renders` empty
