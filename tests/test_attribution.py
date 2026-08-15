@@ -1,16 +1,22 @@
-"""Per-component attribution (#84): which axis failed, and on what evidence.
+"""What a failing check SAYS about itself: which axis, and with what numbers.
 
-Collected here because #158 left the subject split across two files — four
-end-to-end tests in the regions file, whose fixture they had borrowed, and two
-unit tests in `test_runner.py`. Neither location was wrong so much as partial:
-a reader asking "what does the tool say about WHICH component failed?" had to
-know both.
+Started as per-component attribution (#84) — which axis failed, and on what
+evidence — collected here because #158 left that subject split across two
+files. #210 extended it to the scalar case, where there is no axis to name and
+the tool said nothing at all, so the file's subject is now the whole of a
+failure's own account of itself.
 
-The four e2e ones run a real contract and read `components` out of the report;
-the two unit ones call `_components_of` and `_failing_axes` on hand-built
-measurements, which is where the epsilon and interval behaviour can be pinned
-without an engine. `test_region_clauses_appear_as_components` stays with the
-region checks — its subject is the region clause, not the attribution.
+Deliberately no counts in that sentence. This docstring said "four end-to-end
+tests … and two unit ones [which] call `_components_of` and `_failing_axes`"
+and was wrong within one PR of being written — the same rot `GEOMETRY_KINDS`
+records ("it read 'topology and hole_diameter are the entries' long after there
+were eight"), found by the adversarial review of #232.
+
+The e2e ones run a real contract and read the report; the unit ones call the
+renderers on hand-built measurements, which is where epsilon, interval and
+number-format behaviour can be pinned without an engine.
+`test_region_clauses_appear_as_components` stays with the region checks — its
+subject is the region clause, not the attribution.
 """
 
 from __future__ import annotations
@@ -152,52 +158,152 @@ def test_a_failing_scalar_check_carries_its_unit(tmp_path: Path):
     assert detail is not None and detail.endswith("mm3, limit min=1000000.0"), detail
 
 
-def test_a_boolean_measurement_does_not_render_as_a_number():
-    """`bool` subclasses `int` in Python, so the obvious isinstance ordering
-    renders `True` as `1` and a reader is told the part measured one of
-    something. `scad_literal` carries a note about the same trap; this pins
-    the other place it can bite.
+def test_a_bool_check_with_an_equals_limit_gets_no_numbers_because_it_has_none():
+    """The one kind where the generic renderer is noise, and the proof.
 
-    Reordering the two branches in `_quantity` leaves every other test in this
-    suite green, which is why this one exists.
-    """
-    from partspec import Limit
-    from partspec.runner import _failing_scalar
+    For a two-valued measurement an `equals` limit plus `FAIL` DETERMINES the
+    value, in both directions: failing `equals=true` means false, and failing
+    `equals=false` means true. So `measured false, limit equals=false` restates
+    the check id and the status and adds no fact — which is what the OCCT tier
+    printed for `watertight`, having no `watertight_detail` to win ahead of it
+    (adversarial review of #232).
 
-    m = Measurement(False, "bool")
-    assert _failing_scalar(m, Limit(equals=True)) == "measured false, limit equals=True"
-
-
-def test_a_conclusive_failure_on_an_approximate_measurement_keeps_its_interval():
-    """An approximate measurement whose WHOLE interval sits outside the limit
-    adjudicates to FAIL, not APPROXIMATE — so this path is reached with bounds
-    in hand, and printing the point value alone would state a number the
-    backend never claimed to know (SPEC-report 3.1).
+    The mesh tier's hook is unaffected and still says the useful thing, because
+    it is consulted first.
     """
     from partspec import Limit, adjudicate
     from partspec.runner import _failing_scalar
 
-    m = Measurement(1.5, "mm", exact=False, bounds=(1.4, 1.6))
-    limit = Limit(min=2.0)
+    for measured, bound in ((False, True), (True, False)):
+        m = Measurement(measured, "bool")
+        limit = Limit(equals=bound)
+        assert adjudicate(m, limit) is Status.FAIL, "premise: this is the failing direction"
+        assert _failing_scalar(m, limit) is None, (
+            f"measured {measured} against equals={bound} is a tautology at FAIL"
+        )
+
+
+def test_a_boolean_still_renders_as_a_word_wherever_it_is_shown():
+    """`bool` subclasses `int` in Python, so the obvious isinstance ordering
+    renders `True` as `1` and a reader is told the part measured one of
+    something. `scad_literal` carries a note about the same trap.
+
+    Both sides, since #232's review found `measured false, limit equals=True`
+    — one boolean, one sentence, two spellings — before `_number` became the
+    single formatter.
+    """
+    from partspec import Limit
+    from partspec.runner import _number, _render
+
+    assert _number(True) == "true" and _number(False) == "false"
+    assert _render(Limit(equals=True)) == "equals=true"
+
+
+def test_a_conclusive_failure_on_an_approximate_measurement_keeps_its_interval():
+    """An approximate measurement whose WHOLE interval sits outside the limit
+    adjudicates to FAIL, not APPROXIMATE — so a backend that emits one arrives
+    here with bounds in hand, and printing the point value alone would state a
+    number it never claimed to know (SPEC-report 3.1).
+
+    No primitive on this path emits `exact=False` today: `_min_wall_measurement`
+    is the only such site in either backend and `min_wall` returns from its own
+    runner first. The code and this test are on the `choices` branch's footing —
+    written for the first caller — and #232's review corrected a docstring that
+    called the path "not hypothetical".
+
+    The bounds differ past the sixth significant figure on purpose: at `:g`
+    they render as one number, so this also pins that the interval goes through
+    the same formatter as the value. It did not, and the mutation survived.
+    """
+    from partspec import Limit, adjudicate
+    from partspec.runner import _failing_scalar
+
+    lo, hi = 1234.56789, 1234.56791
+    assert f"{lo:g}" == f"{hi:g}", "premise: :g collapses this interval to a point"
+    m = Measurement(1234.5679, "mm3", exact=False, bounds=(lo, hi))
+    limit = Limit(min=99999.0)
     assert adjudicate(m, limit) is Status.FAIL, "premise: conclusively outside"
-    assert _failing_scalar(m, limit) == "measured 1.5 mm (in [1.4, 1.6]), limit min=2.0"
+    assert _failing_scalar(m, limit) == (
+        "measured 1234.5679 mm3 (in [1234.56789, 1234.56791]), limit min=99999.0"
+    )
 
 
-def test_the_rendered_numbers_survive_a_difference_in_the_seventh_figure():
-    """`:g` stops at six significant figures, so a measurement and the bound
-    it missed by a micron render identically and the line describes no failure
-    at all. `bolt_circle` records the same reason for its own `:.9g`.
+def test_the_measurement_and_the_limit_are_rendered_in_one_notation():
+    """The line exists so a reader can compare two numbers; they have to be
+    comparable.
+
+    `_quantity` used `:.9g` and `_render` a bare `str()`, so a large value
+    printed `measured 1.23456789e+09 mm3, limit min=10000000000.0` — two
+    notations for one comparison, reachable from the public API with
+    `volume(min=1e10)` (adversarial review of #232). One `_number` now serves
+    both.
     """
     from partspec import Limit
     from partspec.runner import _failing_scalar
 
-    value, bound = 2.0000001, 2.0
-    assert f"{value:g}" == f"{bound:g}", (
-        "premise: at :g these two numbers are the same string, which is the "
+    rendered = _failing_scalar(Measurement(1234567890.0, "mm3"), Limit(min=1e10))
+    assert rendered == "measured 1.23456789e+09 mm3, limit min=1e+10"
+    assert ("e+" in rendered.split(", limit ")[0]) == ("e+" in rendered.split(", limit ")[1]), (
+        "both halves must be in the same notation or the reader cannot compare them"
+    )
+
+
+def test_a_float_limit_does_not_print_as_an_integer():
+    """`:.9g` renders 2.0 as "2", and the vector messages have always shown the
+    difference (`z=10 outside max=5.0`). `solid_count` limits are ints and
+    `volume` limits are floats; a reader uses that."""
+    from partspec import Limit
+    from partspec.runner import _number, _render
+
+    assert _number(2.0) == "2.0" and _number(2) == "2"
+    assert _render(Limit(max=5.0)) == "max=5.0"
+    assert _number(0.1 + 0.2) == "0.3", "and :.9g still trims float noise"
+
+
+def test_the_dimensionless_units_are_still_the_ones_this_drops():
+    """`MEASURANDS` is the register of units, and the SPEC unit table is
+    generated from it precisely so a new check brings its own row.
+
+    `DIMENSIONLESS` is a second, hand-kept list over the same domain, so it
+    rots the same way. `rel` is deliberately absent — `step_roundtrip` does not
+    reach this path, and "measured 0.98 rel" is the honest rendering if it ever
+    does — but a NEW dimensionless unit must be classified here rather than
+    silently printing its own name (adversarial review of #232).
+    """
+    from partspec.contract import MEASURANDS
+    from partspec.runner import DIMENSIONLESS
+
+    units = {m.unit for m in MEASURANDS.values() if m.unit}
+    assert units == {"mm", "mm2", "mm3", "deg", "count", "bool", "rel"}, (
+        f"a unit was added or removed; decide whether it is dimensionless: {sorted(units)}"
+    )
+    assert units >= DIMENSIONLESS, "DIMENSIONLESS must name real units"
+
+
+def test_the_rendered_numbers_survive_a_difference_g_would_collapse():
+    """`:g` stops at six significant figures, so a measurement and the bound it
+    missed render identically and the line describes no failure at all.
+    `hole_diameter` records the same reason for its own `:.9g` — there the
+    collapse turns a tight band into an empty interval.
+
+    The pair is one that really FAILs. This test used `2.0000001` against
+    `max=2.0` until #232's review pointed out that `epsilon(2.0)` is 1.2e-6, so
+    that pair adjudicates PASS and `_failing_scalar` can never be reached with
+    it — a format defended by an example the tool declares equal.
+    """
+    from partspec import Limit, adjudicate
+    from partspec.runner import _failing_scalar
+
+    value, bound = 1000.0002, 1000.0
+    m, limit = Measurement(value, "mm"), Limit(max=bound)
+    assert adjudicate(m, limit) is Status.FAIL, (
+        "premise: this pair is a real failure, not one epsilon calls equal"
+    )
+    assert f"{value:g}" == f"{bound:g}" == "1000", (
+        "premise: at :g the two numbers are the same string, which is the "
         "whole reason the format is pinned"
     )
-    rendered = _failing_scalar(Measurement(value, "mm"), Limit(max=bound))
-    assert rendered == "measured 2.0000001 mm, limit max=2.0"
+    assert _failing_scalar(m, limit) == "measured 1000.0002 mm, limit max=1000.0"
 
 
 def test_the_limit_renderer_covers_every_form_its_type_defines():
@@ -225,8 +331,20 @@ def test_the_limit_renderer_covers_every_form_its_type_defines():
     assert set(one_of_each) == {f.name for f in fields(Limit)}, (
         "a form was added to Limit; _render must learn it too"
     )
-    for form, limit in one_of_each.items():
-        assert _render(limit), f"_render says nothing about a {form} limit"
+    # The exact string, not truthiness. `assert _render(limit)` passed with the
+    # `one of ` prefix deleted, rendering `limit 'a', 'b'` — a bound with no
+    # relation stated, which is precisely the "states a bound that is not
+    # there" failure this test exists to prevent (adversarial review of #232).
+    assert [_render(limit) for limit in one_of_each.values()] == [
+        "min=1.0",
+        "max=2.0",
+        "equals=3",
+        "one of a, b",
+    ], "every form must render, and say what relation it is"
+
+    # Joined with `and`, because the caller puts a comma between the
+    # measurement and the limit and one separator cannot do both jobs.
+    assert _render(Limit(min=1.0, max=2.0)) == "min=1.0 and max=2.0"
 
 
 def test_a_backend_that_declines_to_explain_falls_back_to_the_numbers():

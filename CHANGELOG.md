@@ -25,23 +25,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   licenses — a closed set of forms exists "so a consumer can render and compare
   limits without knowing the check kind" — so it covers every present and
   future scalar check for free. A backend that knows better still wins:
-  `<kind>_detail` is consulted first, which is how `watertight` keeps its
-  distinction between a hole and a non-manifold junction.
-  Three things fell out of writing it. A `<kind>_detail` hook is typed
-  `-> str | None` and `watertight_detail` really does return None for a case it
-  cannot characterise; the fallback is now chained rather than `elif`-ed, so
-  declining lands on the numbers instead of restoring the same emptiness one
-  layer up. `_render` handled three of `Limit`'s four forms and said nothing at
-  all about `choices` — unreachable through the contract API today, so the
-  first check to use one would have rendered `limit ` with nothing after it.
-  And the format is `:.9g`, for the reason `bolt_circle` already records: at
-  `:g`'s six significant figures a measurement and the bound it missed by a
-  micron render identically, and `measured 2 mm, limit max=2` describes no
-  failure at all.
+  `<kind>_detail` is consulted first, which is how the mesh tier's `watertight`
+  keeps its distinction between a hole and a non-manifold junction.
+  **A `bool` with an `equals` limit is the one kind that gets nothing**, and
+  the reason is a proof rather than a taste: for a two-valued measurement,
+  `equals` plus `FAIL` determines the value in both directions, so
+  `measured false, limit equals=false` restates the id and the status and adds
+  no fact. That is what the OCCT tier printed for `watertight`, having no hook
+  to win ahead of it.
+  Four things fell out of writing it. `_render` handled three of `Limit`'s four
+  forms and said nothing at all about `choices` — unreachable through the
+  contract API today, so the first check to use one would have rendered
+  `limit ` with nothing after it. Both halves of the comparison now go through
+  **one** number formatter, because they did not: a large value printed
+  `measured 1.23456789e+09 mm3, limit min=10000000000.0`, two notations for the
+  single comparison the line exists to enable. The limit's own forms join with
+  `and` rather than a comma, since the caller already puts a comma between the
+  measurement and the limit and one separator cannot do both jobs. And the
+  format is `:.9g` for the reason `hole_diameter` records at its own: six
+  significant figures collapse numbers a reader must see apart — `1000.0002`
+  against `max=1000.0` is a real failure that `:g` renders as `1000` on both
+  sides.
+  A `<kind>_detail` hook may decline (`-> str | None`) and none does today, so
+  the fallback is chained rather than `elif`-ed for the first one that will —
+  the same footing as the `choices` branch, written for a caller that does not
+  exist yet.
   The numbers land in the report's existing `detail` field, so a consumer gets
   them too; prose stays prose and the typed `measurement`/`limit` fields are
   unchanged, per SPEC-report §7.1's rule that data belongs in fields rather
-  than in `detail`. No schema change.
+  than in `detail`. `detail` is in `diff`'s `NON_CLAIM_FIELDS`, so nothing here
+  can make two identical runs compare `different`. No schema change.
 
 - **Correction to 0.7.5: the fleet-01 `diff` figure below is wrong, and the
   right one is 87** (#217). That entry says "3/3 CadQuery replicates

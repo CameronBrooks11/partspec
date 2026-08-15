@@ -402,12 +402,18 @@ def _run_geometry_check(spec: CheckSpec, backend: Any, artifact: Any) -> CheckRe
     if status is Status.FAIL:
         # A backend that knows something better than the numbers says it —
         # `watertight_detail` distinguishes a hole from a non-manifold junction,
-        # which no comparison of value to limit can. But the hook may DECLINE
-        # (`-> str | None`), and the fallback is chained rather than `elif`-ed
-        # so that declining lands on the numbers instead of on silence. As an
-        # `elif` a hook returning None left `detail` None, which is the #210
-        # emptiness restored one layer up, reachable the moment any hook has a
-        # case it cannot explain.
+        # which no comparison of value to limit can.
+        #
+        # The hook contract permits DECLINING (`-> str | None`), and no hook
+        # exercises that at a FAIL today: `watertight_detail` returns None iff
+        # the mesh IS watertight, which is a pass, and `self_intersection_free_
+        # detail` is typed `-> str` with no None path. The chain rather than an
+        # `elif` is for the first one that does — as an `elif` it left `detail`
+        # None, which is #210's emptiness restored one layer up. Same footing
+        # as `_render`'s `choices` branch: written for a caller that does not
+        # exist yet, and labelled as such rather than as a live bug. An earlier
+        # version of this comment asserted `watertight_detail` already declined
+        # that way (adversarial review of #232).
         explain = getattr(backend, f"{spec.kind}_detail", None)
         if explain is not None:
             detail = explain(artifact)
@@ -456,7 +462,19 @@ def _failing_axes(outcome: Measurement, limit: Limit, components: dict[str, Stat
     return "; ".join(parts)
 
 
-def _failing_scalar(outcome: Measurement, limit: Limit) -> str:
+DIMENSIONLESS = frozenset({"count", "bool"})
+"""Units naming no physical dimension, whose name the fail line drops.
+
+"measured 2 count" reads worse than "measured 2", and the check id already
+says what was counted. Named here rather than inline so
+`test_the_dimensionless_units_are_still_the_ones_this_drops` can hold it
+against `MEASURANDS`: `rel` is equally dimensionless and is deliberately NOT
+here, because `step_roundtrip` does not reach this path and "measured 0.98
+rel" is the honest rendering if it ever does (adversarial review of #232).
+"""
+
+
+def _failing_scalar(outcome: Measurement, limit: Limit) -> str | None:
     """The two numbers a scalar failure is about.
 
     The vector case has said this since `_failing_axes` was written. The scalar
@@ -471,49 +489,97 @@ def _failing_scalar(outcome: Measurement, limit: Limit) -> str:
 
     Generic rather than per-kind, which `Limit`'s own docstring licenses: a
     closed set of forms exists "so a consumer can render and compare limits
-    without knowing the check kind". A backend that wants better prose still
-    wins — `<kind>_detail` is consulted first, which is how `keep_out` keeps
-    its own sentence.
+    without knowing the check kind". A backend that knows better still wins —
+    `<kind>_detail` is consulted first, which is how the mesh tier's
+    `watertight` distinguishes a hole from a non-manifold junction. (Not
+    `keep_out`: that returns from `_run_region_check` long before the hook is
+    looked up, and builds its sentence itself. An earlier draft of this
+    paragraph credited a `keep_out_detail` that does not exist.)
 
-    `:.9g` for `bolt_circle`'s reason, recorded there: at `:g`'s six
-    significant figures a measurement and the bound it missed by a micron
-    render identically, and a line reading `measured 2 mm, limit min=2`
-    describes no failure at all.
+    **A bool with an `equals` limit gets nothing, because there is nothing to
+    say.** For a two-valued measurement an `equals` limit plus `FAIL`
+    determines the value: failing `equals=true` means false and failing
+    `equals=false` means true, in both directions. `measured false, limit
+    equals=false` restates the id and the status and adds no fact — the one
+    place where the generic renderer produces noise rather than signal, found
+    by the adversarial review of #232 on the OCCT tier, which has no
+    `watertight_detail` to win ahead of it.
+
+    `:.9g` for `hole_diameter`'s reason, which that check records at its own
+    `:.9g`: six significant figures collapse numbers a reader needs to see
+    apart. The example there is a tight band printing as an empty interval;
+    here it is a measurement and the bound it missed — `1000.0002` against
+    `max=1000.0` is a real `FAIL` that `:g` renders as `1000` on both sides.
+    (Not "missed by a micron", as this said until the review: `epsilon(2.0)` is
+    1.2e-6, so a one-micron miss at that magnitude adjudicates PASS and never
+    reaches this function at all.)
     """
+    if outcome.unit == "bool" and limit.equals is not None:
+        return None
     return f"measured {_quantity(outcome)}, limit {_render(limit)}"
+
+
+def _number(value: Any) -> str:
+    """One numeric format, shared by the measurement and the limit it missed.
+
+    They were formatted differently — `:.9g` here and a bare `str()` in
+    `_render` — so a large value printed `measured 1.23456789e+09 mm3, limit
+    min=10000000000.0`, two notations for the single comparison the line exists
+    to let a reader make (adversarial review of #232). Reachable from the public
+    API with `volume(min=1e10)`.
+
+    `bool` before the numeric branch, because `bool` subclasses `int` in Python
+    and the obvious ordering renders `True` as `1` — the same trap
+    `scad_literal` carries a note about, and the reason `limit equals=True` and
+    `measured false` once described one boolean in one sentence two ways.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        text = f"{value:.9g}"
+        # `:.9g` renders 2.0 as "2", and a float limit that prints as an
+        # integer loses information the reader uses: `solid_count` limits are
+        # ints and `volume` limits are floats, and the existing vector messages
+        # (`z=10 outside max=5.0`) have always shown the difference. Restored
+        # only where the rendering has neither a point nor an exponent, so
+        # nothing else is touched. NaN and the infinities cannot arrive here —
+        # `Measurement._reject_non_finite` refuses them at construction.
+        if "." not in text and "e" not in text:
+            text += ".0"
+        return text
+    return str(value)
 
 
 def _quantity(m: Measurement) -> str:
     """A scalar measurement as one human-readable term.
 
-    `bool` is tested before the numeric branch because `bool` subclasses `int`
-    in Python and the obvious ordering renders `True` as `1` — the same trap
-    `scad_literal` carries a note about.
-
     `count` and `bool` name no dimension and their unit is dropped: the check
     id already says what was counted, and "measured 2 count" reads worse than
-    "measured 2".
+    "measured 2". `MEASURANDS` is the register of units and
+    `test_the_dimensionless_units_are_still_the_ones_this_drops` fails when it
+    grows one this does not classify.
 
-    The interval rides along when the measurement is not exact. That is not
-    hypothetical here: an approximate measurement whose WHOLE interval sits
-    outside the limit adjudicates to `FAIL`, not `APPROXIMATE`, so this
-    function is reached with bounds in hand and dropping them would state a
-    single number the backend never claimed to know (SPEC-report 3.1).
+    The interval rides along when the measurement is not exact, which no
+    primitive on this path emits today — `_min_wall_measurement` is the only
+    `exact=False` site in either backend and `min_wall` returns from its own
+    runner before reaching here. It is written anyway, on the `choices` branch's
+    principle: an approximate measurement whose WHOLE interval sits outside the
+    limit adjudicates to `FAIL` rather than `APPROXIMATE`, so the first backend
+    to emit one arrives here with bounds in hand, and printing the point value
+    alone would state a single number it never claimed to know (SPEC-report
+    3.1). This docstring said the path was "not hypothetical"; it is, and the
+    review of #232 said so.
     """
-    value = m.value
-    if isinstance(value, bool):
-        text = "true" if value else "false"
-    elif isinstance(value, int | float):
-        text = f"{value:.9g}"
-    else:
-        text = repr(value)
-    if m.unit not in ("count", "bool"):
+    text = _number(m.value)
+    if m.unit not in DIMENSIONLESS:
         text = f"{text} {m.unit}"
     if m.bounds is not None:
         # After the unit, not before it: the interval is in the same unit as
         # the value, and "1.5 (in [1.4, 1.6]) mm" reads as though it were not.
         lo, hi = m.bounds
-        text += f" (in [{lo:.9g}, {hi:.9g}])"
+        text += f" (in [{_number(lo)}, {_number(hi)}])"
     return text
 
 
@@ -1123,17 +1189,28 @@ def _render(limit: Limit) -> str:
     line reading `measured "x", limit ` states a bound that is not there. A
     renderer over a closed set that handles three of its four members is the
     silent gap this project exists to refuse, waiting for a caller.
+
+    Values go through `_number`, the same formatter the measurement uses, so
+    the two halves of one comparison are in one notation. `choices` renders its
+    members bare for the same reason: `repr` quoted a string that `equals`
+    renders unquoted, so one value wore two spellings depending on which form
+    held it.
+
+    Joined with `and`, not a comma, because the caller puts a comma between the
+    measurement and the limit — `measured 5640 mm3, limit min=1e6, max=2e6` has
+    one separator doing two jobs, and `_failing_axes` already avoids that by
+    joining axes with `;`.
     """
     parts = []
     if limit.min is not None:
-        parts.append(f"min={limit.min}")
+        parts.append(f"min={_number(limit.min)}")
     if limit.max is not None:
-        parts.append(f"max={limit.max}")
+        parts.append(f"max={_number(limit.max)}")
     if limit.equals is not None:
-        parts.append(f"equals={limit.equals}")
+        parts.append(f"equals={_number(limit.equals)}")
     if limit.choices is not None:
-        parts.append("one of " + ", ".join(repr(c) for c in limit.choices))
-    return ", ".join(parts)
+        parts.append("one of " + ", ".join(_number(c) for c in limit.choices))
+    return " and ".join(parts)
 
 
 def _digest(path: Path | None) -> str | None:
