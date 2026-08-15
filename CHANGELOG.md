@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failing scalar check now prints the number it measured and the number it
+  was given** (#210). `FAIL solid_count` was the entire diagnostic: it stated
+  the fact the reader already had — that something is wrong — and withheld the
+  one they needed, while `report.json` two feet away held `{"value": 1}`
+  against `{"equals": 2}`. For that check the value *is* the finding, and the
+  two directions point at opposite causes: too few means bodies fused, too many
+  means something fragmented or a support detached. The line now reads
+  `FAIL solid_count — measured 1, limit equals=2` and
+  `FAIL volume — measured 1125.0 mm3, limit min=5000.0`.
+  **Only the scalar case was missing.** Vector checks have named their numbers
+  since `_failing_axes` (`FAIL envelope — z=10 outside max=5`), and `keep_out`
+  has its own sentence; the gap was every check with nothing to attribute. The
+  renderer is generic rather than per-kind, which `Limit`'s own docstring
+  licenses — a closed set of forms exists "so a consumer can render and compare
+  limits without knowing the check kind" — so it covers every present and
+  future scalar check for free. A backend that knows better still wins:
+  `<kind>_detail` is consulted first, which is how the mesh tier's `watertight`
+  keeps its distinction between a hole and a non-manifold junction.
+  **A `bool` with an `equals` limit is the one kind that gets nothing**, and
+  the reason is a proof rather than a taste: for a two-valued measurement,
+  `equals` plus `FAIL` determines the value in both directions, so
+  `measured false, limit equals=false` restates the id and the status and adds
+  no fact. That is what the OCCT tier printed for `watertight`, having no hook
+  to win ahead of it.
+  Four things fell out of writing it. `_render` handled three of `Limit`'s four
+  forms and said nothing at all about `choices` — unreachable through the
+  contract API today, so the first check to use one would have rendered
+  `limit ` with nothing after it. Both halves of the comparison now go through
+  **one** number formatter, because they did not: a large value printed
+  `measured 1.23456789e+09 mm3, limit min=10000000000.0`, two notations for the
+  single comparison the line exists to enable. **All three callers**, which
+  took two rounds: routing only `_render` through the shared formatter created
+  the same two-notation defect on the parameter path (`p.param("hole_d",
+  max=1e9)` printed `hole_d=10000000000.0 outside max=1e+09`) and left it
+  untouched on the vector path, where a `1000.0002` against `max=1000.0` still
+  printed `x=1000 outside max=1000.0` — a failure line reading as an equality,
+  which is the exact collapse the format was chosen to prevent. Vector axis
+  values now show their type too, so `envelope` reads
+  `z=10.0 outside max=5`. The limit's own forms join with
+  `and` rather than a comma, since the caller already puts a comma between the
+  measurement and the limit and one separator cannot do both jobs — and
+  `choices` braces its members, because it is the one form with an internal
+  list and reproduced that ambiguity two lines after removing it. And the
+  format is `:.9g` for the reason `hole_diameter` records at its own: six
+  significant figures collapse numbers a reader must see apart — `1000.0002`
+  against `max=1000.0` is a real failure that `:g` renders as `1000` on both
+  sides.
+  A `<kind>_detail` hook may decline (`-> str | None`) and none does today, so
+  the fallback is chained rather than `elif`-ed for the first one that will —
+  the same footing as the `choices` branch, written for a caller that does not
+  exist yet.
+  The numbers land in the report's existing `detail` field, so a consumer gets
+  them too; prose stays prose and the typed `measurement`/`limit` fields are
+  unchanged, per the principle SPEC-report states at §6.1 for `origin` and in
+  its post-v0.1 Q8 resolution for `components` — data a consumer branches on is
+  a field, and `detail` is prose. (Not "§7.1's rule": §7.1's only word on
+  `detail` sanctions putting a bore inventory in it, which is the opposite.
+  Round-2 review of #232, and the same misattribution round 1 found in the
+  `:.9g` citation.) `detail` is in `diff`'s `NON_CLAIM_FIELDS`, so nothing here
+  can make two identical runs compare `different`. No schema change.
+
 - **Correction to 0.7.5: the fleet-01 `diff` figure below is wrong, and the
   right one is 87** (#217). That entry says "3/3 CadQuery replicates
   indeterminate over **73 real invocations**". Counted from the frozen fleet-01
