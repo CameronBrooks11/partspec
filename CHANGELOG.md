@@ -35,7 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the spec's version of the sentence names the ratio without a count.
 
 - **A build no longer destroys the input it derives its own artifact name from
-  — on `check` as well as on `measure`, and not yet on every path.**
+  — on `check` as well as on `measure`, and on every path in the OpenSCAD
+  engine.** ("not yet on every path" until the entry below closed #224; the
+  remaining unlinks in `cli` and `raster` clear `renders/section_<plane>.png`,
+  which is the deliberate opposite trade — a failing section must not leave the
+  previous run's image to be read as this run's, and the mesh tier has no
+  `surface()` to make a PNG an input.)
   `engines/openscad.render` unlinked `<out dir>/<source stem>.stl`
   before invoking the engine, so a model whose `import()` target sits at that
   derived path built without it. Filed as a `measure --out DIR` bug (#208); it
