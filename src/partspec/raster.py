@@ -189,8 +189,13 @@ def render_views(
 ) -> tuple[dict[str, Path], dict[str, object], dict[str, list[float]]] | BuildError:
     """The canonical views of an OCCT-tier shape, plus the tessellation record.
 
-    Mirrors `openscad.render_views`: same view names, same framing rules, same
-    stale-artifact discipline. Returns the view map, a
+    Mirrors `openscad.render_views` in view names and framing rules. NOT in
+    stale-artifact discipline: since #223 and #224 the OpenSCAD tier renders
+    into a scratch directory and moves the result, and this one still clears
+    each destination first — the opposite trade, and safe to make here because
+    the OCCT tier has no `surface()` to make a PNG a build input. The two were
+    the same until this cycle and this sentence said so afterwards. Returns the
+    view map, a
     ``{tolerance_mm, triangles}`` record — under D15 the tessellation is what
     was shown, so its quality rides with the images — and the framing bbox
     (`bbox_block`), the scale witness a visual diff needs (#21).
@@ -201,6 +206,28 @@ def render_views(
         # build123d refuses to tessellate an empty shape; same answer either
         # way — nothing to show is a stated refusal, not four blank frames.
         vertices, faces = [], []
+    except Exception as exc:  # noqa: BLE001 — see below
+        # Everything else this ONE call can raise, classified rather than
+        # allowed to escape. `bd_warehouse`'s `IsoThread(external=False)` nut,
+        # whose thread vanishes during fusion, reached
+        # `AttributeError: 'NoneType' object has no attribute 'NbNodes'` — OCCT
+        # returns no triangulation for a face it cannot mesh and build123d
+        # assumes one — and that came out as a stack trace where a classified
+        # failure belongs (#191). `check` on the SAME part reaches a real
+        # verdict, so the part is evaluable and only rendering it falls over.
+        #
+        # Broad on purpose, and not a mask: the `try` wraps a single call, so
+        # any exception out of it IS a tessellation failure and the sentence is
+        # true by construction. The underlying type and text ride along, so
+        # nothing is hidden — including a partspec bug, which would name
+        # itself here rather than vanish.
+        return BuildError(
+            f"this solid could not be tessellated for rendering: {type(exc).__name__}: {exc}",
+            hint="a kernel that cannot triangulate a face usually has a degenerate or "
+            "self-intersecting solid to work with — `check` with `watertight` and "
+            "`self_intersection_free` says whether that is so, and answers on this part "
+            "even though rendering does not",
+        )
     if not faces:
         return BuildError("this shape contains no geometry, so there is nothing to render")
     points = np.array([(v.X, v.Y, v.Z) for v in vertices], dtype=np.float64)

@@ -108,6 +108,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `diff`'s handling of a report carrying a list where a gap token belongs was
   checked too, since that is an untrusted-JSON boundary rather than an API one,
   and that path is clean.
+- **A solid the kernel cannot mesh is a refusal, not a stack trace** (#191).
+  OCCT returns no triangulation for a face it cannot mesh and build123d assumes
+  one, so `render` raised
+  `AttributeError: 'NoneType' object has no attribute 'NbNodes'` straight out of
+  `raster.render_views`. An unhandled exception escapes the report machinery
+  entirely — no artifact, no verdict, no exit code, just a stack trace — which
+  is the one failure mode this tool cannot have. Found by a fleet adoption
+  agent on `bd_warehouse`'s `IsoThread(external=False)` nut, whose thread
+  vanishes during fusion, and reproduced independently.
+  `check` on the SAME part reaches a real verdict, so the part is evaluable and
+  only rendering it falls over — which is what the message now says, with a
+  hint pointing at `watertight` and `self_intersection_free`, the checks that
+  do answer on it. The agent had drawn that inference from the traceback by
+  itself; the tool states it now.
+  The guard is deliberately broad and is not a mask: the `try` wraps a single
+  call, so anything out of it IS a tessellation failure and the sentence is
+  true by construction, while the underlying type and text ride along so
+  nothing is hidden — including a partspec bug, which names itself there
+  rather than vanishing. The pre-existing `ValueError` branch keeps its own
+  answer, since an empty part has nothing to show rather than something that
+  could not be shown, and collapsing the two would point a reader at topology
+  checks for a part with no topology.
+  Also corrected while in the file: `render_views`'s docstring claimed it
+  mirrors the OpenSCAD tier's "stale-artifact discipline". Since #223 and #224
+  the two are opposites, and the v0.7.6 audit caught the sibling citation one
+  line down without this one.
 
 ## [0.7.6] - 2026-08-15
 

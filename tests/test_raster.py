@@ -275,6 +275,73 @@ def test_render_views_writes_the_views_and_records_the_tessellation(tmp_path: Pa
     assert bbox == {"min": [-10.0, -5.0, -2.5], "max": [10.0, 5.0, 2.5]}
 
 
+@pytest.mark.parametrize(
+    "raised",
+    [
+        AttributeError("'NoneType' object has no attribute 'NbNodes'"),
+        RuntimeError("Standard_Failure"),
+        TypeError("cannot unpack non-sequence"),
+    ],
+)
+def test_a_solid_the_kernel_cannot_mesh_is_a_refusal_not_a_traceback(
+    tmp_path: Path, raised: Exception
+):
+    """#191, found by a fleet adoption agent on `bd_warehouse`'s
+    `IsoThread(external=False)` nut, whose thread vanishes during fusion.
+
+    OCCT returns no triangulation for a face it cannot mesh and build123d
+    assumes one, so `shape.tessellate` raised
+    `AttributeError: 'NoneType' object has no attribute 'NbNodes'` straight
+    out of here. An unhandled exception escapes the report machinery entirely
+    — no artifact, no verdict, no exit code, just a stack trace — which is the
+    one failure mode this tool cannot have.
+
+    `check` on the SAME part reaches a real verdict, so the part is evaluable
+    and only rendering it falls over. That is what the message has to say.
+
+    Parametrised over three exception types because the guard is deliberately
+    broad: the `try` wraps a single call, so anything out of it IS a
+    tessellation failure and the sentence is true by construction. A stub
+    rather than the real nut — this is `render_views`'s bookkeeping, and
+    pinning it to `bd_warehouse` would make the test unrunnable here.
+    """
+
+    class Unmeshable:
+        def tessellate(self, _tolerance):
+            raise raised
+
+    result = render_views(Unmeshable(), tmp_path)
+
+    assert isinstance(result, BuildError), "a stack trace is not a refusal"
+    assert "could not be tessellated" in result.message
+    # The underlying failure rides along: the guard is broad, so it must not
+    # swallow what it caught -- including a partspec bug, which names itself
+    # here rather than vanishing.
+    assert type(raised).__name__ in result.message and str(raised) in result.message
+    assert "self_intersection_free" in (result.hint or ""), (
+        "and it points at the checks that answer on a part rendering cannot"
+    )
+
+
+def test_an_empty_shape_is_still_the_no_geometry_refusal(tmp_path: Path):
+    """The `ValueError` branch above the new one, which it must not swallow.
+
+    build123d raises `ValueError` for an empty shape and the answer there is
+    different: nothing to show, rather than something that could not be shown.
+    Collapsing the two would report an empty part as an unmeshable solid and
+    point the reader at topology checks for a part with no topology.
+    """
+
+    class Empty:
+        def tessellate(self, _tolerance):
+            raise ValueError("empty shape")
+
+    result = render_views(Empty(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert result.message == "this shape contains no geometry, so there is nothing to render"
+
+
 def test_the_production_framing_constants_bind(tmp_path: Path):
     """PR #127 review, F2: the framing tests above derive half_height through
     a formula this file duplicates, so the production constants could drift
