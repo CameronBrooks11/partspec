@@ -751,7 +751,8 @@ def test_a_refused_argument_is_quoted_but_not_pasted_whole():
     from partspec import Part, openscad, region
     from partspec.refs import iso15
 
-    big = list(range(2000))
+    # The wrong type is the point, so the ignores are the test.
+    big: Any = list(range(2000))
     raised = []
     for call in (
         lambda: region.cylinder(d=5, h=5, axis=big),
