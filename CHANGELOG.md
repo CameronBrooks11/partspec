@@ -209,7 +209,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A genuine deletion, where nothing failed to resolve, keeps the old message
   and the old advice, both of which are correct there. Each branch has its own
   test, and the hint's CONTENT is asserted rather than one spelling of it —
-  `REFUSED_OUT_HINT`'s docstring forty lines away records why, and four mutants
+  `REFUSED_OUT_HINT`'s docstring records why, and four mutants
   of the first version's hint survived the suite.
 
 ## [0.7.6] - 2026-08-15

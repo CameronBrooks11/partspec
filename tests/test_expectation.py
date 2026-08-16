@@ -267,7 +267,7 @@ def test_a_pinned_target_that_crashed_is_not_reported_as_a_deletion(tmp_path: Pa
     assert "'good-part'" in err, "the uncovered pin is still named"
     assert f"{spec}:good" in err, "and so is the target that did not resolve"
     assert "may be that failure rather than a deletion" in err
-    assert "Do NOT re-pin" in err
+    assert "partspec refuses that while a target is unresolved" in err
     assert "deleted part is a deleted claim set" not in err, (
         "it was not deleted, it crashed, and the line above says so"
     )
@@ -424,6 +424,99 @@ def test_the_crash_hint_names_the_parts_it_is_protecting(tmp_path: Path, capsys,
     hint = next(line for line in capsys.readouterr().err.splitlines() if line.startswith("  hint:"))
 
     assert "'a-part'" in hint, "the parts at risk are named"
-    assert "Do NOT re-pin" in hint
+    assert "partspec refuses that" in hint, (
+        "the hint must describe the guard that exists, not threaten a write that "
+        "the same commit made impossible"
+    )
     assert "that claim set" in hint, "one part, singular"
     assert "those claim sets" not in hint
+
+
+@needs_scad_tier
+def test_a_lock_partspec_cannot_read_is_not_treated_as_empty(tmp_path: Path, capsys, monkeypatch):
+    """The guard must not fail OPEN on the locks it can least verify.
+
+    Inside `is_file()` a `LockError` means unreadable, malformed, or a schema
+    this build does not know — never "no lock yet". The first version turned it
+    into `{}`, which says "nothing can be lost", and then overwrote the file:
+    measured, a two-part lock was rewritten as a one-part one because a target
+    crashed, with `pinned 1 part(s)` as the only output (round-3 review of
+    #243).
+    """
+    targets = _crashable(tmp_path)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", *targets, "--quiet", "--pin", str(lock)]) == 0
+    lock.write_text('{"schema_version": 99, "parts": {"a-part": {}, "b-part": {}}}\n')
+    before = lock.read_bytes()
+
+    monkeypatch.setenv("CRASH_A", "1")
+    code = main(["check", *targets, "--quiet", "--pin", str(lock)])
+    err = capsys.readouterr().err
+
+    assert code == 4
+    assert "refusing to re-pin" in err and "cannot tell" in err, err
+    assert lock.read_bytes() == before, "an unreadable lock must not be overwritten"
+
+
+@needs_scad_tier
+def test_a_deliberate_shrink_with_nothing_unresolved_still_writes(tmp_path: Path, capsys):
+    """The paired test the destructive guard was missing.
+
+    Turning `--pin` into "never shrink a lock" would break every deliberate
+    retirement, and dropping the `unresolved` conjunct passed the whole suite
+    (round-3 review of #243). Nothing crashes here, so the shrink is the
+    author's decision and must go through.
+    """
+    targets = _crashable(tmp_path)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", *targets, "--quiet", "--pin", str(lock)]) == 0
+    capsys.readouterr()
+
+    assert main(["check", targets[1], "--quiet", "--pin", str(lock)]) == 0
+    assert "refusing" not in capsys.readouterr().err
+    from partspec.expectation import read_lock
+
+    assert sorted(read_lock(lock)) == ["b-part"], "the deliberate retirement went through"
+
+
+@needs_scad_tier
+def test_the_count_does_not_dedupe_the_targets_it_counts(tmp_path: Path, capsys, monkeypatch):
+    """`certain = len(uncovered) - len(unresolved)`, not `len(set(...))`.
+
+    The bound is "one target accounts for at most one part", so deduping the
+    target STRINGS breaks it: the same spec twice is two targets and two
+    possible parts. Deduping made a run claim a deletion that had not happened
+    (round-3 review of #243).
+
+    The counter lives in a FILE, not a module global: `invalidate_model_modules`
+    evicts the contract between targets, so module state resets and the same
+    spec twice would otherwise produce one id — which is why this needed a
+    second look to reproduce at all.
+    """
+    (tmp_path / "m.scad").write_text("cube([30, 20, 10]);\n")
+    counter = tmp_path / "n"
+    spec = tmp_path / "v.py"
+    spec.write_text(
+        "import os\nfrom pathlib import Path\n\nfrom partspec import Part, openscad\n\n\n"
+        "def v():\n"
+        "    if os.environ.get('CRASH_V'):\n"
+        "        raise RuntimeError('boom')\n"
+        f"    c = Path({str(counter)!r})\n"
+        "    n = int(c.read_text()) if c.is_file() else 0\n"
+        "    c.write_text(str(n + 1))\n"
+        "    return Part(f'v-part-{n}', openscad('m.scad')).watertight()\n"
+    )
+    lock = tmp_path / "claims.lock"
+    assert main(["check", f"{spec}:v", f"{spec}:v", "--quiet", "--pin", str(lock)]) == 0
+    from partspec.expectation import read_lock
+
+    assert sorted(read_lock(lock)) == ["v-part-0", "v-part-1"], "premise: two ids, one spec"
+
+    monkeypatch.setenv("CRASH_V", "1")
+    assert main(["check", f"{spec}:v", f"{spec}:v", "--quiet", "--expect", str(lock)]) == 4
+    err = capsys.readouterr().err
+
+    assert "was deleted" not in err and "were deleted" not in err, err
+    assert "rather than a deletion" in err, (
+        "two crashed targets can account for two uncovered ids; nothing is provable"
+    )

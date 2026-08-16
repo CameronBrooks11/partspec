@@ -667,11 +667,33 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         #
         # Refused rather than warned: `--pin` overwrites, so by the time a
         # warning is read the claim set is already gone.
-        if unresolved and Path(args.pin).is_file():
+        if unresolved and args.pin.is_file():
             try:
-                existing = read_lock(Path(args.pin))
-            except LockError:
-                existing = {}
+                existing = read_lock(args.pin)
+            except LockError as exc:
+                # NOT `{}`. Inside `is_file()` a LockError means unreadable,
+                # malformed, or a schema this build does not know — never "no
+                # lock yet", which the branch already excluded. Treating it as
+                # empty said "nothing can be lost" about precisely the locks
+                # whose contents cannot be checked, and then overwrote them:
+                # measured, a schema-2 lock covering two parts was silently
+                # rewritten as a one-part schema-1 lock because a target
+                # crashed (round-3 review of #243). Failing open is the one
+                # direction this guard must not fail.
+                print(
+                    f"partspec: refusing to re-pin: {exc}, so partspec cannot tell "
+                    f"whether writing it would drop a claim set — and {
+                        ', '.join(repr(s) for s in sorted(set(unresolved)))
+                    } did not resolve",
+                    file=sys.stderr,
+                )
+                print(
+                    "  hint: fix the failing target and re-run, or delete the lock to "
+                    "re-pin from scratch",
+                    file=sys.stderr,
+                )
+                codes.append(exit_code(Verdict.ERROR))
+                return _batch_exit(codes)
             lost = sorted(existing.keys() - pinned_parts.keys())
             if lost:
                 failed = ", ".join(repr(s) for s in sorted(set(unresolved)))
@@ -682,9 +704,10 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
                     file=sys.stderr,
                 )
                 print(
-                    "  hint: fix the failing target and re-run. A lock that shrinks "
-                    "because a target crashed is a deleted claim set, and this is the "
-                    "one flag that can do it without saying so",
+                    "  hint: fix the failing target and re-run. If the removal is "
+                    "deliberate, delete the lock and re-pin from scratch — a lock cannot "
+                    "be written in part, so partspec cannot keep the deliberate half "
+                    "while a target is unresolved",
                     file=sys.stderr,
                 )
                 codes.append(exit_code(Verdict.ERROR))
@@ -721,7 +744,13 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             # installs the mirror of #201's defect: a guard refusing a
             # conclusion it has earned, suppressing the correct remedy for
             # parts the failure cannot explain (adversarial review of #243).
-            certain = len(uncovered) - len(set(unresolved))
+            # `len(unresolved)`, not `len(set(...))`. The bound is "one target
+            # accounts for at most one part", so deduping the TARGET STRINGS
+            # breaks it: the same spec twice, with a factory that is not pure
+            # (which SPEC-contract nowhere forbids), is two targets and two
+            # possible parts. Dedupe is for the display list only (round-3
+            # review of #243).
+            certain = len(uncovered) - len(unresolved)
             if unresolved and certain <= 0:
                 # Nothing is provable: the failures could account for all of
                 # them. Name the failures and decline.
@@ -735,9 +764,9 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
                     file=sys.stderr,
                 )
                 print(
-                    f"  hint: fix the target and re-run before deciding. Do NOT re-pin "
-                    f"yet: --pin would write a lock without {names}, deleting {sets} "
-                    f"permanently",
+                    f"  hint: fix the target and re-run before deciding. Re-pinning "
+                    f"now would write a lock without {names} — partspec refuses that "
+                    f"while a target is unresolved, and {sets} would otherwise be gone",
                     file=sys.stderr,
                 )
             elif unresolved:
@@ -747,13 +776,14 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
                 print(
                     f"partspec: the pin covers {names} and nothing in this invocation "
                     f"produced {it}. {failed} did not resolve and can account for at "
-                    f"most {len(set(unresolved))} of them, so at least {certain} "
+                    f"most {len(unresolved)} of them, so at least {certain} "
                     f"{'was' if certain == 1 else 'were'} deleted",
                     file=sys.stderr,
                 )
                 print(
                     "  hint: fix the failing target first — re-pinning now would write "
-                    "a lock without any of them, and only the deleted ones should go",
+                    "a lock without any of them, and only the deleted ones should go. "
+                    "partspec refuses that write while a target is unresolved",
                     file=sys.stderr,
                 )
             else:
