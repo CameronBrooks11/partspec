@@ -20,15 +20,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compares two reports and nothing about them differs. Only the sentence was
   wrong — "code right, words wrong", in permanent output, on the honesty line
   the #190 work added precisely to stop a silent claim.
-  Keyed on the verdict rather than reworded flat, because the strong sentence
-  is worth keeping where it is TRUE and `verdict: pass` is exactly its
-  condition ("≥1 check, all pass"). A `fail` or `incomplete` pair is told its
-  status did not change and which verdict both sides carry; **an `empty` pair
-  is told neither side declared a claim**, since "every declared claim held"
-  over zero claims is vacuously true, which is the shape this project exists to
-  refuse rather than a technicality it gets to lean on. `verdict` is
-  outcome-bearing, so under `identical` one value describes both sides;
-  `error` cannot arrive, an errored side being `indeterminate` first.
+  Gated rather than reworded flat, because the strong sentence is worth keeping
+  where it is TRUE. A `fail` or `incomplete` pair is told its status did not
+  change and which state both sides are in; **a pair with no declared claim is
+  told so**, since "every declared claim held" over no claims is vacuously
+  true, which is the shape this project exists to refuse rather than a
+  technicality it gets to lean on. Under `identical` every id, status and claim
+  field is equal on both sides, so the later report describes both.
+  **Read off the checks, and off nothing else.** The first version of this fix
+  keyed on the artifact's `verdict`, which is copied from the input and
+  cross-checked against nothing — so a report claiming `pass` over a failing
+  check printed #220's sentence verbatim, the fix reproducing the defect it
+  closed, and one claiming `empty` over a report full of checks printed a new
+  falsehood. Both measured by the adversarial review. `diff` states the
+  standard itself: a guarantee that holds only for reports we produced is not
+  one the comparator may assume. `summary_of` takes the later report now, and
+  **without one it prints only the weak sentence** — absence costs strength,
+  never accuracy.
+  Two more from the same review. "Zero checks" was wrong for `empty`: it is
+  zero DECLARED checks, and a real `empty` report carries the `builds` check
+  partspec adds itself, so the first fixture tested a shape no run emits. And
+  the sentence was never "unconditional" — the gate always had two further
+  conditions, a 0.7.5-shaped closure and attributed movement.
   The issue also asked whether the neighbouring `covered:` line overreaches the
   same way. It does not — it is built from the closure and the imports and
   describes which *inputs* were accounted for, saying nothing about the

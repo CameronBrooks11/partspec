@@ -700,7 +700,7 @@ def test_a_library_that_moved_under_an_unchanged_part_is_identical_and_named():
     assert doc["source"]["closure"] == "changed"
     assert doc["source"]["imports"]["changed"]["cqgridfinity"]["new"]["version"] == "0.6.0"
 
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert summary.splitlines()[0] == (
         "identical: p — no semantic differences; inputs moved: cqgridfinity 0.5.7 → 0.6.0"
     )
@@ -727,10 +727,10 @@ def test_a_moved_model_directory_alone_still_holds_the_claims_line():
     assert doc["source"]["closure"] == "changed"
     assert doc["source"]["closure_digest_changed"] is True
     assert doc["source"]["imports"]["changed"] == {}, "the digest alone, no import movement"
-    assert "  every declared claim held across the change" in summary_of(doc).splitlines()
+    assert "  every declared claim held across the change" in summary_of(doc, new).splitlines()
 
 
-def _verdict_doc(status: Status, imports: dict) -> dict:
+def _verdict_doc(status: Status | None, imports: dict) -> dict:
     """A 0.7.5-shaped report whose single check has `status`, and whose verdict
     is therefore DERIVED rather than asserted — the point being to exercise the
     real path from a check's outcome to the sentence, not to stub the verdict.
@@ -795,9 +795,12 @@ def test_the_claims_line_says_what_the_claims_actually_did(status, verdict, sent
     wrong, in permanent output, on the honesty line the #190 work added
     precisely to stop a silent claim.
 
-    `empty` is the one worth reading twice: zero checks makes "every declared
-    claim held" VACUOUSLY true, which is the shape this project exists to
-    refuse rather than a technicality it gets to lean on.
+    `empty` is the one worth reading twice: no DECLARED claim makes "every
+    declared claim held" vacuously true, which is the shape this project exists
+    to refuse rather than a technicality it gets to lean on. Zero *declared*
+    checks, not zero checks — a real `empty` report carries the `builds` check
+    partspec adds itself, which
+    `test_an_empty_report_carries_one_check_not_zero` covers.
 
     The verdict is derived from the check rather than stubbed, so this
     exercises the real path from an outcome to the sentence.
@@ -811,12 +814,104 @@ def test_the_claims_line_says_what_the_claims_actually_did(status, verdict, sent
     assert doc["outcome"] == "identical", "premise: nothing about the reports differs"
     assert exit_code_of(doc["outcome"]) == 0, "and the verdict is not what changed"
 
-    lines = summary_of(doc).splitlines()
+    lines = summary_of(doc, new).splitlines()
     assert f"  {sentence}" in lines, lines
     if verdict != "pass":
         assert not any("every declared claim held" in line for line in lines), (
             "a claim that did not hold must not be reported as one that did"
         )
+
+
+def test_a_forged_verdict_cannot_buy_the_strong_sentence():
+    """The first fix keyed on the artifact's `verdict`, which is copied from
+    the input and cross-checked against nothing (adversarial review of #239).
+
+    A report claiming `pass` over a failing check therefore printed #220's
+    sentence verbatim — the fix reproducing the defect it closed — and one
+    claiming `empty` over a report full of checks printed a NEW falsehood. The
+    sentence is read off the checks now, which `diff` has already joined and
+    compared, so the claim rests on evidence rather than on a self-report.
+
+    `diff` states this standard itself: a guarantee that holds only for reports
+    we produced is not one the comparator may assume.
+    """
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+    old = _verdict_doc(Status.FAIL, dict(imports))
+    new = _verdict_doc(Status.FAIL, {"cqgridfinity": _dist("0.6.0", "bbb")})
+    assert old["checks"] and old["checks"][0]["status"] == "fail", "premise: it failed"
+
+    for forged in ("pass", "empty"):
+        old["verdict"] = new["verdict"] = forged
+        lines = summary_of(_diff(old, new), new).splitlines()
+        assert "  no declared claim changed status across the change — both sides fail" in lines
+        assert not any("every declared claim held" in line for line in lines), forged
+        assert not any("neither side declared a claim" in line for line in lines), forged
+
+
+def test_without_the_report_the_claims_line_says_only_what_it_can_prove():
+    """`summary_of` can be called with the artifact alone, and then there is no
+    evidence for the strong sentence.
+
+    The weak sentence is true whatever the statuses were, so absence costs
+    strength and never accuracy. A renderer that guessed in order to say
+    something stronger would be the failure this whole line is about.
+    """
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+    old = _verdict_doc(Status.PASS, dict(imports))
+    new = _verdict_doc(Status.PASS, {"cqgridfinity": _dist("0.6.0", "bbb")})
+    doc = _diff(old, new)
+
+    assert "  every declared claim held across the change" in summary_of(doc, new).splitlines()
+    assert "  no declared claim changed status across the change" in summary_of(doc).splitlines()
+
+
+def test_an_empty_report_carries_one_check_not_zero():
+    """The shape a real `empty` run writes, which the first fix's fixture did
+    not have.
+
+    `builds` is added by partspec, so a contract asserting nothing still
+    produces one passing check — that is exactly why `Report.verdict` excludes
+    it from the emptiness test, and why `diff` must too. A fixture with
+    `checks: []` exercises a shape no partspec run emits, and the first version
+    of this slice tested only that one (adversarial review of #239).
+    """
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+
+    def only_builds(imps: dict) -> dict:
+        doc = _verdict_doc(None, imps)
+        doc["checks"] = [{"id": "builds", "kind": "builds", "phase": "geometry", "status": "pass"}]
+        doc["counts"] = {
+            "total": 1,
+            "pass": 1,
+            "fail": 0,
+            "approximate": 0,
+            "unsupported": 0,
+            "skipped": 0,
+        }
+        return doc
+
+    old = only_builds(dict(imports))
+    new = only_builds({"cqgridfinity": _dist("0.6.0", "bbb")})
+    doc = _diff(old, new)
+
+    assert doc["outcome"] == "identical"
+    lines = summary_of(doc, new).splitlines()
+    assert "  neither side declared a claim, so none held across the change" in lines
+    assert not any("every declared claim held" in line for line in lines), (
+        "one implicit passing check is not a claim that held"
+    )
+
+
+def test_the_implicit_kinds_diff_knows_match_the_ones_the_writer_adds():
+    """`diff` spells `builds` itself rather than importing `Report`'s constant,
+    so that it keeps reading a report as data. That is the right call and it
+    rots: if the writer starts adding a second implicit kind, `diff`'s
+    emptiness question silently starts counting it as a declared claim.
+    """
+    from partspec.diff import _IMPLICIT_KINDS
+    from partspec.report import Report
+
+    assert _IMPLICIT_KINDS == Report.IMPLICIT_KINDS
 
 
 def test_the_covered_line_claims_nothing_about_the_claims():
@@ -833,11 +928,18 @@ def test_the_covered_line_claims_nothing_about_the_claims():
     new = _verdict_doc(Status.FAIL, {"cqgridfinity": _dist("0.6.0", "bbb")})
 
     covered = next(
-        line for line in summary_of(_diff(old, new)).splitlines() if line.startswith("  covered: ")
+        line
+        for line in summary_of(_diff(old, new), new).splitlines()
+        if line.startswith("  covered: ")
     )
-    assert covered == "  covered: model directory (2 files); 1 imported distribution, 1 changed"
+    # The vocabulary check first: an equality assert above it made this loop
+    # unreachable, so the guard the PR advertised could never have failed
+    # (adversarial review of #239). `_covered_clause` emits counts and two
+    # fixed scope phrases and never a distribution name or a path, so no
+    # innocent input can trip these words either.
     for word in ("claim", "held", "pass", "fail"):
         assert word not in covered, f"the coverage line must not adjudicate: {covered}"
+    assert covered == "  covered: model directory (2 files); 1 imported distribution, 1 changed"
 
 
 def test_a_regression_beside_a_moved_library_names_the_input_that_moved():

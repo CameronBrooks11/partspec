@@ -1641,7 +1641,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
     json.dump(doc, sys.stdout, indent=2)
     sys.stdout.write("\n")
-    print(summary_of(doc), file=sys.stderr)
+    print(summary_of(doc, reports[1]), file=sys.stderr)
     return exit_code_of(doc["outcome"])
 
 

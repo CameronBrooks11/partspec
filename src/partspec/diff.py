@@ -1195,48 +1195,70 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     return ("; " + "; ".join(clauses)) if clauses else ""
 
 
-_CLAIMS_ACROSS_THE_CHANGE = {
-    # The only reading under which "held" is true. `pass` is "≥1 check, all
-    # pass" (SPEC-report §6), which is exactly what the sentence says.
-    "pass": "every declared claim held across the change",
-    # Vacuously true and therefore the worst thing to say: `empty` is zero
-    # checks, and "every declared claim held" over none of them is the
-    # vacuous-green shape this project exists to refuse.
-    "empty": "neither side declared a claim, so none held across the change",
-    "fail": "no declared claim changed status across the change — both sides fail",
-    "incomplete": ("no declared claim changed status across the change — both sides incomplete"),
-}
+_IMPLICIT_KINDS = ("builds",)
+"""Kinds partspec adds itself, mirroring `Report.IMPLICIT_KINDS`.
+
+Spelled here rather than imported so `diff` keeps reading a report as DATA: a
+comparator that imports the writer's constants is one step from assuming the
+writer's guarantees, which is the habit this module's input validation exists
+to break. Pinned against the writer by
+`test_the_implicit_kinds_diff_knows_match_the_ones_the_writer_adds`.
+"""
 
 
-def _claims_across_the_change(verdict: str | None) -> str:
+def _claims_across_the_change(new_report: dict[str, Any] | None) -> str:
     """What `identical` plus a moved closure actually licenses saying.
 
-    The sentence was unconditional: any `identical` outcome whose closure moved
-    got "every declared claim held across the change", whatever the claims had
-    done. Two reports whose SAME check fails identically on both sides were
-    therefore told the claim held (#220). It did not — it failed, twice. What
-    is true is that its status did not change, which is a different statement
-    and a weaker one.
+    The sentence used to ignore the claims entirely: a 0.7.5-shaped pair that
+    came out `identical` with attributed closure movement got "every declared
+    claim held across the change", whatever the claims had done. Two reports
+    whose SAME check fails identically on both sides were therefore told the
+    claim held (#220). It did not — it failed, twice. What is true is that its
+    status did not change, which is a different statement and a weaker one.
 
-    `identical` at exit 0 is right and is not what changed here: `diff` compares
-    two reports and nothing about them differs. Only the sentence was wrong —
-    "code right, words wrong", in permanent output, on the honesty line the
-    #190 work added precisely to stop a silent claim.
+    Unconditional ON THE VERDICT, to be exact: the gate below always had two
+    further conditions, a 0.7.5-shaped closure and attributed movement. The
+    first version of this docstring said "any identical outcome" and #239's
+    review corrected it.
 
-    Keyed on the verdict rather than reworded flat, because the strong sentence
-    is worth keeping where it is TRUE and `verdict: pass` is exactly its
-    condition. `verdict` is outcome-bearing (SPEC-diff §3), so under `identical`
-    the two sides agree and one value describes both. `error` cannot arrive:
-    an errored side is `indeterminate` before this line is reached. An
-    unrecognised or absent verdict falls back to the claim about movement,
-    which holds whatever the statuses were.
+    `identical` at exit 0 is right and is not what changed here: `diff`
+    compares two reports and nothing about them differs. Only the sentence was
+    wrong — "code right, words wrong", in permanent output, on the honesty line
+    the #190 work added precisely to stop a silent claim.
+
+    **Read off the checks, and off nothing else.** The first fix keyed on the
+    artifact's `verdict`, which is copied from the input and cross-checked
+    against nothing — so a report claiming `pass` over a failing check printed
+    #220's sentence verbatim, and one claiming `empty` over eight checks
+    printed a new falsehood (adversarial review of #239). `diff` states the
+    standard itself: a guarantee that holds only for reports we produced is not
+    one the comparator may assume. Under `identical` every id, status and claim
+    field is equal on both sides, so the new report describes both.
+
+    **No report, no strong claim.** `summary_of` can be called without one, and
+    then the only sentence this can honestly print is the weak one, which is
+    true whatever the statuses were. A renderer that guesses in order to say
+    something stronger is the failure this whole function is about.
     """
-    return _CLAIMS_ACROSS_THE_CHANGE.get(
-        verdict or "", "no declared claim changed status across the change"
-    )
+    if new_report is None:
+        return "no declared claim changed status across the change"
+    checks = [c for c in (new_report.get("checks") or []) if isinstance(c, dict)]
+    # `builds` is excluded for `Report.verdict`'s reason: partspec adds it, so a
+    # contract asserting nothing still produces one passing check, and counting
+    # it would let the vacuous-green guard be defeated by the tool itself. A
+    # real `empty` report therefore carries ONE check, not zero — which this
+    # comment claimed until #239's review measured it.
+    declared = [c for c in checks if c.get("kind") not in _IMPLICIT_KINDS]
+    if not declared:
+        return "neither side declared a claim, so none held across the change"
+    statuses = {c.get("status") for c in declared}
+    if statuses == {"pass"}:
+        return "every declared claim held across the change"
+    state = "fail" if "fail" in statuses else "incomplete"
+    return f"no declared claim changed status across the change — both sides {state}"
 
 
-def _coverage_lines(doc: dict[str, Any]) -> list[str]:
+def _coverage_lines(doc: dict[str, Any], new_report: dict[str, Any] | None = None) -> list[str]:
     """What was covered, and what was not — on every outcome, permanently.
 
     The irreducible line is the entire mitigation for `_IRREDUCIBLE_GAPS` not
@@ -1273,7 +1295,7 @@ def _coverage_lines(doc: dict[str, Any]) -> list[str]:
             _attributed(imports, group) for group in ("changed", "added", "removed")
         )
         if doc["outcome"] == "identical" and source.get("closure") == "changed" and attributed:
-            lines.append("  " + _claims_across_the_change(doc.get("verdict", {}).get("new")))
+            lines.append("  " + _claims_across_the_change(new_report))
     stated = {entry["reason"] for entry in doc.get("indeterminate", [])}
     lines.extend(
         f"  not covered: {phrase}"
@@ -1283,8 +1305,15 @@ def _coverage_lines(doc: dict[str, Any]) -> list[str]:
     return lines
 
 
-def summary_of(doc: dict[str, Any]) -> str:
-    """The stderr courtesy summary: one headline, then the coverage it rests on."""
+def summary_of(doc: dict[str, Any], new_report: dict[str, Any] | None = None) -> str:
+    """The stderr courtesy summary: one headline, then the coverage it rests on.
+
+    `new_report` is the later of the two reports compared, and only the claims
+    line uses it — to read what the checks actually did rather than trust the
+    `verdict` string copied into the artifact (#220, and #239's review of the
+    first fix). Optional, and its absence costs only strength: without it the
+    claims line says the weaker thing, which is true either way.
+    """
     # Both clauses ride every outcome, `identical` included. A build input
     # that moved under an unchanged part is precisely the case `identical: no
     # semantic differences` would otherwise report as an unqualified
@@ -1314,4 +1343,4 @@ def summary_of(doc: dict[str, Any]) -> str:
     # the same reason (v0.7.3), and this verb was still stating a cause and
     # stopping.
     remedies = [f"  remedy: {e['remedy']}" for e in doc["indeterminate"] if e.get("remedy")]
-    return "\n".join([headline, *remedies, *_coverage_lines(doc)])
+    return "\n".join([headline, *remedies, *_coverage_lines(doc, new_report)])
