@@ -76,6 +76,19 @@ class BoxRegion:
     def volume(self) -> float:
         return math.prod(b - a for a, b in zip(self.min, self.max, strict=True))
 
+    def eroded_volume(self, t: float) -> float:
+        """`expand(-t).volume()`, without building the eroded region.
+
+        Arithmetic on the EXTENTS, which is what the answer depends on, rather
+        than on the coordinates, which it does not. `expand(-t)` moves both
+        faces toward each other, so at a large offset `min + t` and `max - t`
+        round to the same double long before the extent does, and the
+        constructor rejects its own eroded copy — measured, a legal 8 mm-thin
+        keep-out at x = 1e5 raised `ContractError` from a search that had
+        already paid every boolean (round-3 review of #207).
+        """
+        return math.prod(max(0.0, (b - a) - 2 * t) for a, b in zip(self.min, self.max, strict=True))
+
     def mesh(self) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
         (x0, y0, z0), (x1, y1, z1) = self.min, self.max
         v = [
@@ -225,6 +238,16 @@ class CylinderRegion:
         n = self.segments
         r = (self.d / 2) / math.cos(math.pi / n)
         return (n * r * r * math.sin(2 * math.pi / n) / 2) * self.h
+
+    def eroded_volume(self, t: float) -> float:
+        """`expand(-t).volume()`, without building the eroded region.
+
+        See `BoxRegion.eroded_volume`: the coordinates cannot affect the answer
+        and at a large `at` they defeat the constructor's own guard.
+        """
+        n = self.segments
+        r = max(0.0, (self.d - 2 * t) / 2) / math.cos(math.pi / n)
+        return (n * r * r * math.sin(2 * math.pi / n) / 2) * max(0.0, self.h - 2 * t)
 
     def mesh(self) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
         n = self.segments

@@ -25,16 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drafts. The first concluded outright — "so the intrusion is its discretisation
   rather than the part". The second replaced that with "…accounts for up to
   0.02472 mm of that, and the modelled feature's tessellation for more", which
-  is the same assertion in weaker grammar and wrong three ways: the two terms
-  **select rather than sum** (measured against a `$fn=128` bore, the depth is
-  0.024684 at 64 region segments — the region's term alone — and 0.006176 at
-  256 — the bore's term alone); there is **no tessellation term at all** on the
-  OCCT tier, where the line still asserted one; and "of that" is incoherent
-  whenever the floor exceeds the whole depth, as it does on the very case the
-  entry quotes and by **719x** on a real Ø40.95 declaration. The floor is a
-  scale, never a share. `depth <= floor` licenses "the region's own faceting
-  could account for this", never "it did" — measured, a rib genuinely 1.5 mm in
-  was called discretisation once a short region capped the search.
+  is the same assertion in weaker grammar and wrong three ways: it presents the
+  floor as a **share** of a depth it may exceed (measured, `floor/depth` is
+  **134x** at a Ø40.951 declaration against the Ø41 fixture bore, and 1.0x at
+  Ø41 itself, the very case this entry quotes); there is **no tessellation term
+  at all** on the OCCT tier, where the line still asserted one; and it fixes an
+  additive relationship that does not hold in general. **How the two terms
+  combine is a matter of PHASE** — `region term <= depth <= region term +
+  feature term`, and against a `$fn=128` bore the depth sits at the bottom of
+  that bracket at 64 region segments (the corners land on the bore's vertices)
+  and at 0.9993 of the top at 128 (they land on facet midpoints). A third draft
+  asserted the bottom end as the rule and was equally wrong; the depth is even
+  non-monotone in `segments`. The floor is a scale, never a share. `depth <=
+  floor` licenses "the region's own faceting could account for this", never "it
+  did" — measured, a rib genuinely 1.5 mm in was called discretisation once a
+  short region capped the search.
   **Posed as an erosion, which is not what the issue suggested.** #207 asks for
   "the largest distance any intruding vertex sits inside the region boundary",
   and that understates: depth is a min of linear functions, so it is concave,
@@ -61,11 +66,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declaration, and it falls quadratically with `segments`. That is **not** an
   author's lever, and §4.4 said so while this entry still called it one:
   shrinking the region's term leaves the feature's untouched, so the two
-  numbers diverge and a nominal bore still fails. What passes is a region whose
-  own corners clear the modelled surface — `(d_r/2)·sec(pi/n) < (d_f/2)·cos(pi/$fn)`,
-  which for the Ø41 `$fn=128` bore is `d_r < 40.938` rather than the 40.988 that
-  "declare it at the inscribed diameter" gives. §4.4 carries the table, the
-  inequality, and the measurements that killed two earlier remedies.
+  numbers diverge and a nominal bore still fails — the depth tends to the
+  feature's own sagitta, unevenly, rather than to zero. What passes is a region
+  whose own corners clear the modelled surface —
+  `(d_r/2)·sec(pi/n) < (d_f/2)·cos(pi/$fn)`, which for the Ø41 `$fn=128` bore is
+  `d_r < 40.938`. That is the **worst-phase** bound and not the pass/fail
+  boundary, which for 64 segments is 40.9506; it is a rule that always works
+  rather than the criterion. What never works is the inscribed diameter,
+  40.98765, which is the natural reading of "strictly inside the modelled
+  feature" and fails at every segment count tried. §4.4 carries the table, the
+  bracket, the inequality, and the measurements that killed three earlier
+  remedies.
   The numbers land in a new `checks[].intrusion` field. `min_depth_mm` is a
   **lower bound and is named as one**: the search stops when the eroded
   intersection falls below `detected_above_mm3`, which is small rather than
@@ -78,7 +89,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compared against the region's own search ceiling, not a fixed fraction of its
   inradius, which made the flag a discontinuous function of the DECLARATION: an
   8x8x8 mm keep-out buried in solid material read as a partial interference
-  while 8x8x7.99, the same total breach, read as a complete one. Diagnostic rather than adjudicated, so it is
+  while 8x8x7.99, the same total breach, read as a complete one. Nor a fixed
+  absolute slack, which has the same defect one size up — the search resolves
+  to `inradius / 2**24`, so 1e-6 mm stopped firing above 33.6 mm and did it
+  non-monotonically, side 50 firing where 60 did not. The slack is the search's
+  own resolution.
+  Diagnostic rather than adjudicated, so it is
   its own field rather than part of `measurement`, which carries one unit — and
   so it does **not** discharge `POST-V0.md` §4's outstanding obligation to
   exercise the `approximate` machinery on a real adjudicated interval. Additive;

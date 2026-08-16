@@ -1016,10 +1016,11 @@ _DEPTH_BISECTIONS = 24
 
 24 halvings take a region of inradius 20 mm to 1.2e-6 mm, well past anything a
 mesh boolean resolves. The cap is a COST bound, not an accuracy one: each step
-is a boolean, measured at 0.073 s on the mesh tier and 0.7-3.4 s on OCCT, and
-it is only ever paid on a failing region clause — 4 `intersect_volume` calls on
-a passing check against up to 28 on a failing one, fewer once the interval
-closes to `_DEPTH_TOLERANCE` first (22 for a region of inradius 0.15 mm)."""
+is a boolean, and the whole search measured 0.073 s for 24 on the mesh tier and
+3.3 s for 24 on OCCT — 0.003 s and 0.13 s each. It is only ever paid on a
+failing region clause: 4 `intersect_volume` calls on a passing check against up
+to 28 on a failing one, fewer once the interval closes to `_DEPTH_TOLERANCE`
+first (22 for a region of inradius 0.15 mm)."""
 
 _DEPTH_TOLERANCE = 1e-6
 """Bracket width at which the search stops early, in mm."""
@@ -1037,12 +1038,13 @@ def _intrusion_sentence(in_region: float, intrusion: dict[str, Any] | None) -> s
     and that conclusion is unsound twice over. The floor accounts for the
     REGION's circumscription only, and on the mesh tier the modelled bore is
     inscribed in its own `$fn`, a second term the contract cannot see and one
-    that is zero on an exact backend. The two do not SUM, either: measured
-    against a `$fn=16` bore the depth is 0.393902 and the bore's closed-form
-    sagitta is 0.393902, so the region's 0.024723 contributes nothing — the
-    larger term selects. A second draft said "…accounts for up to X of that,
-    and the modelled feature's tessellation for more", which is the same
-    assertion in weaker grammar and false on all three counts. And `depth <=
+    that is zero on an exact backend. How the two COMBINE depends on how the
+    polygons are phased — `region term <= depth <= region term + feature term`,
+    and measured against a `$fn=128` bore the depth sits at the bottom of that
+    bracket at 64 region segments and at 0.9993 of the top at 128. A second
+    draft said "…accounts for up to X of that, and the modelled feature's
+    tessellation for more" (the top) and a third said the terms select rather
+    than sum (the bottom); each is one end asserted as the rule. And `depth <=
     floor` licenses "the region's own faceting COULD account for this", never
     "it did" — measured, a rib genuinely 1.5 mm in was called discretisation
     once the region's height capped the search (reviews of #207). Both numbers
@@ -1057,6 +1059,16 @@ def _intrusion_sentence(in_region: float, intrusion: dict[str, Any] | None) -> s
     if intrusion is None:
         return volume
     depth, floor = intrusion["min_depth_mm"], intrusion["facet_floor_mm"]
+    if depth <= 0.0:
+        # Detected, but every probe above the smallest came back under the
+        # volume threshold. There is no depth to report and "at least 0 mm" is
+        # not a statement. FIRST, because a sub-micron region saturates too and
+        # the branch below would print the zero this one exists to suppress
+        # (round-3 review of #207).
+        return (
+            f"{volume}, at a depth below the {intrusion['search_resolution_mm']:.3g} mm "
+            f"this search resolves"
+        )
     if intrusion["depth_limited_by_region"]:
         # The erosion consumed the whole region, so the number describes the
         # declaration rather than the breach and must not be compared to
@@ -1066,14 +1078,6 @@ def _intrusion_sentence(in_region: float, intrusion: dict[str, Any] | None) -> s
             f"{volume}, reaching at least {depth:.4g} mm past its boundary — the whole "
             f"depth of the region, so how much further it goes is not measurable against "
             f"a region this size"
-        )
-    if depth <= 0.0:
-        # Detected, but every probe above the smallest came back under the
-        # volume threshold. There is no depth to report and "at least 0 mm" is
-        # not a statement.
-        return (
-            f"{volume}, at a depth below the {intrusion['search_resolution_mm']:.3g} mm "
-            f"this search resolves"
         )
     reach = f"{volume}, reaching at least {depth:.4g} mm past its boundary"
     if floor <= 0.0:
@@ -1098,13 +1102,19 @@ def _search_ceiling(region: Any) -> float:
     buried in solid material came to report a partial interference while
     8x8x7.99 reported a total one (round-2 review of #207).
 
-    Computed from the declaration alone — `volume()` is closed form on both
-    region kinds — so this costs no geometry and is exact.
+    Computed from the declaration alone — `eroded_volume` is closed form on
+    both region kinds — so this costs no geometry and is exact. Via
+    `eroded_volume` rather than `expand(-mid).volume()` because 60 halvings
+    drive `mid` to within `inradius * 2**-60` of the collapse, where a region
+    declared at a large offset has `min + mid == max - mid` in double precision
+    and the constructor refuses its own eroded copy: measured, an 8 mm-thin
+    keep-out at x = 1e5 raised `ContractError` after every boolean had been
+    paid (round-3 review of #207).
     """
     lo, hi = 0.0, region.inradius()
     for _ in range(60):
         mid = (lo + hi) / 2
-        if region.expand(-mid).volume() > epsilon(0.0):
+        if region.eroded_volume(mid) > epsilon(0.0):
             lo = mid
         else:
             hi = mid
@@ -1178,11 +1188,17 @@ def _max_intrusion_depth(
     # of the DECLARATION — a 8x8x8 mm keep-out fully buried in solid material
     # reported unsaturated while 8x8x7.99, the same breach, reported saturated
     # (round-2 review of #207). `_search_ceiling` is the exact bound, so the
-    # slack is the search tolerance and nothing else — and against an exact
-    # bound the `lo` and `hi` forms agree on every case measured, differing
-    # only inside `hi - lo`. The distinction died with the inradius comparison;
-    # a mutation swapping them is equivalent, not uncovered.
-    return lo, hi - lo, lo >= _search_ceiling(region) - _DEPTH_TOLERANCE
+    # slack is the search's OWN resolution -- `hi - lo`, which is
+    # `inradius / 2**24` and exceeds `_DEPTH_TOLERANCE` for any region wider
+    # than 33.6 mm. A fixed 1e-6 therefore failed to fire on 78% of buried
+    # cubes above 34 mm and, being non-monotone in the size, reintroduced the
+    # discontinuity it had just removed: side 50 flagged, 60 did not, 100 did,
+    # 120 did not (round-3 review of #207). `hi - lo` alone, with no absolute
+    # floor under it: where the region runs out first, this loop and
+    # `_search_ceiling` are bisecting the SAME predicate, so their brackets
+    # coincide and `lo` cannot fall further than one interval short. Against an
+    # exact bound the `lo` and `hi` forms agree on every case measured.
+    return lo, hi - lo, lo >= _search_ceiling(region) - (hi - lo)
 
 
 def _run_region_check(

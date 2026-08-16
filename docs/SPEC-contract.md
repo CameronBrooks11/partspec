@@ -290,11 +290,16 @@ the number by however far a sliver of that volume reaches. Where the search retu
 deepest value a region of that shape can yield at all, `depth_limited_by_region` is set
 and the depth describes the declaration rather than the breach. That bound is the
 region's own, not its inradius: the erosion runs out when the *region* holds less than
-`detected_above_mm3`, which for an equilateral region is ~5e-3 mm short of the inradius
-and for an elongated one is ~3e-10 mm short. Implementations MUST NOT use a fixed
-fraction of the inradius, which makes the flag a discontinuous function of the
+`detected_above_mm3`, which for an equilateral region is 5e-3 mm short of the inradius
+whatever its size, and for an elongated one is far less — measured across shapes, from
+3e-12 mm for a 400x400x8 plate to 3e-4 mm for a 0.3x4 pin. Implementations MUST NOT use
+a fixed fraction of the inradius, which makes the flag a discontinuous function of the
 declaration — measured, an 8x8x8 mm keep-out buried in solid material reported a partial
-interference while 8x8x7.99, the same total breach, reported a complete one.
+interference while 8x8x7.99, the same total breach, reported a complete one. Nor a fixed
+ABSOLUTE one: the search's resolution is `inradius / 2**24`, which exceeds 1e-6 mm for
+any region wider than 33.6 mm, so a 1e-6 slack silently stopped firing on 78% of buried
+cubes above 34 mm — and non-monotonically, side 50 firing where 60 did not. The slack
+MUST be the search's own resolution.
 
 **A `keep_out` at a bore's nominal diameter cannot pass, and the shortfall has two
 terms — only one of which the contract can see.** `region.cylinder` CIRCUMSCRIBES the
@@ -312,28 +317,49 @@ The second term is the modelled feature's own tessellation — on the mesh tier 
 *inscribed* in its `$fn`. It is not derivable from the declaration, because `$fn` is not
 in it, and on an exact backend it is zero.
 
-**The two terms do not sum, and `facet_floor_mm` MUST NOT be presented as a share of the
-depth.** Measured against a `$fn = 128` bore, the reported depth is 0.024684 mm at 64
-region segments (the region's term, 0.024723, alone) and 0.006176 mm at 256 (the bore's
-term, 0.006174, alone) — the larger term selects, it does not add. The floor is a
-*scale* the depth is read against: it says how much intrusion this declaration would
-show against a perfectly circular feature. A report MUST print both numbers and draw no
-conclusion from their comparison — `depth <= floor` licenses "the region's own faceting
-could account for this", never "it did".
+**How the two terms combine depends on how the two polygons are PHASED, and
+`facet_floor_mm` MUST NOT be presented as a share of the depth.** The depth is bounded:
+
+```
+region term  <=  depth  <=  region term + feature term
+```
+
+The region's corners sit at a fixed radius; the feature's own radius varies between its
+inscribed and circumscribed values as the corner direction sweeps across a facet. So
+where the depth lands in that bracket is set by how the two polygons are PHASED.
+Measured against a Ø41 `$fn = 128` bore: at 64 region segments the corners land *on* the
+bore's vertices, the feature contributes nothing, and the depth is 0.024684 mm — the
+region's term (0.024723) alone, the bottom of the bracket. At 128 segments they land on
+facet *midpoints* and the depth is 0.012341 mm — 0.9993 of the sum (0.012350), the top.
+Two earlier drafts of this paragraph asserted each end as the general rule and both were
+measured false. A consequence: the depth is **not monotone in `segments`** — 0.024684 at
+64, 0.012341 at 128, 0.006176 at 256, 0.006875 at 384.
+
+So the floor is a *scale* the depth is read against: it says how much intrusion this
+declaration would show against a perfectly circular feature. A report MUST print both
+numbers and draw no conclusion from their comparison — `depth <= floor` licenses "the
+region's own faceting could account for this", never "it did".
 
 Raising `segments` shrinks the region's term quadratically but **does not make a nominal
-bore pass** — the depth stalls at the feature's own sagitta while the floor keeps
-falling, so the two numbers diverge rather than converge. What passes is a region whose
-own *corners* clear the modelled surface, since the region circumscribes too:
+bore pass**: the region's term falls but the feature's does not, and the depth tends to
+the feature's sagitta rather than to zero — 0.006176 and 0.006875 measured at 256 and
+384 segments, against a feature term of 0.006174. It approaches that limit unevenly,
+not monotonically. What
+passes is a region whose own *corners* clear the modelled surface, since the region
+circumscribes too. For a cylinder region against a cylindrical feature, this is
+sufficient at every phase:
 
 ```
 (d_region / 2) * sec(pi / segments)  <  (d_feature / 2) * cos(pi / $fn)
 ```
 
-For the Ø41 `$fn = 128` bore at the default 64 segments that is `d_region < 40.938` —
-not `d_region < 40.988`, the inscribed diameter, which still fails. Declaring at the
-inscribed diameter is the natural reading of "strictly inside the modelled feature" and
-it is wrong by both regions' faceting; three such declarations were measured failing.
+For the Ø41 `$fn = 128` bore at the default 64 segments that gives `d_region < 40.938`.
+It is the WORST-phase bound, not the pass/fail boundary — measured, that boundary is at
+40.950568 for this segment count, because the corners land on the bore's vertices and
+the `cos(pi / $fn)` factor drops out. Use the inequality as a rule that always works,
+not as the criterion. What does *not* work at any phase is the inscribed diameter,
+40.98765, the natural reading of "strictly inside the modelled feature": it fails at
+every segment count tried.
 
 **What this deliberately does not claim: shape.** A hole oversize in one direction only —
 an oval through a round keep-out — passes, because material still lies within the shell on

@@ -539,9 +539,9 @@ def test_the_facet_floor_is_derived_and_explains_the_noise_case(tmp_path: Path):
 
     # CIRCUMSCRIBED excess, not the inscribed sagitta. `sec(x) - 1` and
     # `1 - cos(x)` both equal `x^2/2` to leading order, so at 64 segments they
-    # agree to 0.07% and every assertion above passes for either — the mutation
+    # agree to 0.12% and every assertion above passes for either — the mutation
     # survived the whole suite (round-2 review of #207). Only a coarse polygon
-    # separates them: at 8 segments the excess is 41% larger than the sagitta,
+    # separates them: at 8 segments the excess is 8.2% larger than the sagitta,
     # and it is the excess that says which side of the declared circle the
     # region's material sits on.
     coarsest = cylinder(d=41.0, h=18.0, at=(0, 0, -5), segments=8)
@@ -550,7 +550,7 @@ def test_the_facet_floor_is_derived_and_explains_the_noise_case(tmp_path: Path):
     sagitta = (41.0 / 2) * (1 - math.cos(math.pi / 8))
     assert coarsest.facet_floor() == pytest.approx((41.0 / 2) * (1 / math.cos(math.pi / 8) - 1))
     assert coarsest.facet_floor() / sagitta == pytest.approx(1.0824, rel=1e-3), (
-        "8.2% apart at 8 segments against 0.07% at 64 — which is why the "
+        "8.2% apart at 8 segments against 0.12% at 64 — which is why the "
         "assertions above could not tell the two formulas apart"
     )
 
@@ -655,7 +655,7 @@ def test_the_reported_search_parameters_are_the_ones_the_search_used():
     ).intrusion
     assert got is not None
 
-    # The interval 24 halvings of the ceiling actually leaves, and the true
+    # The interval 24 halvings of the INRADIUS actually leave, and the true
     # depth — 1.5 mm by construction — inside `[proven, proven + resolution]`.
     assert got["search_resolution_mm"] == pytest.approx(region.inradius() / 2**24, rel=1e-9)
     assert got["min_depth_mm"] <= 1.5 <= got["min_depth_mm"] + got["search_resolution_mm"]
@@ -675,6 +675,49 @@ def test_the_reported_search_parameters_are_the_ones_the_search_used():
         region.expand(-(buried["min_depth_mm"] + buried["search_resolution_mm"])).volume()
         <= threshold
     )
+
+
+def test_the_bisection_is_paid_only_on_a_failing_clause_and_is_capped():
+    """The costs `_DEPTH_BISECTIONS` documents, counted.
+
+    Raising the cap to 40 and removing the early break both survived the whole
+    suite, so the docstring's numbers were prose (round-3 review of #207). Each
+    step is a backend boolean, and on OCCT that is ~0.13 s.
+    """
+    from partspec.region import box
+
+    class _Counting(_BoxWorld):
+        def __init__(self):
+            self.calls = 0
+
+        def intersect_volume(self, a, b):
+            self.calls += 1
+            return super().intersect_volume(a, b)
+
+    def count(part, region):
+        from partspec.contract import CheckSpec
+        from partspec.runner import _run_geometry_check
+
+        world = _Counting()
+        spec = CheckSpec(id="r", kind="keep_out", phase="geometry", region=region, shell=1.0)
+        _run_geometry_check(spec, world, part)
+        return world.calls
+
+    # Inradius 50 mm, so 24 halvings land at 3e-6 and never reach
+    # `_DEPTH_TOLERANCE`: the CAP is what stops this one. At 20 mm across the
+    # tolerance stops it first, and raising the cap to 40 changes nothing —
+    # that mutation survived the suite.
+    big = box(min=(0, 0, 0), max=(100, 100, 100))
+    assert count(_box_part((-500, -500, -500), (500, 500, -10)), big) == 4, (
+        "a passing clause pays the region and shell measurements and no search"
+    )
+    assert count(_box_part((-500, -500, -500), (500, 500, 1.5)), big) == 4 + 24, (
+        "a failing one pays the cap on top, and the cap is 24"
+    )
+    # Fewer once the interval closes to `_DEPTH_TOLERANCE` first, which is the
+    # early break: 0.15 mm needs only 18 halvings to get there.
+    small = box(min=(0, 0, 0), max=(0.3, 0.3, 0.3))
+    assert count(_box_part((-50, -50, -50), (50, 50, 0.1)), small) == 22
 
 
 def test_a_depth_below_the_searchs_resolution_is_not_reported_as_zero():
@@ -698,9 +741,27 @@ def test_a_depth_below_the_searchs_resolution_is_not_reported_as_zero():
     )
     assert film.intrusion["min_depth_mm"] == 0.0
     detail = film.detail or ""
-    assert "below the" in detail and "this search resolves" in detail
+    # The RESOLUTION, not the volume threshold beside it: the sentence is about
+    # how finely the depth was searched, and printing `detected_above_mm3`
+    # there — a mm3 quantity labelled mm — survived the whole suite.
+    assert f"below the {film.intrusion['search_resolution_mm']:.3g} mm" in detail
+    assert "this search resolves" in detail
     assert "at least 0 mm" not in detail
     assert "reaching" not in detail
+
+    # And the guard runs BEFORE the region-limited branch, which prints a depth
+    # of its own: a sub-micron region saturates too, so the wrong order puts
+    # back the "at least 0 mm" this test exists to forbid.
+    tiny = _region_result(
+        _box_part((-500, -500, -500), (500, 500, 500)),
+        "keep_out",
+        box(min=(0, 0, 0), max=(400, 400, 1e-6)),
+        1.0,
+    )
+    assert tiny.intrusion is not None
+    assert tiny.intrusion["depth_limited_by_region"] is True, "premise: it saturates too"
+    assert "at least 0 mm" not in (tiny.detail or "")
+    assert "this search resolves" in (tiny.detail or "")
 
 
 def test_a_sub_threshold_volume_earns_no_intrusion_block():
@@ -749,10 +810,45 @@ def test_a_depth_the_region_itself_limits_withholds_the_comparison():
     assert result.intrusion is not None
     assert result.intrusion["depth_limited_by_region"] is True
     assert result.intrusion["facet_floor_mm"] == pytest.approx(1.6891, rel=1e-3)
+    # The DEPTH, not the floor: printing the floor there survived the suite,
+    # and here the floor is five times the depth.
+    assert f"at least {result.intrusion['min_depth_mm']:.4g} mm" in (result.detail or "")
     assert "not measurable against a region this size" in (result.detail or "")
     assert "proud of the circle it declares" not in (result.detail or ""), (
         "a region-limited depth must not be set beside anything"
     )
+
+
+def test_a_region_declared_far_from_the_origin_still_reports_a_depth():
+    """The ceiling is a function of the region's EXTENTS, not its coordinates.
+
+    `_search_ceiling` halves 60 times, which drives its probe to within
+    `inradius * 2**-60` of the erosion limit. Building the eroded region there
+    fails at a large offset — `min + t` and `max - t` round to the same double
+    long before the extent does — so the constructor rejected its own eroded
+    copy and a legal declaration died with `ContractError`, blaming the author,
+    after every backend boolean had been paid (round-3 review of #207).
+    """
+    from partspec.region import box, cylinder
+    from partspec.runner import _search_ceiling
+
+    # 8 mm thin, 100 m from the origin: legal, and it raised.
+    far = box(min=(1e5, 0, 0), max=(1e5 + 8, 400, 400))
+    near = box(min=(0, 0, 0), max=(8, 400, 400))
+    assert _search_ceiling(far) == pytest.approx(_search_ceiling(near), rel=1e-12)
+
+    got = _region_result(_box_part((-1e6, -1e6, -1e6), (1e6, 1e6, 1e6)), "keep_out", far, 1.0)
+    assert got.intrusion is not None
+    assert got.intrusion["depth_limited_by_region"] is True
+
+    # Both kinds, and both terms of the cylinder: `d` sets the inradius here,
+    # so a ceiling that erodes only `h` would still look plausible.
+    wide = cylinder(d=41.0, h=100.0, at=(0, 0, -50))
+    assert _search_ceiling(wide) == pytest.approx(20.4998, abs=1e-3)
+    assert _search_ceiling(wide) < wide.inradius() == 20.5
+    tall = cylinder(d=100.0, h=41.0, at=(0, 0, -20.5))
+    assert _search_ceiling(tall) == pytest.approx(20.4998, abs=1e-3)
+    assert _search_ceiling(tall) < tall.inradius() == 20.5
 
 
 def test_the_saturation_ceiling_is_the_searchs_own_limit_not_the_inradius():
@@ -771,7 +867,7 @@ def test_the_saturation_ceiling_is_the_searchs_own_limit_not_the_inradius():
     from partspec.region import box
     from partspec.runner import _search_ceiling
 
-    solid = _box_part((-50, -50, -50), (50, 50, 50))
+    solid = _box_part((-500, -500, -500), (500, 500, 500))
 
     # The shortfall is not a fixed fraction of the inradius: two shapes with
     # the SAME inradius, four million times apart.
@@ -789,6 +885,16 @@ def test_the_saturation_ceiling_is_the_searchs_own_limit_not_the_inradius():
         ("box 8x8x7.99", box(min=(0, 0, 0), max=(8, 8, 7.99))),
         ("cube 20", box(min=(0, 0, 0), max=(20, 20, 20))),
         ("nut pocket 7", box(min=(0, 0, 0), max=(7, 7, 7))),
+        # Above 33.6 mm across, the search's own resolution exceeds
+        # `_DEPTH_TOLERANCE`, so a fixed 1e-6 slack stops firing. Every fixture
+        # above is under that, which is how the regression got through: 78% of
+        # buried cubes over 34 mm went unflagged, non-monotonically — 50 fired,
+        # 60 did not, 100 did, 120 did not (round-3 review of #207).
+        ("cube 50", box(min=(0, 0, 0), max=(50, 50, 50))),
+        ("cube 60", box(min=(0, 0, 0), max=(60, 60, 60))),
+        ("cube 100", box(min=(0, 0, 0), max=(100, 100, 100))),
+        ("cube 120", box(min=(0, 0, 0), max=(120, 120, 120))),
+        ("cube 250", box(min=(0, 0, 0), max=(250, 250, 250))),
     ):
         got = _region_result(solid, "keep_out", region, 1.0)
         assert got.intrusion is not None, name
@@ -831,8 +937,21 @@ def test_the_saturation_ceiling_is_the_searchs_own_limit_not_the_inradius():
 
     # And a genuine partial intrusion is still not flagged, or the flag would
     # withhold the comparison on every failing check.
+    # A box has no faceting, so its line carries no scale clause. The guard is
+    # `floor <= 0.0`; at `< 0.0` every box fail line gains "stands 0 mm proud
+    # of the circle it declares", about a region that declares no circle.
+    plain_box = _region_result(
+        _box_part((-500, -500, -500), (500, 500, 1.5)),
+        "keep_out",
+        box(min=(0, 0, 0), max=(20, 20, 20)),
+        1.0,
+    )
+    assert plain_box.intrusion is not None
+    assert plain_box.intrusion["facet_floor_mm"] == 0.0
+    assert "proud of the circle" not in (plain_box.detail or "")
+
     real = _region_result(
-        _box_part((-50, -50, -50), (50, 50, 1.5)),
+        _box_part((-500, -500, -500), (50, 50, 1.5)),
         "keep_out",
         box(min=(0, 0, 0), max=(20, 20, 20)),
         1.0,
