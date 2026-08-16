@@ -57,6 +57,14 @@ NON_CLAIM_FIELDS = {
     "operands": "a result — the values the expression saw, compared separately",
     "components": "a result, derived from measurement against limit",
     "detail": "prose about a result, not a claim",
+    "intrusion": (
+        "how far a failing keep_out was breached — a result, and a derived one. "
+        "The claim is the region and its shell, which `region` carries; this is "
+        "what the material did about it. Deliberately NOT a claim field: the "
+        "depth is a bisection bracket over a mesh boolean, so two runs of the "
+        "same design differ in its last digits, and comparing it would report "
+        "`different` on geometry that did not move"
+    ),
     "phase": "structural, and cannot move without kind or expr moving with it",
     "requires": "which tier would answer a refusal — environment, like engine.version",
     "step": (

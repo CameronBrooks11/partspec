@@ -26,6 +26,7 @@ from . import expr as expr_mod
 from . import imports
 from .backend import BuildError, Unsupported
 from .contract import GEOMETRY, GEOMETRY_KINDS, CheckSpec, Part
+from .region import CylinderRegion
 from .report import CheckResult, Report, tool_version
 from .status import (
     ContractError,
@@ -1010,6 +1011,91 @@ def _circumcentre(
     )
 
 
+_DEPTH_BISECTIONS = 24
+"""Cap on the erosion search's boolean count.
+
+24 halvings take a 20 mm region to 1.2e-6 mm, well past anything a mesh
+boolean resolves. The cap is a COST bound, not an accuracy one: each step is a
+boolean, measured at 0.1 s for 40 of them on the mesh tier and 0.7-3.0 s for 24
+on OCCT, and it is only ever paid on a failing region clause."""
+
+_DEPTH_TOLERANCE = 1e-6
+"""Bracket width at which the search stops early, in mm."""
+
+
+def _intrusion_sentence(in_region: float, intrusion: dict[str, Any] | None) -> str:
+    """The keep-out breach, with the number that makes the volume mean something.
+
+    `12.7331 mm3 intrudes` was the whole finding, and it is the same sentence
+    for faceting noise and for a rib 1.5 mm into a bore — the two situations an
+    engineer most needs told apart (#207).
+
+    The depth is compared against what the REGION's own discretisation
+    accounts for, which is a number this code can derive rather than guess: the
+    polygon circumscribes the declared cylinder, so its corners stand
+    `r·(sec(pi/n) - 1)` proud of it and material following the declared circle
+    sits that far inside. Below that line the intrusion says nothing about the
+    part; above it, the excess is the part's.
+    """
+    volume = f"{in_region:.6g} mm3 of material intrudes into the keep-out region"
+    if intrusion is None:
+        return volume
+    depth, floor = intrusion["max_depth_mm"], intrusion["facet_floor_mm"]
+    reach = f"{volume}, reaching {depth:.4g} mm past its boundary"
+    if floor <= 0.0:
+        return reach
+    if depth <= floor:
+        return (
+            f"{reach} — no deeper than the {floor:.4g} mm this region's own "
+            f"circumscription accounts for, so the intrusion is its discretisation "
+            f"rather than the part"
+        )
+    return f"{reach}, of which this region's circumscription accounts for {floor:.4g} mm"
+
+
+def _max_intrusion_depth(backend: Any, artifact: Any, region: Any) -> tuple[float, float] | None:
+    """How far past its boundary the material reaches, as a bracket.
+
+    Volume is the wrong summary on its own: it scales with the AREA of the
+    contact and only linearly with depth, so a hair-thin film over a large face
+    outweighs a deep local spike, and 12.7 mm3 of faceting noise is
+    indistinguishable from 15.7 mm3 of real interference (#207).
+
+    Posed as an EROSION rather than as a distance. #207 suggests "the largest
+    distance any intruding vertex sits inside the region boundary", and that
+    understates: depth is a min of linear functions, so it is concave, and a
+    concave function's maximum over a polytope is generally interior — measured
+    1.2798 mm against a rib built at exactly 1.500. The intersection is also
+    non-convex in general, so there is no vertex guarantee at all.
+
+    `sup{ r : the part still meets the region eroded by r }` has no such
+    problem, and needs nothing new: `expand(-r)` is already the uniform inward
+    offset for both region kinds — a cylinder's flats are TANGENT to the
+    declared circle, so `d - 2r` moves every side plane inward by exactly `r` —
+    and `intersect_volume` is the primitive the check already runs. Measured
+    1.499999 on the same rib.
+
+    Returns the bisection bracket, not a point. The lower bound is a depth the
+    part is PROVEN to reach; the upper is where it was shown not to. `None`
+    where the backend cannot answer, which the caller reports as no depth
+    rather than as zero depth.
+    """
+    ceiling = region.inradius()
+    lo, hi = 0.0, ceiling
+    for _ in range(_DEPTH_BISECTIONS):
+        if hi - lo <= _DEPTH_TOLERANCE:
+            break
+        mid = (lo + hi) / 2
+        outcome = backend.intersect_volume(artifact, backend.region_solid(region.expand(-mid)))
+        if isinstance(outcome, Unsupported):
+            return None
+        if float(outcome.value) > epsilon(0.0):
+            lo = mid
+        else:
+            hi = mid
+    return lo, hi
+
+
 def _run_region_check(
     spec: CheckSpec, backend: Any, artifact: Any, common: dict[str, Any]
 ) -> CheckResult:
@@ -1054,11 +1140,28 @@ def _run_region_check(
     # the region of an otherwise-deleted part fails both), so a message that
     # asserted the other clause's state would be false exactly on the worst
     # parts.
+    intrusion: dict[str, Any] | None = None
+    if spec.kind == "keep_out" and in_region > epsilon(0.0):
+        # Only on the failing clause, and only for keep_out. Each bisection step
+        # is a boolean, so a passing check pays nothing, and `keep_in`'s failure
+        # is a DEFICIT of material rather than a breach — "how deep" is not the
+        # question there.
+        bracket = _max_intrusion_depth(backend, artifact, region)
+        # A box has no circumscription: its faces ARE the declared planes, so
+        # nothing is discretised and there is no floor to compare against. Only
+        # the cylinder's polygon stands proud of what was declared.
+        floor = region.facet_floor() if isinstance(region, CylinderRegion) else 0.0
+        if bracket is not None:
+            intrusion = {
+                "volume_mm3": in_region,
+                "max_depth_mm": bracket[0],
+                "depth_bounds": list(bracket),
+                "facet_floor_mm": floor,
+            }
+
     if spec.kind == "keep_out":
         failures = [
-            f"{in_region:.6g} mm3 of material intrudes into the keep-out region"
-            if in_region > epsilon(0.0)
-            else None,
+            _intrusion_sentence(in_region, intrusion) if in_region > epsilon(0.0) else None,
             f"no material lies within the {spec.shell:g} mm shell around the "
             f"region — an absent part satisfies the bare emptiness claim, so an "
             f"empty region alone is not evidence the feature exists"
@@ -1093,6 +1196,7 @@ def _run_region_check(
             "shell": Status.FAIL if failures[1] is not None else Status.PASS,
         },
         detail="; ".join(failed) if failed else None,
+        intrusion=intrusion,
     )
 
 

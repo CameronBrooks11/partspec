@@ -324,3 +324,229 @@ def test_region_clauses_appear_as_components():
         shell=2.0,
     )
     assert nothing_around.components == {"region": Status.PASS, "shell": Status.FAIL}
+
+
+# --------------------------------------------------------------------------
+# intrusion depth (#207): the number that tells faceting from interference
+# --------------------------------------------------------------------------
+
+
+def test_a_failing_keep_out_says_how_deep_the_material_reaches():
+    """Volume alone cannot separate the two situations an engineer most needs
+    told apart: it scales with the AREA of the contact and only linearly with
+    depth, so a hair-thin film over a large face outweighs a deep local spike
+    (#207).
+
+    Exact by construction here. The region is a 10 mm box; the part reaches
+    1.5 mm past its `x = 0` face and stands 2 mm clear of every other face, so
+    the deepest point of the overlap is 1.5 mm inside — `min` over the faces,
+    which is what depth means.
+    """
+    from partspec.region import box
+
+    region = box(min=(0, 0, 0), max=(10, 10, 10))
+    result = _region_result(_box_part((-5, 2, 2), (1.5, 8, 8)), "keep_out", region, 1.0)
+
+    assert result.status is Status.FAIL
+    assert result.intrusion is not None
+    lo, hi = result.intrusion["depth_bounds"]
+    assert lo <= 1.5 <= hi, f"1.5 mm by construction, bracketed as [{lo}, {hi}]"
+    assert result.intrusion["max_depth_mm"] == lo
+    assert result.intrusion["volume_mm3"] == pytest.approx(1.5 * 6 * 6)
+    assert "reaching 1.5 mm past its boundary" in (result.detail or ""), result.detail
+
+
+def test_the_depth_is_a_bracket_and_says_only_what_it_proved():
+    """`max_depth_mm` is the lower end of the bisection, not its midpoint.
+
+    The lower bound is a depth the part was SHOWN to reach — the eroded region
+    still met it there. The upper is where it was shown not to. Reporting a
+    midpoint would state a depth nothing demonstrated, which is the habit this
+    whole check exists to break.
+    """
+    from partspec.region import box
+
+    region = box(min=(0, 0, 0), max=(10, 10, 10))
+    result = _region_result(_box_part((-5, 2, 2), (3.0, 8, 8)), "keep_out", region, 1.0)
+
+    assert result.intrusion is not None
+    lo, hi = result.intrusion["depth_bounds"]
+    assert lo < hi, "a bracket, not a point"
+    assert result.intrusion["max_depth_mm"] == lo
+    assert hi - lo <= 1e-6 + 1e-12, "and tight enough to act on"
+
+
+def test_a_passing_keep_out_pays_nothing_for_the_depth():
+    """Each bisection step is a boolean. A region with nothing in it has no
+    depth to find, and a passing check must not buy one."""
+    from partspec.region import box
+
+    region = box(min=(0, 0, 0), max=(10, 10, 10))
+    # Clear of the region, inside the shell: both clauses pass.
+    result = _region_result(_box_part((11, 0, 0), (14, 10, 10)), "keep_out", region, 2.0)
+
+    assert result.status is Status.PASS
+    assert result.intrusion is None, "no breach, no bisection"
+
+
+def test_keep_in_carries_no_intrusion():
+    """A failing `keep_in` is a DEFICIT of material, not a breach. "How deep"
+    is not the question, and answering it would cost booleans for a number
+    describing the wrong direction."""
+    from partspec.region import box
+
+    region = box(min=(0, 0, 0), max=(10, 10, 10))
+    result = _region_result(_box_part((0, 0, 0), (10, 10, 5)), "keep_in", region, 1.0)
+
+    assert result.status is Status.FAIL
+    assert result.intrusion is None
+
+
+def test_a_box_region_has_no_facet_floor():
+    """A box's faces ARE the declared planes: nothing is discretised, so there
+    is no circumscription to explain an intrusion away with."""
+    from partspec.region import box
+
+    region = box(min=(0, 0, 0), max=(10, 10, 10))
+    result = _region_result(_box_part((-5, 2, 2), (1.5, 8, 8)), "keep_out", region, 1.0)
+
+    assert result.intrusion is not None
+    assert result.intrusion["facet_floor_mm"] == 0.0
+    assert "circumscription" not in (result.detail or "")
+
+
+@needs_scad_tier
+def test_faceting_noise_and_real_interference_no_longer_read_alike(tmp_path: Path):
+    """#207's whole complaint, on the geometry it was filed with.
+
+    A nominal 41 mm bore checked against a 41 mm keep-out column fails, and so
+    does the same plate with a rib genuinely 1.5 mm into it. Both said
+    `N mm3 of material intrudes` and nothing else, so the reporter had to
+    bisect the region diameter by hand to find out which they had.
+
+    The depth separates them by fifty times, and the noise case now explains
+    itself: its intrusion is no deeper than the region's own circumscription,
+    which is a number derived from the declaration rather than guessed at.
+    """
+    from partspec.region import cylinder
+
+    bore = (
+        "difference() {\n"
+        "  cylinder(r = 80, h = 8, $fn = 180);\n"
+        "  translate([0,0,-1]) cylinder(d = 41, h = 10, $fn = 128);\n"
+        "}\n"
+    )
+    (tmp_path / "plain.scad").write_text(bore)
+    # A rib crossing the bore wall: its inner face sits at r = 19.0, so it
+    # reaches exactly 1.5 mm inside the declared 41 mm circle.
+    (tmp_path / "rib.scad").write_text(
+        f"union() {{\n{bore}  translate([19.0, -3, 0]) cube([4, 6, 8]);\n}}\n"
+    )
+
+    depths = {}
+    for name in ("plain", "rib"):
+        p = Part(name, openscad(tmp_path / f"{name}.scad"))
+        p.keep_out(cylinder(d=41.0, h=18.0, at=(0, 0, -5)), shell=0.5, id="bore")
+        check = next(c for c in run(p, out_dir=tmp_path / f"out-{name}").checks if c.id == "bore")
+        assert check.status is Status.FAIL, f"{name}: both cases fail; that is the complaint"
+        assert check.intrusion is not None
+        depths[name] = check.intrusion
+
+    assert depths["rib"]["max_depth_mm"] == pytest.approx(1.5, abs=1e-4), (
+        "the rib reaches 1.5 mm past the boundary by construction"
+    )
+    assert depths["plain"]["max_depth_mm"] < depths["rib"]["max_depth_mm"] / 20, (
+        f"faceting {depths['plain']['max_depth_mm']} vs interference "
+        f"{depths['rib']['max_depth_mm']} — the two must not read alike"
+    )
+    # And the volumes, which is what the reporter had: the SAME order of
+    # magnitude, which is why volume alone could not decide.
+    assert depths["plain"]["volume_mm3"] > 12.0
+
+
+@needs_scad_tier
+def test_the_facet_floor_is_derived_and_explains_the_noise_case(tmp_path: Path):
+    """The floor is closed-form, not a threshold someone picked.
+
+    A `keep_out` region CIRCUMSCRIBES the declared cylinder, so its corners
+    stand `r·(sec(pi/n) - 1)` proud of it and material following the declared
+    circle sits that far inside. #207 attributes the noise to the BORE's
+    faceting (~0.006 mm at $fn=128); the region's own floor at the default 64
+    segments is four times larger and is what actually sets it.
+    """
+    from partspec.region import cylinder
+
+    (tmp_path / "m.scad").write_text(
+        "difference() {\n"
+        "  cylinder(r = 80, h = 8, $fn = 180);\n"
+        "  translate([0,0,-1]) cylinder(d = 41, h = 10, $fn = 128);\n"
+        "}\n"
+    )
+    region = cylinder(d=41.0, h=18.0, at=(0, 0, -5))
+    p = Part("plain", openscad(tmp_path / "m.scad"))
+    p.keep_out(region, shell=0.5, id="bore")
+    check = next(c for c in run(p, out_dir=tmp_path / "out").checks if c.id == "bore")
+
+    assert check.intrusion is not None
+    assert check.intrusion["facet_floor_mm"] == pytest.approx(region.facet_floor())
+    assert check.intrusion["max_depth_mm"] == pytest.approx(region.facet_floor(), rel=2e-3), (
+        "the measured noise IS the region's circumscription, to three figures"
+    )
+    assert "the intrusion is its discretisation rather than the part" in (check.detail or "")
+
+    # Quadratic in the segment count, which is the author's lever.
+    coarse = cylinder(d=41.0, h=18.0, at=(0, 0, -5), segments=16)
+    fine = cylinder(d=41.0, h=18.0, at=(0, 0, -5), segments=128)
+    assert coarse.facet_floor() > 16 * region.facet_floor() > 16 * fine.facet_floor()
+
+
+@needs_scad_tier
+def test_the_vertex_maximum_the_issue_suggested_understates_the_depth(tmp_path: Path):
+    """Executed, because it is the reason the implementation departs from what
+    #207 asked for.
+
+    The issue suggests "the largest distance any intruding VERTEX sits inside
+    the region boundary". Depth is a min of linear functions, so it is concave,
+    and a concave function's maximum over a polytope is generally interior —
+    the deepest point of a rib's inner face is the middle of that face, which
+    is not a vertex of anything. The intersection is non-convex in general, so
+    there is no vertex guarantee to fall back on either.
+    """
+    import numpy as np
+
+    from partspec.backends.mesh import MeshBackend, _manifold
+    from partspec.region import cylinder
+
+    (tmp_path / "rib.scad").write_text(
+        "union() {\n"
+        "  difference() {\n"
+        "    cylinder(r = 80, h = 8, $fn = 180);\n"
+        "    translate([0,0,-1]) cylinder(d = 41, h = 10, $fn = 128);\n"
+        "  }\n"
+        "  translate([19.0, -3, 0]) cube([4, 6, 8]);\n"
+        "}\n"
+    )
+    region = cylinder(d=41.0, h=18.0, at=(0, 0, -5))
+    p = Part("rib", openscad(tmp_path / "rib.scad"))
+    p.keep_out(region, shell=0.5, id="bore")
+    check = next(c for c in run(p, out_dir=tmp_path / "out").checks if c.id == "bore")
+    assert check.intrusion is not None
+
+    backend = MeshBackend()
+    artifact = backend.load(tmp_path / "out" / "rib.stl")
+    part_manifold = _manifold(artifact)
+    region_manifold = _manifold(backend.region_solid(region))
+    assert not isinstance(part_manifold, Unsupported)
+    assert not isinstance(region_manifold, Unsupported)
+    common = part_manifold ^ region_manifold
+    verts = np.asarray(common.to_mesh().vert_properties)[:, :3].astype(float)
+    # Depth to the region's own side planes, which is all the suggested metric
+    # can see. The caps are far away here, so the sides decide.
+    radial = 20.5 - np.hypot(verts[:, 0], verts[:, 1])
+    vertex_max = float(radial.max())
+
+    assert check.intrusion["max_depth_mm"] == pytest.approx(1.5, abs=1e-3)
+    assert vertex_max < 1.4, (
+        f"the vertex maximum is {vertex_max:.4f} against a rib built at 1.500 — "
+        f"which is why the erosion form is used instead"
+    )

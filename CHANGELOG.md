@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A failing `keep_out` says how deep the material reached, not only how much**
+  (#207). `12.7331 mm3 of material intrudes` was the whole finding, and it is
+  the same sentence for a nominal bore's faceting and for a rib 1.5 mm into
+  that bore — the two situations an engineer most needs told apart. Volume
+  cannot separate them: it scales with the *area* of the contact and only
+  linearly with depth, so a hair-thin film over a large face outweighs a deep
+  local spike. The reporter had to bisect the region diameter by hand to find
+  out which they had.
+  The line now reads `…, reaching 1.5 mm past its boundary` — and for the
+  faceting case, `…, reaching 0.02468 mm past its boundary — no deeper than the
+  0.02472 mm this region's own circumscription accounts for, so the intrusion
+  is its discretisation rather than the part`.
+  **Posed as an erosion, which is not what the issue suggested.** #207 asks for
+  "the largest distance any intruding vertex sits inside the region boundary",
+  and that understates: depth is a min of linear functions, so it is concave,
+  and a concave function's maximum over a polytope is generally interior —
+  measured **1.2798 mm against a rib built at exactly 1.500**, because the
+  deepest point of the rib's inner face is the middle of that face, which is a
+  vertex of nothing. The intersection is non-convex in general, so there is no
+  vertex guarantee to fall back on either.
+  `sup{ r : the part still meets the region eroded by r }` has neither problem
+  and needs no new backend capability: `expand(-r)` is already the uniform
+  inward offset for both region kinds — a cylinder's flats are TANGENT to the
+  declared circle, so `d - 2r` moves every side plane inward by exactly `r` —
+  and `intersect_volume` is the primitive the check already runs. Measured
+  1.499999 on the same rib. The cost is a bisection of booleans, paid only on a
+  failing region clause: 0.1 s on the mesh tier, 0.7–3.0 s on OCCT.
+  **The floor it is read against is derived, not chosen.** #207 attributes the
+  noise to the bore's faceting (~0.006 mm at `$fn=128`); it is really the
+  REGION's own circumscription, `r·(sec(pi/n) - 1)`, which at the default 64
+  segments is four times larger — 0.0247 mm, against 0.024694 measured. That is
+  the secondary half of the issue answered in closed form: a `keep_out` at a
+  bore's nominal diameter cannot pass, the amount is computable from the
+  declaration, and it falls quadratically with `segments`, which is the
+  author's lever. `SPEC-contract.md` §4.4 carries the table and both remedies.
+  The numbers land in a new `checks[].intrusion` field — `volume_mm3`,
+  `max_depth_mm`, `depth_bounds`, `facet_floor_mm`. `max_depth_mm` is the
+  bracket's LOWER end, a depth the material was shown to reach rather than a
+  midpoint nothing demonstrated. Diagnostic rather than adjudicated, so it is
+  its own field rather than part of `measurement`, which carries one unit — and
+  so it does **not** discharge `POST-V0.md` §4's outstanding obligation to
+  exercise the `approximate` machinery on a real adjudicated interval. Additive;
+  `SCHEMA_VERSION` does not move. `keep_in` carries none: its failure is a
+  deficit of material, not a breach.
+
 ### Fixed
 
 - **`diff` no longer says a claim held when it failed on both sides** (#220).

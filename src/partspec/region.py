@@ -64,6 +64,15 @@ class BoxRegion:
             max=tuple(v + t for v in self.max),  # type: ignore[arg-type]
         )
 
+    def inradius(self) -> float:
+        """The largest inward offset that leaves anything behind.
+
+        `expand(-r)` moves every face inward by `r`, so this is the radius at
+        which the region erodes to nothing — and therefore the ceiling on how
+        deep material can sit inside it (#207).
+        """
+        return min((b - a) / 2 for a, b in zip(self.min, self.max, strict=True))
+
     def volume(self) -> float:
         return math.prod(b - a for a, b in zip(self.min, self.max, strict=True))
 
@@ -180,6 +189,32 @@ class CylinderRegion:
         if self.axis == "x":
             return [(cx, cy + u, cz + v) for u, v in self._polygon_2d()]
         return [(cx + v, cy, cz + u) for u, v in self._polygon_2d()]
+
+    def inradius(self) -> float:
+        """The largest inward offset that leaves anything behind.
+
+        `d / 2` is the polygon's INRADIUS, not its circumradius: the flats are
+        tangent to the declared circle (`_polygon_2d`), so `expand(-r)` moves
+        every side plane inward by exactly `r`. Axially the caps each move in
+        by `r`, hence `h / 2`.
+        """
+        return min(self.d / 2, self.h / 2)
+
+    def facet_floor(self) -> float:
+        """How far inside the declared circle this region's own corners reach.
+
+        The polygon CIRCUMSCRIBES the declared cylinder, so its vertices stand
+        `r·(sec(pi/n) - 1)` proud of it. Material that merely follows the
+        declared circle therefore sits that far inside the region near every
+        corner, and a `keep_out` at a bore's nominal diameter cannot come in
+        under it — measured 0.024694 mm against a closed-form 0.024723 for the
+        default 64 segments (#207).
+
+        Quadratic in the segment count: 0.4016 mm at 16 segments, 0.0247 at 64,
+        0.0062 at 128. It is the number a reported intrusion depth has to be
+        compared against before it means anything about the design.
+        """
+        return (self.d / 2) * (1 / math.cos(math.pi / self.segments) - 1)
 
     def volume(self) -> float:
         n = self.segments

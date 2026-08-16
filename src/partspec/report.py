@@ -111,6 +111,18 @@ class CheckResult:
     region: dict[str, Any] | None = None
     """The declared region and shell of a `keep_out` / `keep_in` check, so the
     report states what was claimed, not just how it went. Additive per §7.1."""
+    intrusion: dict[str, Any] | None = None
+    """How far a failing `keep_out` region clause was breached, and by how much.
+
+    Volume alone cannot tell faceting noise from interference — it scales with
+    the area of the contact and only linearly with depth (#207). Carries
+    `volume_mm3`, the depth `max_depth_mm` with the `depth_bounds` bracket it
+    was proven within, and `facet_floor_mm`, the intrusion this region's own
+    circumscription accounts for. Diagnostic, not adjudicated: the claim is
+    still "no material here", and this says what the material did. Additive per
+    §7.1.
+    """
+
     hole: dict[str, Any] | None = None
     """The declared bore of a `hole_diameter` check — `{"d": ..., "count": ...}`
     — on the same principle as `region`. Additive per §7.1."""

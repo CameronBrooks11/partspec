@@ -275,6 +275,35 @@ them is empty; the mirror kills the strong keep_in shell. `shell` is therefore r
 **the clearance budget**: material must appear within `shell` of a keep-out, and emptiness
 within `shell` of a keep-in.
 
+**A failing `keep_out` MUST report how deep the breach went, not only how much.**
+Volume scales with the *area* of the contact and only linearly with depth, so a
+hair-thin film over a large face outweighs a deep local spike, and faceting noise
+reads the same as real interference (#207). The report therefore carries
+`checks[].intrusion` — `volume_mm3`, `max_depth_mm`, the `depth_bounds` bracket that
+depth was proven within, and `facet_floor_mm`. Diagnostic, not adjudicated: the claim
+is still "no material here", and this says what the material did about it. Additive;
+`SCHEMA_VERSION` does not move.
+
+**A `keep_out` at a bore's nominal diameter cannot pass, and the amount is
+derivable.** `region.cylinder` CIRCUMSCRIBES the declared circle (`_polygon_2d`), so
+every one of its `segments` corners stands `r·(sec(pi/n) - 1)` proud of it; material
+that merely follows the declared circle therefore lies that far inside the region near
+every corner. On the mesh tier the modelled bore is *inscribed* in its own `$fn`, which
+adds a second, smaller term. Neither is a design error, and the floor is
+`facet_floor_mm`:
+
+| `segments` | floor at r = 20.5 mm |
+|---|---|
+| 16 | 0.4016 mm |
+| 64 (default) | 0.0247 mm |
+| 128 | 0.0062 mm |
+
+It falls quadratically with the segment count, which is the author's lever. The two
+honest ways to declare a nominal bore are therefore to raise `segments` until the floor
+is below what the design cares about, or to declare the region at the inscribed
+diameter — and a reported depth means nothing about the part until it is read against
+this number, which is why the failure line prints both.
+
 **What this deliberately does not claim: shape.** A hole oversize in one direction only —
 an oval through a round keep-out — passes, because material still lies within the shell on
 the tight sides. Roundness and diameter are `hole_diameter`'s claims. A region check is a
