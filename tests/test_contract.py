@@ -704,3 +704,27 @@ def test_the_extra_primitives_match_what_the_runner_calls():
         assert not stale, (
             f"EXTRA_PRIMITIVES[{kind!r}] names {sorted(stale)}, which no handler calls"
         )
+
+
+@pytest.mark.parametrize("name", [["plate_x", "plate_y"], {"plate_x": 1}, {"plate_x"}])
+def test_an_unhashable_parameter_name_gets_partspecs_own_message(name):
+    """The third site of #199's hole, found by sweeping the public API after
+    the first two were fixed (adversarial review of #240).
+
+    `name not in self.source.params` hashes `name`, so an unhashable value died
+    inside the guard with `cannot use 'list' as a dict key` — and, unlike the
+    other two, it also lost #188's traceback trimming, so the reader got
+    partspec's internal frames as well as its internal data structure.
+
+    `p.param(["plate_x", "plate_y"], min=1.0)` — bounding two parameters in one
+    call — is at least as plausible as the `axis=(0, 0, 1)` that motivated the
+    issue, and `param` is the most-used method in the contract API.
+    """
+    from partspec import Part, openscad
+
+    part = Part("x", openscad("m.scad", plate_x=1.0))
+    with pytest.raises(ContractError, match="takes a parameter NAME"):
+        part.param(name, min=1.0)
+    # And the ordinary wrong-name case keeps its own sentence.
+    with pytest.raises(ContractError, match="is not a declared parameter"):
+        part.param("nope", min=1.0)

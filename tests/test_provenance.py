@@ -567,9 +567,10 @@ def test_the_attribution_block_is_in_the_artifact(tmp_path: Path):
 @pytest.mark.parametrize(
     ("designation", "expected"),
     [
-        (["608"], "a designation is an int, not list"),
-        ({"608": 1}, "a designation is an int, not dict"),
-        ("608", "a designation is an int, not str"),
+        (["608"], "a designation is an integer, not list"),
+        ({"608": 1}, "a designation is an integer, not dict"),
+        ("608", "a designation is an integer, not str"),
+        (True, "a designation is an integer, not bool"),
         (9999, "unknown designation"),
     ],
 )
@@ -592,3 +593,28 @@ def test_a_bad_bearing_designation_gets_partspecs_own_message(designation, expec
     with pytest.raises(ContractError, match=re.escape(expected)) as caught:
         iso15.bearing(designation)
     assert "this table carries: 608" in str(caught.value), "and it still names the table"
+
+
+def test_an_integer_designation_that_is_not_an_int_still_works():
+    """`isinstance(designation, int)` was the first fix and it was too narrow.
+
+    `numpy.int64` hashes and compares equal to `int`, worked before the guard
+    and stopped working after — a designation arriving from a numpy array or a
+    pandas column is ordinary CAD scripting, and it began failing with a
+    message that read as user error, under three separate assertions that
+    nothing but the wording had changed (adversarial review of #240).
+
+    `numbers.Integral` is the property actually required: it is what `_TABLE`'s
+    keys can be compared against. `bool` is excluded explicitly, because
+    `isinstance(True, int)` is True in Python and `True` is not a designation —
+    the trap `scad_literal`, `_number` and `hole_diameter` each carry a note
+    about, and which this guard skipped.
+    """
+    np = pytest.importorskip("numpy")
+    from partspec.refs import iso15
+
+    reference = iso15.bearing(608)
+    for integral in (np.int64(608), np.int32(608)):
+        assert iso15.bearing(integral) == reference, (
+            f"{type(integral).__name__} is an integer and worked before the guard"
+        )

@@ -19,6 +19,7 @@ standard and reproduces nothing else from it.
 
 from __future__ import annotations
 
+import numbers
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -75,13 +76,25 @@ class Bearing:
 
 def bearing(designation: int) -> Bearing:
     """The boundary dimensions of a deep-groove ball bearing designation."""
-    # `isinstance` first, for `region.cylinder`'s reason (#199): a membership
-    # test against a dict hashes its operand, so an unhashable designation died
-    # with `cannot use 'list' as a dict key` instead of the sentence below. Found
-    # by sweeping for the same shape after #199 was filed against the axis guard;
-    # this is the reference table an author reaches for, so it is the second
-    # place a wrong argument type most plausibly arrives.
-    if not isinstance(designation, int) or designation not in _TABLE:
+    # An INTEGER, not an `int`, and the type before the membership test.
+    #
+    # The membership test hashes its operand, so an unhashable designation died
+    # with `cannot use 'list' as a dict key` — the implementation detail that
+    # `_TABLE` is a dict, offered as the diagnosis (#199, swept from the axis
+    # guard). But `isinstance(designation, int)` was too narrow and REGRESSED
+    # `numpy.int64`, which hashes and compares equal to `int` and had worked:
+    # a designation arriving from a numpy array or a pandas column is ordinary
+    # CAD scripting, and it started failing with a message that read as user
+    # error (adversarial review of #240). `numbers.Integral` is the property
+    # actually required — it is what `_TABLE`'s keys can be compared against —
+    # and numpy's integer types register as it.
+    #
+    # `bool` excluded explicitly, because `isinstance(True, int)` is True in
+    # Python and `True` is not a bearing designation. The same note appears at
+    # `openscad.scad_literal`, `runner._number` and `Part.hole_diameter`; this
+    # was the one place that skipped it.
+    integral = isinstance(designation, numbers.Integral) and not isinstance(designation, bool)
+    if not integral or designation not in _TABLE:
         known = ", ".join(str(d) for d in sorted(_TABLE))
         # A wrong TYPE and an unknown NUMBER are different mistakes and get
         # different sentences: a dict is not an unknown designation, it is not
@@ -89,8 +102,8 @@ def bearing(designation: int) -> Bearing:
         # either way.
         what = (
             "unknown designation"
-            if isinstance(designation, int)
-            else f"a designation is an int, not {type(designation).__name__}"
+            if integral
+            else f"a designation is an integer, not {type(designation).__name__}"
         )
         raise ContractError(f"iso15.bearing({designation!r}): {what} (this table carries: {known})")
     bore, od, width = _TABLE[designation]

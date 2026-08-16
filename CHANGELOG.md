@@ -68,15 +68,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tuple is hashable and reached the real message, a list is not and did not.
   The exit code was 4 either way, so nothing was ever misclassified; this is
   entirely about the sentence.
-  **The sweep the issue asked for found a second one.** `iso15.bearing` guards
-  the same way, and it is the reference table an author reaches for, which
-  makes it the next most plausible place for a wrong argument type to arrive.
-  Both now test the type before the membership, and `iso15` distinguishes a
-  wrong TYPE from an unknown NUMBER — a dict is not an unknown designation, it
-  is not a designation — while still naming the table either way. `diff`'s
-  handling of a report carrying a list where a gap token belongs was checked
-  too, since that is an untrusted-JSON boundary rather than an API one; it does
-  not have the hole.
+  **The sweep found two more, and took two passes to find the second.**
+  `iso15.bearing` guards the same way and is the reference table an author
+  reaches for. `Part.param` guards the same way and is the most-used method in
+  the contract API — `p.param(["plate_x", "plate_y"], min=1.0)`, bounding two
+  parameters in one call, is at least as plausible as the `axis=(0, 0, 1)` that
+  motivated the issue, and that one ALSO lost #188's traceback trimming, so the
+  reader got partspec's internal frames as well as its internal data structure.
+  The first sweep missed it and the PR's prose was scoped so that its
+  literal truth concealed the gap; the adversarial review fuzzed the whole
+  public API and found it.
+  All three now test the type before the membership, and each distinguishes a
+  wrong TYPE from a wrong VALUE — a dict is not an unknown designation, it is
+  not a designation — while still naming what is available either way.
+  **One regression, introduced and removed within the slice:** the first
+  `iso15` guard asked `isinstance(designation, int)`, which is False for
+  `numpy.int64`. Those hash and compare equal to `int`, worked before, and
+  stopped working after — a designation arriving from a numpy array or a
+  pandas column is ordinary CAD scripting. The guard asks `numbers.Integral`
+  now, which is the property actually required, with `bool` excluded
+  explicitly because `isinstance(True, int)` is True in Python and `True` is
+  not a designation. Three other places in the codebase carry a note about
+  that trap; this was the one that skipped it.
+  `diff`'s handling of a report carrying a list where a gap token belongs was
+  checked too, since that is an untrusted-JSON boundary rather than an API one;
+  the review fuzzed all 196 paths of a real report and found no escape.
 
 ## [0.7.6] - 2026-08-15
 
