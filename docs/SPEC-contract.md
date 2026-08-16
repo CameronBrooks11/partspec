@@ -344,7 +344,7 @@ where the depth lands in that bracket is set by how the two polygons are PHASED.
 Measured against a Ø41 `$fn = 128` bore: at 64 region segments the corners land *on* the
 bore's vertices, the feature contributes nothing, and the depth is 0.024684 mm — the
 region's term (0.024693) alone, the bottom of the bracket. At 128 segments they land on
-facet *midpoints* and the depth is 0.012341 mm — 0.9993 of the sum (0.012350), the top.
+facet *midpoints* and the depth is 0.012341 mm — 0.9994 of the sum (0.0123484), the top.
 Two earlier drafts of this paragraph asserted each end as the general rule and both were
 measured false. A consequence: the depth is **not monotone in `segments`** — 0.024684 at
 64, 0.012341 at 128, 0.006176 at 256, 0.006856 at 384, 0.006176 at 512.

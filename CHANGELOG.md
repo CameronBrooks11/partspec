@@ -18,31 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local spike. The reporter had to bisect the region diameter by hand to find
   out which they had.
   The line now reads `…, reaching at least 1.5 mm past its boundary; for scale,
-  this region's own faceted outline stands 0.02472 mm proud of the circle it
-  declares` — against `…, reaching at least 0.02468 mm …` for the faceting case,
-  where the depth and the floor all but coincide.
-  **It states the two numbers and draws no conclusion**, which took three
-  drafts. The first concluded outright — "so the intrusion is its discretisation
-  rather than the part". The second replaced that with "…accounts for up to
-  0.02472 mm of that, and the modelled feature's tessellation for more", which
-  is the same assertion in weaker grammar and wrong three ways: it presents the
-  floor as a **share** of a depth it may exceed (measured, `floor/depth` is
-  **134x** at a Ø40.951 declaration against the Ø41 fixture bore, and 1.0x at
-  Ø41 itself, the very case this entry quotes); there is **no tessellation term
-  at all** on the OCCT tier, where the line still asserted one; and it fixes an
-  additive relationship that does not hold in general. **How the two terms
-  combine is a matter of PHASE** — `region term <= depth <= region term +
-  feature term`, bounding the TRUE depth, of which the reported number is a
-  lower bound and so sits a little under. Against a `$fn=128` bore the depth
-  sits at the bottom of that bracket at 64 region segments (the corners land on
-  the bore's vertices) and at 0.9993 of the top at 128 (they land on facet
-  midpoints). A third draft asserted the bottom end as the rule and was equally
-  wrong; the depth is even non-monotone in `segments` — 0.024684, 0.012341,
-  0.006176, 0.006856, 0.006176 at 64 through 512. The floor is a scale, never a
-  share. `depth <=
-  floor` licenses "the region's own faceting could account for this", never "it
-  did" — measured, a rib genuinely 1.5 mm in was called discretisation once a
-  short region capped the search.
+  this region's own faceting would show 0.02469 mm against a perfectly circular
+  feature` — against `…, reaching at least 0.02468 mm …` for the faceting case,
+  where the depth and the floor all but coincide. It states the two numbers and
+  **draws no conclusion**. `depth <= floor` licenses "the region's own faceting
+  could account for this", never "it did": measured, a rib genuinely 1.5 mm in
+  reads as discretisation once a short region caps the search, and the floor
+  can exceed the entire depth — 134x at a Ø40.951 declaration against the Ø41
+  fixture bore.
   **Posed as an erosion, which is not what the issue suggested.** #207 asks for
   "the largest distance any intruding vertex sits inside the region boundary",
   and that understates: depth is a min of linear functions, so it is concave,
@@ -56,63 +39,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inward offset for both region kinds — a cylinder's flats are TANGENT to the
   declared circle, so `d - 2r` moves every side plane inward by exactly `r` —
   and `intersect_volume` is the primitive the check already runs. Measured
-  1.499999 on the same rib. The cost is a bisection of booleans, paid only on a
-  failing region clause — 4 `intersect_volume` calls on a passing check against
-  up to 28 on a failing one, measured 0.073 s on the mesh tier and 0.7–3.4 s on
+  1.499999 on the same rib. The cost is a bisection of booleans paid only on a
+  failing region clause: 4 `intersect_volume` calls on a passing check against
+  up to 28 on a failing one, measured 0.073 s on the mesh tier and 3.3 s on
   OCCT.
   **The floor it is read against is derived, not chosen.** #207 attributes the
   noise to the bore's faceting (~0.006 mm at `$fn=128`); it is really the
-  REGION's own faceting, `r·(1 - cos(pi/n))`, which at the default 64 segments
-  is four times larger — 0.024693 mm, against 0.024684 measured. The SAGITTA,
-  not the radial excess `r·(sec(pi/n) - 1)`: the depth is an erosion and
-  `expand(-t)` moves the corners by `t·sec(pi/n)`, so the two differ by that
-  factor — 0.12% at 64 segments and 8.2% at 8. The radial excess shipped for
-  three review rounds and the resulting mismatch was explained away as the
-  bore's faceting each time; at 8 segments the measurement is 1.560399 against
-  a sagitta of 1.560470 and an excess of 1.689040. That is
-  the secondary half of the issue answered in closed form: a `keep_out` at a
-  bore's nominal diameter cannot pass, the amount is computable from the
-  declaration, and it falls quadratically with `segments`. That is **not** an
-  author's lever, and §4.4 said so while this entry still called it one:
-  shrinking the region's term leaves the feature's untouched, so the two
-  numbers diverge and a nominal bore still fails — the depth tends to the
-  feature's own sagitta, unevenly, rather than to zero. What passes is a region
-  whose own corners clear the modelled surface —
-  `(d_r/2)·sec(pi/n) < (d_f/2)·cos(pi/$fn)`, which for the Ø41 `$fn=128` bore is
-  `d_r < 40.938`. That is the **worst-phase** bound and not the pass/fail
-  boundary, which for 64 segments is 40.9506; it is a rule that always works
-  rather than the criterion. What never works is the inscribed diameter,
-  40.98765, which is the natural reading of "strictly inside the modelled
-  feature" and fails at every segment count tried. §4.4 carries the table, the
-  bracket, the inequality, and the measurements that killed three earlier
-  remedies.
+  REGION's own faceting. The region polygon circumscribes the declared circle,
+  and `expand(-t)` moves its corners by `t·sec(pi/n)` rather than by `t`, so
+  they clear that circle at the SAGITTA `r·(1 - cos(pi/n))` — 0.024693 mm at
+  the default 64 segments, against 0.024684 measured, and four times the bore's
+  own term. Not the radial excess `r·(sec(pi/n) - 1)`, which is the distance
+  the corners stand proud of the circle but not the depth an erosion measures;
+  the two differ by 8.2% at 8 segments, where the measurement is 1.560399
+  against a sagitta of 1.560470 and an excess of 1.689040.
+  **How that term and the modelled feature's own combine is a matter of PHASE**,
+  so the floor is a scale and never a share: `region term <= depth <= region
+  term + feature term`, bounding the true depth, of which the reported number
+  is a lower bound and so sits a little under. Against a `$fn=128` bore the
+  depth sits at the bottom of that bracket at 64 region segments (the corners
+  land on the bore's vertices) and at 0.9994 of the top at 128 (facet
+  midpoints). It is not even monotone in `segments` — 0.024684, 0.012341,
+  0.006176, 0.006856, 0.006176 at 64 through 512 — and raising `segments` does
+  not make a nominal bore pass: the depth tends to the feature's own sagitta
+  rather than to zero. What passes is a region whose corners clear the modelled
+  surface, `(d_r/2)·sec(pi/n) < (d_f/2)·cos(pi/$fn)`, which for the Ø41
+  `$fn=128` bore is `d_r < 40.938`. That is the worst-phase bound rather than
+  the boundary itself (40.9506 at 64 segments) — a rule that always works. What
+  never works is the inscribed diameter, 40.98765, the natural reading of
+  "strictly inside the modelled feature", which fails at every segment count
+  tried. `SPEC-contract.md` §4.4 carries the table, the bracket and the
+  inequality.
   The numbers land in a new `checks[].intrusion` field. `min_depth_mm` is a
   **lower bound and is named as one**: the search stops when the eroded
   intersection falls below `detected_above_mm3`, which is small rather than
   empty, so the true depth lies above it — measured on exact AABB arithmetic,
-  4.995 reported against a true 5.0, an error 8400x the search interval. An
-  earlier draft called that pair "the bracket the depth was proven within",
-  which was false in the only direction that matters. Where the search returns
-  the deepest value a region of that shape can yield at all,
-  `depth_limited_by_region` says so and the comparison is withheld entirely —
-  compared against the region's own search ceiling, not a fixed fraction of its
-  inradius, which made the flag a discontinuous function of the DECLARATION: an
+  4.995 reported against a true 5.0, an error 8400x the search interval. Where
+  the search returns the deepest value a region of that shape can yield at all,
+  `depth_limited_by_region` says so and the comparison is withheld — compared
+  against the region's own search ceiling, since a fixed slack (fractional or
+  absolute) makes the flag a discontinuous function of the DECLARATION: an
   8x8x8 mm keep-out buried in solid material read as a partial interference
-  while 8x8x7.99, the same total breach, read as a complete one. Nor a fixed
-  absolute slack, which has the same defect one size up — the search resolves
-  to `inradius / 2**24`, so 1e-6 mm stopped firing above 33.6 mm and did it
-  non-monotonically, side 50 firing where 60 did not. The slack is the search's
-  own resolution — measured, a buried region sits under ONE interval short of
-  the ceiling while a genuine partial intrusion cannot come within a thousand,
-  the sliver near the ceiling falling under the volume threshold long before
-  the region does. Below four halvings neither number means anything, and a
-  region that small now reports a volume and no depth at all: measured, one
-  3e-6 mm thick and breached to a THIRD of its depth claimed "the whole depth
-  of the region".
-  Diagnostic rather than adjudicated, so it is
-  its own field rather than part of `measurement`, which carries one unit — and
-  so it does **not** discharge `POST-V0.md` §4's outstanding obligation to
-  exercise the `approximate` machinery on a real adjudicated interval. Additive;
+  while 8x8x7.99, the same total breach, read as a complete one. A buried
+  region sits under ONE search interval short of its ceiling while a genuine
+  partial intrusion does not, which is what the slack is. Below four halvings
+  neither number means anything and the field is omitted entirely: measured, a
+  region 3e-6 mm thick and breached to a THIRD of its depth claimed "the whole
+  depth of the region". Diagnostic rather than adjudicated, so it is its own
+  field rather than part of `measurement`, which carries one unit — and so it
+  does **not** discharge `POST-V0.md` §4's outstanding obligation to exercise
+  the `approximate` machinery on a real adjudicated interval. Additive;
   `SCHEMA_VERSION` does not move. `keep_in` carries none: its failure is a
   deficit of material, not a breach.
 

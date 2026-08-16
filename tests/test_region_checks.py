@@ -736,42 +736,81 @@ def test_the_bisection_is_paid_only_on_a_failing_clause_and_is_capped():
 
 
 def test_the_saturation_slack_is_one_search_interval_and_not_a_margin():
-    """Doubling it, multiplying it by 100, and adding an absolute floor all
-    passed the whole suite (round-4 review of #207).
+    """Doubling it, multiplying it by 100 and by 1000 all passed the whole
+    suite (round-5 review of #207), and an earlier draft of this test excused
+    them as unreachable on a fixture that could not reach them.
 
-    A depth two intervals short of the ceiling is a depth the part chose, and
-    the comparison it earns must not be withheld.
+    They ARE reachable. On a 400x400x8 plate a genuine partial intrusion sits
+    two intervals short of the ceiling, and every multiple above one withholds
+    its comparison.
     """
     from partspec.region import box
     from partspec.runner import _search_ceiling
 
-    region = box(min=(0, 0, 0), max=(100, 100, 100))
+    region = box(min=(0, 0, 0), max=(400, 400, 8))
     ceiling = _search_ceiling(region)
-    resolution = region.inradius() / 2**24
 
-    def gap_in_intervals(part):
-        got = _region_result(part, "keep_out", region, 1.0).intrusion
-        assert got is not None
-        assert got["search_resolution_mm"] == pytest.approx(resolution, rel=1e-9)
-        return (ceiling - got["min_depth_mm"]) / resolution, got["depth_limited_by_region"]
+    def probe(z):
+        got = _region_result(_box_part((-500, -500, -500), (500, 500, z)), "keep_out", region, 1.0)
+        assert got.intrusion is not None
+        i = got.intrusion
+        return (ceiling - i["min_depth_mm"]) / i["search_resolution_mm"], i[
+            "depth_limited_by_region"
+        ]
 
-    # Buried: the loop and `_search_ceiling` bisect the same predicate, so
-    # their brackets coincide and the gap is under ONE interval.
-    buried, flagged = gap_in_intervals(_box_part((-500, -500, -500), (500, 500, 500)))
-    assert buried < 1.0, f"buried sits {buried:.3f} intervals short"
+    # Buried: under one interval, and flagged.
+    gap, flagged = probe(500.0)
+    assert gap < 1.0, f"buried sits {gap:.3f} intervals short"
     assert flagged is True
 
-    # A genuine partial intrusion cannot come near that, however hard it tries.
-    # The sliver left near the ceiling falls under the volume threshold long
-    # before the region does, so even a part stopping AT the ceiling reads
-    # ~1167 intervals short. That margin is why one interval is the right
-    # slack and why doubling it — or multiplying it by a hundred — changes no
-    # observable behaviour: those mutations are equivalent, not uncovered.
-    # Above ~1000x they are not, which is what this pins.
-    for z in (49.0, 49.99, ceiling):
-        near, flagged = gap_in_intervals(_box_part((-500, -500, -500), (500, 500, z)))
-        assert near > 1000.0, f"z={z}: only {near:.1f} intervals short"
-        assert flagged is False
+    # A genuine partial intrusion two intervals short: NOT flagged, and it is
+    # what separates a slack of one interval from two, a hundred or a thousand.
+    gap, flagged = probe(3.999999)
+    assert gap == pytest.approx(2.0, abs=0.25), f"premise: {gap:.2f} intervals short"
+    assert flagged is False, "two intervals short is a depth the part chose"
+
+    # And further out still, so the ordinary case is nowhere near the boundary.
+    for z in (3.0, 3.99, 3.9999):
+        gap, flagged = probe(z)
+        assert gap > 2.0 and flagged is False, f"z={z}: {gap:.1f} intervals"
+
+
+def test_the_sub_resolution_and_region_limited_branches_never_both_apply():
+    """`_intrusion_sentence` picks ONE branch, so if both can hold the order
+    decides what the reader is told — and one order prints "at least 0 mm".
+
+    Round 4 argued the two are disjoint and DELETED the assertions that pinned
+    the order. The argument conflated two ceilings: the guard keyed on
+    `inradius()` while saturation compares against `_search_ceiling()`, and for
+    a region whose volume barely clears `epsilon(0.0)` those differ by a factor
+    of 250 — a 200 mm x 33 nm plate passed the guard with a search ceiling of
+    0.0675 nm and satisfied both branches at once (round-5 review of #207).
+    They are keyed on the same ceiling now, which is what makes the claim true;
+    this is the claim, tested.
+    """
+    from partspec.region import box
+    from partspec.runner import _search_ceiling
+
+    solid = _box_part((-500, -500, -500), (500, 500, 500))
+    both = []
+    # The degenerate corner the argument missed: volume just over the
+    # threshold, so the search ceiling collapses while the inradius does not.
+    for thickness in (1e-5, 3.3e-5, 1e-4, 1e-3):
+        for scale in (1.005, 1.5, 4.0, 40.0):
+            width = scale * 1e-6 / (200.0 * thickness)
+            region = box(min=(0, 0, 0), max=(200.0, width, thickness))
+            got = _region_result(solid, "keep_out", region, 1.0).intrusion
+            if got is None:
+                continue
+            if got["min_depth_mm"] <= 0.0 and got["depth_limited_by_region"]:
+                both.append((thickness, scale, _search_ceiling(region)))
+    assert not both, f"both branches apply for {both}"
+
+    # A region small enough to reach a zero depth reports no intrusion at all,
+    # which is the mechanism: the guard fires before the branches are chosen.
+    tiny = box(min=(0, 0, 0), max=(200.0, 1.005e-6 / (200.0 * 3.3e-5), 3.3e-5))
+    assert _search_ceiling(tiny) < tiny.inradius() / 200, "premise: the two ceilings differ"
+    assert _region_result(solid, "keep_out", tiny, 1.0).intrusion is None
 
 
 def test_a_region_too_small_for_the_search_to_resolve_reports_no_depth():
@@ -804,6 +843,38 @@ def test_a_region_too_small_for_the_search_to_resolve_reports_no_depth():
     fine = _region_result(solid, "keep_out", box(min=(0, 0, 0), max=(0.1, 0.1, 0.1)), 1.0)
     assert fine.intrusion is not None
     assert fine.intrusion["depth_limited_by_region"] is True
+
+    # The constant itself, at its own boundary: every value from 1 to 15
+    # survived the suite because no fixture sat near it (round-5 review of
+    # #207). A cube whose search ceiling straddles the threshold does.
+    from partspec.runner import _DEPTH_TOLERANCE, _MIN_RESOLVING_HALVINGS, _search_ceiling
+
+    assert _MIN_RESOLVING_HALVINGS == 4
+    threshold = _DEPTH_TOLERANCE * 2**_MIN_RESOLVING_HALVINGS
+
+    def cube_with_ceiling_near(target):
+        # For a cube of side s the ceiling is s/2 - (eps/8)**(1/3)/1 ... solved
+        # numerically, since the closed form is a cubic.
+        lo, hi = 2 * target, 2 * target + 1.0
+        for _ in range(200):
+            mid = (lo + hi) / 2
+            if _search_ceiling(box(min=(0, 0, 0), max=(mid, mid, mid))) < target:
+                lo = mid
+            else:
+                hi = mid
+        return hi
+
+    just_over = cube_with_ceiling_near(threshold * 1.5)
+    just_under = cube_with_ceiling_near(threshold / 1.5)
+    assert _region_result(
+        solid, "keep_out", box(min=(0, 0, 0), max=(just_over, just_over, just_over)), 1.0
+    ).intrusion
+    assert (
+        _region_result(
+            solid, "keep_out", box(min=(0, 0, 0), max=(just_under, just_under, just_under)), 1.0
+        ).intrusion
+        is None
+    )
 
 
 def test_a_depth_below_the_searchs_resolution_is_not_reported_as_zero():
@@ -877,7 +948,7 @@ def test_a_depth_the_region_itself_limits_withholds_the_comparison():
     A CYLINDER region, because a box's floor is 0.0 and `_intrusion_sentence`
     returns before the comparison either way: the box version of this test
     passed with the fix reverted (round-2 review of #207). Here the floor is
-    1.689 mm — five times the depth — so the branch is genuinely load-bearing.
+    1.5605 mm — five times the depth — so the branch is genuinely load-bearing.
     """
     from partspec.region import cylinder
 
@@ -996,8 +1067,9 @@ def test_the_saturation_ceiling_is_the_searchs_own_limit_not_the_inradius():
         ("nut pocket 7", box(min=(0, 0, 0), max=(7, 7, 7))),
         # Above 33.6 mm across, the search's own resolution exceeds
         # `_DEPTH_TOLERANCE`, so a fixed 1e-6 slack stops firing. Every fixture
-        # above is under that, which is how the regression got through: 78% of
-        # buried cubes over 34 mm went unflagged, non-monotonically — 50 fired,
+        # above is under that, which is how the regression got through: most
+        # buried cubes over 34 mm went unflagged — 51% of integer sides in
+        # 34..100, 88% in 34..1000 — non-monotonically, 50 fired,
         # 60 did not, 100 did, 120 did not (round-3 review of #207).
         ("cube 50", box(min=(0, 0, 0), max=(50, 50, 50))),
         ("cube 60", box(min=(0, 0, 0), max=(60, 60, 60))),

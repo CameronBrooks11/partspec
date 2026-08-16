@@ -1023,17 +1023,31 @@ to 28 on a failing one, fewer once the interval closes to `_DEPTH_TOLERANCE`
 first (22 for a region of inradius 0.15 mm)."""
 
 _DEPTH_TOLERANCE = 1e-6
+"""Bracket width at which the search stops early, in mm."""
+
 _MIN_RESOLVING_HALVINGS = 4
 """How finely the search must resolve a region before its answer means anything.
 
 `depth_limited_by_region` asks whether the proven depth is within one search
-interval of the ceiling. That distinguishes nothing when the interval is a
-sizeable fraction of the ceiling itself, which is what the early break leaves
-for a region near `_DEPTH_TOLERANCE`. Four halvings put the interval at a
-sixteenth, which is the coarsest at which "the whole depth" and "part of it"
-are different statements. It excludes regions under 16 nm across (#207).
+interval of the region's search ceiling. That distinguishes nothing when the
+interval is a sizeable fraction of the ceiling itself, which is what the early
+break leaves for a ceiling near `_DEPTH_TOLERANCE`. Four halvings put the
+interval at a sixteenth, the coarsest at which "the whole depth" and "part of
+it" are different statements.
+
+Keyed on the SEARCH CEILING, not the inradius. The two part company for a
+region whose volume barely clears `epsilon(0.0)`: one 200 mm long and 33 nm
+thick has an inradius of 16.5 nm — past the guard — and a search ceiling of
+0.0675 nm, so it saturated at a depth of zero and satisfied BOTH the
+sub-resolution and region-limited branches at once. An earlier draft argued
+those two are disjoint, keyed the guard on the inradius, and deleted the test
+that pinned their order on the strength of the argument (round-5 review of
+#207). Keyed this way they really are disjoint: an overlap needs
+`ceiling <= hi - lo <= max(_DEPTH_TOLERANCE, inradius / 2**24)`, and any region
+with an inradius over 0.01 mm has a ceiling of at least half of it.
+
+It excludes regions under 32 nm across — the inradius is a HALF-extent.
 """
-"""Bracket width at which the search stops early, in mm."""
 
 
 def _intrusion_sentence(in_region: float, intrusion: dict[str, Any] | None) -> str:
@@ -1051,7 +1065,7 @@ def _intrusion_sentence(in_region: float, intrusion: dict[str, Any] | None) -> s
     that is zero on an exact backend. How the two COMBINE depends on how the
     polygons are phased — `region term <= depth <= region term + feature term`,
     and measured against a `$fn=128` bore the depth sits at the bottom of that
-    bracket at 64 region segments and at 0.9993 of the top at 128. A second
+    bracket at 64 region segments and at 0.9994 of the top at 128. A second
     draft said "…accounts for up to X of that, and the modelled feature's
     tessellation for more" (the top) and a third said the terms select rather
     than sum (the bottom); each is one end asserted as the rule. And `depth <=
@@ -1177,7 +1191,7 @@ def _max_intrusion_depth(
     `None` where the backend cannot answer, which the caller reports as no
     depth rather than as zero depth.
     """
-    ceiling = region.inradius()
+    ceiling = _search_ceiling(region)
     if ceiling <= _DEPTH_TOLERANCE * 2**_MIN_RESOLVING_HALVINGS:
         # Below this the loop breaks on `_DEPTH_TOLERANCE` before it has
         # halved enough times for either number to mean anything, and both
@@ -1186,7 +1200,7 @@ def _max_intrusion_depth(
         # of the region", and one 1e-6 mm thick reported the same after ZERO
         # bisections (round-4 review of #207). No depth is the honest answer.
         return None
-    lo, hi = 0.0, ceiling
+    lo, hi = 0.0, region.inradius()
     for _ in range(_DEPTH_BISECTIONS):
         if hi - lo <= _DEPTH_TOLERANCE:
             break
@@ -1208,15 +1222,16 @@ def _max_intrusion_depth(
     # (round-2 review of #207). `_search_ceiling` is the exact bound, so the
     # slack is the search's OWN resolution -- `hi - lo`, which is
     # `inradius / 2**24` and exceeds `_DEPTH_TOLERANCE` for any region wider
-    # than 33.6 mm. A fixed 1e-6 therefore failed to fire on 78% of buried
-    # cubes above 34 mm and, being non-monotone in the size, reintroduced the
+    # than 33.6 mm. A fixed 1e-6 therefore failed to fire on most buried cubes
+    # above 34 mm — 51% of integer sides in 34..100, 88% in 34..1000 — and,
+    # being non-monotone in the size, reintroduced the
     # discontinuity it had just removed: side 50 flagged, 60 did not, 100 did,
     # 120 did not (round-3 review of #207). `hi - lo` alone, with no absolute
     # floor under it: where the region runs out first, this loop and
     # `_search_ceiling` are bisecting the SAME predicate, so their brackets
     # coincide and `lo` cannot fall further than one interval short. Against an
     # exact bound the `lo` and `hi` forms agree on every case measured.
-    return lo, hi - lo, lo >= _search_ceiling(region) - (hi - lo)
+    return lo, hi - lo, lo >= ceiling - (hi - lo)
 
 
 def _run_region_check(

@@ -120,8 +120,8 @@ class CheckResult:
     no upper bound implied; `search_resolution_mm` and `detected_above_mm3`,
     the two limits of the search that found it; `depth_limited_by_region`, set
     when the region ran out before the material did; and `facet_floor_mm`, how
-    far this region's own faceted outline stands proud of the circle it
-    declares. Diagnostic, not adjudicated: the claim is
+    much intrusion this region's own faceting would show against a perfectly
+    circular feature. Diagnostic, not adjudicated: the claim is
     still "no material here", and this says what the material did. Additive per
     §7.1.
     """
