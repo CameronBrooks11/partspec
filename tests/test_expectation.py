@@ -224,6 +224,88 @@ def test_a_pinned_part_dropped_from_the_invocation_is_not_green(tmp_path: Path, 
 
 
 @needs_scad_tier
+def test_a_pinned_target_that_crashed_is_not_reported_as_a_deletion(tmp_path: Path, capsys):
+    """#201: the guard's own advice performed the drop it exists to prevent.
+
+    A pinned target SUPPLIED on the command line but failing to resolve never
+    reaches `covered_ids.add(part.id)` — `_resolve_or_report` returns an int
+    and bails first — so the coverage comparison reported it as dropped and
+    advised `re-pin with --pin`. Following that writes a lock without the
+    part, **permanently deleting its claim set**, turning a typo or a
+    half-saved file into a silently deleted check. That is the failure class
+    PR #105's review added this guard for, performed by the guard.
+
+    The run still fails (exit 4) and the pin is still reported as uncovered:
+    a target that crashed proved nothing, and green would be worse. What
+    changes is that the message declines to call it a deletion and refuses to
+    advise the destructive remedy.
+
+    Which pinned part the failed target WOULD have produced is not knowable —
+    the id comes from running the contract — so the message names the failure
+    and stops, rather than guessing an attribution.
+    """
+    (tmp_path / "m.scad").write_text("cube([30, 20, 10]);\n")
+    spec = tmp_path / "s.py"
+    body = (
+        "from partspec import Part, openscad\n\n\n"
+        "def good():\n"
+        "{crash}"
+        "    return Part('good-part', openscad('m.scad')).watertight()\n\n\n"
+        "def other():\n"
+        "    return Part('other-part', openscad('m.scad')).watertight()\n"
+    )
+    spec.write_text(body.format(crash=""))
+    targets = [f"{spec}:good", f"{spec}:other"]
+    lock = tmp_path / "claims.lock"
+    assert main(["check", *targets, "--quiet", "--pin", str(lock)]) == 0
+
+    spec.write_text(body.format(crash="    raise RuntimeError('boom')\n"))
+    code = main(["check", *targets, "--quiet", "--expect", str(lock)])
+    err = capsys.readouterr().err
+
+    assert code == 4, "a target that crashed proved nothing; green would be worse"
+    assert "'good-part'" in err, "the uncovered pin is still named"
+    assert f"{spec}:good" in err, "and so is the target that did not resolve"
+    assert "may be that failure rather than a deletion" in err
+    assert "Do NOT re-pin" in err
+    assert "deleted part is a deleted claim set" not in err, (
+        "it was not deleted, it crashed, and the line above says so"
+    )
+    assert "re-pin with --pin if the removal is deliberate" not in err, (
+        "the remedy that destroys the claim set must not be offered here"
+    )
+
+
+@needs_scad_tier
+def test_a_real_deletion_still_gets_the_deletion_message(tmp_path: Path, capsys):
+    """The other side of #201's split, so the fix cannot be "stop saying it".
+
+    Nothing failed to resolve here: the target is simply absent, which IS a
+    deletion, and the advice to re-pin is correct because the removal really
+    might be deliberate.
+    """
+    (tmp_path / "m.scad").write_text("cube([30, 20, 10]);\n")
+    spec = tmp_path / "s.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def good():\n"
+        "    return Part('good-part', openscad('m.scad')).watertight()\n\n\n"
+        "def other():\n"
+        "    return Part('other-part', openscad('m.scad')).watertight()\n"
+    )
+    lock = tmp_path / "claims.lock"
+    assert main(["check", f"{spec}:good", f"{spec}:other", "--quiet", "--pin", str(lock)]) == 0
+
+    code = main(["check", f"{spec}:other", "--quiet", "--expect", str(lock)])
+    err = capsys.readouterr().err
+
+    assert code == 4
+    assert "a deleted part is a deleted claim set" in err
+    assert "re-pin with --pin if the removal is deliberate" in err
+    assert "did not resolve" not in err, "nothing failed to resolve here"
+
+
+@needs_scad_tier
 def test_a_report_without_expect_carries_no_expectation_key(tmp_path: Path):
     target = _target(tmp_path, STRICT)
     out = tmp_path / "out"

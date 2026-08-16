@@ -631,6 +631,11 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
 
     pinned_parts: dict[str, dict[str, str]] = {}
     covered_ids: set[str] = set()
+    # Targets that were SUPPLIED and did not resolve. A target that failed has
+    # no `part.id`, so it can cover nothing — and the coverage check below
+    # cannot tell "you deleted this part" from "the target that makes it
+    # crashed" without knowing one happened (#201).
+    unresolved: list[str] = []
     codes: list[int] = []
     for spec in targets:
         code = _check_one(
@@ -642,6 +647,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             expect_lock=expect_lock,
             pins=pinned_parts,
             covered_ids=covered_ids,
+            unresolved=unresolved,
         )
         if code == 130:
             # The user's own abort is the one failure that DOES stop a batch.
@@ -674,13 +680,42 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         # one expectation failure that lives on stderr and in the exit alone.
         uncovered = sorted(expect_lock.keys() - covered_ids)
         if uncovered:
-            print(
-                f"partspec: the pin covers {', '.join(repr(p) for p in uncovered)} but no "
-                f"target in this invocation produced "
-                f"{'it' if len(uncovered) == 1 else 'them'}; a deleted part is a deleted "
-                f"claim set (re-pin with --pin if the removal is deliberate)",
-                file=sys.stderr,
-            )
+            names = ", ".join(repr(p) for p in uncovered)
+            it = "it" if len(uncovered) == 1 else "them"
+            if unresolved:
+                # A supplied target that CRASHED is not a deletion, and the
+                # remedy for a deletion destroys the evidence: re-pinning now
+                # writes a lock without these parts, permanently deleting the
+                # claim set a transient contract error hid. That is the failure
+                # class this guard exists to prevent, performed by the guard's
+                # own advice (#201).
+                #
+                # Which pinned part a failed target WOULD have produced is not
+                # knowable — the id comes from running the contract — so this
+                # names the failures and declines to conclude, rather than
+                # guessing an attribution.
+                failed = ", ".join(repr(s) for s in unresolved)
+                print(
+                    f"partspec: the pin covers {names} and nothing in this invocation "
+                    f"produced {it} — but {failed} did not resolve, so this may be that "
+                    f"failure rather than a deletion",
+                    file=sys.stderr,
+                )
+                sets = "that claim set" if len(uncovered) == 1 else "those claim sets"
+                print(
+                    f"  hint: fix the target and re-run before deciding. Do NOT re-pin "
+                    f"yet: --pin would write a lock without {names}, deleting {sets} "
+                    f"permanently",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"partspec: the pin covers {names} but no "
+                    f"target in this invocation produced "
+                    f"{it}; a deleted part is a deleted "
+                    f"claim set (re-pin with --pin if the removal is deliberate)",
+                    file=sys.stderr,
+                )
             codes.append(exit_code(Verdict.ERROR))
 
     return _batch_exit(codes)
@@ -696,6 +731,7 @@ def _check_one(
     expect_lock: dict[str, dict[str, str]] | None = None,
     pins: dict[str, dict[str, str]] | None = None,
     covered_ids: set[str] | None = None,
+    unresolved: list[str] | None = None,
 ) -> int:
     # Before the contract is resolved, because resolving it IMPORTS it: a
     # contract's own imports are this part's, and a snapshot taken any later
@@ -717,6 +753,10 @@ def _check_one(
         from .engines.pycad import invalidate_model_modules
 
         invalidate_model_modules(Target.parse(spec).path)
+        if unresolved is not None:
+            # Recorded here rather than inferred from the exit code, which
+            # cannot tell a resolution failure from a failing check (#201).
+            unresolved.append(spec)
         return resolved
     part, target = resolved
 

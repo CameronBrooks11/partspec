@@ -175,6 +175,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mirrors the OpenSCAD tier's "stale-artifact discipline". Since #223 and #224
   the two are opposites, and the v0.7.6 audit caught the sibling citation one
   line down without this one.
+- **A pinned target that crashed is no longer reported as a deletion, and the
+  remedy that destroys its claim set is no longer offered** (#201). A pinned
+  target SUPPLIED on the command line but failing to resolve never reaches
+  `covered_ids.add(part.id)` — `_resolve_or_report` returns an int and bails
+  first — so the coverage comparison reported it as *dropped*, one line below
+  the message saying the contract had raised. The advice attached to that was
+  `re-pin with --pin if the removal is deliberate`, and **following it writes a
+  lock without the part, permanently deleting its claim set**: a typo, a
+  missing import or a half-saved file converted into a silently deleted check.
+  That is the failure class PR #105's review added this guard for, performed by
+  the guard's own advice.
+  The run still fails at exit 4 and the pin is still reported as uncovered — a
+  target that crashed proved nothing, and green would be worse. What changes is
+  that the message declines to call it a deletion, names the target that did
+  not resolve, and says plainly not to re-pin yet.
+  **Which pinned part a failed target would have produced is not knowable** —
+  the id comes from running the contract — so the message names the failure and
+  stops rather than guessing an attribution. A genuine deletion, where nothing
+  failed to resolve, keeps the old message and the old advice, both of which
+  are correct there; each side is pinned by its own test, so the fix cannot
+  degenerate into "stop saying it".
 
 ## [0.7.6] - 2026-08-15
 
