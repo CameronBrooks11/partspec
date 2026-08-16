@@ -375,6 +375,55 @@ def test_running_out_of_something_is_not_a_statement_about_the_part(
     assert result.hint is None, "and no hint telling the reader to fix their geometry"
 
 
+def test_the_real_occt_out_of_memory_is_classified(tmp_path: Path):
+    """The stunt double above is a locally-built class with the right
+    `__name__`; this is the class itself.
+
+    The whole mechanism is a string match against a third-party name, so the
+    one thing worth pinning is that the name still matches the real thing. If
+    OCP renames it, this fails and the parametrised stub does not.
+    """
+    ocp = pytest.importorskip("OCP.Standard", reason="occt extra not installed")
+
+    class Exhausted:
+        _wrapped = "a real shape"
+
+        def tessellate(self, _tolerance):
+            raise ocp.Standard_OutOfMemory
+
+    result = render_views(Exhausted(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert result.origin == "environment"
+    assert result.hint is None
+
+
+def test_an_occt_index_error_is_the_shape_not_the_machine(tmp_path: Path):
+    """`Standard_OutOfRange` sat in the resource set for one commit.
+
+    It is an INDEX error: OCCT raises it from `Poly_Triangulation.Node(i)` and
+    `Triangle(i)`, which are the exact calls build123d's `tessellate` makes —
+    so it is the same family as #191's `NoneType has no attribute NbNodes`, a
+    bad triangulation or a bug here. Calling it the environment inverted §6.1
+    the other way and suppressed the hint pointing at the checks that answer
+    (round-3 review of #241, which also noted deleting the line left the suite
+    green).
+    """
+
+    class Indexing:
+        _wrapped = "a real shape"
+
+        def tessellate(self, _tolerance):
+            raise type("Standard_OutOfRange", (Exception,), {})("out of range index")
+
+    result = render_views(Indexing(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert result.origin == "model", "an index error is not the machine running out"
+    assert "could not be tessellated" in result.message
+    assert "self_intersection_free" in (result.hint or "")
+
+
 def test_the_shape_branch_does_not_dangle_a_colon_either(tmp_path: Path):
     """The guard was applied to the resource branch and missed here — the
     branch that actually receives empty-message exceptions.

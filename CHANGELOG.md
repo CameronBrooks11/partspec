@@ -129,7 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   catching those with everything else answered "this shape could not be
   tessellated" at `origin="model"` with a hint telling the reader their solid
   was probably degenerate — which SPEC-report §6.1 forbids in as many words.
-  `MemoryError` on a large tessellation is the canonical case, and
+  `MemoryError` is the Python-level case, and
   `str(MemoryError())` is empty, so that message also ended in a dangling colon:
   the "nothing is hidden" claim failing exactly where there was nothing to show.
   Those are `origin="environment"` now, with no geometry-blaming hint — and so

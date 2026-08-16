@@ -210,10 +210,14 @@ def _is_resource_fault(exc: BaseException) -> bool:
     name for that reason, which is ugly and is the only thing available; the
     alternative is reporting the kernel's exhaustion as a degenerate solid.
     """
-    return isinstance(exc, _RESOURCE_FAULTS) or type(exc).__name__ in {
-        "Standard_OutOfMemory",
-        "Standard_OutOfRange",
-    }
+    # One name, and it earns its place. `Standard_OutOfRange` was in this set
+    # for one commit and is an INDEX error — OCCT raises it from
+    # `Poly_Triangulation.Node(i)` and `Triangle(i)`, the exact calls
+    # build123d's `tessellate` makes, so it is the same family as #191's crash:
+    # a bad triangulation, a bad shape, or a bug here. Classifying it as the
+    # environment inverted §6.1 the other way and suppressed the hint, and no
+    # test caught it because I added it without one (round-3 review of #241).
+    return isinstance(exc, _RESOURCE_FAULTS) or type(exc).__name__ == "Standard_OutOfMemory"
 
 
 def _untessellatable(exc: BaseException) -> BuildError:
