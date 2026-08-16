@@ -631,6 +631,11 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
 
     pinned_parts: dict[str, dict[str, str]] = {}
     covered_ids: set[str] = set()
+    # Targets that were SUPPLIED and did not resolve. A target that failed has
+    # no `part.id`, so it can cover nothing — and the coverage check below
+    # cannot tell "you deleted this part" from "the target that makes it
+    # crashed" without knowing one happened (#201).
+    unresolved: list[str] = []
     codes: list[int] = []
     for spec in targets:
         code = _check_one(
@@ -642,6 +647,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             expect_lock=expect_lock,
             pins=pinned_parts,
             covered_ids=covered_ids,
+            unresolved=unresolved,
         )
         if code == 130:
             # The user's own abort is the one failure that DOES stop a batch.
@@ -649,7 +655,63 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         codes.append(code)
 
     if args.pin is not None and pinned_parts:
-        from .expectation import write_lock
+        from .expectation import LockError, read_lock, write_lock
+
+        # A lock that SHRINKS because a target crashed is silent weakening, and
+        # `expectation.py` states the design goal it violates: "the tool's job
+        # is to make the weakening IMPOSSIBLE to do silently, not impossible to
+        # do." #201 removed the advice to do this and left the act itself
+        # unguarded one flag over — measured, a crashed target dropped a part
+        # from an existing lock with only `pinned 2 part(s)` on stdout
+        # (adversarial review of #243).
+        #
+        # Refused rather than warned: `--pin` overwrites, so by the time a
+        # warning is read the claim set is already gone.
+        if unresolved and args.pin.is_file():
+            try:
+                existing = read_lock(args.pin)
+            except LockError as exc:
+                # NOT `{}`. Inside `is_file()` a LockError means unreadable,
+                # malformed, or a schema this build does not know — never "no
+                # lock yet", which the branch already excluded. Treating it as
+                # empty said "nothing can be lost" about precisely the locks
+                # whose contents cannot be checked, and then overwrote them:
+                # measured, a schema-2 lock covering two parts was silently
+                # rewritten as a one-part schema-1 lock because a target
+                # crashed (round-3 review of #243). Failing open is the one
+                # direction this guard must not fail.
+                print(
+                    f"partspec: refusing to re-pin: {exc}, so partspec cannot tell "
+                    f"whether writing it would drop a claim set — and {
+                        ', '.join(repr(s) for s in sorted(set(unresolved)))
+                    } did not resolve",
+                    file=sys.stderr,
+                )
+                print(
+                    "  hint: fix the failing target and re-run, or delete the lock to "
+                    "re-pin from scratch",
+                    file=sys.stderr,
+                )
+                codes.append(exit_code(Verdict.ERROR))
+                return _batch_exit(codes)
+            lost = sorted(existing.keys() - pinned_parts.keys())
+            if lost:
+                failed = ", ".join(repr(s) for s in sorted(set(unresolved)))
+                print(
+                    f"partspec: refusing to re-pin: {failed} did not resolve, and writing "
+                    f"{args.pin} now would drop "
+                    f"{', '.join(repr(p) for p in lost)} from it",
+                    file=sys.stderr,
+                )
+                print(
+                    "  hint: fix the failing target and re-run. If the removal is "
+                    "deliberate, delete the lock and re-pin from scratch — a lock cannot "
+                    "be written in part, so partspec cannot keep the deliberate half "
+                    "while a target is unresolved",
+                    file=sys.stderr,
+                )
+                codes.append(exit_code(Verdict.ERROR))
+                return _batch_exit(codes)
 
         write_lock(args.pin, pinned_parts)
         if not args.quiet:
@@ -674,13 +736,64 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         # one expectation failure that lives on stderr and in the exit alone.
         uncovered = sorted(expect_lock.keys() - covered_ids)
         if uncovered:
-            print(
-                f"partspec: the pin covers {', '.join(repr(p) for p in uncovered)} but no "
-                f"target in this invocation produced "
-                f"{'it' if len(uncovered) == 1 else 'them'}; a deleted part is a deleted "
-                f"claim set (re-pin with --pin if the removal is deliberate)",
-                file=sys.stderr,
-            )
+            names = ", ".join(repr(p) for p in uncovered)
+            it = "it" if len(uncovered) == 1 else "them"
+            # A target resolves to at most one part, so N failures can
+            # account for at most N uncovered ids. Everything beyond that is
+            # PROVABLY deleted, whatever crashed — and blanket-declining there
+            # installs the mirror of #201's defect: a guard refusing a
+            # conclusion it has earned, suppressing the correct remedy for
+            # parts the failure cannot explain (adversarial review of #243).
+            # `len(unresolved)`, not `len(set(...))`. The bound is "one target
+            # accounts for at most one part", so deduping the TARGET STRINGS
+            # breaks it: the same spec twice, with a factory that is not pure
+            # (which SPEC-contract nowhere forbids), is two targets and two
+            # possible parts. Dedupe is for the display list only (round-3
+            # review of #243).
+            certain = len(uncovered) - len(unresolved)
+            if unresolved and certain <= 0:
+                # Nothing is provable: the failures could account for all of
+                # them. Name the failures and decline.
+                failed = ", ".join(repr(s) for s in sorted(set(unresolved)))
+                those = "those failures" if len(set(unresolved)) > 1 else "that failure"
+                sets = "that claim set" if len(uncovered) == 1 else "those claim sets"
+                print(
+                    f"partspec: the pin covers {names} and nothing in this invocation "
+                    f"produced {it} — but {failed} did not resolve, so this may be "
+                    f"{those} rather than a deletion",
+                    file=sys.stderr,
+                )
+                print(
+                    f"  hint: fix the target and re-run before deciding. Re-pinning "
+                    f"now would write a lock without {names} — partspec refuses that "
+                    f"while a target is unresolved, and {sets} would otherwise be gone",
+                    file=sys.stderr,
+                )
+            elif unresolved:
+                # Some are provable. Say how many, and keep the real remedy for
+                # them rather than withholding it because something else broke.
+                failed = ", ".join(repr(s) for s in sorted(set(unresolved)))
+                print(
+                    f"partspec: the pin covers {names} and nothing in this invocation "
+                    f"produced {it}. {failed} did not resolve and can account for at "
+                    f"most {len(unresolved)} of them, so at least {certain} "
+                    f"{'was' if certain == 1 else 'were'} deleted",
+                    file=sys.stderr,
+                )
+                print(
+                    "  hint: fix the failing target first — re-pinning now would write "
+                    "a lock without any of them, and only the deleted ones should go. "
+                    "partspec refuses that write while a target is unresolved",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"partspec: the pin covers {names} but no "
+                    f"target in this invocation produced "
+                    f"{it}; a deleted part is a deleted "
+                    f"claim set (re-pin with --pin if the removal is deliberate)",
+                    file=sys.stderr,
+                )
             codes.append(exit_code(Verdict.ERROR))
 
     return _batch_exit(codes)
@@ -696,6 +809,7 @@ def _check_one(
     expect_lock: dict[str, dict[str, str]] | None = None,
     pins: dict[str, dict[str, str]] | None = None,
     covered_ids: set[str] | None = None,
+    unresolved: list[str] | None = None,
 ) -> int:
     # Before the contract is resolved, because resolving it IMPORTS it: a
     # contract's own imports are this part's, and a snapshot taken any later
@@ -717,6 +831,10 @@ def _check_one(
         from .engines.pycad import invalidate_model_modules
 
         invalidate_model_modules(Target.parse(spec).path)
+        if unresolved is not None:
+            # Recorded here rather than inferred from the exit code, which
+            # cannot tell a resolution failure from a failing check (#201).
+            unresolved.append(spec)
         return resolved
     part, target = resolved
 
