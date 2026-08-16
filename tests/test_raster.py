@@ -275,6 +275,229 @@ def test_render_views_writes_the_views_and_records_the_tessellation(tmp_path: Pa
     assert bbox == {"min": [-10.0, -5.0, -2.5], "max": [10.0, 5.0, 2.5]}
 
 
+@pytest.mark.parametrize(
+    "raised",
+    [
+        AttributeError("'NoneType' object has no attribute 'NbNodes'"),
+        RuntimeError("Standard_Failure"),
+        TypeError("cannot unpack non-sequence"),
+    ],
+)
+def test_a_solid_the_kernel_cannot_mesh_is_a_refusal_not_a_traceback(
+    tmp_path: Path, raised: Exception
+):
+    """#191, found by a fleet adoption agent on `bd_warehouse`'s
+    `IsoThread(external=False)` nut, whose thread vanishes during fusion.
+
+    OCCT returns no triangulation for a face it cannot mesh and build123d
+    assumes one, so `shape.tessellate` raised
+    `AttributeError: 'NoneType' object has no attribute 'NbNodes'` straight out
+    of here. The CLI's last-resort handler catches it and does exit 4, so the
+    first version of this docstring overstated it — what is lost is the
+    artifact and the classification, not the exit code (adversarial review of
+    #241, which is #191's own transcript read properly).
+
+    `check` on the SAME part reaches a real verdict, so the part is evaluable
+    and only rendering it falls over. That is what the message has to say.
+
+    Parametrised over three exception types because the guard is deliberately
+    broad: the `try` wraps a single call, so anything out of it IS a
+    tessellation failure and the sentence is true by construction. A stub
+    rather than the real nut — this is `render_views`'s bookkeeping, and
+    pinning it to `bd_warehouse` would make the test unrunnable here.
+    """
+
+    class Unmeshable:
+        _wrapped = "a real shape"
+
+        def tessellate(self, _tolerance):
+            raise raised
+
+    result = render_views(Unmeshable(), tmp_path)
+
+    assert isinstance(result, BuildError), "a stack trace is not a refusal"
+    assert "could not be tessellated" in result.message
+    assert result.origin == "model", "a shape the kernel cannot mesh is the part"
+    # The underlying failure rides along: the guard is broad, so it must not
+    # swallow what it caught -- including a partspec bug, which names itself
+    # here rather than vanishing.
+    assert type(raised).__name__ in result.message and str(raised) in result.message
+    assert "self_intersection_free" in (result.hint or ""), (
+        "and it points at the checks that answer on a part rendering cannot"
+    )
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        MemoryError(),
+        RecursionError("maximum recursion depth exceeded"),
+        OSError(28, "No space left on device"),
+        ImportError("libTKMesh.so: cannot open shared object file"),
+        pytest.param(
+            type("Standard_OutOfMemory", (Exception,), {})(),
+            id="the kernel's own, which no builtin catches",
+        ),
+    ],
+)
+def test_running_out_of_something_is_not_a_statement_about_the_part(
+    tmp_path: Path, raised: Exception
+):
+    """SPEC-report §6.1: an environment fault "is not a statement about the
+    part at all, and MUST NOT be reported as one".
+
+    Every one of these is an `Exception`, so the first version of the guard
+    caught them with everything else and answered "this shape could not be
+    tessellated" at `origin="model"`, with a hint telling the reader their
+    solid was probably degenerate. `MemoryError` on a large tessellation is the
+    canonical environment fault (adversarial review of #241).
+
+    `str(MemoryError())` is empty, so that case also ended the message in a
+    dangling colon — the "nothing is hidden" claim failing precisely where
+    there was nothing to show.
+    """
+
+    class Exhausted:
+        _wrapped = "a real shape"
+
+        def tessellate(self, _tolerance):
+            raise raised
+
+    result = render_views(Exhausted(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert result.origin == "environment", "the machine ran out, the part did not"
+    assert "could not be tessellated for rendering" not in result.message, (
+        "that sentence blames the shape"
+    )
+    assert type(raised).__name__ in result.message
+    assert not result.message.endswith(": "), "no dangling colon when str(exc) is empty"
+    assert result.hint is None, "and no hint telling the reader to fix their geometry"
+
+
+def test_the_real_occt_out_of_memory_is_classified(tmp_path: Path):
+    """The stunt double above is a locally-built class with the right
+    `__name__`; this is the class itself.
+
+    The whole mechanism is a string match against a third-party name, so the
+    one thing worth pinning is that the name still matches the real thing. If
+    OCP renames it, this fails and the parametrised stub does not.
+    """
+    ocp = pytest.importorskip("OCP.Standard", reason="occt extra not installed")
+
+    class Exhausted:
+        _wrapped = "a real shape"
+
+        def tessellate(self, _tolerance):
+            raise ocp.Standard_OutOfMemory
+
+    result = render_views(Exhausted(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert result.origin == "environment"
+    assert result.hint is None
+
+
+def test_an_occt_index_error_is_the_shape_not_the_machine(tmp_path: Path):
+    """`Standard_OutOfRange` sat in the resource set for one commit.
+
+    It is an INDEX error: OCCT raises it from `Poly_Triangulation.Node(i)` and
+    `Triangle(i)`, which are the exact calls build123d's `tessellate` makes —
+    so it is the same family as #191's `NoneType has no attribute NbNodes`, a
+    bad triangulation or a bug here. Calling it the environment inverted §6.1
+    the other way and suppressed the hint pointing at the checks that answer
+    (round-3 review of #241, which also noted deleting the line left the suite
+    green).
+    """
+
+    class Indexing:
+        _wrapped = "a real shape"
+
+        def tessellate(self, _tolerance):
+            raise type("Standard_OutOfRange", (Exception,), {})("out of range index")
+
+    result = render_views(Indexing(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert result.origin == "model", "an index error is not the machine running out"
+    assert "could not be tessellated" in result.message
+    assert "self_intersection_free" in (result.hint or "")
+
+
+def test_the_shape_branch_does_not_dangle_a_colon_either(tmp_path: Path):
+    """The guard was applied to the resource branch and missed here — the
+    branch that actually receives empty-message exceptions.
+
+    build123d 0.11.1's `tessellate` carries `assert face.wrapped is not None`
+    two lines above #191's crash, and `str(AssertionError())` is `""`. Every
+    default-constructed OCP exception is empty too. And the sibling test
+    asserted `str(raised) in result.message`, which is vacuously true for an
+    empty string — so it certified the dangling colon (round-2 review of #241).
+    """
+
+    class Asserting:
+        _wrapped = "a real shape"
+
+        def tessellate(self, _tolerance):
+            raise AssertionError
+
+    result = render_views(Asserting(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert result.message.endswith("AssertionError"), result.message
+    assert not result.message.endswith(": ")
+
+
+def test_a_value_error_that_is_not_an_empty_shape_is_not_called_one(tmp_path: Path):
+    """The branch keys on the SHAPE now, not on the exception type.
+
+    `ValueError` from a meshing failure was reported as "this shape contains no
+    geometry" — a part with geometry, described as having none, which is the
+    inverse of a silence reading as success and just as wrong (adversarial
+    review of #241).
+    """
+
+    class Meshing:
+        _wrapped = "a real shape"
+
+        def tessellate(self, _tolerance):
+            raise ValueError("BRepMesh_IncrementalMesh: meshing failed on face 12")
+
+    result = render_views(Meshing(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert "could not be tessellated" in result.message
+    assert "contains no geometry" not in result.message, "it has geometry; it cannot be meshed"
+
+
+def test_an_empty_shape_is_still_the_no_geometry_refusal(tmp_path: Path):
+    """The `ValueError` branch above the new one, which it must not swallow.
+
+    build123d raises `ValueError` for an empty shape and the answer there is
+    different: nothing to show, rather than something that could not be shown.
+    Collapsing the two would report an empty part as an unmeshable solid and
+    point the reader at topology checks for a part with no topology.
+    """
+
+    class Empty:
+        # `_wrapped is None` is what build123d calls an empty shape, and it is
+        # what the branch keys on now: the old code keyed on the EXCEPTION
+        # TYPE, so any `ValueError` at all was reported as a part containing
+        # nothing — and this test, pinning type→message, certified that
+        # (adversarial review of #241). The private name is deliberate: the
+        # public `wrapped` property asserts on an empty shape rather than
+        # returning None, so asking it inside the handler raises again.
+        _wrapped = None
+
+        def tessellate(self, _tolerance):
+            raise ValueError("Cannot tessellate an empty shape")
+
+    result = render_views(Empty(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert result.message == "this shape contains no geometry, so there is nothing to render"
+
+
 def test_the_production_framing_constants_bind(tmp_path: Path):
     """PR #127 review, F2: the framing tests above derive half_height through
     a formula this file duplicates, so the production constants could drift

@@ -1452,6 +1452,13 @@ def _render_resolved(
         payload["renders"] = {}
         payload["error"] = result.message
         payload["hint"] = result.hint
+        # And WHOSE fault it was. #191 asked for "the same origin discipline
+        # every other engine-side failure gets", and this payload had no
+        # `origin` at all — so a consumer could not tell a degenerate solid
+        # from an OCCT library that would not load, which is the distinction
+        # SPEC-report §6.1 exists to force. `check`'s report has carried it
+        # since #47; `render`'s did not (adversarial review of #241).
+        payload["origin"] = result.origin
         print(json.dumps(payload, indent=2, allow_nan=False))
         print(f"partspec: {result.message}", file=sys.stderr)
         if result.hint:

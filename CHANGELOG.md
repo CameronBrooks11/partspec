@@ -108,6 +108,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `diff`'s handling of a report carrying a list where a gap token belongs was
   checked too, since that is an untrusted-JSON boundary rather than an API one,
   and that path is clean.
+- **A solid the kernel cannot mesh is a refusal, not a stack trace** (#191).
+  OCCT returns no triangulation for a face it cannot mesh and build123d assumes
+  one, so `render` raised
+  `AttributeError: 'NoneType' object has no attribute 'NbNodes'` straight out of
+  `raster.render_views`. The CLI's last-resort handler does catch it and exit 4
+  — an earlier draft of this entry said "no exit code, just a stack trace",
+  which #191's own transcript refutes — so what was lost is the artifact and
+  the classification: a raw traceback where a named refusal belongs, and no
+  `render.json` at all. Found by a fleet adoption agent on `bd_warehouse`'s
+  `IsoThread(external=False)` nut, whose thread vanishes during fusion, and
+  reproduced independently.
+  `check` on the SAME part reaches a real verdict, so the part is evaluable and
+  only rendering it falls over — which is what the message now says, with a
+  hint pointing at `watertight` and `self_intersection_free`, the checks that
+  do answer on it. The agent had drawn that inference from the traceback by
+  itself; the tool states it now.
+  **Three clauses, not one, and the first draft had only the last.** Running out
+  of memory, stack, disk or a loadable OCCT library is the ENVIRONMENT, and
+  catching those with everything else answered "this shape could not be
+  tessellated" at `origin="model"` with a hint telling the reader their solid
+  was probably degenerate — which SPEC-report §6.1 forbids in as many words.
+  `MemoryError` is the Python-level case, and
+  `str(MemoryError())` is empty, so that message also ended in a dangling colon:
+  the "nothing is hidden" claim failing exactly where there was nothing to show.
+  Those are `origin="environment"` now, with no geometry-blaming hint — and so
+  is **`Standard_OutOfMemory`, which no builtin catches**: every OCCT exception
+  derives straight from `Exception`, so the first tuple missed the kernel
+  running out of memory while triangulating, which is the case this entry calls
+  canonical. Matched by name, which is ugly and is the only thing available.
+  Three of the four builtins cannot actually fire inside `tessellate` — it does
+  no file I/O, no imports and no Python recursion — and stay because the claim
+  they make is true whenever they do.
+  The empty-shape branch keys on the SHAPE rather than on the exception type. It
+  caught every `ValueError`, so a meshing failure that raised one was reported
+  as a part containing no geometry — a part with geometry, described as having
+  none — and the test pinned type→message, certifying it. It asks
+  `_wrapped is None` now, which is what build123d calls empty (the public
+  property asserts rather than returning `None`, so asking it inside the handler
+  raises again).
+  What remains broad is deliberate and is not a mask: the `try` wraps a single
+  call, so anything not a resource fault IS a failure to tessellate this shape,
+  and the underlying type and text ride along — including a partspec bug, which
+  names itself rather than vanishing. **Bounded on both branches**: the
+  empty-`str(exc)` guard went into the resource branch first and was missed on
+  the one that receives them. build123d's `tessellate` carries an `assert` two
+  lines above #191's crash and every default-constructed OCP exception is empty,
+  so the message ended in a dangling colon — under a test asserting
+  `str(raised) in result.message`, vacuously true for an empty string, which
+  certified it.
+  **And the payload says whose fault it was.** #191 asked for "the same origin
+  discipline every other engine-side failure gets" and `render`'s failure
+  payload had no `origin` at all, so a consumer could not tell a degenerate
+  solid from an OCCT library that would not load. It carries `origin` now, and
+  `SPEC-report.md` says so. Additive; `SCHEMA_VERSION` does not move. Note this
+  is the payload on **stdout**: a failed render writes no `render.json` at all,
+  which the entry above says plainly and an earlier draft of this sentence did
+  not.
+  All of the above came from the adversarial review. It also caught the message
+  saying "solid" where a `Face` reaches it unmodified, and the unlink comment
+  one function down giving the weaker of two safety reasons — what makes that
+  clear-before-write safe is ORDERING (the model is built before this runs), not
+  the absence of `surface()` on this tier, since an OCCT-tier model is arbitrary
+  Python and can `open()` a PNG.
+  Also corrected while in the file: `render_views`'s docstring claimed it
+  mirrors the OpenSCAD tier's "stale-artifact discipline". Since #223 and #224
+  the two are opposites, and the v0.7.6 audit caught the sibling citation one
+  line down without this one.
 
 ## [0.7.6] - 2026-08-15
 
