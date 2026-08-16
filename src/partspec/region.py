@@ -214,25 +214,33 @@ class CylinderRegion:
         return min(self.d / 2, self.h / 2)
 
     def facet_floor(self) -> float:
-        """How far inside the declared circle this region's own corners reach.
+        """The intrusion DEPTH a perfectly circular feature of this diameter
+        would show against this region.
 
-        The polygon CIRCUMSCRIBES the declared cylinder, so its vertices stand
-        `r·(sec(pi/n) - 1)` proud of it. Material that merely follows the
-        declared circle therefore sits that far inside the region near every
-        corner. Measured 0.024684 mm at a nominal bore against a closed-form
-        0.024723 for the default 64 segments (#207) — slightly UNDER, because
-        the modelled bore is itself faceted and its vertices do not land on the
-        region's. An earlier draft of this docstring said a nominal bore
-        "cannot come in under it", which every measurement contradicts.
+        The polygon CIRCUMSCRIBES the declared cylinder, so its corners stand
+        `r·(sec(pi/n) - 1)` proud of it — but that is a radial distance, and the
+        number it is compared against is an EROSION depth. `expand(-t)` shrinks
+        the inradius by `t` and the corner radius by `t·sec(pi/n)`, so the
+        corners clear a circle of radius `r` at `t = r·(1 - cos(pi/n))`: the
+        sagitta, smaller than the radial excess by exactly `sec(pi/n)`.
 
-        Quadratic in the segment count: 0.4016 mm at 16 segments, 0.0247 at 64,
-        0.0062 at 128. It is a SCALE for a reported intrusion depth and not a
-        decomposition of one: the modelled feature carries a tessellation term
-        of its own that the contract cannot see, the two do not sum, and on an
-        exact backend the feature's term is zero. Reported beside the depth,
-        never subtracted from it.
+        This returned the radial excess until the round-4 review of #207, which
+        is 0.12% high at 64 segments and 8.2% at 8 — and the mismatch had been
+        rationalised three times in this file's own history as the modelled
+        bore's faceting. Measured against a Ø41 `$fn=128` bore, the depth is
+        1.560399 mm at 8 region segments and 0.024684 at 64, against sagittas
+        of 1.560470 and 0.024693 and radial excesses of 1.689040 and 0.024723.
+        The sagitta predicts every phase-aligned measurement to 1e-4; the
+        radial excess is out by 8% at the coarse end.
+
+        Quadratic in the segment count: 0.3939 mm at 16 segments, 0.02469 at
+        64, 0.006174 at 128. It is a SCALE for a reported intrusion depth and
+        not a decomposition of one: the modelled feature carries a term of its
+        own that the contract cannot see, how the two combine depends on how
+        the polygons are phased, and on an exact backend the feature's term is
+        zero. Reported beside the depth, never subtracted from it.
         """
-        return (self.d / 2) * (1 / math.cos(math.pi / self.segments) - 1)
+        return (self.d / 2) * (1 - math.cos(math.pi / self.segments))
 
     def volume(self) -> float:
         n = self.segments

@@ -752,8 +752,9 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   `depth_limited_by_region` and `facet_floor_mm` (SPEC-contract §4.4). The depth is a
   LOWER BOUND from an erosion search that stops on a volume threshold rather than on
   emptiness, and MUST NOT be reported as an upper bound or a bracket; `facet_floor_mm`
-  is a SCALE it is read against and MUST NOT be reported as a share of it, since the
-  region's faceting and the modelled feature's do not sum (SPEC-contract §4.4).
+  is a SCALE it is read against and MUST NOT be reported as a share of it, since how the
+  region's faceting and the modelled feature's combine depends on how the two polygons
+  are phased (SPEC-contract §4.4).
   Diagnostic rather
   than adjudicated, which is why it is a field of its own and not part of
   `measurement`: that carries one unit, and this carries mm beside mm3. Additive (no

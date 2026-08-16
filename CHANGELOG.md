@@ -32,11 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at all** on the OCCT tier, where the line still asserted one; and it fixes an
   additive relationship that does not hold in general. **How the two terms
   combine is a matter of PHASE** — `region term <= depth <= region term +
-  feature term`, and against a `$fn=128` bore the depth sits at the bottom of
-  that bracket at 64 region segments (the corners land on the bore's vertices)
-  and at 0.9993 of the top at 128 (they land on facet midpoints). A third draft
-  asserted the bottom end as the rule and was equally wrong; the depth is even
-  non-monotone in `segments`. The floor is a scale, never a share. `depth <=
+  feature term`, bounding the TRUE depth, of which the reported number is a
+  lower bound and so sits a little under. Against a `$fn=128` bore the depth
+  sits at the bottom of that bracket at 64 region segments (the corners land on
+  the bore's vertices) and at 0.9993 of the top at 128 (they land on facet
+  midpoints). A third draft asserted the bottom end as the rule and was equally
+  wrong; the depth is even non-monotone in `segments` — 0.024684, 0.012341,
+  0.006176, 0.006856, 0.006176 at 64 through 512. The floor is a scale, never a
+  share. `depth <=
   floor` licenses "the region's own faceting could account for this", never "it
   did" — measured, a rib genuinely 1.5 mm in was called discretisation once a
   short region capped the search.
@@ -59,8 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OCCT.
   **The floor it is read against is derived, not chosen.** #207 attributes the
   noise to the bore's faceting (~0.006 mm at `$fn=128`); it is really the
-  REGION's own circumscription, `r·(sec(pi/n) - 1)`, which at the default 64
-  segments is four times larger — 0.0247 mm, against 0.024684 measured. That is
+  REGION's own faceting, `r·(1 - cos(pi/n))`, which at the default 64 segments
+  is four times larger — 0.024693 mm, against 0.024684 measured. The SAGITTA,
+  not the radial excess `r·(sec(pi/n) - 1)`: the depth is an erosion and
+  `expand(-t)` moves the corners by `t·sec(pi/n)`, so the two differ by that
+  factor — 0.12% at 64 segments and 8.2% at 8. The radial excess shipped for
+  three review rounds and the resulting mismatch was explained away as the
+  bore's faceting each time; at 8 segments the measurement is 1.560399 against
+  a sagitta of 1.560470 and an excess of 1.689040. That is
   the secondary half of the issue answered in closed form: a `keep_out` at a
   bore's nominal diameter cannot pass, the amount is computable from the
   declaration, and it falls quadratically with `segments`. That is **not** an
@@ -93,7 +102,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   absolute slack, which has the same defect one size up — the search resolves
   to `inradius / 2**24`, so 1e-6 mm stopped firing above 33.6 mm and did it
   non-monotonically, side 50 firing where 60 did not. The slack is the search's
-  own resolution.
+  own resolution — measured, a buried region sits under ONE interval short of
+  the ceiling while a genuine partial intrusion cannot come within a thousand,
+  the sliver near the ceiling falling under the volume threshold long before
+  the region does. Below four halvings neither number means anything, and a
+  region that small now reports a volume and no depth at all: measured, one
+  3e-6 mm thick and breached to a THIRD of its depth claimed "the whole depth
+  of the region".
   Diagnostic rather than adjudicated, so it is
   its own field rather than part of `measurement`, which carries one unit — and
   so it does **not** discharge `POST-V0.md` §4's outstanding obligation to

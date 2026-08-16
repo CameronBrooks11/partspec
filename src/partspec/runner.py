@@ -1023,6 +1023,16 @@ to 28 on a failing one, fewer once the interval closes to `_DEPTH_TOLERANCE`
 first (22 for a region of inradius 0.15 mm)."""
 
 _DEPTH_TOLERANCE = 1e-6
+_MIN_RESOLVING_HALVINGS = 4
+"""How finely the search must resolve a region before its answer means anything.
+
+`depth_limited_by_region` asks whether the proven depth is within one search
+interval of the ceiling. That distinguishes nothing when the interval is a
+sizeable fraction of the ceiling itself, which is what the early break leaves
+for a region near `_DEPTH_TOLERANCE`. Four halvings put the interval at a
+sixteenth, which is the coarsest at which "the whole depth" and "part of it"
+are different statements. It excludes regions under 16 nm across (#207).
+"""
 """Bracket width at which the search stops early, in mm."""
 
 
@@ -1083,8 +1093,8 @@ def _intrusion_sentence(in_region: float, intrusion: dict[str, Any] | None) -> s
     if floor <= 0.0:
         return reach
     return (
-        f"{reach}; for scale, this region's own faceted outline stands "
-        f"{floor:.4g} mm proud of the circle it declares"
+        f"{reach}; for scale, this region's own faceting would show {floor:.4g} mm "
+        f"against a perfectly circular feature"
     )
 
 
@@ -1168,6 +1178,14 @@ def _max_intrusion_depth(
     depth rather than as zero depth.
     """
     ceiling = region.inradius()
+    if ceiling <= _DEPTH_TOLERANCE * 2**_MIN_RESOLVING_HALVINGS:
+        # Below this the loop breaks on `_DEPTH_TOLERANCE` before it has
+        # halved enough times for either number to mean anything, and both
+        # come out wrong in the direction that overstates: a region 3e-6 mm
+        # thick, breached to a third of its depth, reported "the whole depth
+        # of the region", and one 1e-6 mm thick reported the same after ZERO
+        # bisections (round-4 review of #207). No depth is the honest answer.
+        return None
     lo, hi = 0.0, ceiling
     for _ in range(_DEPTH_BISECTIONS):
         if hi - lo <= _DEPTH_TOLERANCE:
