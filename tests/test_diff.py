@@ -730,6 +730,116 @@ def test_a_moved_model_directory_alone_still_holds_the_claims_line():
     assert "  every declared claim held across the change" in summary_of(doc).splitlines()
 
 
+def _verdict_doc(status: Status, imports: dict) -> dict:
+    """A 0.7.5-shaped report whose single check has `status`, and whose verdict
+    is therefore DERIVED rather than asserted — the point being to exercise the
+    real path from a check's outcome to the sentence, not to stub the verdict.
+    """
+    report = Report(
+        part_id="p",
+        contract="spec.py:make",
+        tool_version="0.1.0",
+        contract_digest="sha256:c1",
+        source_digest="sha256:s1",
+        source_closure={"digest": "sha256:k1", "files": 2},
+        checks=[
+            CheckResult(
+                id="wall_gt_2",
+                kind="param_range",
+                phase="parameter",
+                status=status,
+                measurement=Measurement(1.5, "mm"),
+                limit=Limit(min=2.0),
+            )
+        ]
+        if status is not None
+        else [],
+    )
+    doc = report.to_json()
+    doc["part"]["source_closure"] = {
+        "digest": "sha256:k1",
+        "files": 2,
+        "scope": "model_directory",
+        "partial": True,
+        "imports": imports,
+        "preloaded": [],
+        "unseen": ["native_reads"],
+    }
+    return doc
+
+
+@pytest.mark.parametrize(
+    ("status", "verdict", "sentence"),
+    [
+        (Status.PASS, "pass", "every declared claim held across the change"),
+        (
+            Status.FAIL,
+            "fail",
+            "no declared claim changed status across the change — both sides fail",
+        ),
+        (
+            Status.UNSUPPORTED,
+            "incomplete",
+            "no declared claim changed status across the change — both sides incomplete",
+        ),
+        (None, "empty", "neither side declared a claim, so none held across the change"),
+    ],
+)
+def test_the_claims_line_says_what_the_claims_actually_did(status, verdict, sentence):
+    """#220: the sentence was unconditional, and "held" is only true of one of
+    these four.
+
+    Two reports whose SAME check fails identically on both sides were told
+    `every declared claim held across the change`. It did not hold — it failed,
+    twice. `identical` at exit 0 is right and unchanged; only the sentence was
+    wrong, in permanent output, on the honesty line the #190 work added
+    precisely to stop a silent claim.
+
+    `empty` is the one worth reading twice: zero checks makes "every declared
+    claim held" VACUOUSLY true, which is the shape this project exists to
+    refuse rather than a technicality it gets to lean on.
+
+    The verdict is derived from the check rather than stubbed, so this
+    exercises the real path from an outcome to the sentence.
+    """
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+    old = _verdict_doc(status, dict(imports))
+    new = _verdict_doc(status, {"cqgridfinity": _dist("0.6.0", "bbb")})
+
+    assert old["verdict"] == verdict, "premise: the check drives the verdict"
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical", "premise: nothing about the reports differs"
+    assert exit_code_of(doc["outcome"]) == 0, "and the verdict is not what changed"
+
+    lines = summary_of(doc).splitlines()
+    assert f"  {sentence}" in lines, lines
+    if verdict != "pass":
+        assert not any("every declared claim held" in line for line in lines), (
+            "a claim that did not hold must not be reported as one that did"
+        )
+
+
+def test_the_covered_line_claims_nothing_about_the_claims():
+    """#220 asked for the neighbouring phrasing to be checked for the same
+    overreach. It does not have it, and this pins that.
+
+    `covered:` is built by `_covered_clause` from the closure and the imports —
+    it describes which INPUTS the comparison could account for, and says
+    nothing about what the checks did. That separation is the reason the claims
+    line could be wrong on its own.
+    """
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+    old = _verdict_doc(Status.FAIL, dict(imports))
+    new = _verdict_doc(Status.FAIL, {"cqgridfinity": _dist("0.6.0", "bbb")})
+
+    covered = next(
+        line for line in summary_of(_diff(old, new)).splitlines() if line.startswith("  covered: ")
+    )
+    assert covered == "  covered: model directory (2 files); 1 imported distribution, 1 changed"
+    for word in ("claim", "held", "pass", "fail"):
+        assert word not in covered, f"the coverage line must not adjudicate: {covered}"
+
+
 def test_a_regression_beside_a_moved_library_names_the_input_that_moved():
     """SPEC-report §8 rule 2's stated purpose: the reader must not have to
     guess whether the dependency bump or the design moved the number."""

@@ -1195,6 +1195,47 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     return ("; " + "; ".join(clauses)) if clauses else ""
 
 
+_CLAIMS_ACROSS_THE_CHANGE = {
+    # The only reading under which "held" is true. `pass` is "≥1 check, all
+    # pass" (SPEC-report §6), which is exactly what the sentence says.
+    "pass": "every declared claim held across the change",
+    # Vacuously true and therefore the worst thing to say: `empty` is zero
+    # checks, and "every declared claim held" over none of them is the
+    # vacuous-green shape this project exists to refuse.
+    "empty": "neither side declared a claim, so none held across the change",
+    "fail": "no declared claim changed status across the change — both sides fail",
+    "incomplete": ("no declared claim changed status across the change — both sides incomplete"),
+}
+
+
+def _claims_across_the_change(verdict: str | None) -> str:
+    """What `identical` plus a moved closure actually licenses saying.
+
+    The sentence was unconditional: any `identical` outcome whose closure moved
+    got "every declared claim held across the change", whatever the claims had
+    done. Two reports whose SAME check fails identically on both sides were
+    therefore told the claim held (#220). It did not — it failed, twice. What
+    is true is that its status did not change, which is a different statement
+    and a weaker one.
+
+    `identical` at exit 0 is right and is not what changed here: `diff` compares
+    two reports and nothing about them differs. Only the sentence was wrong —
+    "code right, words wrong", in permanent output, on the honesty line the
+    #190 work added precisely to stop a silent claim.
+
+    Keyed on the verdict rather than reworded flat, because the strong sentence
+    is worth keeping where it is TRUE and `verdict: pass` is exactly its
+    condition. `verdict` is outcome-bearing (SPEC-diff §3), so under `identical`
+    the two sides agree and one value describes both. `error` cannot arrive:
+    an errored side is `indeterminate` before this line is reached. An
+    unrecognised or absent verdict falls back to the claim about movement,
+    which holds whatever the statuses were.
+    """
+    return _CLAIMS_ACROSS_THE_CHANGE.get(
+        verdict or "", "no declared claim changed status across the change"
+    )
+
+
 def _coverage_lines(doc: dict[str, Any]) -> list[str]:
     """What was covered, and what was not — on every outcome, permanently.
 
@@ -1232,7 +1273,7 @@ def _coverage_lines(doc: dict[str, Any]) -> list[str]:
             _attributed(imports, group) for group in ("changed", "added", "removed")
         )
         if doc["outcome"] == "identical" and source.get("closure") == "changed" and attributed:
-            lines.append("  every declared claim held across the change")
+            lines.append("  " + _claims_across_the_change(doc.get("verdict", {}).get("new")))
     stated = {entry["reason"] for entry in doc.get("indeterminate", [])}
     lines.extend(
         f"  not covered: {phrase}"

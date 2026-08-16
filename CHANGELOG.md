@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`diff` no longer says a claim held when it failed on both sides** (#220).
+  Whenever the outcome was `identical` and the closure had moved, `diff`
+  printed `every declared claim held across the change` without ever asking
+  what the claims' status was. Two reports whose same check fails identically
+  on both sides were therefore told the claim held. It did not — it failed,
+  twice. What is true is that its *status* did not change, which is a weaker
+  statement and a different one.
+  `identical` at exit 0 is correct here and is not what changed: `diff`
+  compares two reports and nothing about them differs. Only the sentence was
+  wrong — "code right, words wrong", in permanent output, on the honesty line
+  the #190 work added precisely to stop a silent claim.
+  Keyed on the verdict rather than reworded flat, because the strong sentence
+  is worth keeping where it is TRUE and `verdict: pass` is exactly its
+  condition ("≥1 check, all pass"). A `fail` or `incomplete` pair is told its
+  status did not change and which verdict both sides carry; **an `empty` pair
+  is told neither side declared a claim**, since "every declared claim held"
+  over zero claims is vacuously true, which is the shape this project exists to
+  refuse rather than a technicality it gets to lean on. `verdict` is
+  outcome-bearing, so under `identical` one value describes both sides;
+  `error` cannot arrive, an errored side being `indeterminate` first.
+  The issue also asked whether the neighbouring `covered:` line overreaches the
+  same way. It does not — it is built from the closure and the imports and
+  describes which *inputs* were accounted for, saying nothing about the
+  checks — and a test now pins that separation, since it is the reason the
+  claims line could be wrong on its own.
+
 ## [0.7.6] - 2026-08-15
 
 ### Fixed
