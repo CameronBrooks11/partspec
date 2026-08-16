@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .report import SCHEMA_VERSION
+from .report import IMPLICIT_CHECK_KINDS, SCHEMA_VERSION
 from .status import _SEVERITY, Status, comparison_exit_code, epsilon
 
 __all__ = [
@@ -834,6 +834,27 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"(SPEC-report.md 7.1)"
             )
 
+        # `status` must be a STRING too, and for a sharper reason than tidiness:
+        # the summary reads it into a SET to say what the claims did, so a
+        # non-string status equal on BOTH sides sailed past every comparison —
+        # `_check_entry` only asks `!=` — and then raised `TypeError: cannot
+        # use 'list' as a set element` out of `summary_of`, AFTER the complete
+        # diff artifact had been written to stdout. That is exit 4 with a
+        # traceback where `SPEC-diff.md` §2 and this module's own contract
+        # promise 64 for a malformed report, and where `main` answered 0
+        # (round-3 review of #239).
+        #
+        # Guarded here rather than filtered at the read: the read is one of
+        # several, and a report whose status is not a status is unusable input
+        # by the same argument `counts.total` is guarded under.
+        bad_status = [c.get("status") for c in raw_checks if not isinstance(c.get("status"), str)]
+        if bad_status:
+            raise DiffUsageError(
+                f"the {label} report has {len(bad_status)} check(s) whose `status` is not "
+                f"a string (first: {bad_status[0]!r}); SPEC-report.md 7.1 types it as one "
+                f"of {', '.join(sorted(s.value for s in Status))}"
+            )
+
         # And the id must be a STRING, which SPEC-report §7.1 types it as.
         #
         # `CheckResult.id: str` is an annotation, not an enforcement, so that
@@ -914,10 +935,11 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 }
             )
 
-    # `or []` matching the validation loop's fallback: `"checks": null` is a
-    # real shape a hand-written report can take, and spelling the fallback two
-    # ways is how the counts check ended up raising TypeError past a guard that
-    # had already handled it.
+        # `or []` matching the validation loop's fallback: `"checks": null` is a
+        # real shape a hand-written report can take, and spelling the fallback two
+        # ways is how the counts check ended up raising TypeError past a guard that
+        # had already handled it.
+
     old_checks = {c["id"]: c for c in old.get("checks") or []}
     new_checks = {c["id"]: c for c in new.get("checks") or []}
     removed = [check_id for check_id in old_checks if check_id not in new_checks]
@@ -1195,7 +1217,65 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     return ("; " + "; ".join(clauses)) if clauses else ""
 
 
-def _coverage_lines(doc: dict[str, Any]) -> list[str]:
+def _claims_across_the_change(new_report: dict[str, Any]) -> str:
+    """What `identical` plus a moved closure actually licenses saying.
+
+    The sentence used to ignore the claims entirely: a 0.7.5-shaped pair that
+    came out `identical` with attributed closure movement got "every declared
+    claim held across the change", whatever the claims had done. Two reports
+    whose SAME check fails identically on both sides were therefore told the
+    claim held (#220). It did not — it failed, twice.
+
+    Unconditional ON THE VERDICT, to be exact: the gate below always had two
+    further conditions, a 0.7.5-shaped closure and attributed movement.
+
+    **Two questions, and they take different check sets.** `Report.verdict` is
+    the model: `builds` is excluded from the EMPTINESS test, because partspec
+    adds it and a contract asserting nothing would otherwise look asserted —
+    and then the status collapse runs over EVERY check, `builds` included,
+    because a build that failed is a claim that failed. Applying the exclusion
+    to both questions is how the second version of this function reported
+    `every declared claim held` for a model that does not compile, on two
+    reports `partspec check` wrote unmodified (round-2 review of #239). That is
+    #220 reproduced by its own fix.
+
+    **Read off the checks, not off `verdict`, and the difference is not
+    fastidiousness.** The comparison only ever compares `verdict` against its
+    counterpart — `verdict_changed` feeds `different`, and `verdict == "error"`
+    feeds `indeterminate` — so it is never read as a FACT about one report, and
+    a lie repeated identically on both sides costs the comparison nothing.
+    Keying a claim about what the checks did on it made that lie load-bearing
+    for the first time, and a forged `pass` reprinted #220's sentence over a
+    failing check. `status` is different in kind: it is what `_check_entry`
+    already joins, the evidence every `regressed` and `fixed` rests on. (An
+    earlier version of this paragraph said `verdict` was "read by nothing else
+    in the comparison", which is false twice over — round-3 review of #239.)
+    A pair that lies identically about `status`
+    has defeated the whole comparator, not this sentence, and no cross-check
+    inside one report recovers from that — `counts` can be forged with it.
+
+    So no `counts` guard here. It would stop a careless forger and imply a
+    completeness it cannot have. `counts.total` is guarded because a report
+    contradicting its own arithmetic is unusable input; `status` is not
+    redundant with anything — it IS the input. (`Report.counts()`'s other half,
+    the per-status tally, is redundant and unguarded, which is a real gap and a
+    different issue from this sentence.)
+    """
+    checks = new_report.get("checks") or []
+    # No `isinstance` filter: `diff_reports` refuses a report whose `checks`
+    # holds a non-object before this can be reached, so one here is dead code
+    # that reads as a live guard (round-2 review of #239).
+    declared = [c for c in checks if c.get("kind") not in IMPLICIT_CHECK_KINDS]
+    if not declared:
+        return "neither side declared a claim, so none held across the change"
+    statuses = {c.get("status") for c in checks}
+    if statuses == {"pass"}:
+        return "every declared claim held across the change"
+    state = "fail" if "fail" in statuses else "incomplete"
+    return f"no declared claim changed status across the change — both sides {state}"
+
+
+def _coverage_lines(doc: dict[str, Any], new_report: dict[str, Any]) -> list[str]:
     """What was covered, and what was not — on every outcome, permanently.
 
     The irreducible line is the entire mitigation for `_IRREDUCIBLE_GAPS` not
@@ -1232,7 +1312,7 @@ def _coverage_lines(doc: dict[str, Any]) -> list[str]:
             _attributed(imports, group) for group in ("changed", "added", "removed")
         )
         if doc["outcome"] == "identical" and source.get("closure") == "changed" and attributed:
-            lines.append("  every declared claim held across the change")
+            lines.append("  " + _claims_across_the_change(new_report))
     stated = {entry["reason"] for entry in doc.get("indeterminate", [])}
     lines.extend(
         f"  not covered: {phrase}"
@@ -1242,8 +1322,20 @@ def _coverage_lines(doc: dict[str, Any]) -> list[str]:
     return lines
 
 
-def summary_of(doc: dict[str, Any]) -> str:
-    """The stderr courtesy summary: one headline, then the coverage it rests on."""
+def summary_of(doc: dict[str, Any], new_report: dict[str, Any]) -> str:
+    """The stderr courtesy summary: one headline, then the coverage it rests on.
+
+    `new_report` is the later of the two reports compared, and only the claims
+    line uses it — to read what the checks actually did rather than trust the
+    `verdict` string copied into the artifact (#220, and #239's reviews of the
+    first two fixes).
+
+    Required, not optional. It was optional so that one-argument calls kept
+    working, and three of them were assertions that the claims line is ABSENT —
+    which the None branch made unconditionally true, silently un-pinning the
+    condition this function's own docstring cites as its rebuttal. A default
+    that weakens the output is a default that hides a regression.
+    """
     # Both clauses ride every outcome, `identical` included. A build input
     # that moved under an unchanged part is precisely the case `identical: no
     # semantic differences` would otherwise report as an unqualified
@@ -1273,4 +1365,4 @@ def summary_of(doc: dict[str, Any]) -> str:
     # the same reason (v0.7.3), and this verb was still stating a cause and
     # stopping.
     remedies = [f"  remedy: {e['remedy']}" for e in doc["indeterminate"] if e.get("remedy")]
-    return "\n".join([headline, *remedies, *_coverage_lines(doc)])
+    return "\n".join([headline, *remedies, *_coverage_lines(doc, new_report)])

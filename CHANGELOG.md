@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`diff` no longer says a claim held when it failed on both sides** (#220).
+  Whenever the outcome was `identical` and the closure had moved, `diff`
+  printed `every declared claim held across the change` without ever asking
+  what the claims' status was. Two reports whose same check fails identically
+  on both sides were therefore told the claim held. It did not — it failed,
+  twice. What is true is that its *status* did not change, which is a weaker
+  statement and a different one.
+  `identical` at exit 0 is correct here and is not what changed: `diff`
+  compares two reports and nothing about them differs. Only the sentence was
+  wrong — "code right, words wrong", in permanent output, on the honesty line
+  the #190 work added precisely to stop a silent claim.
+  Gated rather than reworded flat, because the strong sentence is worth keeping
+  where it is TRUE. A `fail` or `incomplete` pair is told its status did not
+  change and which state both sides are in; **a pair with no declared claim is
+  told so**, since "every declared claim held" over no claims is vacuously
+  true, which is the shape this project exists to refuse rather than a
+  technicality it gets to lean on. Under `identical` every id, status and claim
+  field is equal on both sides, so the later report describes both.
+  **Read off the checks, and off nothing else.** The first version of this fix
+  keyed on the artifact's `verdict`. The comparison only ever compares that field
+  against its counterpart — it decides `different` and `indeterminate`, and is
+  never read as a fact about one report — so a lie repeated identically on both
+  sides costs it nothing. Keying a claim about what the checks DID on it made
+  that lie load-bearing for the first time, and a report claiming `pass` over a
+  failing check printed #220's sentence verbatim. `status` adds none: it is what the
+  comparison already joins, the evidence every `regressed` and `fixed` rests
+  on. `summary_of` takes the later report now, and requires it.
+  **Two questions, and they take different check sets** — which the second
+  version got wrong, and which is the sharper half of this entry.
+  `Report.verdict` excludes `builds` from the EMPTINESS test, because partspec
+  adds it and a contract asserting nothing would otherwise look asserted, and
+  then collapses status over EVERY check, because a build that failed is a
+  claim that failed. Applying the exclusion to both questions reported
+  `every declared claim held across the change` for a model that does not
+  compile — #220 reproduced by its own fix, on two reports `partspec check`
+  wrote unmodified.
+  Three more from the same reviews. "Zero checks" was wrong for `empty`: it is
+  zero DECLARED checks, and a real one carries the `builds` check partspec
+  adds itself, so the first fixture tested a shape no run emits. The sentence
+  was never "unconditional" — the gate always had two further conditions, a
+  0.7.5-shaped closure and attributed movement, and making the report optional
+  silently un-pinned the second of those in three tests. And every fixture
+  carried exactly one declared check, so the boundary the function exists to
+  draw — one claim passing beside one failing — went unexercised until now.
+  The issue also asked whether the neighbouring `covered:` line overreaches the
+  same way. It does not — it is built from the closure and the imports and
+  describes which *inputs* were accounted for, saying nothing about the
+  checks — and a test now pins that separation, since it is the reason the
+  claims line could be wrong on its own.
+
 ## [0.7.6] - 2026-08-15
 
 ### Fixed

@@ -70,6 +70,16 @@ def _limit_json(limit: Limit | None) -> dict[str, Any] | None:
     return out
 
 
+IMPLICIT_CHECK_KINDS = ("builds",)
+"""Check kinds partspec adds itself rather than the author declaring them.
+
+Module-level because `diff` needs it too: it asks whether a report declared any
+claim at all, and answering that with its own private copy is how the copy stops
+matching (round-2 review of #239, which found the copy's stated rationale — "a
+comparator must not import the writer's constants" — contradicted by `diff`
+importing `SCHEMA_VERSION` from this module fifteen lines earlier)."""
+
+
 @dataclass(slots=True)
 class CheckResult:
     """One adjudicated claim.
@@ -215,10 +225,11 @@ class Report:
     waiver and `null` records that no caller chose). A run stopped by its
     budget must be attributable to that budget from the artifact alone."""
 
-    IMPLICIT_KINDS = ("builds",)
+    IMPLICIT_KINDS = IMPLICIT_CHECK_KINDS
     """Checks partspec adds itself. They are real results, but they are not
     something the author *asserted*, so they must not satisfy the emptiness
-    test — see `verdict`."""
+    test — see `verdict`. Aliases the module-level constant, which `diff` reads
+    too: two copies of this list is how one of them stops matching."""
 
     @property
     def verdict(self) -> Verdict:
