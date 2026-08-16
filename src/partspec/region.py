@@ -206,13 +206,18 @@ class CylinderRegion:
         The polygon CIRCUMSCRIBES the declared cylinder, so its vertices stand
         `r·(sec(pi/n) - 1)` proud of it. Material that merely follows the
         declared circle therefore sits that far inside the region near every
-        corner, and a `keep_out` at a bore's nominal diameter cannot come in
-        under it — measured 0.024694 mm against a closed-form 0.024723 for the
-        default 64 segments (#207).
+        corner. Measured 0.024684 mm at a nominal bore against a closed-form
+        0.024723 for the default 64 segments (#207) — slightly UNDER, because
+        the modelled bore is itself faceted and its vertices do not land on the
+        region's. An earlier draft of this docstring said a nominal bore
+        "cannot come in under it", which every measurement contradicts.
 
         Quadratic in the segment count: 0.4016 mm at 16 segments, 0.0247 at 64,
-        0.0062 at 128. It is the number a reported intrusion depth has to be
-        compared against before it means anything about the design.
+        0.0062 at 128. It is a SCALE for a reported intrusion depth and not a
+        decomposition of one: the modelled feature carries a tessellation term
+        of its own that the contract cannot see, the two do not sum, and on an
+        exact backend the feature's term is zero. Reported beside the depth,
+        never subtracted from it.
         """
         return (self.d / 2) * (1 / math.cos(math.pi / self.segments) - 1)
 

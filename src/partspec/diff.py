@@ -61,9 +61,11 @@ NON_CLAIM_FIELDS = {
         "how far a failing keep_out was breached — a result, and a derived one. "
         "The claim is the region and its shell, which `region` carries; this is "
         "what the material did about it. Deliberately NOT a claim field: the "
-        "depth is a bisection bracket over a mesh boolean, so two runs of the "
-        "same design differ in its last digits, and comparing it would report "
-        "`different` on geometry that did not move"
+        "depth is a search resolution away from the truth and its floor is a "
+        "function of `segments`, so comparing it would report `different` on a "
+        "declaration that was merely re-faceted. (Three identical runs measured "
+        "bit-identical on the mesh tier, so run-to-run drift is NOT the reason "
+        "— round-2 review of #207.)"
     ),
     "phase": "structural, and cannot move without kind or expr moving with it",
     "requires": "which tier would answer a refusal — environment, like engine.version",

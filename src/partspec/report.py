@@ -116,9 +116,12 @@ class CheckResult:
 
     Volume alone cannot tell faceting noise from interference — it scales with
     the area of the contact and only linearly with depth (#207). Carries
-    `volume_mm3`, the depth `max_depth_mm` with the `depth_bounds` bracket it
-    was proven within, and `facet_floor_mm`, the intrusion this region's own
-    circumscription accounts for. Diagnostic, not adjudicated: the claim is
+    `volume_mm3`; `min_depth_mm`, a depth the material was PROVEN to reach with
+    no upper bound implied; `search_resolution_mm` and `detected_above_mm3`,
+    the two limits of the search that found it; `depth_limited_by_region`, set
+    when the region ran out before the material did; and `facet_floor_mm`, how
+    far this region's own faceted outline stands proud of the circle it
+    declares. Diagnostic, not adjudicated: the claim is
     still "no material here", and this says what the material did. Additive per
     §7.1.
     """

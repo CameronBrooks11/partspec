@@ -722,7 +722,20 @@ def test_every_optional_check_field_can_actually_reach_the_json():
             value = [0.0, 0.0, 1.0]
         kwargs: dict[str, Any] = {field.name: value}
         check = CheckResult(id="c", kind="k", phase="geometry", status=Status.PASS, **kwargs)
-        assert field.name in check.to_json(), (
+        out = check.to_json()
+        assert field.name in out, (
             f"`CheckResult.{field.name}` is set and `to_json` drops it, so nothing "
             f"downstream can read it"
+        )
+        # The VALUE, not just the key. Presence alone is satisfied by writing
+        # the wrong attribute, `None`, or `{}` into the slot — all three passed
+        # the whole suite when this asserted `field.name in out` and stopped,
+        # and writing the wrong attribute is the exact copy-paste shape of the
+        # bug this test exists for (round-2 review of #207).
+        emitted = out[field.name]
+        if field.name == "components":
+            emitted = {k: Status(v) for k, v in emitted.items()}
+        assert emitted == value, (
+            f"`CheckResult.{field.name}` reaches the JSON carrying {emitted!r}, "
+            f"not the {value!r} it was given"
         )

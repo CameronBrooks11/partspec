@@ -286,9 +286,15 @@ does not move.
 `min_depth_mm` is a **lower bound**, and the report MUST NOT present it as anything
 else. The search erodes the region until the remaining intersection falls below
 `detected_above_mm3`, which is small rather than empty, so the true depth lies above
-the number by however far a sliver of that volume reaches. Where the erosion consumes
-the whole region before the material runs out, `depth_limited_by_region` is set and
-the depth describes the declaration rather than the breach.
+the number by however far a sliver of that volume reaches. Where the search returns the
+deepest value a region of that shape can yield at all, `depth_limited_by_region` is set
+and the depth describes the declaration rather than the breach. That bound is the
+region's own, not its inradius: the erosion runs out when the *region* holds less than
+`detected_above_mm3`, which for an equilateral region is ~5e-3 mm short of the inradius
+and for an elongated one is ~3e-10 mm short. Implementations MUST NOT use a fixed
+fraction of the inradius, which makes the flag a discontinuous function of the
+declaration — measured, an 8x8x8 mm keep-out buried in solid material reported a partial
+interference while 8x8x7.99, the same total breach, reported a complete one.
 
 **A `keep_out` at a bore's nominal diameter cannot pass, and the shortfall has two
 terms — only one of which the contract can see.** `region.cylinder` CIRCUMSCRIBES the
@@ -302,17 +308,32 @@ inside near every corner. That term is `facet_floor_mm`:
 | 64 (default) | 0.0247 mm |
 | 128 | 0.0062 mm |
 
-The second term is the modelled feature's own tessellation — on the mesh tier a bore
-is *inscribed* in its `$fn`, and at `$fn = 16` against a default region that term is
-**sixteen times the larger** of the two. It is not derivable from the declaration,
-because `$fn` is not in it. So the tool prints both the depth and the floor and draws
-no conclusion: a reader who knows their `$fn` can, and the contract cannot.
+The second term is the modelled feature's own tessellation — on the mesh tier a bore is
+*inscribed* in its `$fn`. It is not derivable from the declaration, because `$fn` is not
+in it, and on an exact backend it is zero.
 
-Raising `segments` shrinks the region's term quadratically but **does not make a
-nominal bore pass** — the depth stalls at the feature's own sagitta while the floor
-keeps falling, so the two numbers diverge rather than converge. What passes is a
-region declared strictly inside the modelled feature: below the *inscribed* diameter
-of the bore as tessellated, not below its nominal diameter.
+**The two terms do not sum, and `facet_floor_mm` MUST NOT be presented as a share of the
+depth.** Measured against a `$fn = 128` bore, the reported depth is 0.024684 mm at 64
+region segments (the region's term, 0.024723, alone) and 0.006176 mm at 256 (the bore's
+term, 0.006174, alone) — the larger term selects, it does not add. The floor is a
+*scale* the depth is read against: it says how much intrusion this declaration would
+show against a perfectly circular feature. A report MUST print both numbers and draw no
+conclusion from their comparison — `depth <= floor` licenses "the region's own faceting
+could account for this", never "it did".
+
+Raising `segments` shrinks the region's term quadratically but **does not make a nominal
+bore pass** — the depth stalls at the feature's own sagitta while the floor keeps
+falling, so the two numbers diverge rather than converge. What passes is a region whose
+own *corners* clear the modelled surface, since the region circumscribes too:
+
+```
+(d_region / 2) * sec(pi / segments)  <  (d_feature / 2) * cos(pi / $fn)
+```
+
+For the Ø41 `$fn = 128` bore at the default 64 segments that is `d_region < 40.938` —
+not `d_region < 40.988`, the inscribed diameter, which still fails. Declaring at the
+inscribed diameter is the natural reading of "strictly inside the modelled feature" and
+it is wrong by both regions' faceting; three such declarations were measured failing.
 
 **What this deliberately does not claim: shape.** A hole oversize in one direction only —
 an oval through a round keep-out — passes, because material still lies within the shell on

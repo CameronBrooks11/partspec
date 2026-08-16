@@ -17,20 +17,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   linearly with depth, so a hair-thin film over a large face outweighs a deep
   local spike. The reporter had to bisect the region diameter by hand to find
   out which they had.
-  The line now reads `…, reaching at least 1.5 mm past its boundary; this
-  region's own circumscription accounts for up to 0.02472 mm of that, and the
-  modelled feature's tessellation for more` — against `…, reaching at least
-  0.02468 mm …` for the faceting case, where the depth and the floor coincide.
-  **It states the comparison and stops there.** An earlier draft concluded for
-  the reader — "so the intrusion is its discretisation rather than the part" —
-  and that conclusion is unsound twice over. The floor covers the REGION's
-  circumscription only; on the mesh tier the modelled bore is inscribed in its
-  own `$fn`, a term the contract cannot see, and at `$fn=16` against a default
-  region **94% of the reported depth was the part's own tessellation**. And
-  `depth <= floor` licenses "the circumscription could account for this", never
-  "it did" — measured, a rib genuinely 1.5 mm in was called discretisation once
-  a short region capped the search. Both numbers are printed; the reader draws
-  the conclusion, being the only party in a position to.
+  The line now reads `…, reaching at least 1.5 mm past its boundary; for scale,
+  this region's own faceted outline stands 0.02472 mm proud of the circle it
+  declares` — against `…, reaching at least 0.02468 mm …` for the faceting case,
+  where the depth and the floor all but coincide.
+  **It states the two numbers and draws no conclusion**, which took three
+  drafts. The first concluded outright — "so the intrusion is its discretisation
+  rather than the part". The second replaced that with "…accounts for up to
+  0.02472 mm of that, and the modelled feature's tessellation for more", which
+  is the same assertion in weaker grammar and wrong three ways: the two terms
+  **select rather than sum** (measured against a `$fn=128` bore, the depth is
+  0.024684 at 64 region segments — the region's term alone — and 0.006176 at
+  256 — the bore's term alone); there is **no tessellation term at all** on the
+  OCCT tier, where the line still asserted one; and "of that" is incoherent
+  whenever the floor exceeds the whole depth, as it does on the very case the
+  entry quotes and by **719x** on a real Ø40.95 declaration. The floor is a
+  scale, never a share. `depth <= floor` licenses "the region's own faceting
+  could account for this", never "it did" — measured, a rib genuinely 1.5 mm in
+  was called discretisation once a short region capped the search.
   **Posed as an erosion, which is not what the issue suggested.** #207 asks for
   "the largest distance any intruding vertex sits inside the region boundary",
   and that understates: depth is a min of linear functions, so it is concave,
@@ -45,24 +49,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declared circle, so `d - 2r` moves every side plane inward by exactly `r` —
   and `intersect_volume` is the primitive the check already runs. Measured
   1.499999 on the same rib. The cost is a bisection of booleans, paid only on a
-  failing region clause: 0.1 s on the mesh tier, 0.7–3.0 s on OCCT.
+  failing region clause — 4 `intersect_volume` calls on a passing check against
+  up to 28 on a failing one, measured 0.073 s on the mesh tier and 0.7–3.4 s on
+  OCCT.
   **The floor it is read against is derived, not chosen.** #207 attributes the
   noise to the bore's faceting (~0.006 mm at `$fn=128`); it is really the
   REGION's own circumscription, `r·(sec(pi/n) - 1)`, which at the default 64
   segments is four times larger — 0.0247 mm, against 0.024684 measured. That is
   the secondary half of the issue answered in closed form: a `keep_out` at a
   bore's nominal diameter cannot pass, the amount is computable from the
-  declaration, and it falls quadratically with `segments`, which is the
-  author's lever. `SPEC-contract.md` §4.4 carries the table and both remedies.
+  declaration, and it falls quadratically with `segments`. That is **not** an
+  author's lever, and §4.4 said so while this entry still called it one:
+  shrinking the region's term leaves the feature's untouched, so the two
+  numbers diverge and a nominal bore still fails. What passes is a region whose
+  own corners clear the modelled surface — `(d_r/2)·sec(pi/n) < (d_f/2)·cos(pi/$fn)`,
+  which for the Ø41 `$fn=128` bore is `d_r < 40.938` rather than the 40.988 that
+  "declare it at the inscribed diameter" gives. §4.4 carries the table, the
+  inequality, and the measurements that killed two earlier remedies.
   The numbers land in a new `checks[].intrusion` field. `min_depth_mm` is a
   **lower bound and is named as one**: the search stops when the eroded
   intersection falls below `detected_above_mm3`, which is small rather than
   empty, so the true depth lies above it — measured on exact AABB arithmetic,
   4.995 reported against a true 5.0, an error 8400x the search interval. An
   earlier draft called that pair "the bracket the depth was proven within",
-  which was false in the only direction that matters. Where the erosion
-  consumes the whole region first, `depth_limited_by_region` says so and the
-  comparison is withheld entirely. Diagnostic rather than adjudicated, so it is
+  which was false in the only direction that matters. Where the search returns
+  the deepest value a region of that shape can yield at all,
+  `depth_limited_by_region` says so and the comparison is withheld entirely —
+  compared against the region's own search ceiling, not a fixed fraction of its
+  inradius, which made the flag a discontinuous function of the DECLARATION: an
+  8x8x8 mm keep-out buried in solid material read as a partial interference
+  while 8x8x7.99, the same total breach, read as a complete one. Diagnostic rather than adjudicated, so it is
   its own field rather than part of `measurement`, which carries one unit — and
   so it does **not** discharge `POST-V0.md` §4's outstanding obligation to
   exercise the `approximate` machinery on a real adjudicated interval. Additive;
