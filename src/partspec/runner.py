@@ -1016,44 +1016,64 @@ _DEPTH_BISECTIONS = 24
 
 24 halvings take a 20 mm region to 1.2e-6 mm, well past anything a mesh
 boolean resolves. The cap is a COST bound, not an accuracy one: each step is a
-boolean, measured at 0.1 s for 40 of them on the mesh tier and 0.7-3.0 s for 24
-on OCCT, and it is only ever paid on a failing region clause."""
+boolean, measured at 0.073 s for 24 on the mesh tier and 0.70 s for 24 on OCCT,
+and it is only ever paid on a failing region clause — 4 `intersect_volume`
+calls on a passing check against 28 on a failing one."""
 
 _DEPTH_TOLERANCE = 1e-6
 """Bracket width at which the search stops early, in mm."""
 
 
 def _intrusion_sentence(in_region: float, intrusion: dict[str, Any] | None) -> str:
-    """The keep-out breach, with the number that makes the volume mean something.
+    """The keep-out breach, with the numbers that make the volume mean something.
 
     `12.7331 mm3 intrudes` was the whole finding, and it is the same sentence
     for faceting noise and for a rib 1.5 mm into a bore — the two situations an
     engineer most needs told apart (#207).
 
-    The depth is compared against what the REGION's own discretisation
-    accounts for, which is a number this code can derive rather than guess: the
-    polygon circumscribes the declared cylinder, so its corners stand
-    `r·(sec(pi/n) - 1)` proud of it and material following the declared circle
-    sits that far inside. Below that line the intrusion says nothing about the
-    part; above it, the excess is the part's.
+    **States the comparison and stops there.** An earlier version concluded for
+    the reader — "so the intrusion is its discretisation rather than the part" —
+    and that conclusion is unsound twice over. The floor accounts for the
+    REGION's circumscription only, and on the mesh tier the modelled bore is
+    inscribed in its own `$fn`, a second term the contract cannot see: at
+    `$fn=16` against a default region, 94% of the reported depth was the part's
+    own tessellation and the line handed it over as unexplained. And `depth <=
+    floor` licenses "the circumscription COULD account for this", never "it
+    did" — measured, a rib genuinely 1.5 mm in was called discretisation once
+    the region's height capped the search (adversarial review of #207). Both
+    numbers are printed; the reader draws the conclusion, which is the only
+    party in a position to.
+
+    "at least", because the search stops when the eroded intersection falls
+    below a volume threshold rather than when it empties, so the depth is a
+    lower bound.
     """
     volume = f"{in_region:.6g} mm3 of material intrudes into the keep-out region"
     if intrusion is None:
         return volume
-    depth, floor = intrusion["max_depth_mm"], intrusion["facet_floor_mm"]
-    reach = f"{volume}, reaching {depth:.4g} mm past its boundary"
+    depth, floor = intrusion["min_depth_mm"], intrusion["facet_floor_mm"]
+    if intrusion["depth_limited_by_region"]:
+        # The erosion consumed the whole region, so the number describes the
+        # declaration rather than the breach and must not be compared to
+        # anything: a 20 mm rib and a 200 mm one both report the region's own
+        # half-extent.
+        return (
+            f"{volume}, reaching at least {depth:.4g} mm past its boundary — the whole "
+            f"depth of the region, so how much further it goes is not measurable against "
+            f"a region this size"
+        )
+    reach = f"{volume}, reaching at least {depth:.4g} mm past its boundary"
     if floor <= 0.0:
         return reach
-    if depth <= floor:
-        return (
-            f"{reach} — no deeper than the {floor:.4g} mm this region's own "
-            f"circumscription accounts for, so the intrusion is its discretisation "
-            f"rather than the part"
-        )
-    return f"{reach}, of which this region's circumscription accounts for {floor:.4g} mm"
+    return (
+        f"{reach}; this region's own circumscription accounts for up to {floor:.4g} mm "
+        f"of that, and the modelled feature's tessellation for more"
+    )
 
 
-def _max_intrusion_depth(backend: Any, artifact: Any, region: Any) -> tuple[float, float] | None:
+def _max_intrusion_depth(
+    backend: Any, artifact: Any, region: Any
+) -> tuple[float, float, bool] | None:
     """How far past its boundary the material reaches, as a bracket.
 
     Volume is the wrong summary on its own: it scales with the AREA of the
@@ -1075,10 +1095,25 @@ def _max_intrusion_depth(backend: Any, artifact: Any, region: Any) -> tuple[floa
     and `intersect_volume` is the primitive the check already runs. Measured
     1.499999 on the same rib.
 
-    Returns the bisection bracket, not a point. The lower bound is a depth the
-    part is PROVEN to reach; the upper is where it was shown not to. `None`
-    where the backend cannot answer, which the caller reports as no depth
-    rather than as zero depth.
+    Returns `(proven, resolution, saturated)`.
+
+    `proven` is a genuine LOWER BOUND and nothing more: at that erosion the
+    region still held measurable material, so the part reaches at least that
+    deep. The search's upper end is NOT an upper bound and is not returned —
+    it is where the remaining intersection fell below `epsilon(0.0)` mm3, which
+    is small rather than empty, so the true depth sits above it by however far
+    a sliver of that volume extends. Measured on exact AABB arithmetic: 4.995
+    reported against a true 5.0, an error 8400x the search interval. Calling
+    that pair a bracket "the depth was proven within" was false in the only
+    direction that matters (adversarial review of #207).
+
+    `saturated` says the search hit the region's own `inradius()` — the erosion
+    at which the region vanishes. Past that there is nothing left to test, so
+    the number stops being a property of the breach and becomes one of the
+    declaration, and the caller must not compare it to anything.
+
+    `None` where the backend cannot answer, which the caller reports as no
+    depth rather than as zero depth.
     """
     ceiling = region.inradius()
     lo, hi = 0.0, ceiling
@@ -1093,7 +1128,14 @@ def _max_intrusion_depth(backend: Any, artifact: Any, region: Any) -> tuple[floa
             lo = mid
         else:
             hi = mid
-    return lo, hi
+    # Saturation is judged on what was PROVEN, not on where the search ended.
+    # A region eroded almost to nothing holds almost nothing, so the volume
+    # threshold cuts in just short of the ceiling and `hi` drops below it even
+    # when the part fills the region entirely — measured on a 0.6 mm-tall
+    # region, which reported the ceiling as its depth and called itself
+    # unsaturated (adversarial review of #207). A reporting heuristic, and
+    # only ever used to withhold a comparison, never to make one.
+    return lo, hi - lo, lo >= ceiling * (1 - 1e-3) - _DEPTH_TOLERANCE
 
 
 def _run_region_check(
@@ -1152,10 +1194,15 @@ def _run_region_check(
         # the cylinder's polygon stands proud of what was declared.
         floor = region.facet_floor() if isinstance(region, CylinderRegion) else 0.0
         if bracket is not None:
+            proven, resolution, saturated = bracket
             intrusion = {
                 "volume_mm3": in_region,
-                "max_depth_mm": bracket[0],
-                "depth_bounds": list(bracket),
+                # A lower bound, named as one. There is no upper: the search
+                # stops on a volume threshold, not on emptiness.
+                "min_depth_mm": proven,
+                "search_resolution_mm": resolution,
+                "detected_above_mm3": epsilon(0.0),
+                "depth_limited_by_region": saturated,
                 "facet_floor_mm": floor,
             }
 

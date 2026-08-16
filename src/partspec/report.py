@@ -161,6 +161,8 @@ class CheckResult:
             out["direction"] = self.direction
         if self.step is not None:
             out["step"] = self.step
+        if self.intrusion is not None:
+            out["intrusion"] = self.intrusion
         if self.hole is not None:
             out["hole"] = self.hole
         if self.source is not None:

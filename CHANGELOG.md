@@ -17,10 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   linearly with depth, so a hair-thin film over a large face outweighs a deep
   local spike. The reporter had to bisect the region diameter by hand to find
   out which they had.
-  The line now reads `…, reaching 1.5 mm past its boundary` — and for the
-  faceting case, `…, reaching 0.02468 mm past its boundary — no deeper than the
-  0.02472 mm this region's own circumscription accounts for, so the intrusion
-  is its discretisation rather than the part`.
+  The line now reads `…, reaching at least 1.5 mm past its boundary; this
+  region's own circumscription accounts for up to 0.02472 mm of that, and the
+  modelled feature's tessellation for more` — against `…, reaching at least
+  0.02468 mm …` for the faceting case, where the depth and the floor coincide.
+  **It states the comparison and stops there.** An earlier draft concluded for
+  the reader — "so the intrusion is its discretisation rather than the part" —
+  and that conclusion is unsound twice over. The floor covers the REGION's
+  circumscription only; on the mesh tier the modelled bore is inscribed in its
+  own `$fn`, a term the contract cannot see, and at `$fn=16` against a default
+  region **94% of the reported depth was the part's own tessellation**. And
+  `depth <= floor` licenses "the circumscription could account for this", never
+  "it did" — measured, a rib genuinely 1.5 mm in was called discretisation once
+  a short region capped the search. Both numbers are printed; the reader draws
+  the conclusion, being the only party in a position to.
   **Posed as an erosion, which is not what the issue suggested.** #207 asks for
   "the largest distance any intruding vertex sits inside the region boundary",
   and that understates: depth is a min of linear functions, so it is concave,
@@ -39,15 +49,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **The floor it is read against is derived, not chosen.** #207 attributes the
   noise to the bore's faceting (~0.006 mm at `$fn=128`); it is really the
   REGION's own circumscription, `r·(sec(pi/n) - 1)`, which at the default 64
-  segments is four times larger — 0.0247 mm, against 0.024694 measured. That is
+  segments is four times larger — 0.0247 mm, against 0.024684 measured. That is
   the secondary half of the issue answered in closed form: a `keep_out` at a
   bore's nominal diameter cannot pass, the amount is computable from the
   declaration, and it falls quadratically with `segments`, which is the
   author's lever. `SPEC-contract.md` §4.4 carries the table and both remedies.
-  The numbers land in a new `checks[].intrusion` field — `volume_mm3`,
-  `max_depth_mm`, `depth_bounds`, `facet_floor_mm`. `max_depth_mm` is the
-  bracket's LOWER end, a depth the material was shown to reach rather than a
-  midpoint nothing demonstrated. Diagnostic rather than adjudicated, so it is
+  The numbers land in a new `checks[].intrusion` field. `min_depth_mm` is a
+  **lower bound and is named as one**: the search stops when the eroded
+  intersection falls below `detected_above_mm3`, which is small rather than
+  empty, so the true depth lies above it — measured on exact AABB arithmetic,
+  4.995 reported against a true 5.0, an error 8400x the search interval. An
+  earlier draft called that pair "the bracket the depth was proven within",
+  which was false in the only direction that matters. Where the erosion
+  consumes the whole region first, `depth_limited_by_region` says so and the
+  comparison is withheld entirely. Diagnostic rather than adjudicated, so it is
   its own field rather than part of `measurement`, which carries one unit — and
   so it does **not** discharge `POST-V0.md` §4's outstanding obligation to
   exercise the `approximate` machinery on a real adjudicated interval. Additive;

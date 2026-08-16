@@ -349,31 +349,37 @@ def test_a_failing_keep_out_says_how_deep_the_material_reaches():
 
     assert result.status is Status.FAIL
     assert result.intrusion is not None
-    lo, hi = result.intrusion["depth_bounds"]
-    assert lo <= 1.5 <= hi, f"1.5 mm by construction, bracketed as [{lo}, {hi}]"
-    assert result.intrusion["max_depth_mm"] == lo
+    proven = result.intrusion["min_depth_mm"]
+    assert proven == pytest.approx(1.5, abs=1e-2), f"1.5 mm by construction, proven {proven}"
+    assert proven <= 1.5, "a LOWER bound: it may never claim more than the part reaches"
     assert result.intrusion["volume_mm3"] == pytest.approx(1.5 * 6 * 6)
-    assert "reaching 1.5 mm past its boundary" in (result.detail or ""), result.detail
+    assert "reaching at least 1.5 mm past its boundary" in (result.detail or ""), result.detail
 
 
-def test_the_depth_is_a_bracket_and_says_only_what_it_proved():
-    """`max_depth_mm` is the lower end of the bisection, not its midpoint.
+def test_the_depth_is_a_lower_bound_and_is_not_dressed_up_as_a_bracket():
+    """The search stops when the eroded intersection falls below a VOLUME
+    threshold, not when it empties — so its upper end is not an upper bound.
 
-    The lower bound is a depth the part was SHOWN to reach — the eroded region
-    still met it there. The upper is where it was shown not to. Reporting a
-    midpoint would state a depth nothing demonstrated, which is the habit this
-    whole check exists to break.
+    Measured on this stub's exact AABB arithmetic: a 2 mm cube centred in a
+    10 mm keep-out is 5.0 mm deep and the search reports 4.995, an error 8400x
+    the search interval. Calling that pair "the bracket the depth was proven
+    within" was false in the only direction that matters (adversarial review of
+    #207), so only the proven side is reported, and it is named `min_depth_mm`.
     """
     from partspec.region import box
 
     region = box(min=(0, 0, 0), max=(10, 10, 10))
-    result = _region_result(_box_part((-5, 2, 2), (3.0, 8, 8)), "keep_out", region, 1.0)
+    result = _region_result(_box_part((4, 4, 4), (6, 6, 6)), "keep_out", region, 1.0)
 
     assert result.intrusion is not None
-    lo, hi = result.intrusion["depth_bounds"]
-    assert lo < hi, "a bracket, not a point"
-    assert result.intrusion["max_depth_mm"] == lo
-    assert hi - lo <= 1e-6 + 1e-12, "and tight enough to act on"
+    proven = result.intrusion["min_depth_mm"]
+    assert proven <= 5.0, "a cube centred in the region is 5 mm deep; never claim more"
+    assert proven > 4.9, "and the bound is still worth printing"
+    assert "max_depth_mm" not in result.intrusion, "no upper bound is available to name"
+    assert result.intrusion["detected_above_mm3"] > 0, (
+        "the stopping threshold is stated, since it is what makes this a bound"
+    )
+    assert "at least" in (result.detail or "")
 
 
 def test_a_passing_keep_out_pays_nothing_for_the_depth():
@@ -452,10 +458,10 @@ def test_faceting_noise_and_real_interference_no_longer_read_alike(tmp_path: Pat
         assert check.intrusion is not None
         depths[name] = check.intrusion
 
-    assert depths["rib"]["max_depth_mm"] == pytest.approx(1.5, abs=1e-4), (
+    assert depths["rib"]["min_depth_mm"] == pytest.approx(1.5, abs=1e-4), (
         "the rib reaches 1.5 mm past the boundary by construction"
     )
-    assert depths["plain"]["max_depth_mm"] < depths["rib"]["max_depth_mm"] / 20, (
+    assert depths["plain"]["min_depth_mm"] < depths["rib"]["min_depth_mm"] / 20, (
         f"faceting {depths['plain']['max_depth_mm']} vs interference "
         f"{depths['rib']['max_depth_mm']} — the two must not read alike"
     )
@@ -489,15 +495,26 @@ def test_the_facet_floor_is_derived_and_explains_the_noise_case(tmp_path: Path):
 
     assert check.intrusion is not None
     assert check.intrusion["facet_floor_mm"] == pytest.approx(region.facet_floor())
-    assert check.intrusion["max_depth_mm"] == pytest.approx(region.facet_floor(), rel=2e-3), (
+    assert check.intrusion["min_depth_mm"] == pytest.approx(region.facet_floor(), rel=2e-3), (
         "the measured noise IS the region's circumscription, to three figures"
     )
-    assert "the intrusion is its discretisation rather than the part" in (check.detail or "")
+    # The comparison, not a conclusion. The floor covers the REGION's
+    # circumscription only, and on this tier the modelled bore is inscribed in
+    # its own `$fn` — a second term the contract cannot see, which at a coarse
+    # `$fn` dominates. Asserting the cause was measured false both ways
+    # (adversarial review of #207).
+    assert "circumscription accounts for up to" in (check.detail or "")
+    assert "discretisation rather than the part" not in (check.detail or ""), (
+        "the tool prints both numbers; the reader draws the conclusion"
+    )
 
     # Quadratic in the segment count, which is the author's lever.
     coarse = cylinder(d=41.0, h=18.0, at=(0, 0, -5), segments=16)
     fine = cylinder(d=41.0, h=18.0, at=(0, 0, -5), segments=128)
-    assert coarse.facet_floor() > 16 * region.facet_floor() > 16 * fine.facet_floor()
+    # Quadratic: halving the segment size quarters the floor. The ratios are
+    # asserted, since `a > 16b > 16c` is satisfied by any decreasing function.
+    assert coarse.facet_floor() / region.facet_floor() == pytest.approx(16.0, rel=0.02)
+    assert region.facet_floor() / fine.facet_floor() == pytest.approx(4.0, rel=0.02)
 
 
 @needs_scad_tier
@@ -542,11 +559,65 @@ def test_the_vertex_maximum_the_issue_suggested_understates_the_depth(tmp_path: 
     verts = np.asarray(common.to_mesh().vert_properties)[:, :3].astype(float)
     # Depth to the region's own side planes, which is all the suggested metric
     # can see. The caps are far away here, so the sides decide.
-    radial = 20.5 - np.hypot(verts[:, 0], verts[:, 1])
-    vertex_max = float(radial.max())
+    # Distance to the polygon's SIDE PLANES, which is what depth means here —
+    # not to the declared circle. The apothem is d/2 and the planes face the
+    # even half-angles; using the circle instead gave 1.2646 where the real
+    # vertex maximum is 1.2798 (adversarial review of #207).
+    n = region.segments
+    angles = 2 * np.pi * np.arange(n) / n
+    normals = np.stack([np.cos(angles), np.sin(angles)], axis=1)
+    vertex_max = float((20.5 - (verts[:, :2] @ normals.T).max(axis=1)).max())
 
-    assert check.intrusion["max_depth_mm"] == pytest.approx(1.5, abs=1e-3)
-    assert vertex_max < 1.4, (
+    assert check.intrusion["min_depth_mm"] == pytest.approx(1.5, abs=1e-3)
+    assert vertex_max == pytest.approx(1.2798, abs=2e-3), (
         f"the vertex maximum is {vertex_max:.4f} against a rib built at 1.500 — "
         f"which is why the erosion form is used instead"
+    )
+
+
+def test_a_region_is_eroded_by_its_smallest_half_extent_not_its_largest():
+    """`inradius()` is the erosion at which the region vanishes, and dropping
+    the `min` from either kind survives the rest of the suite.
+
+    It is the only thing standing between `_max_intrusion_depth` and calling
+    `expand(-r)` on a degenerate region, which raises `ContractError` with no
+    handler — so the mutation that survives is the one that crashes (adversarial
+    review of #207). A long thin cylinder erodes axially; a flat box erodes
+    through its thinnest axis.
+    """
+    from partspec.region import box, cylinder
+    from partspec.status import ContractError
+
+    tall = cylinder(d=5.0, h=100.0, at=(0, 0, 0))
+    assert tall.inradius() == 2.5, "radial, not axial"
+    flat = box(min=(0, 0, 0), max=(10, 10, 0.4))
+    assert flat.inradius() == pytest.approx(0.2), "the thinnest axis, not the widest"
+
+    # Past the inradius there is no region left, which is why the search stops
+    # there rather than discovering it by exception.
+    for region in (tall, flat):
+        with pytest.raises(ContractError):
+            region.expand(-(region.inradius() + 0.5))
+
+
+def test_a_depth_the_region_itself_limits_withholds_the_comparison():
+    """A region eroded to nothing cannot measure past its own half-extent, so
+    the number stops describing the breach and starts describing the
+    declaration.
+
+    Measured: a rib genuinely 1.5 mm into a bore, checked against a 0.6 mm-tall
+    region, reported 0.3 mm — the region's half-height — and the first version
+    compared that to a 0.4016 mm facet floor and called a real interference
+    discretisation (adversarial review of #207). The comparison is withheld now.
+    """
+    from partspec.region import box
+
+    region = box(min=(0, 0, 0), max=(10, 10, 0.4))
+    result = _region_result(_box_part((-5, -5, -5), (5, 5, 5)), "keep_out", region, 1.0)
+
+    assert result.intrusion is not None
+    assert result.intrusion["depth_limited_by_region"] is True
+    assert "not measurable against a region this size" in (result.detail or "")
+    assert "accounts for up to" not in (result.detail or ""), (
+        "a region-limited depth must not be compared to anything"
     )

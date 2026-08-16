@@ -279,18 +279,22 @@ within `shell` of a keep-in.
 Volume scales with the *area* of the contact and only linearly with depth, so a
 hair-thin film over a large face outweighs a deep local spike, and faceting noise
 reads the same as real interference (#207). The report therefore carries
-`checks[].intrusion` — `volume_mm3`, `max_depth_mm`, the `depth_bounds` bracket that
-depth was proven within, and `facet_floor_mm`. Diagnostic, not adjudicated: the claim
-is still "no material here", and this says what the material did about it. Additive;
-`SCHEMA_VERSION` does not move.
+`checks[].intrusion`. Diagnostic, not adjudicated: the claim is still "no material
+here", and this says what the material did about it. Additive; `SCHEMA_VERSION`
+does not move.
 
-**A `keep_out` at a bore's nominal diameter cannot pass, and the amount is
-derivable.** `region.cylinder` CIRCUMSCRIBES the declared circle (`_polygon_2d`), so
-every one of its `segments` corners stands `r·(sec(pi/n) - 1)` proud of it; material
-that merely follows the declared circle therefore lies that far inside the region near
-every corner. On the mesh tier the modelled bore is *inscribed* in its own `$fn`, which
-adds a second, smaller term. Neither is a design error, and the floor is
-`facet_floor_mm`:
+`min_depth_mm` is a **lower bound**, and the report MUST NOT present it as anything
+else. The search erodes the region until the remaining intersection falls below
+`detected_above_mm3`, which is small rather than empty, so the true depth lies above
+the number by however far a sliver of that volume reaches. Where the erosion consumes
+the whole region before the material runs out, `depth_limited_by_region` is set and
+the depth describes the declaration rather than the breach.
+
+**A `keep_out` at a bore's nominal diameter cannot pass, and the shortfall has two
+terms — only one of which the contract can see.** `region.cylinder` CIRCUMSCRIBES the
+declared circle (`_polygon_2d`), so every one of its `segments` corners stands
+`r·(sec(pi/n) - 1)` proud of it; material following the declared circle lies that far
+inside near every corner. That term is `facet_floor_mm`:
 
 | `segments` | floor at r = 20.5 mm |
 |---|---|
@@ -298,11 +302,17 @@ adds a second, smaller term. Neither is a design error, and the floor is
 | 64 (default) | 0.0247 mm |
 | 128 | 0.0062 mm |
 
-It falls quadratically with the segment count, which is the author's lever. The two
-honest ways to declare a nominal bore are therefore to raise `segments` until the floor
-is below what the design cares about, or to declare the region at the inscribed
-diameter — and a reported depth means nothing about the part until it is read against
-this number, which is why the failure line prints both.
+The second term is the modelled feature's own tessellation — on the mesh tier a bore
+is *inscribed* in its `$fn`, and at `$fn = 16` against a default region that term is
+**sixteen times the larger** of the two. It is not derivable from the declaration,
+because `$fn` is not in it. So the tool prints both the depth and the floor and draws
+no conclusion: a reader who knows their `$fn` can, and the contract cannot.
+
+Raising `segments` shrinks the region's term quadratically but **does not make a
+nominal bore pass** — the depth stalls at the feature's own sagitta while the floor
+keeps falling, so the two numbers diverge rather than converge. What passes is a
+region declared strictly inside the modelled feature: below the *inscribed* diameter
+of the bore as tessellated, not below its nominal diameter.
 
 **What this deliberately does not claim: shape.** A hole oversize in one direction only —
 an oval through a round keep-out — passes, because material still lies within the shell on

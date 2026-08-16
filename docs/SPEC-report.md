@@ -747,12 +747,14 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   callout, `{"d": ..., "count": ...}` (plus `"bcd"` for a bolt circle). The diameter band lives in the check's `limit`; the
   measurement is the vector of matched diameters (null when none matched, with the part's
   full bore inventory in `detail` on failure). Additive (no schema bump).
-- **`intrusion`** — on a failing `keep_out` region clause only: `volume_mm3`,
-  `max_depth_mm`, `depth_bounds` and `facet_floor_mm` (SPEC-contract §4.4). The depth is
-  a bracket from an erosion search, so `max_depth_mm` is its LOWER end — a depth the
-  material was shown to reach, never a midpoint nothing demonstrated. Diagnostic rather
-  than adjudicated, which is why it is a field of its own and not part of `measurement`:
-  that carries one unit, and this carries mm beside mm3. Additive (no schema bump).
+- **`checks[].intrusion`** — on a failing `keep_out` region clause only:
+  `volume_mm3`, `min_depth_mm`, `search_resolution_mm`, `detected_above_mm3`,
+  `depth_limited_by_region` and `facet_floor_mm` (SPEC-contract §4.4). The depth is a
+  LOWER BOUND from an erosion search that stops on a volume threshold rather than on
+  emptiness, and MUST NOT be reported as an upper bound or a bracket. Diagnostic rather
+  than adjudicated, which is why it is a field of its own and not part of
+  `measurement`: that carries one unit, and this carries mm beside mm3. Additive (no
+  schema bump).
 - **`checks[].direction`** — present only on `draft_angle` checks: the pull axis the draft
   was measured against, as `[x, y, z]`. Part of the claim's identity, not context — the same
   part measures differently under a different pull, so a draft claim without its axis is not
