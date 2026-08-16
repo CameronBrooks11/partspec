@@ -330,3 +330,100 @@ def test_a_stripped_citation_is_a_named_difference(tmp_path: Path):
     assert main(["check", bare, "--quiet", "--expect", str(lock), "--out", str(out)]) == 4
     report = report_of(out)
     assert "ISO 15" in report["error"], "the vanished citation is visible in the difference"
+
+
+def _crashable(tmp_path: Path) -> list[str]:
+    """A three-part contract whose first factory crashes on demand."""
+    (tmp_path / "m.scad").write_text("cube([30, 20, 10]);\n")
+    spec = tmp_path / "s.py"
+    spec.write_text(
+        "import os\n\nfrom partspec import Part, openscad\n\n\n"
+        "def a():\n"
+        "    if os.environ.get('CRASH_A'):\n"
+        "        raise RuntimeError('boom-a')\n"
+        "    return Part('a-part', openscad('m.scad')).watertight()\n\n\n"
+        "def b():\n    return Part('b-part', openscad('m.scad')).watertight()\n\n\n"
+        "def c():\n    return Part('c-part', openscad('m.scad')).watertight()\n"
+    )
+    return [f"{spec}:a", f"{spec}:b", f"{spec}:c"]
+
+
+@needs_scad_tier
+def test_a_deletion_the_crash_cannot_explain_is_still_reported_as_one(
+    tmp_path: Path, capsys, monkeypatch
+):
+    """The mirror of #201, which the first fix installed.
+
+    A target resolves to at most one part, so N failures account for at most N
+    uncovered ids — everything beyond that is PROVABLY deleted, whatever
+    crashed. Blanket-declining there is a guard refusing a conclusion it has
+    earned, and it withholds the correct remedy for parts the failure cannot
+    explain (adversarial review of #243).
+    """
+    targets = _crashable(tmp_path)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", *targets, "--quiet", "--pin", str(lock)]) == 0
+
+    # `a` crashes and `c` is genuinely dropped: two uncovered, one failure.
+    monkeypatch.setenv("CRASH_A", "1")
+    code = main(["check", targets[0], targets[1], "--quiet", "--expect", str(lock)])
+    err = capsys.readouterr().err
+
+    assert code == 4
+    assert "can account for at most 1 of them, so at least 1 was deleted" in err, err
+    assert "may be that failure rather than a deletion" not in err, (
+        "one crash cannot explain two missing parts"
+    )
+
+
+@needs_scad_tier
+def test_re_pinning_refuses_to_shrink_a_lock_because_a_target_crashed(
+    tmp_path: Path, capsys, monkeypatch
+):
+    """#201's actual harm, which removing the ADVICE did not touch.
+
+    `--pin` overwrites, so a crashed target dropped a part from an existing
+    lock with only `pinned 2 part(s)` on stdout — the silent weakening
+    `expectation.py` says the tool's job is to make impossible to do silently.
+    The first fix deleted the sentence recommending it and left the act one
+    flag away (adversarial review of #243).
+
+    Refused rather than warned: by the time a warning is read the claim set is
+    already gone.
+    """
+    targets = _crashable(tmp_path)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", *targets, "--quiet", "--pin", str(lock)]) == 0
+    before = lock.read_bytes()
+
+    monkeypatch.setenv("CRASH_A", "1")
+    code = main(["check", *targets, "--quiet", "--pin", str(lock)])
+    err = capsys.readouterr().err
+
+    assert code == 4
+    assert "refusing to re-pin" in err and "'a-part'" in err, err
+    assert lock.read_bytes() == before, "the lock must be untouched, not merely complained about"
+
+
+@needs_scad_tier
+def test_the_crash_hint_names_the_parts_it_is_protecting(tmp_path: Path, capsys, monkeypatch):
+    """`REFUSED_OUT_HINT`'s docstring, forty lines from the code this touches:
+    pinning one spelling of advice pins the spelling, not the advice.
+
+    The first fix asserted only the substring `Do NOT re-pin`, so the hint
+    could name the wrong parts, drop the failed target, or invert its plurals
+    with the suite green — four such mutants survived (adversarial review of
+    #243). The content is asserted now.
+    """
+    targets = _crashable(tmp_path)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", targets[0], "--quiet", "--pin", str(lock)]) == 0
+
+    monkeypatch.setenv("CRASH_A", "1")
+    assert main(["check", targets[0], "--quiet", "--expect", str(lock)]) == 4
+    hint = next(line for line in capsys.readouterr().err.splitlines() if line.startswith("  hint:"))
+
+    assert "'a-part'" in hint, "the parts at risk are named"
+    assert "Do NOT re-pin" in hint
+    assert "that claim set" in hint, "one part, singular"
+    assert "those claim sets" not in hint

@@ -191,11 +191,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that the message declines to call it a deletion, names the target that did
   not resolve, and says plainly not to re-pin yet.
   **Which pinned part a failed target would have produced is not knowable** —
-  the id comes from running the contract — so the message names the failure and
-  stops rather than guessing an attribution. A genuine deletion, where nothing
-  failed to resolve, keeps the old message and the old advice, both of which
-  are correct there; each side is pinned by its own test, so the fix cannot
-  degenerate into "stop saying it".
+  the id comes from running the contract — so the message never guesses an
+  attribution. But the COUNT is knowable, and the first version of this fix
+  threw it away: a target resolves to at most one part, so N failures account
+  for at most N uncovered ids and everything beyond that is provably deleted,
+  whatever crashed. Declining there was the mirror of the defect being fixed —
+  a guard refusing a conclusion it had earned, withholding the correct remedy
+  for parts the failure cannot explain. It now says how many were certainly
+  deleted.
+  **And the destructive act itself is guarded**, which removing the advice did
+  not touch. `--pin` overwrites, so a crashed target dropped a part from an
+  existing lock with nothing but `pinned 2 part(s)` on stdout — the silent
+  weakening `expectation.py` says the tool's job is to make impossible to do
+  silently. `--pin` now refuses to write a lock that would shrink while a
+  target is unresolved, rather than warning: by the time a warning is read the
+  claim set is gone.
+  A genuine deletion, where nothing failed to resolve, keeps the old message
+  and the old advice, both of which are correct there. Each branch has its own
+  test, and the hint's CONTENT is asserted rather than one spelling of it —
+  `REFUSED_OUT_HINT`'s docstring forty lines away records why, and four mutants
+  of the first version's hint survived the suite.
 
 ## [0.7.6] - 2026-08-15
 

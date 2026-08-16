@@ -655,7 +655,40 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         codes.append(code)
 
     if args.pin is not None and pinned_parts:
-        from .expectation import write_lock
+        from .expectation import LockError, read_lock, write_lock
+
+        # A lock that SHRINKS because a target crashed is silent weakening, and
+        # `expectation.py` states the design goal it violates: "the tool's job
+        # is to make the weakening IMPOSSIBLE to do silently, not impossible to
+        # do." #201 removed the advice to do this and left the act itself
+        # unguarded one flag over — measured, a crashed target dropped a part
+        # from an existing lock with only `pinned 2 part(s)` on stdout
+        # (adversarial review of #243).
+        #
+        # Refused rather than warned: `--pin` overwrites, so by the time a
+        # warning is read the claim set is already gone.
+        if unresolved and Path(args.pin).is_file():
+            try:
+                existing = read_lock(Path(args.pin))
+            except LockError:
+                existing = {}
+            lost = sorted(existing.keys() - pinned_parts.keys())
+            if lost:
+                failed = ", ".join(repr(s) for s in sorted(set(unresolved)))
+                print(
+                    f"partspec: refusing to re-pin: {failed} did not resolve, and writing "
+                    f"{args.pin} now would drop "
+                    f"{', '.join(repr(p) for p in lost)} from it",
+                    file=sys.stderr,
+                )
+                print(
+                    "  hint: fix the failing target and re-run. A lock that shrinks "
+                    "because a target crashed is a deleted claim set, and this is the "
+                    "one flag that can do it without saying so",
+                    file=sys.stderr,
+                )
+                codes.append(exit_code(Verdict.ERROR))
+                return _batch_exit(codes)
 
         write_lock(args.pin, pinned_parts)
         if not args.quiet:
@@ -682,30 +715,45 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         if uncovered:
             names = ", ".join(repr(p) for p in uncovered)
             it = "it" if len(uncovered) == 1 else "them"
-            if unresolved:
-                # A supplied target that CRASHED is not a deletion, and the
-                # remedy for a deletion destroys the evidence: re-pinning now
-                # writes a lock without these parts, permanently deleting the
-                # claim set a transient contract error hid. That is the failure
-                # class this guard exists to prevent, performed by the guard's
-                # own advice (#201).
-                #
-                # Which pinned part a failed target WOULD have produced is not
-                # knowable — the id comes from running the contract — so this
-                # names the failures and declines to conclude, rather than
-                # guessing an attribution.
-                failed = ", ".join(repr(s) for s in unresolved)
+            # A target resolves to at most one part, so N failures can
+            # account for at most N uncovered ids. Everything beyond that is
+            # PROVABLY deleted, whatever crashed — and blanket-declining there
+            # installs the mirror of #201's defect: a guard refusing a
+            # conclusion it has earned, suppressing the correct remedy for
+            # parts the failure cannot explain (adversarial review of #243).
+            certain = len(uncovered) - len(set(unresolved))
+            if unresolved and certain <= 0:
+                # Nothing is provable: the failures could account for all of
+                # them. Name the failures and decline.
+                failed = ", ".join(repr(s) for s in sorted(set(unresolved)))
+                those = "those failures" if len(set(unresolved)) > 1 else "that failure"
+                sets = "that claim set" if len(uncovered) == 1 else "those claim sets"
                 print(
                     f"partspec: the pin covers {names} and nothing in this invocation "
-                    f"produced {it} — but {failed} did not resolve, so this may be that "
-                    f"failure rather than a deletion",
+                    f"produced {it} — but {failed} did not resolve, so this may be "
+                    f"{those} rather than a deletion",
                     file=sys.stderr,
                 )
-                sets = "that claim set" if len(uncovered) == 1 else "those claim sets"
                 print(
                     f"  hint: fix the target and re-run before deciding. Do NOT re-pin "
                     f"yet: --pin would write a lock without {names}, deleting {sets} "
                     f"permanently",
+                    file=sys.stderr,
+                )
+            elif unresolved:
+                # Some are provable. Say how many, and keep the real remedy for
+                # them rather than withholding it because something else broke.
+                failed = ", ".join(repr(s) for s in sorted(set(unresolved)))
+                print(
+                    f"partspec: the pin covers {names} and nothing in this invocation "
+                    f"produced {it}. {failed} did not resolve and can account for at "
+                    f"most {len(set(unresolved))} of them, so at least {certain} "
+                    f"{'was' if certain == 1 else 'were'} deleted",
+                    file=sys.stderr,
+                )
+                print(
+                    "  hint: fix the failing target first — re-pinning now would write "
+                    "a lock without any of them, and only the deleted ones should go",
                     file=sys.stderr,
                 )
             else:
