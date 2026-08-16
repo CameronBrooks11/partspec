@@ -439,9 +439,10 @@ def test_faceting_noise_and_real_interference_no_longer_read_alike(tmp_path: Pat
     `N mm3 of material intrudes` and nothing else, so the reporter had to
     bisect the region diameter by hand to find out which they had.
 
-    The depth separates them by fifty times, and the noise case now explains
-    itself: its intrusion is no deeper than the region's own circumscription,
-    which is a number derived from the declaration rather than guessed at.
+    The depth separates them by sixty times where the volumes differ by six,
+    and the noise case now has something to be read against: a floor derived
+    from the declaration rather than guessed at. Read against, not explained
+    by — the tool prints both numbers and draws no conclusion (§4.4).
     """
     from partspec.region import cylinder
 
@@ -484,8 +485,9 @@ def test_the_facet_floor_is_derived_and_explains_the_noise_case(tmp_path: Path):
     """The floor is closed-form, not a threshold someone picked.
 
     A `keep_out` region CIRCUMSCRIBES the declared cylinder, so its corners
-    stand `r·(sec(pi/n) - 1)` proud of it and material following the declared
-    circle sits that far inside. #207 attributes the noise to the BORE's
+    stand `r·(sec(pi/n) - 1)` proud of it — but the erosion measures the
+    SAGITTA `r·(1 - cos(pi/n))`, smaller by `sec(pi/n)`, because `expand(-t)`
+    moves those corners by `t·sec(pi/n)` rather than by `t`. #207 attributes the noise to the BORE's
     faceting (~0.006 mm at $fn=128); the region's own floor at the default 64
     segments is four times larger and is what actually sets it.
     """
@@ -844,9 +846,12 @@ def test_a_region_too_small_for_the_search_to_resolve_reports_no_depth():
     assert fine.intrusion is not None
     assert fine.intrusion["depth_limited_by_region"] is True
 
-    # The constant itself, at its own boundary: every value from 1 to 15
-    # survived the suite because no fixture sat near it (round-5 review of
-    # #207). A cube whose search ceiling straddles the threshold does.
+    # The constant itself. The equality below is what pins the VALUE — every
+    # value from 1 to 15 survived the suite without it, and the cube block
+    # cannot help there because it derives its threshold FROM the constant and
+    # so is scale-invariant in it (round-6 review of #207). What the cube block
+    # pins is the guard's EXPRESSION: doubling it, halving it, or making it
+    # linear in the tolerance all move the boundary those two fixtures straddle.
     from partspec.runner import _DEPTH_TOLERANCE, _MIN_RESOLVING_HALVINGS, _search_ceiling
 
     assert _MIN_RESOLVING_HALVINGS == 4

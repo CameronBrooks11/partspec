@@ -747,9 +747,12 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   callout, `{"d": ..., "count": ...}` (plus `"bcd"` for a bolt circle). The diameter band lives in the check's `limit`; the
   measurement is the vector of matched diameters (null when none matched, with the part's
   full bore inventory in `detail` on failure). Additive (no schema bump).
-- **`checks[].intrusion`** — on a failing `keep_out` region clause only:
+- **`checks[].intrusion`** — on a failing `keep_out` region clause only, and not on
+  every one of those: it is omitted when the backend cannot answer and when the region
+  is too small for the search to resolve (SPEC-contract §4.4), so a consumer MUST treat
+  it as optional. When present it carries
   `volume_mm3`, `min_depth_mm`, `search_resolution_mm`, `detected_above_mm3`,
-  `depth_limited_by_region` and `facet_floor_mm` (SPEC-contract §4.4). The depth is a
+  `depth_limited_by_region` and `facet_floor_mm`. The depth is a
   LOWER BOUND from an erosion search that stops on a volume threshold rather than on
   emptiness, and MUST NOT be reported as an upper bound or a bracket; `facet_floor_mm`
   is a SCALE it is read against and MUST NOT be reported as a share of it, since how the

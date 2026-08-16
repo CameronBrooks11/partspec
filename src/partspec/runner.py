@@ -1017,7 +1017,7 @@ _DEPTH_BISECTIONS = 24
 24 halvings take a region of inradius 20 mm to 1.2e-6 mm, well past anything a
 mesh boolean resolves. The cap is a COST bound, not an accuracy one: each step
 is a boolean, and the whole search measured 0.073 s for 24 on the mesh tier and
-3.3 s for 24 on OCCT — 0.003 s and 0.13 s each. It is only ever paid on a
+3.3 s for 24 on OCCT — 3 ms and 0.14 s each. It is only ever paid on a
 failing region clause: 4 `intersect_volume` calls on a passing check against up
 to 28 on a failing one, fewer once the interval closes to `_DEPTH_TOLERANCE`
 first (22 for a region of inradius 0.15 mm)."""
@@ -1043,8 +1043,11 @@ sub-resolution and region-limited branches at once. An earlier draft argued
 those two are disjoint, keyed the guard on the inradius, and deleted the test
 that pinned their order on the strength of the argument (round-5 review of
 #207). Keyed this way they really are disjoint: an overlap needs
-`ceiling <= hi - lo <= max(_DEPTH_TOLERANCE, inradius / 2**24)`, and any region
-with an inradius over 0.01 mm has a ceiling of at least half of it.
+`ceiling <= hi - lo <= max(_DEPTH_TOLERANCE, inradius / 2**24)`. The guard puts
+`ceiling` over 1.6e-5, so an overlap needs an inradius over `1.6e-5 * 2**24`
+= 268 mm — and every extent of such a region is at least 537 mm, whose eroded
+volume at `inradius / 2**24` exceeds the threshold by seven orders of
+magnitude. (Measured ratio at inradius 268.5, 1000 and 1e5 mm: 1.68e7.)
 
 It excludes regions under 32 nm across — the inradius is a HALF-extent.
 """
@@ -1224,8 +1227,8 @@ def _max_intrusion_depth(
     # `inradius / 2**24` and exceeds `_DEPTH_TOLERANCE` for any region wider
     # than 33.6 mm. A fixed 1e-6 therefore failed to fire on most buried cubes
     # above 34 mm — 51% of integer sides in 34..100, 88% in 34..1000 — and,
-    # being non-monotone in the size, reintroduced the
-    # discontinuity it had just removed: side 50 flagged, 60 did not, 100 did,
+    # being non-monotone in the size, reintroduced the discontinuity it had
+    # just removed: side 50 flagged, 60 did not, 100 did,
     # 120 did not (round-3 review of #207). `hi - lo` alone, with no absolute
     # floor under it: where the region runs out first, this loop and
     # `_search_ceiling` are bisecting the SAME predicate, so their brackets

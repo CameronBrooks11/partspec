@@ -301,7 +301,9 @@ any region wider than 33.6 mm, so a 1e-6 slack silently stopped firing on most b
 cubes above 34 mm — 51% of integer sides in 34..100, 88% in 34..1000 — and
 non-monotonically, side 50 firing where 60 did not. The slack MUST be the search's own
 resolution: measured, a buried region sits under ONE interval short of the ceiling while
-a genuine partial intrusion cannot come within a thousand.
+the nearest genuine partial intrusion sits TWO — which is why the slack is one interval
+and not two. The margin is small and the difference is observable, so an implementation
+that reads a comfortable multiple into this will withhold comparisons it owes.
 
 **A `keep_out` at a bore's nominal diameter cannot pass, and the shortfall has two
 terms — only one of which the contract can see.** `region.cylinder` CIRCUMSCRIBES the
@@ -357,11 +359,10 @@ region's own faceting could account for this", never "it did".
 Raising `segments` shrinks the region's term quadratically but **does not make a nominal
 bore pass**: the region's term falls but the feature's does not, and the depth tends to
 the feature's sagitta rather than to zero — 0.006176, 0.006856 and 0.006176 measured at
-256, 384 and 512 segments, against a feature term of 0.006174. It approaches unevenly,
-not monotonically. What
-passes is a region whose own *corners* clear the modelled surface, since the region
-circumscribes too. For a cylinder region against a cylindrical feature, this is
-sufficient at every phase:
+256, 384 and 512 segments, against a feature term of 0.006174. It approaches that limit
+unevenly rather than monotonically. What passes is a region whose own *corners* clear
+the modelled surface, since the region circumscribes too. For a cylinder region against
+a cylindrical feature, this is sufficient at every phase:
 
 ```
 (d_region / 2) * sec(pi / segments)  <  (d_feature / 2) * cos(pi / $fn)
