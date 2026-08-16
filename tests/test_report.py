@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 from support import needs_mesh, report_of
@@ -685,3 +686,56 @@ def test_a_detail_that_is_not_an_echo_survives(tmp_path: Path, capsys):
     err = capsys.readouterr().err
     assert "not evaluated: the contract does not match" in err
     assert "z=24.8 outside max=25.45" in err
+
+
+def test_every_optional_check_field_can_actually_reach_the_json():
+    """A field on `CheckResult` that `to_json` forgets is invisible.
+
+    `intrusion` shipped that way for a commit: the dataclass carried it, `diff`
+    classified it, `SPEC-contract` §4.4 made it a normative MUST, and the
+    serializer had no branch — so the numbers lived only in the prose `detail`
+    while three documents said otherwise (adversarial review of #207).
+
+    The existing guard could not catch it. `test_every_field_the_report_emits_
+    is_classified_as_claim_or_not` asserts `emitted <= classified`, which is
+    satisfied by emitting nothing. This asserts the other direction: every
+    optional field, given a value, comes out the far side.
+    """
+    import dataclasses
+
+    from partspec.report import CheckResult
+
+    always = {"id", "kind", "phase", "status", "measurement", "limit", "detail"}
+    optional = [f for f in dataclasses.fields(CheckResult) if f.name not in always]
+    assert optional, "premise: there are optional fields to check"
+
+    for field in optional:
+        # A value of the field's own shape, distinguishable in the output.
+        value: Any = {"probe": 1} if field.name != "requires" else "occt"
+        if field.name == "components":
+            value = {"x": Status.PASS}
+        elif field.name == "expr":
+            value = "a <= b"
+        elif field.name == "operands":
+            continue  # emitted only beside `expr`, which covers it
+        elif field.name == "direction":
+            value = [0.0, 0.0, 1.0]
+        kwargs: dict[str, Any] = {field.name: value}
+        check = CheckResult(id="c", kind="k", phase="geometry", status=Status.PASS, **kwargs)
+        out = check.to_json()
+        assert field.name in out, (
+            f"`CheckResult.{field.name}` is set and `to_json` drops it, so nothing "
+            f"downstream can read it"
+        )
+        # The VALUE, not just the key. Presence alone is satisfied by writing
+        # the wrong attribute, `None`, or `{}` into the slot — all three passed
+        # the whole suite when this asserted `field.name in out` and stopped,
+        # and writing the wrong attribute is the exact copy-paste shape of the
+        # bug this test exists for (round-2 review of #207).
+        emitted = out[field.name]
+        if field.name == "components":
+            emitted = {k: Status(v) for k, v in emitted.items()}
+        assert emitted == value, (
+            f"`CheckResult.{field.name}` reaches the JSON carrying {emitted!r}, "
+            f"not the {value!r} it was given"
+        )

@@ -64,8 +64,30 @@ class BoxRegion:
             max=tuple(v + t for v in self.max),  # type: ignore[arg-type]
         )
 
+    def inradius(self) -> float:
+        """The largest inward offset that leaves anything behind.
+
+        `expand(-r)` moves every face inward by `r`, so this is the radius at
+        which the region erodes to nothing — and therefore the ceiling on how
+        deep material can sit inside it (#207).
+        """
+        return min((b - a) / 2 for a, b in zip(self.min, self.max, strict=True))
+
     def volume(self) -> float:
         return math.prod(b - a for a, b in zip(self.min, self.max, strict=True))
+
+    def eroded_volume(self, t: float) -> float:
+        """`expand(-t).volume()`, without building the eroded region.
+
+        Arithmetic on the EXTENTS, which is what the answer depends on, rather
+        than on the coordinates, which it does not. `expand(-t)` moves both
+        faces toward each other, so at a large offset `min + t` and `max - t`
+        round to the same double long before the extent does, and the
+        constructor rejects its own eroded copy — measured, a legal 8 mm-thin
+        keep-out at x = 1e5 raised `ContractError` from a search that had
+        already paid every boolean (round-3 review of #207).
+        """
+        return math.prod(max(0.0, (b - a) - 2 * t) for a, b in zip(self.min, self.max, strict=True))
 
     def mesh(self) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
         (x0, y0, z0), (x1, y1, z1) = self.min, self.max
@@ -181,10 +203,59 @@ class CylinderRegion:
             return [(cx, cy + u, cz + v) for u, v in self._polygon_2d()]
         return [(cx + v, cy, cz + u) for u, v in self._polygon_2d()]
 
+    def inradius(self) -> float:
+        """The largest inward offset that leaves anything behind.
+
+        `d / 2` is the polygon's INRADIUS, not its circumradius: the flats are
+        tangent to the declared circle (`_polygon_2d`), so `expand(-r)` moves
+        every side plane inward by exactly `r`. Axially the caps each move in
+        by `r`, hence `h / 2`.
+        """
+        return min(self.d / 2, self.h / 2)
+
+    def facet_floor(self) -> float:
+        """The intrusion DEPTH a perfectly circular feature of this diameter
+        would show against this region.
+
+        The polygon CIRCUMSCRIBES the declared cylinder, so its corners stand
+        `r·(sec(pi/n) - 1)` proud of it — but that is a radial distance, and the
+        number it is compared against is an EROSION depth. `expand(-t)` shrinks
+        the inradius by `t` and the corner radius by `t·sec(pi/n)`, so the
+        corners clear a circle of radius `r` at `t = r·(1 - cos(pi/n))`: the
+        sagitta, smaller than the radial excess by exactly `sec(pi/n)`.
+
+        This returned the radial excess until the round-4 review of #207, which
+        is 0.12% high at 64 segments and 8.2% at 8 — and the mismatch had been
+        rationalised three times in this file's own history as the modelled
+        bore's faceting. Measured against a Ø41 `$fn=128` bore, the depth is
+        1.560399 mm at 8 region segments and 0.024684 at 64, against sagittas
+        of 1.560470 and 0.024693 and radial excesses of 1.689040 and 0.024723.
+        The sagitta predicts every phase-aligned measurement to 1e-4; the
+        radial excess is out by 8% at the coarse end.
+
+        Quadratic in the segment count: 0.3939 mm at 16 segments, 0.02469 at
+        64, 0.006174 at 128. It is a SCALE for a reported intrusion depth and
+        not a decomposition of one: the modelled feature carries a term of its
+        own that the contract cannot see, how the two combine depends on how
+        the polygons are phased, and on an exact backend the feature's term is
+        zero. Reported beside the depth, never subtracted from it.
+        """
+        return (self.d / 2) * (1 - math.cos(math.pi / self.segments))
+
     def volume(self) -> float:
         n = self.segments
         r = (self.d / 2) / math.cos(math.pi / n)
         return (n * r * r * math.sin(2 * math.pi / n) / 2) * self.h
+
+    def eroded_volume(self, t: float) -> float:
+        """`expand(-t).volume()`, without building the eroded region.
+
+        See `BoxRegion.eroded_volume`: the coordinates cannot affect the answer
+        and at a large `at` they defeat the constructor's own guard.
+        """
+        n = self.segments
+        r = max(0.0, (self.d - 2 * t) / 2) / math.cos(math.pi / n)
+        return (n * r * r * math.sin(2 * math.pi / n) / 2) * max(0.0, self.h - 2 * t)
 
     def mesh(self) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
         n = self.segments

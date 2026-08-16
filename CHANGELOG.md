@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A failing `keep_out` says how deep the material reached, not only how much**
+  (#207). `12.7331 mm3 of material intrudes` was the whole finding, and it is
+  the same sentence for a nominal bore's faceting and for a rib 1.5 mm into
+  that bore — the two situations an engineer most needs told apart. Volume
+  cannot separate them: it scales with the *area* of the contact and only
+  linearly with depth, so a hair-thin film over a large face outweighs a deep
+  local spike. The reporter had to bisect the region diameter by hand to find
+  out which they had.
+  The line now reads `…, reaching at least 1.5 mm past its boundary; for scale,
+  this region's own faceting would show 0.02469 mm against a perfectly circular
+  feature` — against `…, reaching at least 0.02468 mm …` for the faceting case,
+  where the depth and the floor all but coincide. It states the two numbers and
+  **draws no conclusion**. `depth <= floor` licenses "the region's own faceting
+  could account for this", never "it did": measured, a rib genuinely 1.5 mm in
+  reads as discretisation once a short region caps the search, and the floor
+  can exceed the entire depth — 134x at a Ø40.951 declaration against the Ø41
+  fixture bore.
+  **Posed as an erosion, which is not what the issue suggested.** #207 asks for
+  "the largest distance any intruding vertex sits inside the region boundary",
+  and that understates: depth is a min of linear functions, so it is concave,
+  and a concave function's maximum over a polytope is generally interior —
+  measured **1.2798 mm against a rib built at exactly 1.500**, because the
+  deepest point of the rib's inner face is the middle of that face, which is a
+  vertex of nothing. The intersection is non-convex in general, so there is no
+  vertex guarantee to fall back on either.
+  `sup{ r : the part still meets the region eroded by r }` has neither problem
+  and needs no new backend capability: `expand(-r)` is already the uniform
+  inward offset for both region kinds — a cylinder's flats are TANGENT to the
+  declared circle, so `d - 2r` moves every side plane inward by exactly `r` —
+  and `intersect_volume` is the primitive the check already runs. Measured
+  1.499999 on the same rib. The cost is a bisection of booleans paid only on a
+  failing region clause: 4 `intersect_volume` calls on a passing check against
+  up to 28 on a failing one, measured 0.073 s on the mesh tier and 3.3 s on
+  OCCT.
+  **The floor it is read against is derived, not chosen.** #207 attributes the
+  noise to the bore's faceting (~0.006 mm at `$fn=128`); it is really the
+  REGION's own faceting. The region polygon circumscribes the declared circle,
+  and `expand(-t)` moves its corners by `t·sec(pi/n)` rather than by `t`, so
+  they clear that circle at the SAGITTA `r·(1 - cos(pi/n))` — 0.024693 mm at
+  the default 64 segments, against 0.024684 measured, and four times the bore's
+  own term. Not the radial excess `r·(sec(pi/n) - 1)`, which is the distance
+  the corners stand proud of the circle but not the depth an erosion measures;
+  the two differ by 8.2% at 8 segments, where the measurement is 1.560399
+  against a sagitta of 1.560470 and an excess of 1.689040.
+  **How that term and the modelled feature's own combine is a matter of PHASE**,
+  so the floor is a scale and never a share: `region term <= depth <= region
+  term + feature term`, bounding the true depth, of which the reported number
+  is a lower bound and so sits a little under. Against a `$fn=128` bore the
+  depth sits at the bottom of that bracket at 64 region segments (the corners
+  land on the bore's vertices) and at 0.9994 of the top at 128 (facet
+  midpoints). It is not even monotone in `segments` — 0.024684, 0.012341,
+  0.006176, 0.006856, 0.006176 at 64 through 512 — and raising `segments` does
+  not make a nominal bore pass: the depth tends to the feature's own sagitta
+  rather than to zero. What passes is a region whose corners clear the modelled
+  surface, `(d_r/2)·sec(pi/n) < (d_f/2)·cos(pi/$fn)`, which for the Ø41
+  `$fn=128` bore is `d_r < 40.938`. That is the worst-phase bound rather than
+  the boundary itself (40.9506 at 64 segments) — a rule that always works. What
+  never works is the inscribed diameter, 40.98765, the natural reading of
+  "strictly inside the modelled feature", which fails at every segment count
+  tried. `SPEC-contract.md` §4.4 carries the table, the bracket and the
+  inequality.
+  The numbers land in a new `checks[].intrusion` field. `min_depth_mm` is a
+  **lower bound and is named as one**: the search stops when the eroded
+  intersection falls below `detected_above_mm3`, which is small rather than
+  empty, so the true depth lies above it — measured on exact AABB arithmetic,
+  4.995 reported against a true 5.0, an error 8400x the search interval. Where
+  the search returns the deepest value a region of that shape can yield at all,
+  `depth_limited_by_region` says so and the comparison is withheld — compared
+  against the region's own search ceiling, since a fixed slack (fractional or
+  absolute) makes the flag a discontinuous function of the DECLARATION: an
+  8x8x8 mm keep-out buried in solid material read as a partial interference
+  while 8x8x7.99, the same total breach, read as a complete one. A buried
+  region sits under ONE search interval short of its ceiling while a genuine
+  partial intrusion does not, which is what the slack is. Below four halvings
+  neither number means anything and the field is omitted entirely: measured, a
+  region 3e-6 mm thick and breached to a THIRD of its depth claimed "the whole
+  depth of the region". Diagnostic rather than adjudicated, so it is its own
+  field rather than part of `measurement`, which carries one unit — and so it
+  does **not** discharge `POST-V0.md` §4's outstanding obligation to exercise
+  the `approximate` machinery on a real adjudicated interval. Additive;
+  `SCHEMA_VERSION` does not move. `keep_in` carries none: its failure is a
+  deficit of material, not a breach.
+
 ### Fixed
 
 - **`diff` no longer says a claim held when it failed on both sides** (#220).
