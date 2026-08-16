@@ -132,7 +132,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MemoryError` on a large tessellation is the canonical case, and
   `str(MemoryError())` is empty, so that message also ended in a dangling colon:
   the "nothing is hidden" claim failing exactly where there was nothing to show.
-  Those are `origin="environment"` now, with no geometry-blaming hint.
+  Those are `origin="environment"` now, with no geometry-blaming hint — and so
+  is **`Standard_OutOfMemory`, which no builtin catches**: every OCCT exception
+  derives straight from `Exception`, so the first tuple missed the kernel
+  running out of memory while triangulating, which is the case this entry calls
+  canonical. Matched by name, which is ugly and is the only thing available.
+  Three of the four builtins cannot actually fire inside `tessellate` — it does
+  no file I/O, no imports and no Python recursion — and stay because the claim
+  they make is true whenever they do.
   The empty-shape branch keys on the SHAPE rather than on the exception type. It
   caught every `ValueError`, so a meshing failure that raised one was reported
   as a part containing no geometry — a part with geometry, described as having
@@ -140,15 +147,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `_wrapped is None` now, which is what build123d calls empty (the public
   property asserts rather than returning `None`, so asking it inside the handler
   raises again).
-  What remains broad is deliberate and is not a mask: after those two clauses the
-  `try` still wraps a single call, so anything left IS a failure to tessellate
-  this shape, and the underlying type and text ride along — including a partspec
-  bug, which names itself rather than vanishing.
+  What remains broad is deliberate and is not a mask: the `try` wraps a single
+  call, so anything not a resource fault IS a failure to tessellate this shape,
+  and the underlying type and text ride along — including a partspec bug, which
+  names itself rather than vanishing. **Bounded on both branches**: the
+  empty-`str(exc)` guard went into the resource branch first and was missed on
+  the one that receives them. build123d's `tessellate` carries an `assert` two
+  lines above #191's crash and every default-constructed OCP exception is empty,
+  so the message ended in a dangling colon — under a test asserting
+  `str(raised) in result.message`, vacuously true for an empty string, which
+  certified it.
   **And the payload says whose fault it was.** #191 asked for "the same origin
-  discipline every other engine-side failure gets" and `render.json`'s failure
-  shape had no `origin` at all, so a consumer could not tell a degenerate solid
-  from an OCCT library that would not load. It carries `origin` now, and
-  `SPEC-report.md` says so. Additive; `SCHEMA_VERSION` does not move.
+  discipline every other engine-side failure gets" and `render`'s failure
+  payload had no `origin` at all, so a consumer could not tell a degenerate
+  solid from an OCCT library that would not load. It carries `origin` now, and
+  `SPEC-report.md` says so. Additive; `SCHEMA_VERSION` does not move. Note this
+  is the payload on **stdout**: a failed render writes no `render.json` at all,
+  which the entry above says plainly and an earlier draft of this sentence did
+  not.
   All of the above came from the adversarial review. It also caught the message
   saying "solid" where a `Face` reaches it unmodified, and the unlink comment
   one function down giving the weaker of two safety reasons — what makes that

@@ -334,6 +334,10 @@ def test_a_solid_the_kernel_cannot_mesh_is_a_refusal_not_a_traceback(
         RecursionError("maximum recursion depth exceeded"),
         OSError(28, "No space left on device"),
         ImportError("libTKMesh.so: cannot open shared object file"),
+        pytest.param(
+            type("Standard_OutOfMemory", (Exception,), {})(),
+            id="the kernel's own, which no builtin catches",
+        ),
     ],
 )
 def test_running_out_of_something_is_not_a_statement_about_the_part(
@@ -369,6 +373,30 @@ def test_running_out_of_something_is_not_a_statement_about_the_part(
     assert type(raised).__name__ in result.message
     assert not result.message.endswith(": "), "no dangling colon when str(exc) is empty"
     assert result.hint is None, "and no hint telling the reader to fix their geometry"
+
+
+def test_the_shape_branch_does_not_dangle_a_colon_either(tmp_path: Path):
+    """The guard was applied to the resource branch and missed here — the
+    branch that actually receives empty-message exceptions.
+
+    build123d 0.11.1's `tessellate` carries `assert face.wrapped is not None`
+    two lines above #191's crash, and `str(AssertionError())` is `""`. Every
+    default-constructed OCP exception is empty too. And the sibling test
+    asserted `str(raised) in result.message`, which is vacuously true for an
+    empty string — so it certified the dangling colon (round-2 review of #241).
+    """
+
+    class Asserting:
+        _wrapped = "a real shape"
+
+        def tessellate(self, _tolerance):
+            raise AssertionError
+
+    result = render_views(Asserting(), tmp_path)
+
+    assert isinstance(result, BuildError)
+    assert result.message.endswith("AssertionError"), result.message
+    assert not result.message.endswith(": ")
 
 
 def test_a_value_error_that_is_not_an_empty_shape_is_not_called_one(tmp_path: Path):
