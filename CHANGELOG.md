@@ -58,6 +58,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   describes which *inputs* were accounted for, saying nothing about the
   checks — and a test now pins that separation, since it is the reason the
   claims line could be wrong on its own.
+- **A wrong-typed argument gets partspec's own message rather than a dict-key
+  error** (#199). `region.cylinder(axis=[0, 0, 1])` raised
+  `TypeError: cannot use 'list' as a dict key`: the guard is
+  `self.axis not in _AXES`, a membership test that HASHES its operand, so an
+  unhashable value died inside the guard rather than at it — and what the
+  reader was handed as a diagnosis was partspec's own implementation detail,
+  that `_AXES` happens to be a dict. Two fleet agents wrote `axis=(0, 0, 1)`; a
+  tuple is hashable and reached the real message, a list is not and did not.
+  The exit code was 4 either way, so nothing was ever misclassified; this is
+  entirely about the sentence.
+  **The sweep the issue asked for found a second one.** `iso15.bearing` guards
+  the same way, and it is the reference table an author reaches for, which
+  makes it the next most plausible place for a wrong argument type to arrive.
+  Both now test the type before the membership, and `iso15` distinguishes a
+  wrong TYPE from an unknown NUMBER — a dict is not an unknown designation, it
+  is not a designation — while still naming the table either way. `diff`'s
+  handling of a report carrying a list where a gap token belongs was checked
+  too, since that is an untrusted-JSON boundary rather than an API one; it does
+  not have the hole.
 
 ## [0.7.6] - 2026-08-15
 
