@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .report import SCHEMA_VERSION
+from .report import IMPLICIT_CHECK_KINDS, SCHEMA_VERSION
 from .status import _SEVERITY, Status, comparison_exit_code, epsilon
 
 __all__ = [
@@ -914,10 +914,11 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 }
             )
 
-    # `or []` matching the validation loop's fallback: `"checks": null` is a
-    # real shape a hand-written report can take, and spelling the fallback two
-    # ways is how the counts check ended up raising TypeError past a guard that
-    # had already handled it.
+        # `or []` matching the validation loop's fallback: `"checks": null` is a
+        # real shape a hand-written report can take, and spelling the fallback two
+        # ways is how the counts check ended up raising TypeError past a guard that
+        # had already handled it.
+
     old_checks = {c["id"]: c for c in old.get("checks") or []}
     new_checks = {c["id"]: c for c in new.get("checks") or []}
     removed = [check_id for check_id in old_checks if check_id not in new_checks]
@@ -1195,70 +1196,58 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     return ("; " + "; ".join(clauses)) if clauses else ""
 
 
-_IMPLICIT_KINDS = ("builds",)
-"""Kinds partspec adds itself, mirroring `Report.IMPLICIT_KINDS`.
-
-Spelled here rather than imported so `diff` keeps reading a report as DATA: a
-comparator that imports the writer's constants is one step from assuming the
-writer's guarantees, which is the habit this module's input validation exists
-to break. Pinned against the writer by
-`test_the_implicit_kinds_diff_knows_match_the_ones_the_writer_adds`.
-"""
-
-
-def _claims_across_the_change(new_report: dict[str, Any] | None) -> str:
+def _claims_across_the_change(new_report: dict[str, Any]) -> str:
     """What `identical` plus a moved closure actually licenses saying.
 
     The sentence used to ignore the claims entirely: a 0.7.5-shaped pair that
     came out `identical` with attributed closure movement got "every declared
     claim held across the change", whatever the claims had done. Two reports
     whose SAME check fails identically on both sides were therefore told the
-    claim held (#220). It did not — it failed, twice. What is true is that its
-    status did not change, which is a different statement and a weaker one.
+    claim held (#220). It did not — it failed, twice.
 
     Unconditional ON THE VERDICT, to be exact: the gate below always had two
-    further conditions, a 0.7.5-shaped closure and attributed movement. The
-    first version of this docstring said "any identical outcome" and #239's
-    review corrected it.
+    further conditions, a 0.7.5-shaped closure and attributed movement.
 
-    `identical` at exit 0 is right and is not what changed here: `diff`
-    compares two reports and nothing about them differs. Only the sentence was
-    wrong — "code right, words wrong", in permanent output, on the honesty line
-    the #190 work added precisely to stop a silent claim.
+    **Two questions, and they take different check sets.** `Report.verdict` is
+    the model: `builds` is excluded from the EMPTINESS test, because partspec
+    adds it and a contract asserting nothing would otherwise look asserted —
+    and then the status collapse runs over EVERY check, `builds` included,
+    because a build that failed is a claim that failed. Applying the exclusion
+    to both questions is how the second version of this function reported
+    `every declared claim held` for a model that does not compile, on two
+    reports `partspec check` wrote unmodified (round-2 review of #239). That is
+    #220 reproduced by its own fix.
 
-    **Read off the checks, and off nothing else.** The first fix keyed on the
-    artifact's `verdict`, which is copied from the input and cross-checked
-    against nothing — so a report claiming `pass` over a failing check printed
-    #220's sentence verbatim, and one claiming `empty` over eight checks
-    printed a new falsehood (adversarial review of #239). `diff` states the
-    standard itself: a guarantee that holds only for reports we produced is not
-    one the comparator may assume. Under `identical` every id, status and claim
-    field is equal on both sides, so the new report describes both.
+    **Read off the checks, not off `verdict`, and the difference is not
+    fastidiousness.** `verdict` is copied into the artifact and read by nothing
+    else in the comparison, so keying the sentence on it added a NEW trust
+    dependency where the comparator had none — and a forged `pass` reprinted
+    #220's sentence over a failing check. `status` adds none: it is what
+    `_check_entry` already joins and compares, the evidence every `regressed`
+    and `fixed` in the artifact rests on. A pair that lies identically about it
+    has defeated the whole comparator, not this sentence, and no cross-check
+    inside one report recovers from that — `counts` can be forged with it.
 
-    **No report, no strong claim.** `summary_of` can be called without one, and
-    then the only sentence this can honestly print is the weak one, which is
-    true whatever the statuses were. A renderer that guesses in order to say
-    something stronger is the failure this whole function is about.
+    So no `counts` guard here. It would stop a careless forger and imply a
+    completeness it cannot have, and the round-2 review that asked for it read
+    `status` as the same kind of field as `verdict`. `counts.total` is guarded
+    because it is redundant *and* unused; `status` is neither.
     """
-    if new_report is None:
-        return "no declared claim changed status across the change"
-    checks = [c for c in (new_report.get("checks") or []) if isinstance(c, dict)]
-    # `builds` is excluded for `Report.verdict`'s reason: partspec adds it, so a
-    # contract asserting nothing still produces one passing check, and counting
-    # it would let the vacuous-green guard be defeated by the tool itself. A
-    # real `empty` report therefore carries ONE check, not zero — which this
-    # comment claimed until #239's review measured it.
-    declared = [c for c in checks if c.get("kind") not in _IMPLICIT_KINDS]
+    checks = new_report.get("checks") or []
+    # No `isinstance` filter: `diff_reports` refuses a report whose `checks`
+    # holds a non-object before this can be reached, so one here is dead code
+    # that reads as a live guard (round-2 review of #239).
+    declared = [c for c in checks if c.get("kind") not in IMPLICIT_CHECK_KINDS]
     if not declared:
         return "neither side declared a claim, so none held across the change"
-    statuses = {c.get("status") for c in declared}
+    statuses = {c.get("status") for c in checks}
     if statuses == {"pass"}:
         return "every declared claim held across the change"
     state = "fail" if "fail" in statuses else "incomplete"
     return f"no declared claim changed status across the change — both sides {state}"
 
 
-def _coverage_lines(doc: dict[str, Any], new_report: dict[str, Any] | None = None) -> list[str]:
+def _coverage_lines(doc: dict[str, Any], new_report: dict[str, Any]) -> list[str]:
     """What was covered, and what was not — on every outcome, permanently.
 
     The irreducible line is the entire mitigation for `_IRREDUCIBLE_GAPS` not
@@ -1305,14 +1294,19 @@ def _coverage_lines(doc: dict[str, Any], new_report: dict[str, Any] | None = Non
     return lines
 
 
-def summary_of(doc: dict[str, Any], new_report: dict[str, Any] | None = None) -> str:
+def summary_of(doc: dict[str, Any], new_report: dict[str, Any]) -> str:
     """The stderr courtesy summary: one headline, then the coverage it rests on.
 
     `new_report` is the later of the two reports compared, and only the claims
     line uses it — to read what the checks actually did rather than trust the
-    `verdict` string copied into the artifact (#220, and #239's review of the
-    first fix). Optional, and its absence costs only strength: without it the
-    claims line says the weaker thing, which is true either way.
+    `verdict` string copied into the artifact (#220, and #239's reviews of the
+    first two fixes).
+
+    Required, not optional. It was optional so that one-argument calls kept
+    working, and three of them were assertions that the claims line is ABSENT —
+    which the None branch made unconditionally true, silently un-pinning the
+    condition this function's own docstring cites as its rebuttal. A default
+    that weakens the output is a default that hides a regression.
     """
     # Both clauses ride every outcome, `identical` included. A build input
     # that moved under an unchanged part is precisely the case `identical: no

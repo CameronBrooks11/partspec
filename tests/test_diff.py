@@ -85,7 +85,7 @@ def test_a_deleted_check_is_named_not_implied():
     assert exit_code_of(doc["outcome"]) == 1
     assert doc["contract"]["removed"] == ["wall_gt_2"]
     assert doc["counts_total"] == {"old": 4, "new": 3}
-    assert "wall_gt_2" in summary_of(doc)
+    assert "wall_gt_2" in summary_of(doc, new)
 
 
 def test_pass_to_pass_drift_reports_both_values():
@@ -255,7 +255,7 @@ def test_a_moved_package_version_is_named_on_an_otherwise_identical_diff():
     # Context, not a finding: same rule as engine_version.
     assert doc["outcome"] == "identical"
     assert exit_code_of(doc["outcome"]) == 0
-    assert "packages moved: trimesh 5.0.0 → 5.1.0" in summary_of(doc)
+    assert "packages moved: trimesh 5.0.0 → 5.1.0" in summary_of(doc, new)
 
 
 def test_a_package_that_appeared_is_not_reported_as_a_version_move():
@@ -279,7 +279,7 @@ def test_a_package_that_appeared_is_not_reported_as_a_version_move():
     assert packages["added"] == {"shapely": "2.1.2"}
     assert packages["removed"] == {"vtk": "9.6.2"}
 
-    summary = summary_of(_diff(old, new))
+    summary = summary_of(_diff(old, new), new)
     assert "packages appeared: shapely 2.1.2" in summary
     assert "packages disappeared: vtk 9.6.2" in summary
     assert "moved" not in summary, f"an appearance reported as a version move: {summary}"
@@ -293,7 +293,10 @@ def test_an_unchanged_package_set_says_nothing():
         _with_packages(_doc(), {"trimesh": "5.0.0"}), _with_packages(_doc(), {"trimesh": "5.0.0"})
     )
     assert "packages" not in doc["environment"]
-    assert summary_of(doc) == "identical: p — no semantic differences"
+    assert (
+        summary_of(doc, _with_packages(_doc(), {"trimesh": "5.0.0"}))
+        == "identical: p — no semantic differences"
+    )
 
 
 def test_the_summary_bounds_a_wall_of_package_noise():
@@ -305,7 +308,7 @@ def test_the_summary_bounds_a_wall_of_package_noise():
 
     doc = _diff(old, new)
     assert len(doc["environment"]["packages"]["changed"]) == 9, "the artifact keeps all of them"
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert "packages moved: dist0 1.0 → 2.0, dist1 1.0 → 2.0, +7 more" in summary
     assert len(summary.splitlines()) == 1
 
@@ -328,7 +331,7 @@ def test_a_report_with_no_packages_map_says_so_rather_than_nothing():
     )
     assert doc["outcome"] == "identical"
     assert exit_code_of(doc["outcome"]) == 0
-    assert "packages not compared:" in summary_of(doc)
+    assert "packages not compared:" in summary_of(doc, _with_packages(_doc(), {"trimesh": "5.0.0"}))
 
     both = _diff(old, {**_doc(), "environment": {"python": "3.12.7"}})
     assert "on both sides" in both["environment"]["packages"]["uncomparable"]
@@ -672,16 +675,16 @@ def test_an_irreducible_gap_alone_no_longer_blocks_the_identical_claim():
     assert doc["source"]["closure"] == "same"
     assert (
         "  not covered: files read inside C extensions — irreducible on the Python tier"
-        in summary_of(doc).splitlines()
+        in summary_of(doc, _python_doc(imports)).splitlines()
     )
     # Permanent output, so it is written in English: `1 distributions` was
     # there while the `files` count on the same line was pluralised properly.
     assert "  covered: model directory (2 files); 1 imported distribution, all unchanged" in (
-        summary_of(doc).splitlines()
+        summary_of(doc, _python_doc(imports)).splitlines()
     )
     two = {"cqgridfinity": _dist("0.5.7", "aaa"), "vtk": _dist("9.6.2", "ccc")}
     assert "; 2 imported distributions, all unchanged" in summary_of(
-        _diff(_python_doc(two), _python_doc(two))
+        _diff(_python_doc(two), _python_doc(two)), _python_doc(two)
     )
 
 
@@ -822,6 +825,66 @@ def test_the_claims_line_says_what_the_claims_actually_did(status, verdict, sent
         )
 
 
+def test_a_failing_build_is_a_claim_that_did_not_hold():
+    """The blocker round 2 found: `builds` was excluded one question too far.
+
+    `Report.verdict` excludes implicit kinds from the EMPTINESS test — partspec
+    adds `builds`, so a contract asserting nothing would otherwise look
+    asserted — and then collapses status over EVERY check, because a build that
+    failed is a claim that failed. The first fix applied the exclusion to both
+    questions, so a model that does not compile, with one passing declared
+    claim beside the failure, was told `every declared claim held across the
+    change` — #220 reproduced by its own fix, on two reports `partspec check`
+    wrote unmodified.
+    """
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+
+    def with_failing_build(imps: dict) -> dict:
+        doc = _verdict_doc(Status.PASS, imps)
+        doc["checks"].append(
+            {"id": "builds", "kind": "builds", "phase": "geometry", "status": "fail"}
+        )
+        doc["counts"]["total"] = len(doc["checks"])
+        return doc
+
+    old = with_failing_build(dict(imports))
+    new = with_failing_build({"cqgridfinity": _dist("0.6.0", "bbb")})
+    assert [c["status"] for c in new["checks"]] == ["pass", "fail"], "premise: one of each"
+
+    lines = summary_of(_diff(old, new), new).splitlines()
+    assert "  no declared claim changed status across the change — both sides fail" in lines
+    assert not any("every declared claim held" in line for line in lines), (
+        "the model does not compile; nothing about it held"
+    )
+
+
+def test_one_claim_passing_beside_one_failing_is_not_every_claim_holding():
+    """The boundary the function exists to draw, which no fixture crossed.
+
+    Every case in the parametrisation above carries exactly ONE declared check,
+    so `statuses == {"pass"}` and `"pass" in statuses` are indistinguishable —
+    and swapping the equality for membership passed the whole suite (round-2
+    review of #239). Under that mutant a report with one passing and one
+    failing declared claim prints the strong sentence: #220 verbatim.
+    """
+    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
+
+    def mixed(imps: dict) -> dict:
+        doc = _verdict_doc(Status.PASS, imps)
+        doc["checks"].append(
+            {"id": "genus", "kind": "genus", "phase": "geometry", "status": "fail"}
+        )
+        doc["counts"]["total"] = len(doc["checks"])
+        return doc
+
+    old = mixed(dict(imports))
+    new = mixed({"cqgridfinity": _dist("0.6.0", "bbb")})
+
+    lines = summary_of(_diff(old, new), new).splitlines()
+    assert "  no declared claim changed status across the change — both sides fail" in lines
+    assert not any("every declared claim held" in line for line in lines)
+
+
 def test_a_forged_verdict_cannot_buy_the_strong_sentence():
     """The first fix keyed on the artifact's `verdict`, which is copied from
     the input and cross-checked against nothing (adversarial review of #239).
@@ -848,23 +911,6 @@ def test_a_forged_verdict_cannot_buy_the_strong_sentence():
         assert not any("neither side declared a claim" in line for line in lines), forged
 
 
-def test_without_the_report_the_claims_line_says_only_what_it_can_prove():
-    """`summary_of` can be called with the artifact alone, and then there is no
-    evidence for the strong sentence.
-
-    The weak sentence is true whatever the statuses were, so absence costs
-    strength and never accuracy. A renderer that guessed in order to say
-    something stronger would be the failure this whole line is about.
-    """
-    imports = {"cqgridfinity": _dist("0.5.7", "aaa")}
-    old = _verdict_doc(Status.PASS, dict(imports))
-    new = _verdict_doc(Status.PASS, {"cqgridfinity": _dist("0.6.0", "bbb")})
-    doc = _diff(old, new)
-
-    assert "  every declared claim held across the change" in summary_of(doc, new).splitlines()
-    assert "  no declared claim changed status across the change" in summary_of(doc).splitlines()
-
-
 def test_an_empty_report_carries_one_check_not_zero():
     """The shape a real `empty` run writes, which the first fix's fixture did
     not have.
@@ -880,14 +926,7 @@ def test_an_empty_report_carries_one_check_not_zero():
     def only_builds(imps: dict) -> dict:
         doc = _verdict_doc(None, imps)
         doc["checks"] = [{"id": "builds", "kind": "builds", "phase": "geometry", "status": "pass"}]
-        doc["counts"] = {
-            "total": 1,
-            "pass": 1,
-            "fail": 0,
-            "approximate": 0,
-            "unsupported": 0,
-            "skipped": 0,
-        }
+        doc["counts"] = {"total": 1, "pass": 1, "fail": 0}
         return doc
 
     old = only_builds(dict(imports))
@@ -900,18 +939,6 @@ def test_an_empty_report_carries_one_check_not_zero():
     assert not any("every declared claim held" in line for line in lines), (
         "one implicit passing check is not a claim that held"
     )
-
-
-def test_the_implicit_kinds_diff_knows_match_the_ones_the_writer_adds():
-    """`diff` spells `builds` itself rather than importing `Report`'s constant,
-    so that it keeps reading a report as data. That is the right call and it
-    rots: if the writer starts adding a second implicit kind, `diff`'s
-    emptiness question silently starts counting it as a declared claim.
-    """
-    from partspec.diff import _IMPLICIT_KINDS
-    from partspec.report import Report
-
-    assert _IMPLICIT_KINDS == Report.IMPLICIT_KINDS
 
 
 def test_the_covered_line_claims_nothing_about_the_claims():
@@ -932,13 +959,12 @@ def test_the_covered_line_claims_nothing_about_the_claims():
         for line in summary_of(_diff(old, new), new).splitlines()
         if line.startswith("  covered: ")
     )
-    # The vocabulary check first: an equality assert above it made this loop
-    # unreachable, so the guard the PR advertised could never have failed
-    # (adversarial review of #239). `_covered_clause` emits counts and two
-    # fixed scope phrases and never a distribution name or a path, so no
-    # innocent input can trip these words either.
-    for word in ("claim", "held", "pass", "fail"):
-        assert word not in covered, f"the coverage line must not adjudicate: {covered}"
+    # The equality alone. A word-loop beside it was dead below it in the first
+    # version and merely subsumed after being reordered — any input that trips
+    # a forbidden word also fails the equality, so it never had discriminating
+    # power (round-2 review of #239). What the loop was FOR is written down
+    # instead: this line is built by `_covered_clause` from the closure and the
+    # imports, and adjudicates nothing.
     assert covered == "  covered: model directory (2 files); 1 imported distribution, 1 changed"
 
 
@@ -954,7 +980,7 @@ def test_a_regression_beside_a_moved_library_names_the_input_that_moved():
     doc = _diff(old, new)
     assert doc["outcome"] == "different"
     assert exit_code_of(doc["outcome"]) == 1
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert summary.splitlines()[0] == (
         "different: p — 1 regressed; inputs moved: cqgridfinity 0.5.7 → 0.6.0"
     )
@@ -982,7 +1008,7 @@ def test_a_bounded_gap_still_blocks_the_identical_claim():
         "package, which has no file on disk for partspec to hash, and no partspec option "
         f"closes that), so {SENTENCE}"
     )
-    assert SENTENCE in summary_of(doc)
+    assert SENTENCE in summary_of(doc, _python_doc(imports, unseen))
 
 
 def test_an_unrecognised_gap_token_is_read_as_a_gap():
@@ -1011,7 +1037,7 @@ def test_an_install_that_changed_tier_is_a_changed_input_not_a_gap():
     doc = _diff(old, new)
     assert doc["source"]["closure"] == "changed"
     assert "cqgridfinity" in doc["source"]["imports"]["changed"]
-    assert "inputs moved: cqgridfinity metadata → content install" in summary_of(doc)
+    assert "inputs moved: cqgridfinity metadata → content install" in summary_of(doc, new)
 
 
 def test_an_import_that_appeared_is_not_reported_as_a_version_move():
@@ -1027,7 +1053,7 @@ def test_an_import_that_appeared_is_not_reported_as_a_version_move():
     assert imports["changed"] == {}
     assert list(imports["added"]) == ["shapely"]
     assert list(imports["removed"]) == ["vtk"]
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert "inputs appeared: shapely 2.1.2" in summary
     assert "inputs disappeared: vtk 9.6.2" in summary
     assert "moved" not in summary.splitlines()[0], f"an appearance read as a move: {summary}"
@@ -1061,7 +1087,7 @@ def test_an_inherited_import_is_not_reported_as_an_appearance():
     assert doc["source"]["imports"]["unattributable"] == ["cadquery"]
     assert doc["source"]["closure"] == "changed", "the recorded maps did differ"
 
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert "appeared" not in summary, f"an inherited import read as a finding: {summary}"
     assert summary.splitlines()[0] == (
         "identical: p — no semantic differences; inputs not attributable: cadquery 2.8.0 — "
@@ -1100,7 +1126,7 @@ def test_an_unattributable_difference_is_still_a_recorded_difference():
 
     # The sentence names "the change" as the part's, and no change was
     # attributed to the part — the headline states the inability instead.
-    assert "every declared claim held across the change" not in summary_of(doc)
+    assert "every declared claim held across the change" not in summary_of(doc, new)
 
 
 def test_two_reports_carrying_one_preloaded_set_say_nothing_about_it():
@@ -1112,12 +1138,10 @@ def test_two_reports_carrying_one_preloaded_set_say_nothing_about_it():
     `not covered:` line.
     """
     imports = {"build123d": _dist("0.10.1", "aaa"), "cadquery": _dist("2.8.0", "bbb")}
-    doc = _diff(
-        _python_doc(dict(imports), preloaded=["cadquery"]),
-        _python_doc(dict(imports), preloaded=["cadquery"]),
-    )
+    new = _python_doc(dict(imports), preloaded=["cadquery"])
+    doc = _diff(_python_doc(dict(imports), preloaded=["cadquery"]), new)
     assert doc["source"]["imports"]["unattributable"] == []
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert summary.splitlines()[0] == "identical: p — no semantic differences"
     assert "attributable" not in summary
     assert "  covered: model directory (2 files); 2 imported distributions, all unchanged" in (
@@ -1142,7 +1166,7 @@ def test_an_appearance_the_batch_cannot_explain_keeps_todays_wording():
     doc = _diff(old, new)
     assert doc["source"]["imports"]["unattributable"] == ["cadquery"]
     assert doc["source"]["closure"] == "changed", "the unexplained appearance is still movement"
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert "inputs appeared: shapely 2.1.2" in summary
     assert "inputs not attributable: cadquery 2.8.0" in summary
 
@@ -1173,7 +1197,7 @@ def test_an_unattributable_import_is_not_denied_to_have_moved():
     assert doc["source"]["imports"]["unattributable"] == ["helper29"]
     assert "helper29" in doc["source"]["imports"]["added"], "the evidence stays in the artifact"
 
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert "inputs not attributable: helper29" in summary
     assert "cannot tell an input that moved from one inherited from an earlier target" in summary
     for denial in ("not an input that moved", "position in a batch", "not the part"):
@@ -1185,7 +1209,7 @@ def test_an_unattributable_import_is_not_denied_to_have_moved():
     backwards = _diff(new, old)
     assert list(backwards["source"]["imports"]["removed"]) == ["helper29"]
     assert backwards["source"]["imports"]["unattributable"] == ["helper29"]
-    reversed_summary = summary_of(backwards)
+    reversed_summary = summary_of(backwards, old)
     assert "disappeared" not in reversed_summary, (
         f"a real disappearance reported as a non-event: {reversed_summary}"
     )
@@ -1203,7 +1227,7 @@ def test_a_version_that_moved_under_an_inherited_import_is_still_a_move():
     doc = _diff(old, new)
     assert doc["source"]["imports"]["unattributable"] == []
     assert doc["source"]["closure"] == "changed"
-    assert "inputs moved: cqgridfinity 0.5.7 → 0.6.0" in summary_of(doc)
+    assert "inputs moved: cqgridfinity 0.5.7 → 0.6.0" in summary_of(doc, new)
 
 
 def test_an_inherited_import_beside_a_gap_does_not_claim_nothing_was_seen():
@@ -1245,8 +1269,8 @@ def test_one_moved_library_is_named_once_not_twice():
     assert doc["environment"]["packages"]["changed"] == {
         "cqgridfinity": {"old": "0.5.7", "new": "0.6.0"}
     }
-    assert summary_of(doc).splitlines()[0].count("cqgridfinity") == 1
-    assert "packages moved" not in summary_of(doc)
+    assert summary_of(doc, new).splitlines()[0].count("cqgridfinity") == 1
+    assert "packages moved" not in summary_of(doc, new)
 
 
 # --------------------------------------------------------------------------
@@ -1276,7 +1300,7 @@ def test_a_gap_beside_observed_movement_does_not_claim_nothing_was_seen():
         "to hash, and no partspec option closes that) — so the change this diff names is "
         "not necessarily all that changed"
     )
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert "inputs moved: cqgridfinity 0.5.7 → 0.6.0" in summary
     assert SENTENCE not in summary
 
@@ -1295,7 +1319,7 @@ def test_a_gap_beside_a_moved_closure_digest_names_the_digest():
         "external data: import()/surface() name files whose paths partspec cannot resolve "
         "statically — so the change this diff names is not necessarily all that changed"
     )
-    assert SENTENCE not in summary_of(doc)
+    assert SENTENCE not in summary_of(doc, new)
     # And the movement reaches the artifact, not only the prose.
     assert doc["source"]["closure_digest_changed"] is True
 
@@ -1424,13 +1448,15 @@ def test_a_bounded_gap_is_stated_on_the_different_path_too():
     new["counts"]["pass"] -= 1
     new["counts"]["fail"] = 1
 
-    summary = summary_of(_diff(old, new))
+    summary = summary_of(_diff(old, new), new)
     assert summary.splitlines()[0] == "different: p — 1 regressed"
     assert "  not covered: the old and new reports name a gap this diff does not recognise" in (
         summary
     )
     # And never twice: the indeterminate path states it in the headline.
-    stated = summary_of(_diff(_python_doc(unseen=["runtime_data_reads"]), _python_doc()))
+    stated = summary_of(
+        _diff(_python_doc(unseen=["runtime_data_reads"]), _python_doc()), _python_doc()
+    )
     assert stated.count("does not recognise") == 1
 
 
@@ -1442,7 +1468,7 @@ def test_an_import_that_appeared_does_not_hide_a_package_that_moved():
     old = _with_packages(_python_doc({}), {"numpy": "1.0.0"})
     new = _with_packages(_python_doc({"numpy": _dist("2.0.0", "n2")}), {"numpy": "2.0.0"})
 
-    summary = summary_of(_diff(old, new))
+    summary = summary_of(_diff(old, new), new)
     assert "packages moved: numpy 1.0.0 → 2.0.0" in summary
     assert "inputs appeared: numpy 2.0.0" in summary
 
@@ -1512,7 +1538,7 @@ def test_a_pre_0_7_5_report_diffs_exactly_as_it_did_before(closure: dict, outcom
     # A pre-0.7.5 pair also gets the output it got before: no coverage block
     # is invented for a report that never recorded coverage. The remedy is the
     # one line added under the headline, and only where there is one to name.
-    trailing = summary_of(doc).splitlines()[1:]
+    trailing = summary_of(doc, _legacy(dict(closure))).splitlines()[1:]
     assert all(line.startswith("  remedy: ") for line in trailing), trailing
 
 
@@ -1528,7 +1554,7 @@ def test_a_pre_0_7_5_pair_whose_closure_moved_gets_no_orphaned_line():
     assert doc["outcome"] == "identical", "v0.7.4's answer, unchanged"
     assert doc["source"]["closure"] == "changed"
     assert doc["source"]["closure_digest_changed"] is True
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert summary == "identical: p — no semantic differences"
     assert "every declared claim held" not in summary
 
@@ -1551,7 +1577,7 @@ def test_the_message_for_a_pre_0_7_5_baseline_names_the_remedy():
         "re-record the baseline with this version — run `partspec check` over the old side "
         "again and keep that report — so both sides carry an import map"
     )
-    assert summary_of(doc).splitlines()[1] == (
+    assert summary_of(doc, _python_doc()).splitlines()[1] == (
         "  remedy: re-record the baseline with this version — run `partspec check` over "
         "the old side again and keep that report — so both sides carry an import map"
     )
@@ -1568,7 +1594,7 @@ def test_a_gap_with_no_remedy_is_not_given_one():
 
     assert doc["outcome"] == "indeterminate"
     assert "remedy" not in doc["indeterminate"][0]
-    assert "remedy:" not in summary_of(doc)
+    assert "remedy:" not in summary_of(doc, _python_doc(imports, unseen))
 
 
 def test_the_widened_packages_field_is_not_reported_as_installations():
@@ -1589,7 +1615,7 @@ def test_the_widened_packages_field_is_not_reported_as_installations():
     )
     assert doc["environment"]["packages"]["first_recorded"] == ["PyJWT", "PyYAML"]
 
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert "packages appeared" not in summary, f"a widened record read as an install: {summary}"
     assert (
         "2 packages recorded for the first time: PyJWT 2.13.0, PyYAML 6.0.3 — the baseline "
@@ -1608,7 +1634,7 @@ def test_a_package_the_old_field_did_record_still_appears():
 
     doc = _diff(old, new)
     assert doc["environment"]["packages"]["first_recorded"] == ["idna"]
-    summary = summary_of(doc)
+    summary = summary_of(doc, new)
     assert "packages appeared: trimesh 4.0.0" in summary
     assert "1 packages recorded for the first time: idna 3.11" in summary
 
@@ -1622,8 +1648,8 @@ def test_a_0_7_5_baseline_reports_an_install_as_an_install():
 
     doc = _diff(old, new)
     assert doc["environment"]["packages"]["first_recorded"] == []
-    assert "packages appeared: idna 3.11" in summary_of(doc)
-    assert "recorded for the first time" not in summary_of(doc)
+    assert "packages appeared: idna 3.11" in summary_of(doc, new)
+    assert "recorded for the first time" not in summary_of(doc, new)
 
 
 def test_an_openscad_model_reading_external_data_keeps_its_message():
@@ -1645,7 +1671,7 @@ def test_an_openscad_model_reading_external_data_keeps_its_message():
         f"files whose paths partspec cannot resolve statically, so {SENTENCE}"
     )
     # No Python tier, so no irreducible caveat to print.
-    assert "not covered" not in summary_of(doc)
+    assert "not covered" not in summary_of(doc, _legacy(dict(closure)))
 
 
 def test_weakening_that_flips_a_status_still_shows_the_moved_limit():
@@ -1674,7 +1700,7 @@ def test_a_verdict_only_tamper_is_a_difference():
     doc = _diff(old, new)
     assert doc["outcome"] == "different"
     assert doc["checks"] == []
-    assert "verdict changed" in summary_of(doc)
+    assert "verdict changed" in summary_of(doc, new)
 
 
 def test_a_report_contradicting_its_own_counts_is_corrupt_input():

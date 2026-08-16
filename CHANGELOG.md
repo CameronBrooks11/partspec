@@ -28,20 +28,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   technicality it gets to lean on. Under `identical` every id, status and claim
   field is equal on both sides, so the later report describes both.
   **Read off the checks, and off nothing else.** The first version of this fix
-  keyed on the artifact's `verdict`, which is copied from the input and
-  cross-checked against nothing — so a report claiming `pass` over a failing
-  check printed #220's sentence verbatim, the fix reproducing the defect it
-  closed, and one claiming `empty` over a report full of checks printed a new
-  falsehood. Both measured by the adversarial review. `diff` states the
-  standard itself: a guarantee that holds only for reports we produced is not
-  one the comparator may assume. `summary_of` takes the later report now, and
-  **without one it prints only the weak sentence** — absence costs strength,
-  never accuracy.
-  Two more from the same review. "Zero checks" was wrong for `empty`: it is
-  zero DECLARED checks, and a real `empty` report carries the `builds` check
-  partspec adds itself, so the first fixture tested a shape no run emits. And
-  the sentence was never "unconditional" — the gate always had two further
-  conditions, a 0.7.5-shaped closure and attributed movement.
+  keyed on the artifact's `verdict`, which is copied from the input and read by
+  nothing else in the comparison — so keying on it added a new trust dependency
+  where the comparator had none, and a report claiming `pass` over a failing
+  check printed #220's sentence verbatim. `status` adds none: it is what the
+  comparison already joins, the evidence every `regressed` and `fixed` rests
+  on. `summary_of` takes the later report now, and requires it.
+  **Two questions, and they take different check sets** — which the second
+  version got wrong, and which is the sharper half of this entry.
+  `Report.verdict` excludes `builds` from the EMPTINESS test, because partspec
+  adds it and a contract asserting nothing would otherwise look asserted, and
+  then collapses status over EVERY check, because a build that failed is a
+  claim that failed. Applying the exclusion to both questions reported
+  `every declared claim held across the change` for a model that does not
+  compile — #220 reproduced by its own fix, on two reports `partspec check`
+  wrote unmodified.
+  Three more from the same reviews. "Zero checks" was wrong for `empty`: it is
+  zero DECLARED checks, and a real one carries the `builds` check partspec
+  adds itself, so the first fixture tested a shape no run emits. The sentence
+  was never "unconditional" — the gate always had two further conditions, a
+  0.7.5-shaped closure and attributed movement, and making the report optional
+  silently un-pinned the second of those in three tests. And every fixture
+  carried exactly one declared check, so the boundary the function exists to
+  draw — one claim passing beside one failing — went unexercised until now.
   The issue also asked whether the neighbouring `covered:` line overreaches the
   same way. It does not — it is built from the closure and the imports and
   describes which *inputs* were accounted for, saying nothing about the
