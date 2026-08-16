@@ -21,24 +21,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   p.hole_diameter(m8.minor_internal, tol=0.05)   # cites ISO 724 / M8 / D1
   ```
 
-  The ISO 261 coarse series from M1.6 to M64 with each diameter's preference
-  rank, and the ISO 68-1 basic profile — pitch diameter, and the two minor
-  diameters, which are different numbers by `0.144·P` and are the ones people
-  confuse.
+  The ISO 261 coarse series, all 40 diameters from M1 to M68 with each one's
+  preference rank, and the three ISO 724 clause 5 relations — pitch diameter,
+  and the two minor diameters, which differ by `H/6 = 0.144·P` and are the ones
+  people confuse. Transcribed from the primary documents: the free iTeh
+  previews of ISO 261:1998 and ISO 724:2023 carry the complete Table 2 and
+  Table 1, so every row and all 120 derived values are checked against the
+  standards rather than triangulated from secondary publishers. A first draft
+  built the table from memory and had three defects the standard settles —
+  M7 is second choice, the coarse series ends at M68 rather than M64, and M1
+  through M1.4 were missing, two of them first choice.
   **The size, not the fit.** ISO 965's 6g/6H classes are out under
   `SPEC-contract.md` §10.1, which excludes a standard's tolerancing tables; #246
   argues that policy on its own merits rather than settling it inside a data
   module. The fit stays the designer's, as `iso15` already leaves it.
-  **Derived, not transcribed.** Every profile relation is an exact multiple of
-  `H = (sqrt(3)/2)·P`, so the constants are computed. The prior art is the
-  argument: of the three modules fleet-01 agents hand-wrote, one truncated the
-  `5H/4` coefficient and one carried a minor diameter 1 um off its own formula.
-  The six computed dimensions round exactly to the ISO 724 values those three
-  independently agreed on.
-  **Cited for what each document says.** ISO 261 for the diameter/pitch pairs,
-  ISO 68-1 for the profile, ISO 724 for the basic dimensions — a split two of
-  the three prior modules got wrong, and ISO 261 clause 1 settles: *"Basic
-  dimensions are given in ISO 724."*
+  **Derived, not transcribed**, because the standard prints six significant
+  figures where a double holds seventeen: ISO 724 gives `0,649 519` and
+  friends, and `sqrt(3)/2` is exact and in the stdlib. The values are therefore
+  the exact formula rather than the printed digits — up to 0.48 um apart — and
+  each citation carries a `note` saying so.
+  **Cited for what each document says, and dated.** ISO 261:1998 for the
+  diameter/pitch pairs, ISO 68-1:2023 for the profile, ISO 724:2023 for the
+  three relations and their values. The edition is load-bearing: `d3` exists
+  only from ISO 724:2023, while ISO 261:1998 normatively references ISO
+  724:1993, which has no `d3` at all. And these are ISO 724's *basic
+  dimensions* but they sit on ISO 68-1's *design* profile — its Scope says so —
+  which is a distinction two of the three prior fleet modules lost.
 
 - **A failing `keep_out` says how deep the material reached, not only how much**
   (#207). `12.7331 mm3 of material intrudes` was the whole finding, and it is

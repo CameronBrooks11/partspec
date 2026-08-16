@@ -8,6 +8,12 @@ before they could state a single limit, and `cli.py`'s own advisory — *"cite t
 source instead: partspec.refs for a standard it carries"* — could only ever
 route them to the hand-rolled path (#194).
 
+Every value here is checked against the primary documents. The free iTeh
+previews of ISO 261:1998 and ISO 724:2023 carry the complete Table 2 and
+Table 1, so this table is transcribed from the standards rather than
+triangulated from secondary publishers — which is what an earlier draft did,
+and it cost three wrong rows.
+
     from partspec.refs import iso_metric_thread as iso_thread
 
     m8 = iso_thread.coarse(8)
@@ -37,16 +43,24 @@ computation — both inputs are the standard's and so is the operation. That is
 not laundering authority, it is quoting it. `m8.minor_internal + 0.1` is a plain
 float, as it should be.
 
-They are computed rather than transcribed on purpose. Every relation is an exact
-multiple of `H = (sqrt(3)/2)·P`, so computing them removes a whole class of
-error the prior art demonstrates: one fleet module truncated the `5H/4`
-coefficient, another carried a minor diameter 1 um off its own formula. A
-constant you can derive should never be typed in.
+They are computed rather than transcribed on purpose, and the argument is
+simply that the standard prints six significant figures where a double holds
+seventeen. ISO 724 clause 5 gives `0,649 519`, `1,082 532` and `1,226 869`;
+carrying those costs 4e-7 mm at M8 and rather more at M64, for no benefit,
+when `sqrt(3)/2` is exact and in the stdlib.
 
-The values are therefore the **exact** basic dimensions. ISO 724 tabulates the
-same quantities rounded to three decimals; the two agree to within 0.5 um, and
-`test_the_basic_dimensions_match_the_published_table` pins six of them against
-figures three independent fleet sourcings agreed on.
+(An earlier draft argued this from the prior art instead, and the review
+falsified both examples. The "1 um" error attributed to one fleet module is
+that module's own disclosed tolerance BAND, chosen and documented; the largest
+actual discrepancy anywhere in the three is 0.435 um. And the other did not
+truncate a coefficient — it doubled ISO 68-1's own printed `H1 = 0,541 265 877`
+and said so in a comment. Neither is a mistake. Attacking the standard's
+printed figures as sloppy transcription was the mistake.)
+
+The values are therefore the **exact** dimensions. ISO 724 tabulates the same
+quantities rounded to three decimals; the two agree to within 0.48 um, and
+`test_every_row_matches_iso_724_table_1` pins all 120 of them against the
+standard's printed table.
 
 ## Citations
 
@@ -56,9 +70,18 @@ wrong in two of three cases:
 - **ISO 261** — the diameter/pitch combinations, and nothing else. Its clause 1
   says so in as many words: *"Basic dimensions are given in ISO 724. For
   tolerances see ISO 965-1."*
-- **ISO 68-1** — the basic profile: the fundamental triangle height `H`, and the
-  crest and root truncations that place `d2`, `D1` and `d3` on it.
-- **ISO 724** — the tabulated basic dimensions these relations produce.
+- **ISO 68-1** — the profile itself: the fundamental triangle height `H`.
+- **ISO 724** — the three relations, verbatim from clause 5, and the table of
+  values they produce.
+
+`d2`, `D1` and `d3` are ISO 724's **basic dimensions** — that is the title of
+its clause 5 and of Table 1 — but they are not all on ISO 68-1's *basic
+profile*, and an earlier draft of this docstring said they were. ISO 724:2023's
+Scope is explicit: *"The values refer to the design profiles according to ISO
+68-1."* Its clause 4 defines `d3` (and `H1`, and `h3`) as quantities **on the
+design profile**; the basic profile has one minor diameter, not two. Getting
+that wrong is the same mis-attribution this module criticises in the prior art,
+so it is worth being exact: **basic dimension, design profile.**
 """
 
 from __future__ import annotations
@@ -74,11 +97,17 @@ from ..status import ContractError, short_repr
 if TYPE_CHECKING:
     from ..contract import Part
 
-__all__ = ["Thread", "coarse", "sizes"]
+__all__ = ["Thread", "coarse", "sizes", "tapped_hole"]
 
-_ISO_261 = "ISO 261"
-_ISO_68_1 = "ISO 68-1"
-_ISO_724 = "ISO 724"
+# Dated, because the edition is load-bearing. `d3` exists only from ISO
+# 724:2023 — its foreword records "the values and formula for the minor
+# diameter of external thread, d3, have been added in Table 1" — and ISO
+# 261:1998 normatively references ISO 724:1993, which has no d3 at all. A bare
+# "ISO 724" would send a reader following this module's own citation chain to
+# an edition that does not contain the number (round 1 of #194's review).
+_ISO_261 = "ISO 261:1998"
+_ISO_68_1 = "ISO 68-1:2023"
+_ISO_724 = "ISO 724:2023"
 
 # Height of the fundamental triangle, per pitch. Derived, never transcribed:
 # `sqrt(3)/2` to the last bit a double holds, against the 9- and 10-digit
@@ -94,15 +123,33 @@ _D3_PER_PITCH = 2 * (17 * _H_PER_PITCH / 24)  # external minor: 17H/24
 
 # nominal diameter -> (coarse pitch, ISO 261 choice)
 #
-# The choice is a dimensional fact worth carrying: ISO 261 ranks its diameters
+# Transcribed from ISO 261:1998 Table 2, column "coarse", and cross-checked
+# row by row against ISO 724:2023 Table 1. Every one of the 40 rows and all
+# 120 derived diameters were verified against the primary documents; the first
+# draft of this table came from memory and had three defects, all of which the
+# standard settles (round 1 of #194's review):
+#
+#   - M7 is SECOND choice (Table 2 Col. 2), not third.
+#   - The coarse series ends at M68, not M64. M68x6 is Col. 2; M72 is the
+#     first diameter Table 2 gives no coarse pitch at all.
+#   - M1, M1.1, M1.2 and M1.4 have coarse pitches (0.25, 0.25, 0.25, 0.3) and
+#     two of them are first choice. They were simply missing.
+#
+# The rule for what is here is exactly "the diameters ISO 261 gives a coarse
+# pitch for" — no more, and no less. That is not the same as "every diameter
+# ISO 261 lists": M5.5, M15, M17, M25, M26, M28, M32, M35, M38, M40, M50,
+# M55, M58, M62, M65 and M70 are all in Table 2 with fine pitches only, and
+# `coarse()` refusing them is correct rather than an omission.
+#
+# The choice rank is itself a dimensional fact: ISO 261 ranks its diameters
 # first, second and third preference, and an author picking a fastener should
 # know that M14 exists but M16 is the one to reach for. `sizes(choice=1)` is
 # how a caller asks.
-#
-# Range is M1.6 to M64, where the coarse series ends — above M64 the standard
-# tabulates fine pitches only, and there is no coarse column to extrapolate
-# into. Third-choice diameters above M12 are omitted rather than guessed.
 _COARSE: dict[float, tuple[float, int]] = {
+    1.0: (0.25, 1),
+    1.1: (0.25, 2),
+    1.2: (0.25, 1),
+    1.4: (0.3, 2),
     1.6: (0.35, 1),
     1.8: (0.35, 2),
     2.0: (0.4, 1),
@@ -114,7 +161,7 @@ _COARSE: dict[float, tuple[float, int]] = {
     4.5: (0.75, 2),
     5.0: (0.8, 1),
     6.0: (1.0, 1),
-    7.0: (1.0, 3),
+    7.0: (1.0, 2),
     8.0: (1.25, 1),
     9.0: (1.25, 3),
     10.0: (1.5, 1),
@@ -138,6 +185,7 @@ _COARSE: dict[float, tuple[float, int]] = {
     56.0: (5.5, 1),
     60.0: (5.5, 2),
     64.0: (6.0, 1),
+    68.0: (6.0, 2),
 }
 
 
@@ -145,11 +193,12 @@ _COARSE: dict[float, tuple[float, int]] = {
 class Thread:
     """One coarse-series size. Every dimension is `Referenced`.
 
-    `minor_internal` (ISO 724's `D1`) is the one most contracts want: it is the
-    minor diameter of a tapped hole, and so the diameter a modelled hole is
-    checked against. `minor_external` (`d3`) is the root of the bolt, which is
-    a different number — the profile truncates the two differently, by `5H/8`
-    against `17H/24` — and confusing them is a 0.14·P error.
+    `minor_internal` (ISO 724's `D1`, tabulated under "flat crest") is the one
+    most contracts want: it is the minor diameter of a tapped hole, and so the
+    diameter a modelled hole is checked against. `minor_external` (`d3`, "rounded
+    root") is the root of the bolt, which is a different number — the design
+    profile truncates the two by `5H/8` against `17H/24` — and confusing them is
+    an `H/6 = 0.1443·P` error, 0.180 mm at M8.
     """
 
     designation: str
@@ -166,9 +215,21 @@ def sizes(*, choice: int | None = None) -> tuple[float, ...]:
     """The nominal diameters this table carries, ascending.
 
     `choice` filters to one ISO 261 preference rank; omitted, all of them.
+
+    An unknown rank REFUSES rather than returning nothing. §10.1's "a table
+    must not guess" cuts both ways: an empty tuple for `choice=4` reads as
+    "ISO 261 ranks no diameters fourth", which is a statement, and a silently
+    wrong one. `choice=True` was worse — `True == 1`, so it returned the entire
+    first-choice list.
     """
     if choice is None:
         return tuple(sorted(_COARSE))
+    if isinstance(choice, bool) or choice not in (1, 2, 3):
+        raise ContractError(
+            f"iso_metric_thread.sizes(choice={short_repr(choice)}): ISO 261 ranks "
+            f"diameters first, second or third choice — pass 1, 2 or 3, or omit "
+            f"it for all of them"
+        )
     return tuple(sorted(d for d, (_, c) in _COARSE.items() if c == choice))
 
 
@@ -181,16 +242,40 @@ def coarse(nominal: float) -> Thread:
     `numpy.float64(8)` and `Decimal(8)` all resolve. Ask the lookup, never
     pre-screen the type.
     """
-    try:
-        found = nominal in _COARSE
-    except TypeError:
+    # `bool` BEFORE the lookup, not after. `isinstance(True, int)` is True and
+    # `hash(True) == hash(1)`, so once M1 joined the table `coarse(True)`
+    # returned a whole M1 thread — an answer, silently, to a question nobody
+    # asked. The first draft put this test on the failure path, where it could
+    # only pick the wording of an error already being raised, and the table had
+    # no 1.0 key to expose it (round 1 of #194's review). The missing-sizes fix
+    # and this one are coupled: either alone ships a wrong answer.
+    d = 0.0
+    if isinstance(nominal, bool):
         found = False
+    else:
+        try:
+            found = nominal in _COARSE
+            if found:
+                # Inside the guard, because the CONVERSION can refuse what the
+                # lookup accepted: `complex(8)` hashes and compares equal to
+                # `8`, passes the membership test, and then died in `float()`
+                # with a raw `TypeError` — the exact defect #240 spent three
+                # rounds removing from `iso15.bearing`, reintroduced here by
+                # adding a conversion the guard did not cover.
+                d = float(nominal)
+        except TypeError:
+            found = False
     if not found:
         known = ", ".join(f"M{_label(d)}" for d in sorted(_COARSE))
         # A wrong TYPE and an unknown DIAMETER are different mistakes, and
         # `bool` belongs with the former: `isinstance(True, int)` is True and
         # `True` is not a diameter.
-        numeric = isinstance(nominal, numbers.Number) and not isinstance(nominal, bool)
+        # `Number` rather than `Real`, so `Decimal` and `Fraction` — which the
+        # lookup resolves — are told the diameter is unknown rather than that
+        # their type is wrong. `complex` is excluded despite being a Number:
+        # it is not a diameter, and #240's round 3 is the precedent for keeping
+        # the wording and the acceptance path saying the same thing.
+        numeric = isinstance(nominal, numbers.Number) and not isinstance(nominal, bool | complex)
         what = (
             "no coarse pitch at this diameter"
             if numeric
@@ -200,11 +285,19 @@ def coarse(nominal: float) -> Thread:
             f"iso_metric_thread.coarse({short_repr(nominal)}): {what} (this table carries: {known})"
         )
     pitch, choice = _COARSE[nominal]
-    d = float(nominal)
     designation = f"M{_label(d)}"
 
-    def ref(value: float, standard: str, field: str) -> Referenced:
-        return Referenced(value, {"standard": standard, "subject": designation, "field": field})
+    def ref(value: float, standard: str, field: str, note: str | None = None) -> Referenced:
+        source = {"standard": standard, "subject": designation, "field": field}
+        if note is not None:
+            source["note"] = note
+        return Referenced(value, source)
+
+    # ISO 724 clause 5: the table's values "have been calculated from the
+    # following formulae and rounded to the third decimal place". This keeps
+    # the unrounded value — up to 0.48 um from the printed one — so the
+    # citation has to say that rather than imply the digits were transcribed.
+    _EXACT = "exact value of the clause 5 formula; the table rounds to 3 decimals"
 
     return Thread(
         designation=designation,
@@ -212,9 +305,9 @@ def coarse(nominal: float) -> Thread:
         nominal=ref(d, _ISO_261, "nominal_diameter"),
         pitch=ref(pitch, _ISO_261, "coarse_pitch"),
         height=ref(_H_PER_PITCH * pitch, _ISO_68_1, "fundamental_triangle_height"),
-        pitch_diameter=ref(d - _D2_PER_PITCH * pitch, _ISO_724, "basic_pitch_diameter"),
-        minor_internal=ref(d - _D1_PER_PITCH * pitch, _ISO_724, "basic_minor_diameter_internal"),
-        minor_external=ref(d - _D3_PER_PITCH * pitch, _ISO_724, "basic_minor_diameter_external"),
+        pitch_diameter=ref(d - _D2_PER_PITCH * pitch, _ISO_724, "pitch_diameter", _EXACT),
+        minor_internal=ref(d - _D1_PER_PITCH * pitch, _ISO_724, "minor_diameter_internal", _EXACT),
+        minor_external=ref(d - _D3_PER_PITCH * pitch, _ISO_724, "minor_diameter_external", _EXACT),
     )
 
 
