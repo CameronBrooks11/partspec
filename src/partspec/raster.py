@@ -184,6 +184,32 @@ def write_png(path: Path, img: Any) -> None:
     )
 
 
+_RESOURCE_FAULTS = (MemoryError, RecursionError, OSError, ImportError)
+"""Exhaustion and wiring, not geometry.
+
+Every one of these is an `Exception`, so the tessellation guard caught them all
+and blamed the solid. They are the environment: out of memory, out of disk, out
+of stack, or an OCCT shared library that will not load. SPEC-report §6.1 —
+an environment fault "is not a statement about the part at all, and MUST NOT be
+reported as one"."""
+
+
+def _untessellatable(exc: BaseException) -> BuildError:
+    """The shape could not be meshed, said once for both callers.
+
+    "shape", not "solid": a `Face` reaches here unmodified and is not a solid,
+    and the sibling refusal below already says shape. The first version said
+    solid in the message and again in the hint (adversarial review of #241).
+    """
+    return BuildError(
+        f"this shape could not be tessellated for rendering: {type(exc).__name__}: {exc}",
+        hint="a kernel that cannot triangulate a face usually has a degenerate or "
+        "self-intersecting shape to work with — `check` with `watertight` and "
+        "`self_intersection_free` says whether that is so, and answers on this part "
+        "even though rendering does not",
+    )
+
+
 def render_views(
     shape: Any, out_dir: Path
 ) -> tuple[dict[str, Path], dict[str, object], dict[str, list[float]]] | BuildError:
@@ -202,32 +228,52 @@ def render_views(
     """
     try:
         vertices, faces = shape.tessellate(TESSELLATION_TOLERANCE_MM)
-    except ValueError:
+    except _RESOURCE_FAULTS as exc:
+        # NOT a statement about the part. `MemoryError` on a large tessellation
+        # is the canonical environment fault, and the first version of this
+        # guard caught it with everything else and answered "this shape could
+        # not be tessellated" plus a hint blaming the geometry, at
+        # `origin="model"` — which SPEC-report §6.1 forbids in as many words
+        # (adversarial review of #241). `str(MemoryError())` is also empty, so
+        # the message ended in a dangling colon and the "nothing is hidden"
+        # claim was false exactly there; the type carries it now.
+        detail = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        return BuildError(
+            f"the environment could not complete the tessellation: {detail}",
+            origin="environment",
+        )
+    except ValueError as exc:
         # build123d refuses to tessellate an empty shape; same answer either
         # way — nothing to show is a stated refusal, not four blank frames.
-        vertices, faces = [], []
+        #
+        # Gated on the SHAPE being empty, not on the exception type. The old
+        # code answered "contains no geometry" for any `ValueError`, so a
+        # meshing failure that happened to raise one was reported as a part
+        # with nothing in it (adversarial review of #241) — and the test above
+        # pinned type→message, certifying it.
+        # `_wrapped`, not `wrapped`: build123d's public property ASSERTS on an
+        # empty shape rather than returning None, so asking it here raises a
+        # second exception inside the handler for the first. Measured on
+        # `bd.Compound()`, which is exactly the case this branch exists for.
+        if getattr(shape, "_wrapped", object()) is None:
+            vertices, faces = [], []
+        else:
+            return _untessellatable(exc)
     except Exception as exc:  # noqa: BLE001 — see below
         # Everything else this ONE call can raise, classified rather than
         # allowed to escape. `bd_warehouse`'s `IsoThread(external=False)` nut,
         # whose thread vanishes during fusion, reached
         # `AttributeError: 'NoneType' object has no attribute 'NbNodes'` — OCCT
         # returns no triangulation for a face it cannot mesh and build123d
-        # assumes one — and that came out as a stack trace where a classified
+        # assumes one — and that came out as a raw traceback where a classified
         # failure belongs (#191). `check` on the SAME part reaches a real
         # verdict, so the part is evaluable and only rendering it falls over.
         #
-        # Broad on purpose, and not a mask: the `try` wraps a single call, so
-        # any exception out of it IS a tessellation failure and the sentence is
-        # true by construction. The underlying type and text ride along, so
-        # nothing is hidden — including a partspec bug, which would name
-        # itself here rather than vanish.
-        return BuildError(
-            f"this solid could not be tessellated for rendering: {type(exc).__name__}: {exc}",
-            hint="a kernel that cannot triangulate a face usually has a degenerate or "
-            "self-intersecting solid to work with — `check` with `watertight` and "
-            "`self_intersection_free` says whether that is so, and answers on this part "
-            "even though rendering does not",
-        )
+        # Broad on purpose: the `try` wraps a single call, so anything left
+        # after the two clauses above IS a failure to tessellate this shape.
+        # The underlying type and text ride along, so nothing is hidden —
+        # including a partspec bug, which names itself here rather than vanish.
+        return _untessellatable(exc)
     if not faces:
         return BuildError("this shape contains no geometry, so there is nothing to render")
     points = np.array([(v.X, v.Y, v.Z) for v in vertices], dtype=np.float64)
@@ -245,9 +291,14 @@ def render_views(
         # run's image to be read as this run's. This said "same stale-artifact
         # rule as the STL" until v0.7.6's pre-tag audit: #223 deleted that rule,
         # and #224 was filed about exactly this kind of citation surviving the
-        # thing it cites. The trade is the opposite of the OpenSCAD tier's and
-        # safe to make here — this rasterizer serves the OCCT tier, which has no
-        # `surface()` to make a PNG a build input.
+        # thing it cites.
+        #
+        # The trade is the opposite of the OpenSCAD tier's, and what makes it
+        # safe is ORDERING, not the tier: `cli` builds the model before calling
+        # this, so nothing here can delete a file the engine has yet to read.
+        # An OCCT-tier model is arbitrary Python and can `open()` a PNG — "no
+        # `surface()` here" was the reason given until #241's review, and it is
+        # the weaker one. #224 option (2), recorded rather than assumed.
         png.unlink(missing_ok=True)
         write_png(png, rasterize(points, faces, rot, center=center, half_height=half_height))
         renders[view] = png

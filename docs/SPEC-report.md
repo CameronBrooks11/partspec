@@ -1056,7 +1056,11 @@ the report speaks for the part, the exit code for the run. (The `render` verb's 
 sibling payload is the opposite by design — its failure artifact carries `renders: {}`
 beside an `error`, per the Scope above — because there the empty map sits next to the
 error that explains it, while in a report it would sit next to a verdict it has nothing
-to do with.)
+to do with.) That payload MUST also carry `origin`, `"model"` or `"environment"`, on the
+same §6.1 grounds every other engine-side failure does: a degenerate solid the kernel
+cannot mesh and an OCCT library that will not load are different facts, and a consumer
+that cannot tell them apart will read the second as a statement about the part (#191).
+Additive; `SCHEMA_VERSION` does not move.
 
 `render_bbox` MUST sit beside `renders` whenever they are present (#21): `{min, max}`
 in mm, the framing bbox. Two runs whose sizes differ uniformly render byte-identical

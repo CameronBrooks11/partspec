@@ -112,24 +112,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OCCT returns no triangulation for a face it cannot mesh and build123d assumes
   one, so `render` raised
   `AttributeError: 'NoneType' object has no attribute 'NbNodes'` straight out of
-  `raster.render_views`. An unhandled exception escapes the report machinery
-  entirely — no artifact, no verdict, no exit code, just a stack trace — which
-  is the one failure mode this tool cannot have. Found by a fleet adoption
-  agent on `bd_warehouse`'s `IsoThread(external=False)` nut, whose thread
-  vanishes during fusion, and reproduced independently.
+  `raster.render_views`. The CLI's last-resort handler does catch it and exit 4
+  — an earlier draft of this entry said "no exit code, just a stack trace",
+  which #191's own transcript refutes — so what was lost is the artifact and
+  the classification: a raw traceback where a named refusal belongs, and no
+  `render.json` at all. Found by a fleet adoption agent on `bd_warehouse`'s
+  `IsoThread(external=False)` nut, whose thread vanishes during fusion, and
+  reproduced independently.
   `check` on the SAME part reaches a real verdict, so the part is evaluable and
   only rendering it falls over — which is what the message now says, with a
   hint pointing at `watertight` and `self_intersection_free`, the checks that
   do answer on it. The agent had drawn that inference from the traceback by
   itself; the tool states it now.
-  The guard is deliberately broad and is not a mask: the `try` wraps a single
-  call, so anything out of it IS a tessellation failure and the sentence is
-  true by construction, while the underlying type and text ride along so
-  nothing is hidden — including a partspec bug, which names itself there
-  rather than vanishing. The pre-existing `ValueError` branch keeps its own
-  answer, since an empty part has nothing to show rather than something that
-  could not be shown, and collapsing the two would point a reader at topology
-  checks for a part with no topology.
+  **Three clauses, not one, and the first draft had only the last.** Running out
+  of memory, stack, disk or a loadable OCCT library is the ENVIRONMENT, and
+  catching those with everything else answered "this shape could not be
+  tessellated" at `origin="model"` with a hint telling the reader their solid
+  was probably degenerate — which SPEC-report §6.1 forbids in as many words.
+  `MemoryError` on a large tessellation is the canonical case, and
+  `str(MemoryError())` is empty, so that message also ended in a dangling colon:
+  the "nothing is hidden" claim failing exactly where there was nothing to show.
+  Those are `origin="environment"` now, with no geometry-blaming hint.
+  The empty-shape branch keys on the SHAPE rather than on the exception type. It
+  caught every `ValueError`, so a meshing failure that raised one was reported
+  as a part containing no geometry — a part with geometry, described as having
+  none — and the test pinned type→message, certifying it. It asks
+  `_wrapped is None` now, which is what build123d calls empty (the public
+  property asserts rather than returning `None`, so asking it inside the handler
+  raises again).
+  What remains broad is deliberate and is not a mask: after those two clauses the
+  `try` still wraps a single call, so anything left IS a failure to tessellate
+  this shape, and the underlying type and text ride along — including a partspec
+  bug, which names itself rather than vanishing.
+  **And the payload says whose fault it was.** #191 asked for "the same origin
+  discipline every other engine-side failure gets" and `render.json`'s failure
+  shape had no `origin` at all, so a consumer could not tell a degenerate solid
+  from an OCCT library that would not load. It carries `origin` now, and
+  `SPEC-report.md` says so. Additive; `SCHEMA_VERSION` does not move.
+  All of the above came from the adversarial review. It also caught the message
+  saying "solid" where a `Face` reaches it unmodified, and the unlink comment
+  one function down giving the weaker of two safety reasons — what makes that
+  clear-before-write safe is ORDERING (the model is built before this runs), not
+  the absence of `surface()` on this tier, since an OCCT-tier model is arbitrary
+  Python and can `open()` a PNG.
   Also corrected while in the file: `render_views`'s docstring claimed it
   mirrors the OpenSCAD tier's "stale-artifact discipline". Since #223 and #224
   the two are opposites, and the v0.7.6 audit caught the sibling citation one
