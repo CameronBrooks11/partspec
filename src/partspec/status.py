@@ -182,6 +182,25 @@ def epsilon(limit: float) -> float:
     return BOUND_EPSILON_ABS + BOUND_EPSILON_REL * abs(limit)
 
 
+def short_repr(value: object, limit: int = 120) -> str:
+    """`repr`, bounded, for a message that quotes what the caller passed.
+
+    The #199 guards paste the operand into the sentence, and on `main` the
+    operand never got that far — the unhashable value died before formatting,
+    so the bad message was at least short. Measured after the fix:
+    `cylinder(axis=[0.0] * 2000)` produced a 10 KB error and a 20 KB CLI run
+    against main's 1.4 KB, putting the actionable half of the sentence ten
+    kilobytes from the start of the line (round-2 review of #240).
+
+    The tail says how much was cut, so a truncated quote cannot be mistaken for
+    the whole value.
+    """
+    text = repr(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}… ({len(text)} chars)"
+
+
 class ContractError(Exception):
     """The contract itself is wrong — not a failing check.
 

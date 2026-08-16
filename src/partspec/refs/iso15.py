@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..provenance import Referenced
-from ..status import ContractError
+from ..status import ContractError, short_repr
 
 if TYPE_CHECKING:
     from ..contract import Part
@@ -75,37 +75,53 @@ class Bearing:
 
 
 def bearing(designation: int) -> Bearing:
-    """The boundary dimensions of a deep-groove ball bearing designation."""
-    # An INTEGER, not an `int`, and the type before the membership test.
+    """The boundary dimensions of a deep-groove ball bearing designation.
+
+    Annotated `int` because that is what a caller should pass and what a type
+    checker should hold them to. The RUNTIME is deliberately wider: the lookup
+    accepts anything that hashes equal to a table key, so `numpy.int64`,
+    `Decimal(608)` and the `numpy.float64` a pandas column with one missing
+    value produces all resolve. Narrowing the runtime to the annotation broke
+    each of those in turn (rounds 1 and 2 of #240's review); narrowing the
+    annotation to the runtime would give up type checking for the case that
+    matters. The tests that exercise the wider set carry a narrow ignore.
+    """
+    # Ask the LOOKUP first, guarded — do not pre-screen the type.
     #
     # The membership test hashes its operand, so an unhashable designation died
-    # with `cannot use 'list' as a dict key` — the implementation detail that
-    # `_TABLE` is a dict, offered as the diagnosis (#199, swept from the axis
-    # guard). But `isinstance(designation, int)` was too narrow and REGRESSED
-    # `numpy.int64`, which hashes and compares equal to `int` and had worked:
-    # a designation arriving from a numpy array or a pandas column is ordinary
-    # CAD scripting, and it started failing with a message that read as user
-    # error (adversarial review of #240). `numbers.Integral` is the property
-    # actually required — it is what `_TABLE`'s keys can be compared against —
-    # and numpy's integer types register as it.
+    # with `cannot use 'list' as a dict key`: the implementation detail that
+    # `_TABLE` is a dict, offered as the diagnosis (#199). Two attempts at a
+    # type pre-screen each traded that crash for a narrowing, because a dict
+    # lookup does not require the type a pre-screen names — it requires
+    # hashability and equality. `isinstance(x, int)` rejected `numpy.int64`;
+    # `numbers.Integral` then rejected `Decimal`, `Fraction`, `float` and
+    # `numpy.float64`, all of which hash equal to an int key and all of which
+    # worked before (rounds 1 and 2 of #240's review — the second is the
+    # `pd.read_csv` column with one missing value, dtype float64).
     #
-    # `bool` excluded explicitly, because `isinstance(True, int)` is True in
-    # Python and `True` is not a bearing designation. The same note appears at
-    # `openscad.scad_literal`, `runner._number` and `Part.hole_diameter`; this
-    # was the one place that skipped it.
-    integral = isinstance(designation, numbers.Integral) and not isinstance(designation, bool)
-    if not integral or designation not in _TABLE:
+    # Catching TypeError around the lookup is the only test that asks the
+    # question the lookup actually asks. Everything that worked still works,
+    # and nothing reaches a raw TypeError.
+    try:
+        found = designation in _TABLE
+    except TypeError:
+        found = False
+    if not found:
         known = ", ".join(str(d) for d in sorted(_TABLE))
-        # A wrong TYPE and an unknown NUMBER are different mistakes and get
-        # different sentences: a dict is not an unknown designation, it is not
-        # a designation. Both carry the table, which is what the reader needs
-        # either way.
+        # A wrong TYPE and an unknown NUMBER are different mistakes: a dict is
+        # not an unknown designation, it is not a designation. `bool` is
+        # excluded from the number branch because `isinstance(True, int)` is
+        # True in Python and `True` is not a designation — the trap
+        # `scad_literal` and `runner._number` each carry a note about.
+        numeric = isinstance(designation, numbers.Integral) and not isinstance(designation, bool)
         what = (
             "unknown designation"
-            if integral
+            if numeric
             else f"a designation is an integer, not {type(designation).__name__}"
         )
-        raise ContractError(f"iso15.bearing({designation!r}): {what} (this table carries: {known})")
+        raise ContractError(
+            f"iso15.bearing({short_repr(designation)}): {what} (this table carries: {known})"
+        )
     bore, od, width = _TABLE[designation]
 
     def ref(value: float, field: str) -> Referenced:

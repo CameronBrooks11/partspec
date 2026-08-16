@@ -22,7 +22,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from .status import ContractError
+from .status import ContractError, short_repr
 
 __all__ = ["BoxRegion", "CylinderRegion", "Region", "box", "cylinder"]
 
@@ -133,7 +133,8 @@ class CylinderRegion:
         # is not and did not.
         if not isinstance(self.axis, str) or self.axis not in _AXES:
             raise ContractError(
-                f"cylinder region axis must be the string 'x', 'y' or 'z', not {self.axis!r}"
+                f"cylinder region axis must be the string 'x', 'y' or 'z', "
+                f"not {short_repr(self.axis)}"
             )
         if not isinstance(self.segments, int) or self.segments < 8:
             raise ContractError("a cylinder region needs at least 8 segments")

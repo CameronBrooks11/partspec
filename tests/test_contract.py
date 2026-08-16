@@ -718,13 +718,50 @@ def test_an_unhashable_parameter_name_gets_partspecs_own_message(name):
 
     `p.param(["plate_x", "plate_y"], min=1.0)` — bounding two parameters in one
     call — is at least as plausible as the `axis=(0, 0, 1)` that motivated the
-    issue, and `param` is the most-used method in the contract API.
+    issue. (An earlier draft called `param` "the most-used method in the
+    contract API"; counted across `tests/`, `docs/` and `examples/` it is
+    seventh, behind `watertight` by about 4x. The finding did not need the
+    superlative.)
     """
     from partspec import Part, openscad
 
     part = Part("x", openscad("m.scad", plate_x=1.0))
-    with pytest.raises(ContractError, match="takes a parameter NAME"):
+    # Matched on the TYPE, not on the phrasing. `REFUSED_OUT_HINT`'s docstring
+    # forty lines from the code this touches records why: pinning one spelling
+    # of advice pins the spelling, not the advice, and an adversarial review
+    # put the forbidden wording back under a synonym with the suite still green
+    # (round-2 review of #240).
+    with pytest.raises(ContractError, match=f"not {type(name).__name__}"):
         part.param(name, min=1.0)
     # And the ordinary wrong-name case keeps its own sentence.
     with pytest.raises(ContractError, match="is not a declared parameter"):
         part.param("nope", min=1.0)
+
+
+def test_a_refused_argument_is_quoted_but_not_pasted_whole():
+    """All three #199 guards quote the operand, and on `main` the unhashable
+    value died before it could be formatted.
+
+    So the fix made the message worse before it made it better:
+    `cylinder(axis=[0.0] * 2000)` produced a 10 KB error and a 20 KB CLI run
+    against main's 1.4 KB, putting the actionable half of the sentence ten
+    kilobytes from the start of the line — 15x the token cost of the bug it
+    explains, for an agent reading stderr (round-2 review of #240).
+    """
+    from partspec import Part, openscad, region
+    from partspec.refs import iso15
+
+    big = list(range(2000))
+    raised = []
+    for call in (
+        lambda: region.cylinder(d=5, h=5, axis=big),
+        lambda: iso15.bearing(big),
+        lambda: Part("x", openscad("m.scad", w=1.0)).param(big, min=1.0),
+    ):
+        with pytest.raises(ContractError) as caught:
+            call()
+        raised.append(str(caught.value))
+
+    for message in raised:
+        assert len(message) < 400, f"{len(message)} chars: {message[:120]}"
+        assert "chars)" in message, "and it says the quote was cut rather than pretending"

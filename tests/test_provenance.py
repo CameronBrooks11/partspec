@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 import pytest
-from support import needs_build123d, needs_mesh, needs_openscad
+from support import needs_build123d, needs_mesh, needs_numpy, needs_openscad
 
 from partspec import Part, Referenced, openscad
 from partspec.provenance import source_map
@@ -595,6 +595,7 @@ def test_a_bad_bearing_designation_gets_partspecs_own_message(designation, expec
     assert "this table carries: 608" in str(caught.value), "and it still names the table"
 
 
+@needs_numpy
 def test_an_integer_designation_that_is_not_an_int_still_works():
     """`isinstance(designation, int)` was the first fix and it was too narrow.
 
@@ -610,11 +611,21 @@ def test_an_integer_designation_that_is_not_an_int_still_works():
     the trap `scad_literal`, `_number` and `hole_diameter` each carry a note
     about, and which this guard skipped.
     """
-    np = pytest.importorskip("numpy")
+    from decimal import Decimal
+    from fractions import Fraction
+
+    import numpy as np
+
     from partspec.refs import iso15
 
     reference = iso15.bearing(608)
-    for integral in (np.int64(608), np.int32(608)):
-        assert iso15.bearing(integral) == reference, (
-            f"{type(integral).__name__} is an integer and worked before the guard"
+    # Every type that hashes equal to an int key, which is what the lookup
+    # actually requires. Two attempts at a TYPE pre-screen each narrowed a
+    # different family: `isinstance(x, int)` cut numpy integers, and
+    # `numbers.Integral` then cut Decimal, Fraction and float — including
+    # `numpy.float64`, which is what a pandas integer column with one missing
+    # value gives you (rounds 1 and 2 of #240's review).
+    for equal_to_608 in (np.int64(608), np.int32(608), Decimal(608), Fraction(608, 1), 608.0):
+        assert iso15.bearing(equal_to_608) == reference, (  # type: ignore[arg-type]
+            f"{type(equal_to_608).__name__} hashes equal to 608 and worked before the guard"
         )

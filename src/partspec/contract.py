@@ -17,7 +17,7 @@ from typing import Any
 
 from .provenance import source_map
 from .region import BoxRegion, CylinderRegion, Region
-from .status import ContractError, Limit, epsilon
+from .status import ContractError, Limit, epsilon, short_repr
 
 __all__ = [
     "DIMENSIONAL_KINDS",
@@ -347,9 +347,9 @@ class Part:
             what = (
                 "is not a declared parameter"
                 if isinstance(name, str)
-                else f"takes a parameter NAME, not {type(name).__name__}"
+                else f"takes a parameter name, not {type(name).__name__}"
             )
-            raise ContractError(f"param({name!r}) {what} (declared: {known})")
+            raise ContractError(f"param({short_repr(name)}) {what} (declared: {known})")
         return self._add(
             CheckSpec(
                 id=id or f"param:{name}",
