@@ -70,15 +70,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entirely about the sentence.
   **The sweep found two more, and took two passes to find the second.**
   `iso15.bearing` guards the same way and is the reference table an author
-  reaches for. `Part.param` guards the same way and is the most-used method in
-  the contract API — `p.param(["plate_x", "plate_y"], min=1.0)`, bounding two
-  parameters in one call, is at least as plausible as the `axis=(0, 0, 1)` that
-  motivated the issue, and that one ALSO lost #188's traceback trimming, so the
-  reader got partspec's internal frames as well as its internal data structure.
-  The first sweep missed it and the PR's prose was scoped so that its
+  reaches for. `Part.param` guards the same way —
+  `p.param(["plate_x", "plate_y"], min=1.0)`, bounding two parameters in one
+  call, is at least as plausible as the `axis=(0, 0, 1)` that motivated the
+  issue. **All three** lost #188's traceback trimming with it, since that keys
+  on `ContractError` and a raw `TypeError` walks past it, so the reader got
+  partspec's internal frames as well as its internal data structure.
+  The first sweep missed `param` and the PR's prose was scoped so that its
   literal truth concealed the gap; the adversarial review fuzzed the whole
   public API and found it.
-  All three now refuse before the membership test can hash, and two of the
+  All three now refuse before a raw `TypeError` can reach the reader, and two
+  of the
   three distinguish a wrong TYPE from a wrong VALUE (`region.cylinder` uses one
   sentence, which already names the type it wants) — a dict is not an unknown designation, it is
   not a designation — while still naming what is available either way.

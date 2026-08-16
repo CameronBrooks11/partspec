@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -572,6 +573,12 @@ def test_the_attribution_block_is_in_the_artifact(tmp_path: Path):
         ("608", "a designation is an integer, not str"),
         (True, "a designation is an integer, not bool"),
         (9999, "unknown designation"),
+        # Number-like but not in the table: "unknown", not a type complaint.
+        # The acceptance path stopped pre-screening and the WORDING kept doing
+        # it, so these were told their type was wrong while the same types
+        # resolve fine at 608 (round-3 review of #240).
+        (699.0, "unknown designation"),
+        (Decimal(699), "unknown designation"),
     ],
 )
 def test_a_bad_bearing_designation_gets_partspecs_own_message(designation, expected):
@@ -625,7 +632,14 @@ def test_an_integer_designation_that_is_not_an_int_still_works():
     # `numbers.Integral` then cut Decimal, Fraction and float — including
     # `numpy.float64`, which is what a pandas integer column with one missing
     # value gives you (rounds 1 and 2 of #240's review).
-    for equal_to_608 in (np.int64(608), np.int32(608), Decimal(608), Fraction(608, 1), 608.0):
+    for equal_to_608 in (
+        np.int64(608),
+        np.int32(608),
+        np.float64(608.0),  # the pandas-column case the whole fix argues from
+        Decimal(608),
+        Fraction(608, 1),
+        608.0,
+    ):
         assert iso15.bearing(equal_to_608) == reference, (  # type: ignore[arg-type]
             f"{type(equal_to_608).__name__} hashes equal to 608 and worked before the guard"
         )

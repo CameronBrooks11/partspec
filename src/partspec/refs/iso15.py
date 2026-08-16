@@ -113,7 +113,14 @@ def bearing(designation: int) -> Bearing:
         # excluded from the number branch because `isinstance(True, int)` is
         # True in Python and `True` is not a designation — the trap
         # `scad_literal` and `runner._number` each carry a note about.
-        numeric = isinstance(designation, numbers.Integral) and not isinstance(designation, bool)
+        # `Number`, not `Integral`. The acceptance path stopped pre-screening
+        # the type and the WORDING kept doing it, so a designation this
+        # function will happily look up — `numpy.float64`, `Decimal` — was told
+        # its type was wrong when the number simply was not in the table. That
+        # is a worse diagnosis than main gave for the pandas-column case the
+        # whole fix argues from (round-3 review of #240): a typo'd designation
+        # in a float64 column needs "unknown", not "not an integer".
+        numeric = isinstance(designation, numbers.Number) and not isinstance(designation, bool)
         what = (
             "unknown designation"
             if numeric
