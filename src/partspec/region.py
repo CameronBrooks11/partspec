@@ -22,7 +22,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from .status import ContractError
+from .status import ContractError, short_repr
 
 __all__ = ["BoxRegion", "CylinderRegion", "Region", "box", "cylinder"]
 
@@ -123,9 +123,18 @@ class CylinderRegion:
         if len(at) != 3:
             raise ContractError("a cylinder region centre takes 3 components")
         object.__setattr__(self, "at", at)
-        if self.axis not in _AXES:
+        # The type BEFORE the membership test. `x not in <dict>` hashes `x`,
+        # and an unhashable value dies inside the guard rather than at it:
+        # `axis=[0, 0, 1]` raised `cannot use 'list' as a dict key`, which is
+        # partspec's own implementation detail — that `_AXES` happens to be a
+        # dict — offered as the diagnosis for a user error one keystroke from
+        # the one #193 exists to document (#199). Two fleet agents wrote
+        # `axis=(0, 0, 1)`; a tuple is hashable and reached the message, a list
+        # is not and did not.
+        if not isinstance(self.axis, str) or self.axis not in _AXES:
             raise ContractError(
-                f"cylinder region axis must be the string 'x', 'y' or 'z', not {self.axis!r}"
+                f"cylinder region axis must be the string 'x', 'y' or 'z', "
+                f"not {short_repr(self.axis)}"
             )
         if not isinstance(self.segments, int) or self.segments < 8:
             raise ContractError("a cylinder region needs at least 8 segments")

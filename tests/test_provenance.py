@@ -10,10 +10,12 @@ with the citation in the report.
 from __future__ import annotations
 
 import json
+import re
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from support import needs_build123d, needs_mesh, needs_openscad
+from support import needs_build123d, needs_mesh, needs_numpy, needs_openscad
 
 from partspec import Part, Referenced, openscad
 from partspec.provenance import source_map
@@ -561,3 +563,83 @@ def test_the_attribution_block_is_in_the_artifact(tmp_path: Path):
     assert doc["attribution"] == {"dimensional": 2, "attributed": 1}
     keys = list(doc)
     assert keys.index("attribution") == keys.index("counts") + 1
+
+
+@pytest.mark.parametrize(
+    ("designation", "expected"),
+    [
+        (["608"], "a designation is an integer, not list"),
+        ({"608": 1}, "a designation is an integer, not dict"),
+        ("608", "a designation is an integer, not str"),
+        (True, "a designation is an integer, not bool"),
+        (9999, "unknown designation"),
+        # Number-like but not in the table: "unknown", not a type complaint.
+        # The acceptance path stopped pre-screening and the WORDING kept doing
+        # it, so these were told their type was wrong while the same types
+        # resolve fine at 608 (round-3 review of #240).
+        (699.0, "unknown designation"),
+        (Decimal(699), "unknown designation"),
+    ],
+)
+def test_a_bad_bearing_designation_gets_partspecs_own_message(designation, expected):
+    """The same hole #199 was filed against, found by sweeping for its shape.
+
+    `designation not in _TABLE` hashes its operand, so `iso15.bearing(["608"])`
+    raised `cannot use 'list' as a dict key` — the implementation detail that
+    `_TABLE` is a dict, as the diagnosis. This is the reference table an author
+    reaches for, which makes it the second place a wrong argument type most
+    plausibly arrives.
+
+    A wrong TYPE and an unknown NUMBER get different sentences, because they
+    are different mistakes: a dict is not an unknown designation, it is not a
+    designation. Both carry the table, which is what the reader needs either
+    way.
+    """
+    from partspec.status import ContractError
+
+    with pytest.raises(ContractError, match=re.escape(expected)) as caught:
+        iso15.bearing(designation)
+    assert "this table carries: 608" in str(caught.value), "and it still names the table"
+
+
+@needs_numpy
+def test_an_integer_designation_that_is_not_an_int_still_works():
+    """`isinstance(designation, int)` was the first fix and it was too narrow.
+
+    `numpy.int64` hashes and compares equal to `int`, worked before the guard
+    and stopped working after — a designation arriving from a numpy array or a
+    pandas column is ordinary CAD scripting, and it began failing with a
+    message that read as user error, under three separate assertions that
+    nothing but the wording had changed (adversarial review of #240).
+
+    `numbers.Integral` is the property actually required: it is what `_TABLE`'s
+    keys can be compared against. `bool` is excluded explicitly, because
+    `isinstance(True, int)` is True in Python and `True` is not a designation —
+    the trap `scad_literal`, `_number` and `hole_diameter` each carry a note
+    about, and which this guard skipped.
+    """
+    from decimal import Decimal
+    from fractions import Fraction
+
+    import numpy as np
+
+    from partspec.refs import iso15
+
+    reference = iso15.bearing(608)
+    # Every type that hashes equal to an int key, which is what the lookup
+    # actually requires. Two attempts at a TYPE pre-screen each narrowed a
+    # different family: `isinstance(x, int)` cut numpy integers, and
+    # `numbers.Integral` then cut Decimal, Fraction and float — including
+    # `numpy.float64`, which is what a pandas integer column with one missing
+    # value gives you (rounds 1 and 2 of #240's review).
+    for equal_to_608 in (
+        np.int64(608),
+        np.int32(608),
+        np.float64(608.0),  # the pandas-column case the whole fix argues from
+        Decimal(608),
+        Fraction(608, 1),
+        608.0,
+    ):
+        assert iso15.bearing(equal_to_608) == reference, (  # type: ignore[arg-type]
+            f"{type(equal_to_608).__name__} hashes equal to 608 and worked before the guard"
+        )

@@ -17,7 +17,7 @@ from typing import Any
 
 from .provenance import source_map
 from .region import BoxRegion, CylinderRegion, Region
-from .status import ContractError, Limit, epsilon
+from .status import ContractError, Limit, epsilon, short_repr
 
 __all__ = [
     "DIMENSIONAL_KINDS",
@@ -333,9 +333,23 @@ class Part:
         creeping from 8.0 to 8.09 against a `max` of 8.1 is two passes and one
         trend worth seeing.
         """
-        if name not in self.source.params:
+        # The type before the membership test, for `region.cylinder`'s reason
+        # (#199): `name not in <dict>` HASHES `name`, so an unhashable value
+        # died inside the guard with `cannot use 'list' as a dict key` — and
+        # lost #188's traceback trimming on the way out, so the reader got
+        # partspec's internal frames as well as its internal data structure.
+        # `p.param(["plate_x", "plate_y"], min=1.0)`, bounding two parameters in
+        # one call, is at least as plausible a mistake as the `axis=(0, 0, 1)`
+        # that motivated the issue. Found by the adversarial review of #240,
+        # which swept the public API after the first two sites were fixed.
+        if not isinstance(name, str) or name not in self.source.params:
             known = ", ".join(sorted(self.source.params)) or "none"
-            raise ContractError(f"param({name!r}) is not a declared parameter (declared: {known})")
+            what = (
+                "is not a declared parameter"
+                if isinstance(name, str)
+                else f"takes a parameter name, not {type(name).__name__}"
+            )
+            raise ContractError(f"param({short_repr(name)}) {what} (declared: {known})")
         return self._add(
             CheckSpec(
                 id=id or f"param:{name}",

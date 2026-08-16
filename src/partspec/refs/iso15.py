@@ -19,11 +19,12 @@ standard and reproduces nothing else from it.
 
 from __future__ import annotations
 
+import numbers
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..provenance import Referenced
-from ..status import ContractError
+from ..status import ContractError, short_repr
 
 if TYPE_CHECKING:
     from ..contract import Part
@@ -74,11 +75,59 @@ class Bearing:
 
 
 def bearing(designation: int) -> Bearing:
-    """The boundary dimensions of a deep-groove ball bearing designation."""
-    if designation not in _TABLE:
+    """The boundary dimensions of a deep-groove ball bearing designation.
+
+    Annotated `int` because that is what a caller should pass and what a type
+    checker should hold them to. The RUNTIME is deliberately wider: the lookup
+    accepts anything that hashes equal to a table key, so `numpy.int64`,
+    `Decimal(608)` and the `numpy.float64` a pandas column with one missing
+    value produces all resolve. Narrowing the runtime to the annotation broke
+    each of those in turn (rounds 1 and 2 of #240's review); narrowing the
+    annotation to the runtime would give up type checking for the case that
+    matters. The tests that exercise the wider set carry a narrow ignore.
+    """
+    # Ask the LOOKUP first, guarded — do not pre-screen the type.
+    #
+    # The membership test hashes its operand, so an unhashable designation died
+    # with `cannot use 'list' as a dict key`: the implementation detail that
+    # `_TABLE` is a dict, offered as the diagnosis (#199). Two attempts at a
+    # type pre-screen each traded that crash for a narrowing, because a dict
+    # lookup does not require the type a pre-screen names — it requires
+    # hashability and equality. `isinstance(x, int)` rejected `numpy.int64`;
+    # `numbers.Integral` then rejected `Decimal`, `Fraction`, `float` and
+    # `numpy.float64`, all of which hash equal to an int key and all of which
+    # worked before (rounds 1 and 2 of #240's review — the second is the
+    # `pd.read_csv` column with one missing value, dtype float64).
+    #
+    # Catching TypeError around the lookup is the only test that asks the
+    # question the lookup actually asks. Everything that worked still works,
+    # and nothing reaches a raw TypeError.
+    try:
+        found = designation in _TABLE
+    except TypeError:
+        found = False
+    if not found:
         known = ", ".join(str(d) for d in sorted(_TABLE))
+        # A wrong TYPE and an unknown NUMBER are different mistakes: a dict is
+        # not an unknown designation, it is not a designation. `bool` is
+        # excluded from the number branch because `isinstance(True, int)` is
+        # True in Python and `True` is not a designation — the trap
+        # `scad_literal` and `runner._number` each carry a note about.
+        # `Number`, not `Integral`. The acceptance path stopped pre-screening
+        # the type and the WORDING kept doing it, so a designation this
+        # function will happily look up — `numpy.float64`, `Decimal` — was told
+        # its type was wrong when the number simply was not in the table. That
+        # is a worse diagnosis than main gave for the pandas-column case the
+        # whole fix argues from (round-3 review of #240): a typo'd designation
+        # in a float64 column needs "unknown", not "not an integer".
+        numeric = isinstance(designation, numbers.Number) and not isinstance(designation, bool)
+        what = (
+            "unknown designation"
+            if numeric
+            else f"a designation is an integer, not {type(designation).__name__}"
+        )
         raise ContractError(
-            f"iso15.bearing({designation!r}): unknown designation (this table carries: {known})"
+            f"iso15.bearing({short_repr(designation)}): {what} (this table carries: {known})"
         )
     bore, od, width = _TABLE[designation]
 

@@ -58,6 +58,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   describes which *inputs* were accounted for, saying nothing about the
   checks — and a test now pins that separation, since it is the reason the
   claims line could be wrong on its own.
+- **A wrong-typed argument gets partspec's own message rather than a dict-key
+  error** (#199). `region.cylinder(axis=[0, 0, 1])` raised
+  `TypeError: cannot use 'list' as a dict key`: the guard is
+  `self.axis not in _AXES`, a membership test that HASHES its operand, so an
+  unhashable value died inside the guard rather than at it — and what the
+  reader was handed as a diagnosis was partspec's own implementation detail,
+  that `_AXES` happens to be a dict. Two fleet agents wrote `axis=(0, 0, 1)`; a
+  tuple is hashable and reached the real message, a list is not and did not.
+  The exit code was 4 either way, so nothing was ever misclassified; this is
+  entirely about the sentence.
+  **The sweep found two more, and took two passes to find the second.**
+  `iso15.bearing` guards the same way and is the reference table an author
+  reaches for. `Part.param` guards the same way —
+  `p.param(["plate_x", "plate_y"], min=1.0)`, bounding two parameters in one
+  call, is at least as plausible as the `axis=(0, 0, 1)` that motivated the
+  issue. **All three** lost #188's traceback trimming with it, since that keys
+  on `ContractError` and a raw `TypeError` walks past it, so the reader got
+  partspec's internal frames as well as its internal data structure.
+  The first sweep missed `param` and the PR's prose was scoped so that its
+  literal truth concealed the gap; the adversarial review fuzzed the whole
+  public API and found it.
+  All three now refuse before a raw `TypeError` can reach the reader, and two
+  of the
+  three distinguish a wrong TYPE from a wrong VALUE (`region.cylinder` uses one
+  sentence, which already names the type it wants) — a dict is not an unknown designation, it is
+  not a designation — while still naming what is available either way.
+  **Two narrowings, introduced and removed within the slice, and the lesson is
+  the interesting part.** A type pre-screen does not ask what a dict lookup
+  asks. `isinstance(designation, int)` rejected `numpy.int64`; replacing it
+  with `numbers.Integral` then rejected `Decimal`, `Fraction`, `float` and
+  `numpy.float64` — the last being what a pandas integer column with one
+  missing value gives you. All of them hash equal to an int key and all of them
+  worked before. The lookup is now asked directly, with `TypeError` caught
+  around it, which is the only test that asks the question the lookup asks:
+  everything that worked still works, and nothing reaches a raw `TypeError`.
+  `bool` is still excluded from the *number* branch of the message, because
+  `isinstance(True, int)` is True in Python and `True` is not a designation —
+  the trap `scad_literal` and `runner._number` each carry a note about.
+  (An earlier draft claimed this was "the one place that skipped it". It is
+  not: eight numeric guards in `contract.py` and two in `region.py` accept
+  `True` as a number, including `hole_diameter`'s own `d=` and `tol=`.)
+  **The messages are bounded.** All three sites now quote the operand, and on
+  `main` the unhashable value died before it could be formatted — so the fix
+  made the message worse before it made it better: `cylinder(axis=[0.0]*2000)`
+  produced a 10 KB error and a 20 KB CLI run against main's 1.4 KB, putting the
+  actionable half ten kilobytes from the start of the line. One shared
+  `short_repr` caps it.
+  `diff`'s handling of a report carrying a list where a gap token belongs was
+  checked too, since that is an untrusted-JSON boundary rather than an API one,
+  and that path is clean.
 
 ## [0.7.6] - 2026-08-15
 
