@@ -75,11 +75,24 @@ class Bearing:
 
 def bearing(designation: int) -> Bearing:
     """The boundary dimensions of a deep-groove ball bearing designation."""
-    if designation not in _TABLE:
+    # `isinstance` first, for `region.cylinder`'s reason (#199): a membership
+    # test against a dict hashes its operand, so an unhashable designation died
+    # with `cannot use 'list' as a dict key` instead of the sentence below. Found
+    # by sweeping for the same shape after #199 was filed against the axis guard;
+    # this is the reference table an author reaches for, so it is the second
+    # place a wrong argument type most plausibly arrives.
+    if not isinstance(designation, int) or designation not in _TABLE:
         known = ", ".join(str(d) for d in sorted(_TABLE))
-        raise ContractError(
-            f"iso15.bearing({designation!r}): unknown designation (this table carries: {known})"
+        # A wrong TYPE and an unknown NUMBER are different mistakes and get
+        # different sentences: a dict is not an unknown designation, it is not
+        # a designation. Both carry the table, which is what the reader needs
+        # either way.
+        what = (
+            "unknown designation"
+            if isinstance(designation, int)
+            else f"a designation is an int, not {type(designation).__name__}"
         )
+        raise ContractError(f"iso15.bearing({designation!r}): {what} (this table carries: {known})")
     bore, od, width = _TABLE[designation]
 
     def ref(value: float, field: str) -> Referenced:

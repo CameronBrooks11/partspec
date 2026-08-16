@@ -10,6 +10,7 @@ with the citation in the report.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -561,3 +562,33 @@ def test_the_attribution_block_is_in_the_artifact(tmp_path: Path):
     assert doc["attribution"] == {"dimensional": 2, "attributed": 1}
     keys = list(doc)
     assert keys.index("attribution") == keys.index("counts") + 1
+
+
+@pytest.mark.parametrize(
+    ("designation", "expected"),
+    [
+        (["608"], "a designation is an int, not list"),
+        ({"608": 1}, "a designation is an int, not dict"),
+        ("608", "a designation is an int, not str"),
+        (9999, "unknown designation"),
+    ],
+)
+def test_a_bad_bearing_designation_gets_partspecs_own_message(designation, expected):
+    """The same hole #199 was filed against, found by sweeping for its shape.
+
+    `designation not in _TABLE` hashes its operand, so `iso15.bearing(["608"])`
+    raised `cannot use 'list' as a dict key` — the implementation detail that
+    `_TABLE` is a dict, as the diagnosis. This is the reference table an author
+    reaches for, which makes it the second place a wrong argument type most
+    plausibly arrives.
+
+    A wrong TYPE and an unknown NUMBER get different sentences, because they
+    are different mistakes: a dict is not an unknown designation, it is not a
+    designation. Both carry the table, which is what the reader needs either
+    way.
+    """
+    from partspec.status import ContractError
+
+    with pytest.raises(ContractError, match=re.escape(expected)) as caught:
+        iso15.bearing(designation)
+    assert "this table carries: 608" in str(caught.value), "and it still names the table"

@@ -135,6 +135,34 @@ def test_degenerate_regions_are_refused_at_declaration(build, match):
         build()
 
 
+@pytest.mark.parametrize(
+    "axis",
+    [
+        [0, 0, 1],  # the list form -- the filed case
+        {"z": 1},
+        {0, 1},
+        bytearray(b"z"),
+    ],
+)
+def test_an_unhashable_axis_gets_partspecs_own_message(axis):
+    """#199: the guard died INSIDE itself rather than at it.
+
+    `self.axis not in _AXES` hashes its operand, so an unhashable value raised
+    `TypeError: cannot use 'list' as a dict key` — partspec's own
+    implementation detail, that `_AXES` happens to be a dict, offered as the
+    diagnosis for a user error one keystroke away from the one #193 exists to
+    document. Two fleet agents wrote `axis=(0, 0, 1)`; a tuple is hashable and
+    reached the message, a list is not and did not.
+
+    Same exit code either way (4), so nothing was ever misclassified — this is
+    entirely about the sentence the reader gets. The parametrisation covers
+    every unhashable builtin a plausible typo produces, not just the list,
+    because the hole is the missing type check and not the list specifically.
+    """
+    with pytest.raises(ContractError, match="must be the string"):
+        cylinder(d=5, h=5, axis=axis)
+
+
 # --------------------------------------------------------------------------
 # contract surface
 # --------------------------------------------------------------------------
