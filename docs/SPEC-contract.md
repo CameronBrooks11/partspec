@@ -1015,7 +1015,7 @@ value not verifiable from public manufacturer documentation. An unknown designat
 A fragment is a plain function that declares a mechanical interface's checks onto a part:
 
 ```python
-from partspec.refs import iso15, nema17
+from partspec.refs import iso15, iso_metric_thread, nema17
 
 nema17.mount(p)            # nema17:pilot + nema17:bolt_circle, pattern cited
 iso15.seat(p, 608)         # iso15:608:seat, nominal cited

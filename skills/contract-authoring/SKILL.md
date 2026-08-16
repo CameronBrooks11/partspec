@@ -74,7 +74,8 @@ exists and why geometry claims must carry the weight.
 In descending order of strength — and the report's `attribution` block discloses which
 you used:
 
-1. **A published standard, cited** — `iso15.bearing(608).od`, `nema17.mount(p)`. The
+1. **A published standard, cited** — `iso15.bearing(608).od`,
+   `iso_metric_thread.coarse(8).minor_internal`, `nema17.mount(p)`. The
    number arrives as a `Referenced` value and the citation lands in
    `checks[].source`. Never retype a standard's number; even the exemplar that
    preaches this shipped a transcription error until review computed it

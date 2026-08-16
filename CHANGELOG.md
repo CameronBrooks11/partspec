@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`partspec.refs` carries ISO metric threads** (#194). It had bearings and
+  steppers but not the most widely used dimensional standard in mechanical CAD,
+  so `iso_metric_thread.coarse(8)` now gives M8's pitch and basic profile with
+  every value `Referenced`:
+
+  ```python
+  from partspec.refs import iso_metric_thread as iso_thread
+
+  m8 = iso_thread.coarse(8)
+  p.hole_diameter(m8.minor_internal, tol=0.05)   # cites ISO 724 / M8 / D1
+  ```
+
+  The ISO 261 coarse series from M1.6 to M64 with each diameter's preference
+  rank, and the ISO 68-1 basic profile — pitch diameter, and the two minor
+  diameters, which are different numbers by `0.144·P` and are the ones people
+  confuse.
+  **The size, not the fit.** ISO 965's 6g/6H classes are out under
+  `SPEC-contract.md` §10.1, which excludes a standard's tolerancing tables; #246
+  argues that policy on its own merits rather than settling it inside a data
+  module. The fit stays the designer's, as `iso15` already leaves it.
+  **Derived, not transcribed.** Every profile relation is an exact multiple of
+  `H = (sqrt(3)/2)·P`, so the constants are computed. The prior art is the
+  argument: of the three modules fleet-01 agents hand-wrote, one truncated the
+  `5H/4` coefficient and one carried a minor diameter 1 um off its own formula.
+  The six computed dimensions round exactly to the ISO 724 values those three
+  independently agreed on.
+  **Cited for what each document says.** ISO 261 for the diameter/pitch pairs,
+  ISO 68-1 for the profile, ISO 724 for the basic dimensions — a split two of
+  the three prior modules got wrong, and ISO 261 clause 1 settles: *"Basic
+  dimensions are given in ISO 724."*
+
 - **A failing `keep_out` says how deep the material reached, not only how much**
   (#207). `12.7331 mm3 of material intrudes` was the whole finding, and it is
   the same sentence for a nominal bore's faceting and for a rib 1.5 mm into
@@ -93,6 +124,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deficit of material, not a breach.
 
 ### Fixed
+
+- **The unattributed-limits advisory names every table `refs` carries** (#194).
+  It printed a hardcoded `(iso15, nema17)`, so the one place the tool routes an
+  author to an attributed number went stale the moment a table was added — and
+  stale in the direction that matters, since its whole job is to point at a
+  table the reader did not know existed. It asks the package now.
 
 - **`diff` no longer says a claim held when it failed on both sides** (#220).
   Whenever the outcome was `identical` and the closure had moved, `diff`
