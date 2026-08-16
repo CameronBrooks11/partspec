@@ -28,10 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   technicality it gets to lean on. Under `identical` every id, status and claim
   field is equal on both sides, so the later report describes both.
   **Read off the checks, and off nothing else.** The first version of this fix
-  keyed on the artifact's `verdict`, which is copied from the input and read by
-  nothing else in the comparison — so keying on it added a new trust dependency
-  where the comparator had none, and a report claiming `pass` over a failing
-  check printed #220's sentence verbatim. `status` adds none: it is what the
+  keyed on the artifact's `verdict`. The comparison only ever compares that field
+  against its counterpart — it decides `different` and `indeterminate`, and is
+  never read as a fact about one report — so a lie repeated identically on both
+  sides costs it nothing. Keying a claim about what the checks DID on it made
+  that lie load-bearing for the first time, and a report claiming `pass` over a
+  failing check printed #220's sentence verbatim. `status` adds none: it is what the
   comparison already joins, the evidence every `regressed` and `fixed` rests
   on. `summary_of` takes the later report now, and requires it.
   **Two questions, and they take different check sets** — which the second

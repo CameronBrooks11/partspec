@@ -834,6 +834,27 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"(SPEC-report.md 7.1)"
             )
 
+        # `status` must be a STRING too, and for a sharper reason than tidiness:
+        # the summary reads it into a SET to say what the claims did, so a
+        # non-string status equal on BOTH sides sailed past every comparison —
+        # `_check_entry` only asks `!=` — and then raised `TypeError: cannot
+        # use 'list' as a set element` out of `summary_of`, AFTER the complete
+        # diff artifact had been written to stdout. That is exit 4 with a
+        # traceback where `SPEC-diff.md` §2 and this module's own contract
+        # promise 64 for a malformed report, and where `main` answered 0
+        # (round-3 review of #239).
+        #
+        # Guarded here rather than filtered at the read: the read is one of
+        # several, and a report whose status is not a status is unusable input
+        # by the same argument `counts.total` is guarded under.
+        bad_status = [c.get("status") for c in raw_checks if not isinstance(c.get("status"), str)]
+        if bad_status:
+            raise DiffUsageError(
+                f"the {label} report has {len(bad_status)} check(s) whose `status` is not "
+                f"a string (first: {bad_status[0]!r}); SPEC-report.md 7.1 types it as one "
+                f"of {', '.join(sorted(s.value for s in Status))}"
+            )
+
         # And the id must be a STRING, which SPEC-report §7.1 types it as.
         #
         # `CheckResult.id: str` is an annotation, not an enforcement, so that
@@ -1219,19 +1240,26 @@ def _claims_across_the_change(new_report: dict[str, Any]) -> str:
     #220 reproduced by its own fix.
 
     **Read off the checks, not off `verdict`, and the difference is not
-    fastidiousness.** `verdict` is copied into the artifact and read by nothing
-    else in the comparison, so keying the sentence on it added a NEW trust
-    dependency where the comparator had none — and a forged `pass` reprinted
-    #220's sentence over a failing check. `status` adds none: it is what
-    `_check_entry` already joins and compares, the evidence every `regressed`
-    and `fixed` in the artifact rests on. A pair that lies identically about it
+    fastidiousness.** The comparison only ever compares `verdict` against its
+    counterpart — `verdict_changed` feeds `different`, and `verdict == "error"`
+    feeds `indeterminate` — so it is never read as a FACT about one report, and
+    a lie repeated identically on both sides costs the comparison nothing.
+    Keying a claim about what the checks did on it made that lie load-bearing
+    for the first time, and a forged `pass` reprinted #220's sentence over a
+    failing check. `status` is different in kind: it is what `_check_entry`
+    already joins, the evidence every `regressed` and `fixed` rests on. (An
+    earlier version of this paragraph said `verdict` was "read by nothing else
+    in the comparison", which is false twice over — round-3 review of #239.)
+    A pair that lies identically about `status`
     has defeated the whole comparator, not this sentence, and no cross-check
     inside one report recovers from that — `counts` can be forged with it.
 
     So no `counts` guard here. It would stop a careless forger and imply a
-    completeness it cannot have, and the round-2 review that asked for it read
-    `status` as the same kind of field as `verdict`. `counts.total` is guarded
-    because it is redundant *and* unused; `status` is neither.
+    completeness it cannot have. `counts.total` is guarded because a report
+    contradicting its own arithmetic is unusable input; `status` is not
+    redundant with anything — it IS the input. (`Report.counts()`'s other half,
+    the per-status tally, is redundant and unguarded, which is a real gap and a
+    different issue from this sentence.)
     """
     checks = new_report.get("checks") or []
     # No `isinstance` filter: `diff_reports` refuses a report whose `checks`

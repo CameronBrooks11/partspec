@@ -1956,3 +1956,27 @@ def test_the_diff_verb_sees_a_rotated_pull_axis(tmp_path):
         )
     code = main(["diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")])
     assert code == 1, "a rotated pull axis is a difference, not silence"
+
+
+def test_a_status_that_is_not_a_status_is_corrupt_input():
+    """The summary reads `status` into a SET, so a non-string one crashed.
+
+    `_check_entry` only asks `!=`, so a non-string status equal on BOTH sides
+    sailed past every comparison and then raised `TypeError: cannot use 'list'
+    as a set element` out of `summary_of` — after the complete diff artifact
+    had already been written to stdout. Exit 4 with a traceback, where
+    `SPEC-diff.md` §2 promises 64 for a malformed report and where `main`
+    answered 0 (round-3 review of #239).
+
+    Introduced by removing an `isinstance` filter that the removing commit's
+    own comment called dead: the upstream guard it cited refuses a non-object
+    ENTRY, and says nothing about the field the next line reads.
+    """
+    from partspec.diff import DiffUsageError
+
+    bad = _doc()
+    bad["checks"][0]["status"] = ["pass"]
+    with pytest.raises(DiffUsageError, match="`status` is not a string"):
+        _diff(bad, _doc())
+    with pytest.raises(DiffUsageError, match="`status` is not a string"):
+        _diff(_doc(), bad)
