@@ -36,8 +36,8 @@ envelope and leaves `tol=` to the author.
 
 ## Why the derived diameters still carry a citation
 
-§10 rule 2 says arithmetic sheds attribution, because "a number the standard
-never printed is the author's". The basic pitch and minor diameters are the
+§10 rule 2 says arithmetic sheds attribution, because "the derived number is
+the author's, not the standard's". The basic pitch and minor diameters are the
 exception that proves it: ISO 68-1 defines the profile these relations come
 from, ISO 724 tabulates the results, and nothing of the author's enters the
 computation — both inputs are the standard's and so is the operation. That is
@@ -45,8 +45,9 @@ not laundering authority, it is quoting it. `m8.minor_internal + 0.1` is a plain
 float, as it should be.
 
 They are computed rather than transcribed on purpose, and the argument is
-simply that the standard prints six significant figures where a double holds
-seventeen. ISO 724 clause 5 gives `0,649 519`, `1,082 532` and `1,226 869`;
+simply that the standards print six to nine significant figures where a double
+holds seventeen. ISO 724 clause 5 gives `0,649 519`, `1,082 532` and
+`1,226 869`, and ISO 68-1 clause 5 gives `0,541 265 877`;
 carrying those costs 4e-7 mm at M8 and rather more at M68, for no benefit,
 when `math.sqrt(3) / 2` gives every bit a double holds and is in the stdlib.
 
@@ -128,7 +129,8 @@ _ISO_724 = "ISO 724:2023"
 
 # Height of the fundamental triangle, per pitch. Derived, never transcribed:
 # `sqrt(3)/2` to the last bit a double holds, against the 9- and 10-digit
-# truncations the fleet modules carry.
+# figures the fleet modules carry — which are the standard's own printed
+# values, faithfully doubled, not truncations. See the retraction above.
 _H_PER_PITCH = math.sqrt(3) / 2
 
 # The profile places each diameter a fixed fraction of H off the nominal
@@ -147,9 +149,9 @@ _D3_PER_PITCH = 2 * (17 * _H_PER_PITCH / 24)  # external minor: 17H/24
 # standard settles (round 1 of #194's review):
 #
 #   - M7 is SECOND choice (Table 2 Col. 2), not third.
-#   - The coarse series ends at M68, not M64. M68x6 is Col. 2, and M70 —
-#     Col. 3, sitting between M68 and M72 — is the first diameter Table 2
-#     gives no coarse pitch at all.
+#   - The coarse series ends at M68, not M64. M68x6 is Col. 2, and the next
+#     diameter Table 2 lists, M70 in Col. 3, has fine pitches only — as does
+#     M72 in Col. 1, and everything above.
 #   - M1, M1.1, M1.2 and M1.4 have coarse pitches (0.25, 0.25, 0.25, 0.3) and
 #     two of them are first choice. They were simply missing.
 #
@@ -244,7 +246,7 @@ def sizes(*, choice: int | None = None) -> tuple[float, ...]:
         return tuple(sorted(_COARSE))
     # `complex` alongside `bool`, because `complex(1) == 1`: without it this
     # returned the 21 first-choice diameters for a complex rank while `coarse`
-    # refused a complex diameter three lines down, on the stated ground that
+    # refused a complex diameter further down this file, on the stated ground
     # the wording and the acceptance path must agree (round 2 of #194's review).
     if isinstance(choice, bool | complex) or choice not in (1, 2, 3):
         raise ContractError(

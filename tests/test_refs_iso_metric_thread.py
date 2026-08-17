@@ -101,7 +101,7 @@ def test_the_two_diameters_people_misremember():
 
 
 def test_the_series_stops_where_the_coarse_series_stops():
-    """M68x6 is the last coarse row; M70 is the first diameter with none.
+    """M68x6 is the last coarse row; nothing above it has a coarse pitch.
 
     The first draft stopped at M64 and asserted that as the end of the series,
     so `coarse(68)` was a false refusal and three artefacts stated the wrong
@@ -134,8 +134,9 @@ def test_the_choice_rank_partitions_the_series():
 
 
 # ISO 724:2023 Table 1, coarse rows, as the standard prints them: (d, P) ->
-# (d2, D1, d3). Transcribed from the free iTeh preview, which carries the
-# complete table. This is the fixture the first draft of this file did not
+# (d2, D1, d3). Transcribed from the free iTeh preview, which carries Table 1
+# through M68 — the last coarse row, so the coarse series is covered end to
+# end. This is the fixture the first draft of this file did not
 # have — it pinned two of thirty-five rows and called the rest covered by a
 # monotonicity check, which four plausible wrong pitches walked straight
 # through (round 1 of #194's review).
@@ -240,8 +241,9 @@ def test_the_profile_constants_are_derived_not_typed():
     """The relations, to the last bit a double holds.
 
     The argument is the standards' own: ISO 68-1:2023 clause 5 says its
-    dimensions "have been calculated by the following formulae, and rounded",
-    and prints `H1 = 0,541 265 877 P`. Doubling a printed figure inherits its
+    dimensions "have been calculated by the following formulae, and rounded to
+    the nearest sixth decimal place" — and then prints nine,
+    `H1 = 0,541 265 877 P`. Doubling a printed figure inherits its
     rounding — `1,082 531 754` against a correctly rounded `...755` — so this
     asserts the relations against the arithmetic rather than against any
     decimal literal, the standard's included.
@@ -467,9 +469,9 @@ def test_the_documents_that_list_the_tables_by_hand_are_current():
     root = Path(__file__).resolve().parents[1]
     inline = ", ".join(sorted(refs.__all__))
     # Every needle DERIVED from `refs.__all__`, or the pin is inert for the
-    # next table: simulating a fourth entry, the two hardcoded needles below
-    # still passed while the two derived ones failed (round 2 of #194's
-    # review), which is the exact failure this test claims to close.
+    # next table. Two of these were hardcoded literals until round 2 of #194's
+    # review: simulating a fourth entry, those two passed while the derived
+    # ones failed — the exact failure this test claims to close.
     backticked = ", ".join(f"`{m}`" for m in sorted(refs.__all__))
     for doc, needle in (
         ("README.md", f"carries ({inline})"),

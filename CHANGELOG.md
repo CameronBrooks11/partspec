@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`partspec.refs` carries ISO metric threads** (#194). It had bearings and
   steppers but not the most widely used dimensional standard in mechanical CAD,
-  so `iso_metric_thread.coarse(8)` now gives M8's pitch and its ISO 724
-  dimensions with every value `Referenced`:
+  so `iso_metric_thread.coarse(8)` now gives M8's size and profile dimensions
+  with every value `Referenced` and cited:
 
   ```python
   from partspec.refs import iso_metric_thread as iso_thread
@@ -24,10 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The ISO 261 coarse series, all 40 diameters from M1 to M68 with each one's
   preference rank, and the three ISO 724 clause 5 relations — pitch diameter,
   and the two minor diameters, which differ by `H/6 = 0.144·P` and are the ones
-  people confuse. Transcribed from the primary documents: the free iTeh
-  previews of ISO 261:1998 and ISO 724:2023 carry the complete Table 2 and
-  Table 1, so every row and all 120 derived values are checked against the
-  standards rather than triangulated from secondary publishers. A first draft
+  people confuse. Transcribed from the primary documents: the free iTeh previews
+  carry ISO 261:1998's Table 2 complete and ISO 724:2023's Table 1 through M68,
+  which is the last coarse row, so every row and all 120 derived values are
+  checked against the standards rather than triangulated from secondary
+  publishers. A first draft
   built the table from memory and had three defects the standard settles —
   M7 is second choice, the coarse series ends at M68 rather than M64, and M1
   through M1.4 were missing, two of them first choice.
