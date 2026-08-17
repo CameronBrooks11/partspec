@@ -181,7 +181,8 @@ pinned part from the invocation — from where you sit these are indistinguishab
   tolerate;
 - the run-level `attribution` block discloses when every dimensional limit is
   unattributed — bounds derived from the model's own numbers prove the model matches
-  itself; take limits from `partspec.refs` (`iso15`, `nema17`) or the drawing.
+  itself; take limits from `partspec.refs` (`iso15`, `iso_metric_thread`,
+  `nema17`) or the drawing.
 
 A contract change can be *right* — the fix is to propose it in an escalation and let a
 human apply and re-pin it, never to make it silently.

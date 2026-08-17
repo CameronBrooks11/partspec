@@ -9,6 +9,6 @@ patterns, envelope sizes. Never a reproduction of a standard's text, figures or
 tolerancing tables: a citation points at the document; it does not replace it.
 """
 
-from . import iso15, nema17
+from . import iso15, iso_metric_thread, nema17
 
-__all__ = ["iso15", "nema17"]
+__all__ = ["iso15", "iso_metric_thread", "nema17"]

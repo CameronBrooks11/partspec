@@ -1609,6 +1609,21 @@ _ICON = {
 }
 
 
+def _refs_carried() -> str:
+    """The standards `partspec.refs` actually carries, asked rather than typed.
+
+    This advisory is the one place the tool tells an author where to get an
+    attributed number, so a hardcoded list here goes stale the moment `refs`
+    grows — and stale in the direction that matters, since the whole point is
+    to route someone to a table they did not know existed. It said
+    "iso15, nema17" for as long as those were the only two, and #194 made that
+    false without a single test noticing.
+    """
+    from . import refs
+
+    return ", ".join(sorted(refs.__all__))
+
+
 def _summarise(report, path: Path) -> None:
     """A human summary on stderr. stdout stays clean for the report path.
 
@@ -1672,7 +1687,7 @@ def _summarise(report, path: Path) -> None:
             f"  every dimensional limit on {report.part_id!r} is unattributed: "
             f"bounds derived from the model's own numbers prove the model matches "
             f"itself — cite the source instead: partspec.refs for a standard it "
-            f'carries (iso15, nema17), else partspec.Referenced(value, {{"standard": '
+            f'carries ({_refs_carried()}), else partspec.Referenced(value, {{"standard": '
             f'..., "subject": ..., "field": ...}}) for anything it does not '
             f"(SPEC-contract.md 10)",
             file=sys.stderr,

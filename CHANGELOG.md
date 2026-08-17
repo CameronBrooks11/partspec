@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`partspec.refs` carries ISO metric threads** (#194). It had bearings and
+  steppers but not the most widely used dimensional standard in mechanical CAD,
+  so `iso_metric_thread.coarse(8)` now gives M8's size and profile dimensions
+  with every value `Referenced` and cited:
+
+  ```python
+  from partspec.refs import iso_metric_thread as iso_thread
+
+  m8 = iso_thread.coarse(8)
+  p.hole_diameter(m8.minor_internal, tol=0.05)   # cites ISO 724 / M8 / D1
+  ```
+
+  The ISO 261 coarse series, all 40 diameters from M1 to M68 with each one's
+  preference rank, and the three ISO 724 clause 5 relations — pitch diameter,
+  and the two minor diameters, which differ by `H/6 = 0.144·P` and are the ones
+  people confuse. Transcribed from the primary documents: the free iTeh previews
+  carry ISO 261:1998's Table 2 complete and ISO 724:2023's Table 1 through M68,
+  which is the last coarse row, so every row and all 120 derived values are
+  checked against the standards rather than triangulated from secondary
+  publishers. A first draft
+  built the table from memory and had three defects the standard settles —
+  M7 is second choice, the coarse series ends at M68 rather than M64, and M1
+  through M1.4 were missing, two of them first choice.
+  **The size, not the fit.** ISO 965's 6g/6H classes are out under
+  `SPEC-contract.md` §10.1, which excludes a standard's tolerancing tables; #246
+  argues that policy on its own merits rather than settling it inside a data
+  module. The fit stays the designer's, as `iso15` already leaves it.
+  **Derived, not transcribed**, because the standards print six to nine
+  significant figures where a double holds seventeen: ISO 724 clause 5 gives
+  `0,649 519`, ISO 68-1 clause 5 gives `0,541 265 877`, and `math.sqrt(3) / 2`
+  gives every bit there is. The values are therefore
+  the exact formula rather than the printed digits — up to 0.4955 um apart, at
+  M5's `d3` — and each citation carries a `note` saying so.
+  **Cited for what each document says, and dated.** ISO 261:1998 for the
+  diameter/pitch pairs, ISO 68-1:2023 for the profile, ISO 724:2023 for the
+  three relations and their values. The edition is load-bearing: `d3` exists
+  only from ISO 724:2023, while ISO 261:1998 normatively references ISO
+  724:1993, which has no `d3` at all. And these are ISO 724's *basic
+  dimensions* but they sit on ISO 68-1's *design* profile — its Scope says so —
+  which is a distinction two of the three prior fleet modules lost.
+
 - **A failing `keep_out` says how deep the material reached, not only how much**
   (#207). `12.7331 mm3 of material intrudes` was the whole finding, and it is
   the same sentence for a nominal bore's faceting and for a rib 1.5 mm into
@@ -93,6 +134,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deficit of material, not a breach.
 
 ### Fixed
+
+- **The unattributed-limits advisory names every table `refs` carries** (#194).
+  It printed a hardcoded `(iso15, nema17)`, so the one place the tool routes an
+  author to an attributed number went stale the moment a table was added — and
+  stale in the direction that matters, since its whole job is to point at a
+  table the reader did not know existed. It asks the package now.
 
 - **`diff` no longer says a claim held when it failed on both sides** (#220).
   Whenever the outcome was `identical` and the closure had moved, `diff`
