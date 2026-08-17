@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`partspec.refs` carries ISO metric threads** (#194). It had bearings and
   steppers but not the most widely used dimensional standard in mechanical CAD,
-  so `iso_metric_thread.coarse(8)` now gives M8's pitch and basic profile with
-  every value `Referenced`:
+  so `iso_metric_thread.coarse(8)` now gives M8's pitch and its ISO 724
+  dimensions with every value `Referenced`:
 
   ```python
   from partspec.refs import iso_metric_thread as iso_thread
@@ -35,11 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SPEC-contract.md` §10.1, which excludes a standard's tolerancing tables; #246
   argues that policy on its own merits rather than settling it inside a data
   module. The fit stays the designer's, as `iso15` already leaves it.
-  **Derived, not transcribed**, because the standard prints six significant
-  figures where a double holds seventeen: ISO 724 gives `0,649 519` and
-  friends, and `sqrt(3)/2` is exact and in the stdlib. The values are therefore
-  the exact formula rather than the printed digits — up to 0.48 um apart — and
-  each citation carries a `note` saying so.
+  **Derived, not transcribed**, because the standards print six to nine
+  significant figures where a double holds seventeen: ISO 724 clause 5 gives
+  `0,649 519`, ISO 68-1 clause 5 gives `0,541 265 877`, and `math.sqrt(3) / 2`
+  gives every bit there is. The values are therefore
+  the exact formula rather than the printed digits — up to 0.4955 um apart, at
+  M5's `d3` — and each citation carries a `note` saying so.
   **Cited for what each document says, and dated.** ISO 261:1998 for the
   diameter/pitch pairs, ISO 68-1:2023 for the profile, ISO 724:2023 for the
   three relations and their values. The edition is load-bearing: `d3` exists

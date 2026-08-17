@@ -1,4 +1,4 @@
-"""ISO metric screw threads: the coarse-pitch series and the basic profile.
+"""ISO metric screw threads: the coarse-pitch series and the ISO 724 dimensions.
 
 `partspec.refs` carried bearings and steppers but not the most widely used
 dimensional standard in mechanical CAD, so an author asserting anything about a
@@ -9,10 +9,11 @@ source instead: partspec.refs for a standard it carries"* — could only ever
 route them to the hand-rolled path (#194).
 
 Every value here is checked against the primary documents. The free iTeh
-previews of ISO 261:1998 and ISO 724:2023 carry the complete Table 2 and
-Table 1, so this table is transcribed from the standards rather than
-triangulated from secondary publishers — which is what an earlier draft did,
-and it cost three wrong rows.
+previews carry ISO 261:1998's Table 2 complete, and ISO 724:2023's Table 1
+through M68 — which is exactly the last coarse row, so the coarse series is
+covered end to end. This table is therefore transcribed from the standards
+rather than triangulated from secondary publishers, which is what an earlier
+draft did, and it cost three wrong rows.
 
     from partspec.refs import iso_metric_thread as iso_thread
 
@@ -46,19 +47,24 @@ float, as it should be.
 They are computed rather than transcribed on purpose, and the argument is
 simply that the standard prints six significant figures where a double holds
 seventeen. ISO 724 clause 5 gives `0,649 519`, `1,082 532` and `1,226 869`;
-carrying those costs 4e-7 mm at M8 and rather more at M64, for no benefit,
-when `sqrt(3)/2` is exact and in the stdlib.
+carrying those costs 4e-7 mm at M8 and rather more at M68, for no benefit,
+when `math.sqrt(3) / 2` gives every bit a double holds and is in the stdlib.
 
 (An earlier draft argued this from the prior art instead, and the review
 falsified both examples. The "1 um" error attributed to one fleet module is
 that module's own disclosed tolerance BAND, chosen and documented; the largest
-actual discrepancy anywhere in the three is 0.435 um. And the other did not
-truncate a coefficient — it doubled ISO 68-1's own printed `H1 = 0,541 265 877`
-and said so in a comment. Neither is a mistake. Attacking the standard's
-printed figures as sloppy transcription was the mistake.)
+gap explainable by the table's own 3-decimal rounding is 0.435 um, and the one
+value that exceeds it — 0.734 um — is a faithful transcription of a secondary
+table that derives its minor diameter from an already-rounded pitch diameter,
+in a constant that bounds no check. And the other module did not truncate its
+coefficients: `1,082 531 754` and `0,649 519 052` are ISO 68-1's own printed
+`0,541 265 877` and `0,324 759 526` doubled, as its comments say. Neither is a
+mistake. Attacking the standard's printed figures as sloppy transcription was
+the mistake.)
 
 The values are therefore the **exact** dimensions. ISO 724 tabulates the same
-quantities rounded to three decimals; the two agree to within 0.48 um, and
+quantities rounded to three decimals; the two agree to within 0.4955 um —
+the worst case is M5's `d3`, 4.018504542 against a printed 4.019 — and
 `test_every_row_matches_iso_724_table_1` pins all 120 of them against the
 standard's printed table.
 
@@ -82,6 +88,16 @@ Scope is explicit: *"The values refer to the design profiles according to ISO
 design profile**; the basic profile has one minor diameter, not two. Getting
 that wrong is the same mis-attribution this module criticises in the prior art,
 so it is worth being exact: **basic dimension, design profile.**
+
+One wrinkle, because a reader following the other citation will hit it: the two
+standards disagree about `H1`. ISO 724:2023 clause 4 calls it a design-profile
+quantity, as quoted above; ISO 68-1:2023 clause 4 calls it *"thread height of
+internal thread, and thread height of external thread on basic profile"*, and
+gives `H1 = 5H/8` under its clause 5, **Basic profile**. Nothing numeric turns
+on it — `D1 = d - 1,082 532 P` either way, because the two profiles coincide in
+height on the internal thread — but the disagreement is real and it is not
+worth anyone rediscovering. Only `d3` is unambiguously design-profile; both
+documents agree on that one.
 """
 
 from __future__ import annotations
@@ -101,7 +117,8 @@ __all__ = ["Thread", "coarse", "sizes", "tapped_hole"]
 
 # Dated, because the edition is load-bearing. `d3` exists only from ISO
 # 724:2023 — its foreword records "the values and formula for the minor
-# diameter of external thread, d3, have been added in Table 1" — and ISO
+# diameter of external thread, d3, have been added in Table 1 and Clause 5" —
+# and ISO
 # 261:1998 normatively references ISO 724:1993, which has no d3 at all. A bare
 # "ISO 724" would send a reader following this module's own citation chain to
 # an edition that does not contain the number (round 1 of #194's review).
@@ -130,8 +147,9 @@ _D3_PER_PITCH = 2 * (17 * _H_PER_PITCH / 24)  # external minor: 17H/24
 # standard settles (round 1 of #194's review):
 #
 #   - M7 is SECOND choice (Table 2 Col. 2), not third.
-#   - The coarse series ends at M68, not M64. M68x6 is Col. 2; M72 is the
-#     first diameter Table 2 gives no coarse pitch at all.
+#   - The coarse series ends at M68, not M64. M68x6 is Col. 2, and M70 —
+#     Col. 3, sitting between M68 and M72 — is the first diameter Table 2
+#     gives no coarse pitch at all.
 #   - M1, M1.1, M1.2 and M1.4 have coarse pitches (0.25, 0.25, 0.25, 0.3) and
 #     two of them are first choice. They were simply missing.
 #
@@ -224,7 +242,11 @@ def sizes(*, choice: int | None = None) -> tuple[float, ...]:
     """
     if choice is None:
         return tuple(sorted(_COARSE))
-    if isinstance(choice, bool) or choice not in (1, 2, 3):
+    # `complex` alongside `bool`, because `complex(1) == 1`: without it this
+    # returned the 21 first-choice diameters for a complex rank while `coarse`
+    # refused a complex diameter three lines down, on the stated ground that
+    # the wording and the acceptance path must agree (round 2 of #194's review).
+    if isinstance(choice, bool | complex) or choice not in (1, 2, 3):
         raise ContractError(
             f"iso_metric_thread.sizes(choice={short_repr(choice)}): ISO 261 ranks "
             f"diameters first, second or third choice — pass 1, 2 or 3, or omit "
@@ -295,8 +317,9 @@ def coarse(nominal: float) -> Thread:
 
     # ISO 724 clause 5: the table's values "have been calculated from the
     # following formulae and rounded to the third decimal place". This keeps
-    # the unrounded value — up to 0.48 um from the printed one — so the
-    # citation has to say that rather than imply the digits were transcribed.
+    # the unrounded value — up to 0.4955 um from the printed one, at M5's d3 —
+    # so the citation has to say that rather than imply the digits were
+    # transcribed.
     _EXACT = "exact value of the clause 5 formula; the table rounds to 3 decimals"
 
     return Thread(

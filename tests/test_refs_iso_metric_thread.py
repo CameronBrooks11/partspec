@@ -1,29 +1,33 @@
-"""The ISO metric coarse series and basic profile (#194).
+"""The ISO metric coarse series and the ISO 724 dimensions (#194).
 
-This is a DATA module, so the tests are shaped differently from the rest of the
-suite: there is no behaviour to mutate, only numbers to be wrong. Three kinds of
-assertion earn their place here.
+Mostly a DATA module, so most of these tests are shaped differently from the
+rest of the suite: there is no behaviour to mutate, only numbers to be wrong.
+Four kinds of assertion earn their place.
 
-1. **Cross-checks against independently sourced figures.** Six basic dimensions
-   are pinned against values three fleet-01 modules arrived at separately — one
-   deriving them from ISO 965-1 grades, two transcribing them from published
-   limit tables. Agreement to the last digit across three sourcings is the
-   strongest evidence available for a table nobody here can open the standard
-   for.
-2. **Internal consistency the standard implies.** A pitch series must not
-   decrease with diameter; every pitch must be one the standard actually uses;
-   the three derived diameters must be ordered `d3 < D1 < d2 < d`. These catch
-   transcription errors that no single-value check can — a swapped digit in one
-   row breaks monotonicity even when the value looks plausible.
-3. **The provenance contract** (SPEC-contract.md §10): a citation on every
-   dimension, shed by arithmetic, and naming the standard that actually says the
-   thing.
+1. **The standard's own tables, transcribed as fixtures.** `_ISO_724_TABLE_1`
+   is ISO 724:2023 Table 1's coarse rows, and every one of the 40 rows and 120
+   derived values is checked against it; the choice ranks are checked against
+   ISO 261:1998 Table 2 the same way. This is the primary assertion of the
+   file. An earlier draft had no such fixture — it pinned two rows out of
+   thirty-five and leaned on the consistency checks below — and three rows were
+   wrong.
+2. **Consistency the standard implies**, which is now a supplement rather than
+   the defence: the pitch must not decrease with diameter, every pitch must be
+   one ISO 261 uses, and the derived diameters must be ordered
+   `d3 < D1 < d2 < d`. These are worth keeping because they fail on a whole
+   class of edit at once, but they are demonstrably not sufficient — four of
+   four plausible wrong pitches walked straight through the monotonicity check.
+3. **The boundary, from both sides.** A diameter ISO 261 gives no coarse pitch
+   must be refused, and a diameter it does give one must not be. An omission is
+   as much a defect as a wrong digit, and dropping a row used to be invisible.
+4. **The behaviour that is here**: the lookup guard, the provenance contract
+   (SPEC-contract.md §10), the `tapped_hole` fragment, and the CLI advisory
+   that routes an author to this table in the first place.
 """
 
 from __future__ import annotations
 
 import math
-import os
 from pathlib import Path
 
 import pytest
@@ -41,7 +45,7 @@ from partspec.status import ContractError
 def test_the_coarse_pitch_never_decreases_as_the_diameter_grows():
     """A monotonicity a transcription error cannot satisfy by accident.
 
-    Single-value checks cannot cover 35 rows, and a wrong digit usually still
+    Single-value checks cannot cover 40 rows, and a wrong digit usually still
     looks like a plausible pitch. It almost never preserves the ordering: an
     M14 typed as 1.5 instead of 2 sits below M12's 1.75 and fails here.
     """
@@ -73,11 +77,12 @@ def test_every_pitch_is_one_the_standard_actually_uses():
 
 
 def test_the_three_sizes_the_fleet_verified():
-    """M3, M5 and M8 are the only diameters with independent corroboration.
+    """M3, M5 and M8, the three the prior art corroborates independently.
 
-    All three arm-C modules carry M3x0.5 and M8x1.25; c2's `calibrate.py`
-    implies M5x0.8 from a 6g major max of 4.976. Everything else in the table
-    rests on a single sourcing, which the module docstring says.
+    Subsumed by `test_every_row_matches_iso_724_table_1` now that the primary
+    table is a fixture, and kept only as the record of what was checkable
+    before it was: all three arm-C modules carry M3x0.5 and M8x1.25, and c2's
+    `calibrate.py` implies M5x0.8 from a 6g major max of 4.976.
     """
     assert iso_thread.coarse(3).pitch == 0.5
     assert iso_thread.coarse(5).pitch == 0.8
@@ -96,7 +101,7 @@ def test_the_two_diameters_people_misremember():
 
 
 def test_the_series_stops_where_the_coarse_series_stops():
-    """M68x6 is the last coarse row; M72 is the first diameter with none.
+    """M68x6 is the last coarse row; M70 is the first diameter with none.
 
     The first draft stopped at M64 and asserted that as the end of the series,
     so `coarse(68)` was a false refusal and three artefacts stated the wrong
@@ -124,7 +129,7 @@ def test_the_choice_rank_partitions_the_series():
 
 
 # ---------------------------------------------------------------------------
-# the basic profile
+# the ISO 724 dimensions
 # ---------------------------------------------------------------------------
 
 
@@ -232,13 +237,21 @@ def test_the_diameters_iso_261_lists_without_a_coarse_pitch_are_refused():
 
 
 def test_the_profile_constants_are_derived_not_typed():
-    """`sqrt(3)/2` to the last bit a double holds.
+    """The relations, to the last bit a double holds.
 
-    The prior art is the argument: one fleet module truncated the `5H/4`
-    coefficient to `1.082531754` where the correct round is `...755`, and
-    another carried a minor diameter 1 um off its own formula. A constant you
-    can derive should never be typed in, so this asserts the relations against
-    the arithmetic rather than against a decimal literal.
+    The argument is the standards' own: ISO 68-1:2023 clause 5 says its
+    dimensions "have been calculated by the following formulae, and rounded",
+    and prints `H1 = 0,541 265 877 P`. Doubling a printed figure inherits its
+    rounding — `1,082 531 754` against a correctly rounded `...755` — so this
+    asserts the relations against the arithmetic rather than against any
+    decimal literal, the standard's included.
+
+    An earlier draft argued from the prior art instead and called those figures
+    a truncation and a 1 um error. Both were falsified: the doubling is
+    faithful to what ISO 68-1 prints, and the 1 um is one fleet module's own
+    disclosed tolerance band. The module docstring retracted them and this one
+    did not, which is the fix-here-leave-there fossil these reviews keep
+    finding (round 2 of #194's review).
     """
     h = math.sqrt(3) / 2
     for d in iso_thread.sizes():
@@ -246,9 +259,9 @@ def test_the_profile_constants_are_derived_not_typed():
         p = float(t.pitch)
         # `rel=1e-15`, not bit-exact: the module and this test associate the
         # multiplications differently, so the last bit legitimately differs.
-        # Every error worth catching is 1e-9 relative or larger — c3's
-        # truncated `1.082531754` is 7e-10 out, and a wrong fraction is a
-        # percent.
+        # Every error worth catching is 1e-9 relative or larger — doubling ISO
+        # 68-1's printed 9-decimal figure lands 7e-10 out, and a wrong fraction
+        # is a percent.
         assert t.height == pytest.approx(h * p, rel=1e-15)
         assert t.pitch_diameter == pytest.approx(d - 2 * (3 * h * p / 8), rel=1e-15)
         assert t.minor_internal == pytest.approx(d - 2 * (5 * h * p / 8), rel=1e-15)
@@ -257,7 +270,10 @@ def test_the_profile_constants_are_derived_not_typed():
     # And the constants themselves carry every bit `sqrt(3)/2` has, which is
     # the specific thing the prior art lost.
     assert math.sqrt(3) / 2 == iso_thread._H_PER_PITCH
-    assert iso_thread._D1_PER_PITCH != 1.082531754, "c3's truncation, 7e-10 out"
+    assert iso_thread._D1_PER_PITCH != 1.082531754, (
+        "ISO 68-1's printed H1 doubled: faithful to the standard, 7e-10 out"
+    )
+    assert iso_thread._D2_PER_PITCH != 0.649519052, "the same, for 3H/8"
 
 
 def test_the_three_derived_diameters_are_ordered_and_distinct():
@@ -381,6 +397,17 @@ def test_a_wrong_type_and_an_unknown_number_are_different_mistakes():
 
     with pytest.raises(ContractError, match="not list"):
         iso_thread.coarse([8])  # type: ignore[arg-type]
+    # `complex(8)` hashes and compares EQUAL to 8, so it passes the membership
+    # test and is caught only by the conversion inside the guard. Moving that
+    # conversion back outside restores a raw `TypeError` and passed the whole
+    # file (round 2 of #194's review).
+    with pytest.raises(ContractError, match="not complex"):
+        iso_thread.coarse(complex(8))  # type: ignore[arg-type]
+    # And a `Number` that is not a `Real`: `Decimal` resolves when it is in the
+    # table, so an unknown one is an unknown DIAMETER, not a wrong type. The
+    # wording branch narrowing to `numbers.Real` is #240's round-3 defect.
+    with pytest.raises(ContractError, match="no coarse pitch at this diameter"):
+        iso_thread.coarse(Decimal("1.6"))  # type: ignore[arg-type]
     # No `type: ignore` here, and that is the point: `bool` IS a `float` to a
     # type checker (bool -> int -> float), so `coarse(True)` type-checks clean
     # and only the runtime guard stands between it and a lookup that would
@@ -394,7 +421,7 @@ def test_a_wrong_type_and_an_unknown_number_are_different_mistakes():
         assert iso_thread.coarse(equivalent).designation == "M8"  # type: ignore[arg-type]
 
 
-def test_the_unattributed_advisory_names_every_table_refs_carries(tmp_path, capsys):
+def test_the_unattributed_advisory_names_every_table_refs_carries(tmp_path, capsys, monkeypatch):
     """The one place the tool routes an author to an attributed number.
 
     It named "iso15, nema17" as a hardcoded string, so adding a table left the
@@ -416,12 +443,8 @@ def test_the_unattributed_advisory_names_every_table_refs_carries(tmp_path, caps
         "def main():\n"
         '    return Part("blk", openscad("m.scad")).volume(min=1.0)\n'
     )
-    cwd = Path.cwd()
-    try:
-        os.chdir(tmp_path)
-        main(["check", "spec.py:main", "--out", "out"])
-    finally:
-        os.chdir(cwd)
+    monkeypatch.chdir(tmp_path)
+    main(["check", "spec.py:main", "--out", "out"])
 
     printed = capsys.readouterr().err
     assert "is unattributed" in printed, "premise: the advisory fired"
@@ -443,13 +466,24 @@ def test_the_documents_that_list_the_tables_by_hand_are_current():
 
     root = Path(__file__).resolve().parents[1]
     inline = ", ".join(sorted(refs.__all__))
+    # Every needle DERIVED from `refs.__all__`, or the pin is inert for the
+    # next table: simulating a fourth entry, the two hardcoded needles below
+    # still passed while the two derived ones failed (round 2 of #194's
+    # review), which is the exact failure this test claims to close.
+    backticked = ", ".join(f"`{m}`" for m in sorted(refs.__all__))
     for doc, needle in (
         ("README.md", f"carries ({inline})"),
         ("docs/SPEC-contract.md", f"from partspec.refs import {inline}"),
-        ("docs/AGENT-CONTRACT.md", "`iso15`, `iso_metric_thread`,\n  `nema17`"),
-        ("skills/contract-authoring/SKILL.md", "iso_metric_thread.coarse(8)"),
+        ("docs/AGENT-CONTRACT.md", backticked),
     ):
-        assert needle in (root / doc).read_text(), f"{doc} lists the tables by hand and is stale"
+        collapsed = " ".join((root / doc).read_text().split())
+        assert needle in collapsed, f"{doc} lists the tables by hand and is stale"
+
+    # SKILL.md names them as calls rather than as a list, so the pin is that
+    # each one is named at all — still derived, still fails on a new table.
+    skill = (root / "skills/contract-authoring/SKILL.md").read_text()
+    for module in refs.__all__:
+        assert module in skill, f"SKILL.md never names {module}"
 
 
 def test_sizes_refuses_a_rank_iso_261_does_not_have():
@@ -459,7 +493,7 @@ def test_sizes_refuses_a_rank_iso_261_does_not_have():
     fourth", which is a statement and a wrong one. `sizes(choice=True)` was
     worse: `True == 1`, so it returned the whole first-choice list.
     """
-    for bad in (0, 4, -1, True, False, "1", 2.5, [1]):
+    for bad in (0, 4, -1, True, False, "1", 2.5, [1], complex(1)):
         with pytest.raises(ContractError, match="pass 1, 2 or 3"):
             iso_thread.sizes(choice=bad)  # type: ignore[arg-type]
     # `1.0` IS accepted, the same way `coarse(8.0)` is: the test is on the
