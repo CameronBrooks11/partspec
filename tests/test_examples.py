@@ -32,6 +32,13 @@ def test_the_bracket_carries_the_standards_citation(tmp_path: Path):
     assert bolt["source"]["bcd"]["standard"] == "NEMA ICS 16"
 
 
+def _region_block(doc: str) -> str:
+    """The one fenced python block in `doc` that shows the region calls."""
+    blocks = [b for b in re.findall(r"```python\n(.*?)```", doc, re.S) if "p.keep_out(" in b]
+    assert len(blocks) == 1, "exactly one block shows the region calls"
+    return blocks[0]
+
+
 def test_the_bracket_is_the_worked_region_example(tmp_path: Path):
     """#200: `keep_out`/`keep_in` appeared in no example anywhere, so an author
     had to guess `region.cylinder`'s argument shapes — and two fleet agents on
@@ -73,7 +80,11 @@ def test_the_bracket_is_the_worked_region_example(tmp_path: Path):
     plate_web, base_web = by_id["joint-web-plate"], by_id["joint-web-base"]
     for web in (plate_web, base_web):
         assert web["kind"] == "keep_in" and web["status"] == "pass"
-        assert web["region"]["shell"], "a keep_in without a shell is satisfied by a solid brick"
+        # The API requires shell > 0; on these two it is inert (their shells
+        # escape the part's outer faces, so a solid brick passes them). The
+        # assertion is that the declaration carries one, not that it bites —
+        # the message used to claim the latter, which is false here.
+        assert web["region"]["shell"] > 0, "the API requires a shell on every region"
         # Rooted in the shared corner, which both members supply.
         assert web["region"]["min"][1] < thickness and web["region"]["min"][2] < thickness
 
@@ -99,6 +110,20 @@ def test_the_bracket_is_the_worked_region_example(tmp_path: Path):
     exec(textwrap.dedent(pasted[0]), {"p": subject})  # noqa: S102 - the doc IS the test
     assert [c.kind for c in subject.checks] == ["keep_out", "keep_in", "keep_in"]
     assert 'axis="y"' in pasted[0], "the README must show the spelled-out axis"
+
+    # And the doc blocks show the CONTRACT'S numbers. Executing a block proves
+    # it runs, not that it is the example — the SKILL block could show a box
+    # spanning the air outside the L and survive, and the README's could drift
+    # from `spec.py` the moment THICKNESS changed (round 2 of #200's review).
+    skill_doc = (
+        Path(__file__).resolve().parents[1] / "skills" / "contract-authoring" / "SKILL.md"
+    ).read_text()
+    shipped = [c["region"] for c in report["checks"] if c["kind"] in ("keep_out", "keep_in")]
+    for doc, name in ((pasted[0], "the README block"), (_region_block(skill_doc), "SKILL.md")):
+        shown = _Part("doc-subject", _openscad("m.scad"))
+        exec(textwrap.dedent(doc), {"p": shown})  # noqa: S102
+        shown_regions = [{**c.region.to_json(), "shell": c.shell} for c in shown.checks if c.region]
+        assert shown_regions == shipped, f"{name} shows regions the contract does not declare"
 
 
 def test_the_bearing_family_follows_the_standard(tmp_path: Path):

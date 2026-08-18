@@ -13,7 +13,7 @@ What to imitate here:
   happens when that distinction is lost.
 - `requires` runs before any geometry: a bracket too short to carry the motor
   face fails in milliseconds, not after a build.
-- **The two region checks are the worked example for `keep_out` / `keep_in`**
+- **The three region checks are the worked example for `keep_out` / `keep_in`**
   (#200). They state a requirement about SPACE rather than about a feature,
   which is a different kind of claim from everything above and the one with
   no example anywhere until now. Note `axis="y"`: the axis is one of the
@@ -99,15 +99,33 @@ def stepper_bracket() -> Part:
     # alone satisfied it and it passed on a bracket with no plate at all
     # (round 1 of #200's review). A region proves nothing about a member it
     # never enters.
+    # Two more things a reader should not have to rediscover.
+    #
+    # A region covers exactly what it spans: +/-26 of a 56 mm joint is 93% of
+    # it, and a sever confined to the last 2 mm at each end passes. That is a
+    # region's nature rather than a defect, but the number is a choice and it
+    # should be a stated one.
+    #
+    # And `shell` is INERT on both of these, though the API requires it. A
+    # keep-in's shell exists to fail a solid brick — "material everywhere here"
+    # being satisfied perfectly by unbounded material — and it does that by
+    # demanding some emptiness within `shell` of the region. These regions are
+    # rooted 0.5 mm from the bracket's own outer faces, so their shells escape
+    # into free space on those sides and are never entirely solid, for the L
+    # and for a brick alike: a solid 56x40x62 block passes both. The shell does
+    # real work on the keep-out above, and on the shape `keep_in`'s docstring
+    # describes — a boss or a pin standing proud, where the surround is air on
+    # the real part and material on the brick. Here the envelope and
+    # `solid_count` are what exclude the brick.
     p.keep_in(
         # Up the plate, through z = 5 where the base stops.
-        region.box(min=(-20.0, 0.5, 0.5), max=(20.0, THICKNESS - 0.5, 12.0)),
+        region.box(min=(-26.0, 0.5, 0.5), max=(26.0, THICKNESS - 0.5, 12.0)),
         shell=1.0,
         id="joint-web-plate",
     )
     p.keep_in(
         # Along the base, past y = 5 where the plate stops.
-        region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 12.0, THICKNESS - 0.5)),
+        region.box(min=(-26.0, 0.5, 0.5), max=(26.0, 12.0, THICKNESS - 0.5)),
         shell=1.0,
         id="joint-web-base",
     )

@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The keep-in is the L's corner, and it takes **two** boxes. The members are
   perpendicular slabs, so one box needing material from both would also span
   the concave quarter outside the L, which is air.
+  It also says plainly what the shell does NOT do here: a `keep_in` rooted near
+  the part's outer faces has a shell that escapes into free space, so it never
+  fires and a solid brick passes it. The keep-out's shell does real work — pull
+  the pilot bore and the region fails, pull the plate and the shell fails — and
+  saying so of one while the other is inert is worth more than a rule that
+  holds everywhere and bites nowhere.
   Which is the lesson the example is really for: **a region proves nothing
   about a member it never enters**, and both ways of getting that wrong were
   shipped in drafts of it. The first box lay inside the plate's thickness, so

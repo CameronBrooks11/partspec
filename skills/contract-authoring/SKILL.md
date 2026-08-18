@@ -64,9 +64,9 @@ p.keep_out(
 # keep_in — this space must be ENTIRELY material. Here, an L-bracket's
 # corner: TWO boxes, because the members are perpendicular slabs and one box
 # needing material from both would also span the air outside the L.
-p.keep_in(region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 4.5, 12.0)), shell=1.0,
+p.keep_in(region.box(min=(-26.0, 0.5, 0.5), max=(26.0, 4.5, 12.0)), shell=1.0,
           id="joint-web-plate")   # up the plate, past where the base stops
-p.keep_in(region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 12.0, 4.5)), shell=1.0,
+p.keep_in(region.box(min=(-26.0, 0.5, 0.5), max=(26.0, 12.0, 4.5)), shell=1.0,
           id="joint-web-base")    # along the base, past where the plate stops
 ```
 
@@ -74,15 +74,22 @@ p.keep_in(region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 12.0, 4.5)), shell=1.0,
   refused — and which two fleet agents on different engines both reached for.
 - **`at` is the centre of the cylinder's base**, in the model's own coordinates.
   Locate it off the datum the model uses, not off accumulated offsets.
-- **`shell` is not optional thinking.** It is the anti-vacuity guard: an absent part
+- **`shell` is not optional thinking** — it is the anti-vacuity guard. An absent part
   has an empty region too, so `keep_out` pairs "no material here" with "material near
-  here", and `keep_in` pairs the converse. Size it to a real clearance.
-- **A region must reach where the claim is.** A `keep_in` box that fits inside one
-  feature is satisfied by that feature alone, whatever happened to the thing you meant
-  to prove. Both ways of getting this wrong were shipped in drafts of the bracket
+  here", and `keep_in` pairs the converse. Size it to a real clearance. Know when it
+  cannot help, too: a `keep_in` rooted near the part's outer surface has a shell that
+  escapes into free space, so it is never entirely solid and a solid brick passes it.
+  Both `keep_in`s above are in that position; their work is done by the pair of them,
+  and the brick is excluded by `envelope` and `solid_count`.
+- **A region must reach where the claim is.** A single `keep_in` box that fits inside
+  one feature is satisfied by that feature alone, whatever happened to the thing you
+  meant to prove. Both ways of getting this wrong were shipped in drafts of the bracket
   example: a box inside the plate passed with the base cut away, and a box inside the
-  base passed with no plate at all. **Check by breaking the model and watching the
-  check fail** — that is the only way to know a region says what you think.
+  base passed with no plate at all. The fix is not a bigger box — one cannot exist here
+  — but the PAIR above, which is why each of them may sit inside a single member: what
+  carries the claim is that between them they enter both. **Check by breaking the model
+  and watching the check fail**, and check that the right one fails; that is the only
+  way to know a region says what you think.
 - **A region's numbers do not reach `checks[].source`,** even when they come from
   `partspec.refs`. Attribution is carried by the nine bound-carrying methods (§10);
   region kinds are not among them (#250).
