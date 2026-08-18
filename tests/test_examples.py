@@ -13,6 +13,7 @@ import pytest
 from support import needs_scad_tier, report_of
 
 from partspec.cli import main
+from partspec.refs import nema17
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
@@ -27,6 +28,45 @@ def test_the_bracket_carries_the_standards_citation(tmp_path: Path):
     bolt = next(c for c in report["checks"] if c["id"] == "nema17:bolt_circle")
     assert bolt["status"] == "pass"
     assert bolt["source"]["bcd"]["standard"] == "NEMA ICS 16"
+
+
+def test_the_bracket_is_the_worked_region_example(tmp_path: Path):
+    """#200: `keep_out`/`keep_in` appeared in no example anywhere, so an author
+    had to guess `region.cylinder`'s argument shapes — and two fleet agents on
+    different engines guessed `axis=(0, 0, 1)`.
+
+    Asserts the example teaches the thing it claims to. Both region checks
+    pass, both carry their region in the report, and the cylinder's axis is
+    the string the guessing was about.
+    """
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    target = f"{EXAMPLES / 'stepper-bracket' / 'spec.py'}:stepper_bracket"
+    assert main(["check", target, "--quiet", "--out", str(tmp_path)]) == 0
+
+    report = report_of(tmp_path)
+    by_id = {c["id"]: c for c in report["checks"]}
+
+    boss = by_id["pilot-boss-clearance"]
+    assert boss["kind"] == "keep_out" and boss["status"] == "pass"
+    # A STRING, and the right one. `(0, 0, 1)` is what the fleet guessed.
+    assert boss["region"]["axis"] == "y", "the plate's thickness runs in y"
+    assert boss["region"]["d"] == pytest.approx(float(nema17.PILOT_BOSS))
+
+    joint = by_id["plate-base-joint"]
+    assert joint["kind"] == "keep_in" and joint["status"] == "pass"
+    # It must reach BEYOND the plate's own 5 mm thickness, or the plate alone
+    # satisfies it and the joint is not what is being proven — which is how
+    # the first draft passed with the base cut to a third of its width.
+    assert joint["region"]["max"][1] > 5.0
+
+    # And the example's prose is the example's code.
+    readme = (EXAMPLES / "stepper-bracket" / "README.md").read_text()
+    skill = (
+        Path(__file__).resolve().parents[1] / "skills" / "contract-authoring" / "SKILL.md"
+    ).read_text()
+    for doc, name in ((readme, "the example README"), (skill, "SKILL.md")):
+        assert 'axis="y"' in doc or 'axis="z"' in doc, f"{name} shows no spelled-out axis"
+        assert "p.keep_out(" in doc and "p.keep_in(" in doc, f"{name} shows no region call"
 
 
 def test_the_bearing_family_follows_the_standard(tmp_path: Path):

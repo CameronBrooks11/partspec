@@ -224,7 +224,13 @@ def test_the_skills_worked_example_executes():
 
     blocks = re.findall(r"```python\n(.*?)```", SKILL, re.S)
     assert blocks, "the worked before/after must be a fenced python block"
-    before_half, _, after_half = blocks[0].partition("# After")
+    # Selected by CONTENT, not by position. `blocks[0]` meant "whichever
+    # python block happens to come first", so adding the region example
+    # earlier in the file broke this test with a message about a missing
+    # "# After" delimiter — pointing at the wrong block entirely (#200).
+    matching = [b for b in blocks if "# After" in b]
+    assert len(matching) == 1, "exactly one block carries the before/after halves"
+    before_half, _, after_half = matching[0].partition("# After")
     assert after_half, "the block must carry both halves, delimited by '# After'"
     for half in (before_half, after_half):
         code = "\n".join(line for line in half.splitlines() if line.startswith("p."))
@@ -233,6 +239,39 @@ def test_the_skills_worked_example_executes():
         assert len(p.checks) == 3, "each half declares exactly three checks"
     # The AFTER half must actually be the structured form it advertises.
     assert sorted(c.kind for c in p.checks) == ["param_range", "param_range", "requires"]
+
+
+def test_the_skills_region_example_executes():
+    """The region block is code an agent will paste, so it gets the same
+    treatment as the before/after one (#200).
+
+    It exists because `keep_out`/`keep_in` are the only checks whose argument
+    is a shape you construct, and no worked call appeared anywhere in the tree
+    — two fleet agents on different engines guessed `axis=(0, 0, 1)`, which is
+    refused.
+    """
+    from partspec import Part, openscad, region
+    from partspec.refs import nema17
+    from partspec.status import ContractError
+
+    blocks = re.findall(r"```python\n(.*?)```", SKILL, re.S)
+    matching = [b for b in blocks if "p.keep_out(" in b]
+    assert len(matching) == 1, "exactly one block shows the region calls"
+    code = "\n".join(
+        line for line in matching[0].splitlines() if line and not line.startswith(("from ", "#"))
+    )
+    p = Part("skill-region-subject", openscad("m.scad"))
+    exec(code, {"p": p, "region": region, "nema17": nema17})  # noqa: S102 - the doc IS the test
+
+    assert [c.kind for c in p.checks] == ["keep_out", "keep_in"]
+    boss = p.checks[0].region
+    assert isinstance(boss, region.CylinderRegion)
+    assert boss.axis == "y", "a spelled-out axis, not a vector"
+    assert all(c.shell for c in p.checks), "both carry the anti-vacuity shell"
+
+    # And the thing the example warns about is really refused.
+    with pytest.raises(ContractError):
+        region.cylinder(d=22.0, h=2.0, at=(0.0, 0.0, 0.0), axis=(0, 0, 1))  # type: ignore[arg-type]
 
 
 def test_the_skills_pointers_resolve():

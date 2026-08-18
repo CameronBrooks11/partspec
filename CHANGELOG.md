@@ -135,6 +135,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`keep_out` and `keep_in` have a worked example** (#200). They appeared in
+  no contract anywhere in the tree, so an author learning to write one had a
+  single line of `SPEC-contract.md` — bare parameter names, no types, no
+  values — and had to guess `region.cylinder`'s argument shapes. Two fleet
+  agents on different engines guessed `axis=(0, 0, 1)`; a third form,
+  `[0, 0, 1]`, crashed harder (#193, #199). `examples/stepper-bracket` now
+  declares both, and `skills/contract-authoring/SKILL.md` carries the call
+  rather than only a table row.
+  The keep-out is the motor's locating boss — NEMA ICS 16's AK, cited from
+  `refs.nema17` — which earns its place beside `nema17.mount`: that call
+  declares the pilot *bore* through `hole_diameter`, a cylinder-precision
+  claim the mesh tier refuses because a faceted bore has no diameter, while
+  the same requirement stated as **space** is a claim about volume that both
+  tiers answer. The keep-in is the L's inside corner, which `solid_count(1)`
+  cannot prove: two plates meeting at an edge are still one solid.
+  Three things the example teaches by construction. `axis` is a spelled-out
+  string. `shell` is the anti-vacuity guard, not decoration. And **a region
+  has to reach where the claim is** — the first draft of the joint box sat
+  inside the plate's own 5 mm thickness, so the plate alone satisfied it and
+  it passed with the base cut to a third of its width.
+
 - **`check --render` takes the several targets `check` itself takes** (#189).
   It refused them — `partspec: --render is single-target for now`, exit 64 —
   and the "for now" was right: nothing under the refusal was load-bearing.
