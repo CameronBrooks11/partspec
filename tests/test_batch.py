@@ -7,6 +7,7 @@ owns, POST-V0 §8: `sys.modules` must not serve a later build a stale helper.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -167,17 +168,158 @@ def test_colliding_slugs_under_one_out_dir_are_refused(tmp_path: Path, capsys):
     )
     assert code == 64
     assert "collide" in capsys.readouterr().err
+    # And the refusal touched no disk. This assertion moved here from
+    # `test_render_refuses_a_batch`, which #189 deleted along with the refusal
+    # it pinned — leaving the "shape refusals precede the placeholder fan-out"
+    # rule (PR #104 re-review, finding 7) with nothing holding it, in the
+    # comment's own words "or the fan-out itself performs the shared-path
+    # overwrite the guard exists to refuse". Moving the guard below the
+    # fan-out passed the whole suite (round 1 of #189's review).
+    assert not (tmp_path / "reports").exists(), "a refused shape touches no disk"
 
 
-def test_render_refuses_a_batch(tmp_path: Path, monkeypatch, capsys):
-    # chdir: shape refusals now precede the placeholder fan-out, but a test
-    # running from the repo root must not depend on that to keep the tree
-    # clean (PR #104 re-review, finding 7 — the old order littered ./outputs).
+_TWO_PART_SPEC = (
+    "from partspec import Part, openscad\n\n\n"
+    "def a():\n"
+    '    return Part("stud-a", openscad("m.scad")).volume(min=1.0)\n\n\n'
+    "def b():\n"
+    '    return Part("stud-b", openscad("m.scad")).volume(min=1.0)\n'
+)
+
+
+def _two_part_contract(tmp_path: Path) -> None:
+    (tmp_path / "m.scad").write_text("cube([20, 20, 10], center = true);\n")
+    (tmp_path / "spec.py").write_text(_TWO_PART_SPEC)
+
+
+def _rendered(tmp_path: Path, slug: str) -> dict:
+    """That target's `renders` block, or `{}` if the key is absent.
+
+    `.get(key, {})` rather than `.get(key) or {}`: SPEC-report §8.4 says the
+    key MUST be absent rather than an empty object, so the `or` form would
+    quietly accept the shape the spec forbids.
+    """
+    report = json.loads((tmp_path / "out" / slug / "report.json").read_text())
+    assert report.get("renders") != {}, "SPEC-report §8.4: absent, never an empty object"
+    return report.get("renders", {})
+
+
+@needs_scad_tier
+def test_render_covers_every_target_in_a_batch(tmp_path: Path, monkeypatch, capsys):
+    """`check` takes N targets and `--render` used to refuse them (#189).
+
+    "single-target for now" was the message, and the "for now" was right:
+    nothing under the refusal was load-bearing. Each target already resolves
+    its own `out` through `_out_dir_for`, so the views land beside that
+    target's own report and are recorded relative to it.
+
+    Both arms of the display branch are asserted, because the mesh-only CI job
+    keeps no xvfb on purpose and OpenSCAD 2021.01 cannot export PNG without
+    one. An earlier draft asserted success unconditionally and went red there
+    while `main` stayed green — the repo's other OPENSCAD-TIER `--render`
+    tests both carry this arm and it was simply missed (round 1 of #189's
+    review). The OCCT-tier ones do not, and do not need to: no display is in
+    that loop, as one of their docstrings says.
+    """
     monkeypatch.chdir(tmp_path)
-    code = main(["check", "a.py:x", "b.py:x", "--render", "--quiet"])
-    assert code == 64
-    assert "single-target" in capsys.readouterr().err
-    assert not (tmp_path / "outputs").exists(), "a refused shape touches no disk"
+    _two_part_contract(tmp_path)
+    code = main(["check", "spec.py:a", "spec.py:b", "--render", "--quiet", "--out", "out"])
+    err = capsys.readouterr().err
+
+    if code != 0:
+        # No display: every target says so, each under its own name, and no
+        # report claims views it does not have.
+        assert "cannot render PNG without a display" in err
+        for spec, slug in (("spec.py:a", "spec-a"), ("spec.py:b", "spec-b")):
+            assert f"partspec: {spec}: " in err
+            assert _rendered(tmp_path, slug) == {}
+        return
+
+    for slug in ("spec-a", "spec-b"):
+        renders = _rendered(tmp_path, slug)
+        assert set(renders) == {"iso", "front", "top", "right"}
+        for view, rel in renders.items():
+            # Relative to that report's OWN directory, so two parts' renders
+            # cannot name each other (SPEC-report §8).
+            assert rel == f"renders/{view}.png"
+            assert (tmp_path / "out" / slug / rel).is_file()
+
+    # Two directories written, not one written twice. `a_iso != b_iso`
+    # compares two literals and can never be false; what carries the assertion
+    # is that both paths hold bytes.
+    a_iso = tmp_path / "out" / "spec-a" / "renders" / "iso.png"
+    b_iso = tmp_path / "out" / "spec-b" / "renders" / "iso.png"
+    assert a_iso.read_bytes() and b_iso.read_bytes()
+
+
+@needs_scad_tier
+def test_a_failing_render_in_a_batch_names_the_target(tmp_path: Path, monkeypatch, capsys):
+    """One message and N parts: without the target it says nothing.
+
+    The message was unambiguous only because this path was single-target, so
+    opening `--render` to a batch is what made naming it necessary (#189).
+
+    Asserted as a correspondence rather than as "only one target is named": an
+    earlier draft asserted the target that succeeded was absent from stderr,
+    which is the single-failure assumption this feature exists to remove, and
+    it duly failed where BOTH targets fail for want of a display (round 1 of
+    #189's review). Every target that failed is named; every target that did
+    not is not.
+    """
+    monkeypatch.chdir(tmp_path)
+    _two_part_contract(tmp_path)
+    # `renders` is a FILE where the first target needs a directory, so its
+    # render fails whatever the display situation is.
+    blocked = tmp_path / "out" / "spec-a" / "renders"
+    blocked.parent.mkdir(parents=True)
+    blocked.write_text("not a directory\n")
+
+    code = main(["check", "spec.py:a", "spec.py:b", "--render", "--quiet", "--out", "out"])
+    assert code == 4
+    err = capsys.readouterr().err
+
+    # Scoped to targets that reached the render at all. A report can lack
+    # `renders` without anything having failed — a parameter blocker leaves
+    # `builds` unproven, so no render is attempted and none is owed — and the
+    # correspondence would then accuse the attribution code of a bug it does
+    # not have. Both parts here build, which is what makes it exact.
+    for spec, slug in (("spec.py:a", "spec-a"), ("spec.py:b", "spec-b")):
+        report = json.loads((tmp_path / "out" / slug / "report.json").read_text())
+        assert any(c["kind"] == "builds" and c["status"] == "pass" for c in report["checks"]), (
+            f"{spec}: premise — a part that never built is owed no render"
+        )
+        named = f"partspec: {spec}: " in err
+        assert named == (_rendered(tmp_path, slug) == {}), (
+            f"{spec}: named on stderr={named}, but its report "
+            f"{'has' if _rendered(tmp_path, slug) else 'has no'} renders"
+        )
+    # The first target is the one this fixture breaks, whatever the tier.
+    assert "partspec: spec.py:a: " in err
+    assert _rendered(tmp_path, "spec-a") == {}
+
+
+@needs_scad_tier
+def test_a_single_target_render_failure_carries_no_target_prefix(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """`AGENT-CONTRACT.md` §2 says the target is named "when several were
+    given", and nothing held the tool to the second half.
+
+    Dropping the `if batch` conditional — making every render failure
+    prefixed — passed the entire suite (round 1 of #189's review). One target
+    needs no disambiguation and the bare message is the older, calmer one.
+    """
+    monkeypatch.chdir(tmp_path)
+    _two_part_contract(tmp_path)
+    blocked = tmp_path / "out" / "renders"
+    blocked.parent.mkdir(parents=True)
+    blocked.write_text("not a directory\n")
+
+    code = main(["check", "spec.py:a", "--render", "--quiet", "--out", "out"])
+    assert code == 4
+    err = capsys.readouterr().err
+    assert "partspec: spec.py:a: " not in err, "one target needs no disambiguation"
+    assert err.startswith("partspec: ")
 
 
 # --------------------------------------------------------------------------

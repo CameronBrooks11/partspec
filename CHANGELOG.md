@@ -135,6 +135,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`check --render` takes the several targets `check` itself takes** (#189).
+  It refused them — `partspec: --render is single-target for now`, exit 64 —
+  and the "for now" was right: nothing under the refusal was load-bearing.
+  Every target already resolves its own output directory, so the views land
+  beside that target's own report and are recorded relative to it, exactly as
+  the single-target shape does. Fleet agents in two arms hit this on their
+  first attempt to render a whole contract, and one more in the earlier spike.
+  Each of them dropped `--render` from the batch check and rendered target by
+  target through the standalone `render` subcommand instead — which writes
+  `render.json` and no report, so the views stop being attached to the verdict
+  at all. a1's frozen log carries 20 such renders across a session.
+  Nothing announced the exclusion in advance either — `check --help`
+  documents multi-target and documents `--render`, and said nothing about their
+  being exclusive, so the refusal arrived only after the command was written.
+  A render that fails now names its target, which it never had to before: one
+  message against four parts and a single exit code says nothing about which
+  one could not be drawn.
+
 - **The unattributed-limits advisory names every table `refs` carries** (#194).
   It printed a hardcoded `(iso15, nema17)`, so the one place the tool routes an
   author to an attributed number went stale the moment a table was added — and

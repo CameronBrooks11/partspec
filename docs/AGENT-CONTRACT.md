@@ -40,7 +40,10 @@ axis and the bound that broke (`components`, `detail`), so the next edit can be 
 highest-**precedence** verdict across parts — `error > empty > fail > incomplete > pass`
 (SPEC-report §6.2), so a batch containing a disproven part can still exit `3` if another
 part asserts nothing. Route per-part from each part's own report, never from the process
-exit; iterate on the one failing part singly and re-run the batch to confirm.
+exit; iterate on the one failing part singly and re-run the batch to confirm. The one
+thing the reports do not carry is §2's exception: a render the run was asked for and did
+not deliver is a fact about the RUN, so it reaches the exit and stderr — named with its
+target — while that part's own report says whatever the part deserved, `pass` included.
 
 ## 2. What each outcome instructs
 
@@ -56,7 +59,8 @@ report says something else:
 2. A `check --render` whose render fails on an otherwise green part writes a normal report
    — `verdict: "pass"`, `error: null`, no `hint` — and still exits 4. The report speaks for
    the part; the exit speaks for the run, and the run did not produce what was asked of it.
-   The diagnosis is on stderr.
+   The diagnosis is on stderr, prefixed with the target when several were given, since one
+   message and N parts otherwise names nothing.
 
 In both, reading `error` and `hint` from the report yields nothing. Read stderr.
 
