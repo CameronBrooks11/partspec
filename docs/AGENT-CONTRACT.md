@@ -40,7 +40,10 @@ axis and the bound that broke (`components`, `detail`), so the next edit can be 
 highest-**precedence** verdict across parts — `error > empty > fail > incomplete > pass`
 (SPEC-report §6.2), so a batch containing a disproven part can still exit `3` if another
 part asserts nothing. Route per-part from each part's own report, never from the process
-exit; iterate on the one failing part singly and re-run the batch to confirm.
+exit; iterate on the one failing part singly and re-run the batch to confirm. The one
+thing the reports do not carry is §2's exception: a render the run was asked for and did
+not deliver is a fact about the RUN, so it reaches the exit and stderr — named with its
+target — while that part's own report still reads `pass`.
 
 ## 2. What each outcome instructs
 

@@ -591,9 +591,11 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
     # "for now" was right: nothing under it was load-bearing. Every target
     # already gets its own `out` from `_out_dir_for`, renders land in that
     # directory's `renders/`, and each report records paths relative to
-    # itself. Two fleet agents in different arms hit the refusal on their
-    # first attempt to render a contract and both fanned out into N
-    # invocations instead; one ran 21 (#189).
+    # itself. Fleet agents in two arms hit the refusal, plus one in the
+    # earlier spike; each dropped `--render` from the batch check and
+    # rendered per target through the standalone `render` subcommand instead,
+    # which writes `render.json` and no report at all — a1's frozen log
+    # carries 20 of them (#189).
     if batch and args.out is not None:
         slugs = [Target.parse(spec).slug for spec in targets]
         collisions = sorted({s for s in slugs if slugs.count(s) > 1})
@@ -858,11 +860,22 @@ def _check_one(
 
     try:
         return _check_resolved(
-            spec, args, argv, timeout_s, part, target, out, expected_claims, loaded_before, batch
+            spec,
+            args,
+            argv,
+            timeout_s,
+            part,
+            target,
+            out,
+            expected_claims,
+            loaded_before,
+            batch=batch,
         )
     finally:
-        # Every exit path evicts — the --render usage refusal used to return
-        # with the sibling record cached but not evicted (#114).
+        # Every exit path evicts — an early `--render` refusal (the
+        # engine-tier one, "requires an OpenSCAD source", not the batch
+        # refusal #189 removed) used to return with the sibling record cached
+        # but not evicted (#114).
         _invalidate_after(part, target)
 
 
@@ -876,6 +889,7 @@ def _check_resolved(
     out: Path,
     expected_claims: dict[str, str] | None,
     loaded_before: frozenset[str],
+    *,
     batch: bool,
 ) -> int:
     built: list[object] = []
