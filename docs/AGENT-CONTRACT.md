@@ -56,7 +56,8 @@ report says something else:
 2. A `check --render` whose render fails on an otherwise green part writes a normal report
    — `verdict: "pass"`, `error: null`, no `hint` — and still exits 4. The report speaks for
    the part; the exit speaks for the run, and the run did not produce what was asked of it.
-   The diagnosis is on stderr.
+   The diagnosis is on stderr, prefixed with the target when several were given, since one
+   message and N parts otherwise names nothing.
 
 In both, reading `error` and `hint` from the report yields nothing. Read stderr.
 

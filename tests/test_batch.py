@@ -7,6 +7,7 @@ owns, POST-V0 §8: `sys.modules` must not serve a later build a stale helper.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -169,15 +170,76 @@ def test_colliding_slugs_under_one_out_dir_are_refused(tmp_path: Path, capsys):
     assert "collide" in capsys.readouterr().err
 
 
-def test_render_refuses_a_batch(tmp_path: Path, monkeypatch, capsys):
-    # chdir: shape refusals now precede the placeholder fan-out, but a test
-    # running from the repo root must not depend on that to keep the tree
-    # clean (PR #104 re-review, finding 7 — the old order littered ./outputs).
+@needs_scad_tier
+def test_render_covers_every_target_in_a_batch(tmp_path: Path, monkeypatch, capsys):
+    """`check` takes N targets and `--render` used to refuse them (#189).
+
+    "single-target for now" was the message, and the "for now" was right:
+    nothing under the refusal was load-bearing. Each target already resolves
+    its own `out` through `_out_dir_for`, so the views land beside that
+    target's own report and are recorded relative to it.
+
+    Two fleet agents in different arms hit this on their first attempt to
+    render a contract, and both fanned out into N invocations rather than
+    drop `--render`; one ran 21 across a session.
+    """
     monkeypatch.chdir(tmp_path)
-    code = main(["check", "a.py:x", "b.py:x", "--render", "--quiet"])
-    assert code == 64
-    assert "single-target" in capsys.readouterr().err
-    assert not (tmp_path / "outputs").exists(), "a refused shape touches no disk"
+    (tmp_path / "m.scad").write_text("cube([20, 20, 10], center = true);\n")
+    (tmp_path / "spec.py").write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def a():\n"
+        '    return Part("stud-a", openscad("m.scad")).volume(min=1.0)\n\n\n'
+        "def b():\n"
+        '    return Part("stud-b", openscad("m.scad")).volume(min=1.0)\n'
+    )
+    code = main(["check", "spec.py:a", "spec.py:b", "--render", "--quiet", "--out", "out"])
+    assert code == 0, capsys.readouterr().err
+
+    for slug in ("spec-a", "spec-b"):
+        report = json.loads((tmp_path / "out" / slug / "report.json").read_text())
+        assert set(report["renders"]) == {"iso", "front", "top", "right"}
+        for view, rel in report["renders"].items():
+            # Relative to that report's OWN directory, so two parts' renders
+            # cannot name each other (SPEC-report §8).
+            assert rel == f"renders/{view}.png"
+            assert (tmp_path / "out" / slug / rel).is_file()
+
+    # And the two sets are distinct files, not one directory written twice.
+    a_iso = tmp_path / "out" / "spec-a" / "renders" / "iso.png"
+    b_iso = tmp_path / "out" / "spec-b" / "renders" / "iso.png"
+    assert a_iso.is_file() and b_iso.is_file() and a_iso != b_iso
+
+
+@needs_scad_tier
+def test_a_failing_render_in_a_batch_names_the_target(tmp_path: Path, monkeypatch, capsys):
+    """One message and N parts: without the target it says nothing.
+
+    The message was unambiguous only because this path was single-target, so
+    opening `--render` to a batch is what made naming it necessary (#189).
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "m.scad").write_text("cube([20, 20, 10], center = true);\n")
+    (tmp_path / "spec.py").write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def a():\n"
+        '    return Part("stud-a", openscad("m.scad")).volume(min=1.0)\n\n\n'
+        "def b():\n"
+        '    return Part("stud-b", openscad("m.scad")).volume(min=1.0)\n'
+    )
+    # `renders` is a FILE where the first target needs a directory, so its
+    # render fails and the second's succeeds.
+    blocked = tmp_path / "out" / "spec-a" / "renders"
+    blocked.parent.mkdir(parents=True)
+    blocked.write_text("not a directory\n")
+
+    code = main(["check", "spec.py:a", "spec.py:b", "--render", "--quiet", "--out", "out"])
+    assert code == 4
+    err = capsys.readouterr().err
+    assert "spec.py:a" in err, f"the failing target is not named: {err!r}"
+    assert "spec.py:b" not in err, "the target that succeeded must not be blamed"
+    # The one that worked still delivered.
+    ok = json.loads((tmp_path / "out" / "spec-b" / "report.json").read_text())
+    assert set(ok["renders"]) == {"iso", "front", "top", "right"}
 
 
 # --------------------------------------------------------------------------

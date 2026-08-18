@@ -120,7 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument(
         "--render",
         action="store_true",
-        help="also write the canonical views and record their paths in the report",
+        help="also write the canonical views and record their paths in the "
+        "report; with several targets, into each part's own report directory",
     )
     check.add_argument(
         "--timeout",
@@ -582,12 +583,17 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
 
     # Invocation-SHAPE refusals come before anything touches disk: a shape
     # the tool won't run never meant to re-check anything. The collision
-    # guard in particular must precede the placeholder fan-out, or the
-    # fan-out itself performs the shared-path overwrite the guard exists to
-    # refuse (PR #104 re-review, finding 7).
-    if batch and args.render:
-        print("partspec: --render is single-target for now", file=sys.stderr)
-        return EXIT_USAGE
+    # guard must precede the placeholder fan-out, or the fan-out itself
+    # performs the shared-path overwrite the guard exists to refuse (PR #104
+    # re-review, finding 7).
+    #
+    # `--render` was refused here too, as "single-target for now" — and the
+    # "for now" was right: nothing under it was load-bearing. Every target
+    # already gets its own `out` from `_out_dir_for`, renders land in that
+    # directory's `renders/`, and each report records paths relative to
+    # itself. Two fleet agents in different arms hit the refusal on their
+    # first attempt to render a contract and both fanned out into N
+    # invocations instead; one ran 21 (#189).
     if batch and args.out is not None:
         slugs = [Target.parse(spec).slug for spec in targets]
         collisions = sorted({s for s in slugs if slugs.count(s) > 1})
@@ -852,7 +858,7 @@ def _check_one(
 
     try:
         return _check_resolved(
-            spec, args, argv, timeout_s, part, target, out, expected_claims, loaded_before
+            spec, args, argv, timeout_s, part, target, out, expected_claims, loaded_before, batch
         )
     finally:
         # Every exit path evicts — the --render usage refusal used to return
@@ -870,6 +876,7 @@ def _check_resolved(
     out: Path,
     expected_claims: dict[str, str] | None,
     loaded_before: frozenset[str],
+    batch: bool,
 ) -> int:
     built: list[object] = []
     report = run(
@@ -911,7 +918,12 @@ def _check_resolved(
         # The report speaks for the part; this exit speaks for the run. A
         # requested render that failed must not exit as if it were delivered,
         # and the report carries no renders block — absence, not a lie.
-        print(f"partspec: {render_error.message}", file=sys.stderr)
+        #
+        # Named in a batch, because this message stopped being unambiguous the
+        # moment `--render` accepted N targets: "cannot tessellate" against
+        # four parts and one exit code says nothing about which one (#189).
+        where = f"{spec}: " if batch else ""
+        print(f"partspec: {where}{render_error.message}", file=sys.stderr)
         if render_error.hint:
             print(f"  hint: {render_error.hint}", file=sys.stderr)
         return exit_code(Verdict.ERROR)
