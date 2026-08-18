@@ -13,11 +13,12 @@ An L-bracket mounting a NEMA 17 stepper, in build123d. What it teaches:
   part whose contract is obvious to write.
 - **`requires` before geometry**: the motor-face-fits arithmetic fails in
   milliseconds on a bracket too short to carry it.
-- **Two claims about SPACE**, which is the worked `keep_out` / `keep_in`
+- **Three claims about SPACE**, which is the worked `keep_out` / `keep_in`
   example the tree had none of (#200):
 
   ```python
   from partspec import region
+  from partspec.refs import nema17
 
   # The motor's locating boss must find nothing in its way.
   p.keep_out(
@@ -25,29 +26,39 @@ An L-bracket mounting a NEMA 17 stepper, in build123d. What it teaches:
       shell=0.6,
       id="pilot-boss-clearance",
   )
-  # The L's inside corner must be solid where the plate becomes the base.
-  p.keep_in(
-      region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 12.0, 4.5)),
-      shell=1.0,
-      id="plate-base-joint",
-  )
+  # The corner must carry material in BOTH members — two boxes, because one
+  # cannot say it (see below).
+  p.keep_in(region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 4.5, 12.0)), shell=1.0,
+            id="joint-web-plate")
+  p.keep_in(region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 12.0, 4.5)), shell=1.0,
+            id="joint-web-base")
   ```
 
-  Three things to take from it. **`axis` is a string** — `"x"`, `"y"` or
+  Four things to take from it. **`axis` is a string** — `"x"`, `"y"` or
   `"z"`, never a vector; `(0, 0, 1)` is refused, and two fleet agents on
   different engines guessed it anyway. **`shell` is what stops the check
   passing vacuously**: an absent part has an empty region too, so `keep_out`
-  pairs "no material here" with "material near here", and `keep_in` pairs
-  "all material here" with "not all material just outside". And **a region
-  has to reach where the claim is** — the first draft of the joint box sat
-  inside the plate's own 5 mm thickness, so the plate alone satisfied it and
-  it passed with the base cut to a third of its width. Reaching to y = 12
-  puts most of it where only the base can supply material.
+  pairs "no material here" with "material near here", and `keep_in` pairs the
+  converse. **One axis-aligned box cannot express the joint** — the members
+  are perpendicular slabs (the plate is `y ∈ [0, 5]`, the base is `z ∈ [0, 5]`),
+  so a box needing material from both would also span the concave quarter
+  outside the L, which is air.
+
+  And the one that matters most: **a region proves nothing about a member it
+  never enters.** Both ways of getting that wrong were shipped in drafts of
+  this example. The first box lay inside the plate's 5 mm thickness, so the
+  plate alone satisfied it and it passed with the base cut to a third of its
+  width. The second reached further into base-only material — *away* from the
+  plate — so the base alone satisfied it and it passed on a bracket with **no
+  plate at all**. Check a region by breaking the model and watching it fail;
+  a 93%-severed joint used to leave this contract nine-of-nine green.
 
   The keep-out earns its place beside `nema17.mount`: that call declares the
   pilot *bore* through `hole_diameter`, a cylinder-precision claim the mesh
   tier refuses because a faceted bore has no diameter. The same requirement
-  stated as space is a claim about volume, which both tiers answer.
+  stated as space is a claim about volume, which both tiers answer. Note that
+  a region's numbers do **not** reach `checks[].source` even when they come
+  from `refs` — see #250.
 
 ```sh
 partspec check spec.py:stepper_bracket

@@ -249,25 +249,35 @@ def test_the_skills_region_example_executes():
     is a shape you construct, and no worked call appeared anywhere in the tree
     — two fleet agents on different engines guessed `axis=(0, 0, 1)`, which is
     refused.
+
+    Executed WHOLE, imports included. An earlier draft filtered out every
+    `from ...` line and injected the modules into globals, so a typo in the
+    block's own imports — exactly the part an agent pastes first — passed
+    unnoticed (round 1 of #200's review).
     """
     from partspec import Part, openscad, region
-    from partspec.refs import nema17
     from partspec.status import ContractError
 
     blocks = re.findall(r"```python\n(.*?)```", SKILL, re.S)
     matching = [b for b in blocks if "p.keep_out(" in b]
     assert len(matching) == 1, "exactly one block shows the region calls"
-    code = "\n".join(
-        line for line in matching[0].splitlines() if line and not line.startswith(("from ", "#"))
-    )
-    p = Part("skill-region-subject", openscad("m.scad"))
-    exec(code, {"p": p, "region": region, "nema17": nema17})  # noqa: S102 - the doc IS the test
 
-    assert [c.kind for c in p.checks] == ["keep_out", "keep_in"]
+    p = Part("skill-region-subject", openscad("m.scad"))
+    namespace: dict = {"p": p}
+    exec(matching[0], namespace)  # noqa: S102 - executing the doc is the point
+
+    assert [c.kind for c in p.checks] == ["keep_out", "keep_in", "keep_in"]
     boss = p.checks[0].region
     assert isinstance(boss, region.CylinderRegion)
     assert boss.axis == "y", "a spelled-out axis, not a vector"
-    assert all(c.shell for c in p.checks), "both carry the anti-vacuity shell"
+    assert all(c.shell for c in p.checks), "every region carries the anti-vacuity shell"
+
+    # The two keep_ins must enter DIFFERENT members, or they say one thing
+    # twice. The plate box climbs in z, the base box runs out in y.
+    plate_web, base_web = (c.region for c in p.checks[1:])
+    assert isinstance(plate_web, region.BoxRegion) and isinstance(base_web, region.BoxRegion)
+    assert plate_web.max[2] > base_web.max[2], "the plate box must climb further in z"
+    assert base_web.max[1] > plate_web.max[1], "the base box must run further in y"
 
     # And the thing the example warns about is really refused.
     with pytest.raises(ContractError):

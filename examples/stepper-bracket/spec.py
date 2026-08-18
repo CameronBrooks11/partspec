@@ -57,9 +57,16 @@ def stepper_bracket() -> Part:
     #
     # `at` is the datum the model itself uses (x=0, the plate's front face,
     # the motor centre height), `axis="y"` because the plate's thickness runs
-    # in y and the boss projects through it. The boss is NEMA ICS 16's AK,
-    # cited; its 2 mm projection is the designer's reading of the motor and
-    # stays a bare number.
+    # in y and the boss projects through it. The diameter is NEMA ICS 16's AK,
+    # taken from `refs.nema17` rather than retyped; its 2 mm projection is the
+    # designer's reading of the motor and stays a bare number.
+    #
+    # It does NOT reach the report as a citation, unlike the `nema17.mount`
+    # claims above: `checks[].source` is populated for the nine bound-carrying
+    # methods (SPEC-contract §10) and a region is not one of them, so this
+    # check's `source` is null. Filed as #250 — worth knowing here, because
+    # this file is the citation exemplar and the gap is invisible until you
+    # look at the JSON.
     #
     # `shell=0.6` is what stops this passing vacuously. An absent part has an
     # empty region too, so the check pairs "no material here" with "material
@@ -72,20 +79,37 @@ def stepper_bracket() -> Part:
         id="pilot-boss-clearance",
     )
 
-    # The other direction: this region must be ENTIRELY material. The L's
-    # inside corner is where the plate and the base become one part, and
-    # `solid_count(1)` does not prove it — two plates meeting at an edge can
-    # still count as one solid. A relief cut, a base narrower than the plate,
-    # or a fillet that ate the joint all fail here and nowhere else.
-    # It must STRADDLE the joint to be about the joint. A box inside the
-    # plate's own thickness (y < 5) is satisfied by the plate alone and proves
-    # nothing — the first draft of this example did exactly that and passed
-    # with the base cut to a third of its width. Reaching to y = 12 puts most
-    # of the region where only the base can supply material.
+    # The other direction: these regions must be ENTIRELY material. Together
+    # they say the L's corner carries a web of material in both members, which
+    # nothing else here proves — the envelope is a change-detector and
+    # `solid_count(1)` counts bodies, not section area.
+    #
+    # TWO boxes, because one cannot express this. The members occupy
+    # perpendicular slabs — the plate is y in [0, 5], the base is z in [0, 5] —
+    # so a single box big enough to need material from both would also span
+    # the concave quarter outside the L (y > 5 AND z > 5), which is air, and
+    # fail on the shipped part. Each box therefore reaches out of the shared
+    # corner into ONE member's own territory.
+    #
+    # Getting this wrong is easy and quiet, and both ways round have now been
+    # shipped in drafts of this very example. The first draft's box lay inside
+    # the plate's 5 mm thickness, so the PLATE alone satisfied it and it passed
+    # with the base cut to a third of its width. The second reached to y = 12
+    # — further into base-only material, AWAY from the plate — so the BASE
+    # alone satisfied it and it passed on a bracket with no plate at all
+    # (round 1 of #200's review). A region proves nothing about a member it
+    # never enters.
     p.keep_in(
+        # Up the plate, through z = 5 where the base stops.
+        region.box(min=(-20.0, 0.5, 0.5), max=(20.0, THICKNESS - 0.5, 12.0)),
+        shell=1.0,
+        id="joint-web-plate",
+    )
+    p.keep_in(
+        # Along the base, past y = 5 where the plate stops.
         region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 12.0, THICKNESS - 0.5)),
         shell=1.0,
-        id="plate-base-joint",
+        id="joint-web-base",
     )
 
     # Design-envelope change detector; the part is the reference for nothing.

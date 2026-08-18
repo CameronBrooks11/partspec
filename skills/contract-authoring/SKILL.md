@@ -61,13 +61,13 @@ p.keep_out(
     id="pilot-boss-clearance",
 )
 
-# keep_in — this space must be ENTIRELY material. Here, the inside corner
-# where an L-bracket's plate becomes its base.
-p.keep_in(
-    region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 12.0, 4.5)),
-    shell=1.0,
-    id="plate-base-joint",
-)
+# keep_in — this space must be ENTIRELY material. Here, an L-bracket's
+# corner: TWO boxes, because the members are perpendicular slabs and one box
+# needing material from both would also span the air outside the L.
+p.keep_in(region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 4.5, 12.0)), shell=1.0,
+          id="joint-web-plate")   # up the plate, past where the base stops
+p.keep_in(region.box(min=(-20.0, 0.5, 0.5), max=(20.0, 12.0, 4.5)), shell=1.0,
+          id="joint-web-base")    # along the base, past where the plate stops
 ```
 
 - **`axis` is one of the strings `"x"`, `"y"`, `"z"`.** Not `(0, 0, 1)`, which is
@@ -79,7 +79,13 @@ p.keep_in(
   here", and `keep_in` pairs the converse. Size it to a real clearance.
 - **A region must reach where the claim is.** A `keep_in` box that fits inside one
   feature is satisfied by that feature alone, whatever happened to the thing you meant
-  to prove. Check by breaking the model and watching the check fail.
+  to prove. Both ways of getting this wrong were shipped in drafts of the bracket
+  example: a box inside the plate passed with the base cut away, and a box inside the
+  base passed with no plate at all. **Check by breaking the model and watching the
+  check fail** — that is the only way to know a region says what you think.
+- **A region's numbers do not reach `checks[].source`,** even when they come from
+  `partspec.refs`. Attribution is carried by the nine bound-carrying methods (§10);
+  region kinds are not among them (#250).
 
 `examples/stepper-bracket/` is the worked part; its README explains each choice.
 
