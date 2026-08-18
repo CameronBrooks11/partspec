@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A worked `keep_out` / `keep_in`, in a real part and in the skill** (#200).
+  They appeared in no contract anywhere in the tree, so an author learning to
+  write one had a single line of `SPEC-contract.md` — bare parameter names, no
+  types, no values — and had to guess `region.cylinder`'s argument shapes. Two
+  fleet agents on different engines guessed `axis=(0, 0, 1)`; a third form,
+  `[0, 0, 1]`, crashed harder (#193, #199). `examples/stepper-bracket` declares
+  them now, and `skills/contract-authoring/SKILL.md` carries the call rather
+  than only a table row.
+  The keep-out is the motor's locating boss, NEMA ICS 16's AK from
+  `refs.nema17`. It earns its place beside `nema17.mount`, which declares the
+  pilot *bore* through `hole_diameter` — a cylinder-precision claim the mesh
+  tier refuses because a faceted bore has no diameter — while the same
+  requirement stated as **space** is a claim about volume that both tiers
+  answer. (A region's numbers do not reach `checks[].source` even when they
+  come from `refs`; that gap is #250.)
+  The keep-in is the L's corner, and it takes **two** boxes. The members are
+  perpendicular slabs, so one box needing material from both would also span
+  the concave quarter outside the L, which is air.
+  It also says plainly what the shell does NOT do here: a `keep_in` rooted near
+  the part's outer faces has a shell that escapes into free space, so it never
+  fires and a solid brick passes it. The keep-out's shell does real work — pull
+  the pilot bore and the region fails, pull the plate and the shell fails — and
+  saying so of one while the other is inert is worth more than a rule that
+  holds everywhere and bites nowhere.
+  Which is the lesson the example is really for: **a region proves nothing
+  about a member it never enters**, and both ways of getting that wrong were
+  shipped in drafts of it. The first box lay inside the plate's thickness, so
+  the plate alone satisfied it and it passed with the base cut to a third of
+  its width. The second reached further into base-only material, away from the
+  plate, so the base alone satisfied it and it passed on a bracket with no
+  plate at all — while a 93%-severed joint left the contract nine-of-nine
+  green. Check a region by breaking the model and watching it fail.
+
 - **`partspec.refs` carries ISO metric threads** (#194). It had bearings and
   steppers but not the most widely used dimensional standard in mechanical CAD,
   so `iso_metric_thread.coarse(8)` now gives M8's size and profile dimensions

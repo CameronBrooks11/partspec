@@ -7,12 +7,15 @@ from an untracked workspace (the audit revision's sharpening of #25).
 
 from __future__ import annotations
 
+import re
+import textwrap
 from pathlib import Path
 
 import pytest
 from support import needs_scad_tier, report_of
 
 from partspec.cli import main
+from partspec.refs import nema17
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
@@ -27,6 +30,100 @@ def test_the_bracket_carries_the_standards_citation(tmp_path: Path):
     bolt = next(c for c in report["checks"] if c["id"] == "nema17:bolt_circle")
     assert bolt["status"] == "pass"
     assert bolt["source"]["bcd"]["standard"] == "NEMA ICS 16"
+
+
+def _region_block(doc: str) -> str:
+    """The one fenced python block in `doc` that shows the region calls."""
+    blocks = [b for b in re.findall(r"```python\n(.*?)```", doc, re.S) if "p.keep_out(" in b]
+    assert len(blocks) == 1, "exactly one block shows the region calls"
+    return blocks[0]
+
+
+def test_the_bracket_is_the_worked_region_example(tmp_path: Path):
+    """#200: `keep_out`/`keep_in` appeared in no example anywhere, so an author
+    had to guess `region.cylinder`'s argument shapes — and two fleet agents on
+    different engines guessed `axis=(0, 0, 1)`.
+
+    Asserts the example teaches the thing it claims to. Both region checks
+    pass, both carry their region in the report, and the cylinder's axis is
+    the string the guessing was about.
+    """
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    target = f"{EXAMPLES / 'stepper-bracket' / 'spec.py'}:stepper_bracket"
+    assert main(["check", target, "--quiet", "--out", str(tmp_path)]) == 0
+
+    # `THICKNESS` from the contract itself, so the assertions below move with
+    # the design rather than restating a constant that can drift out of step.
+    thickness_src = (EXAMPLES / "stepper-bracket" / "spec.py").read_text()
+    declared = re.search(r"^WIDTH, HEIGHT, DEPTH, THICKNESS = .*?, ([\d.]+)$", thickness_src, re.M)
+    assert declared, "the contract must still declare THICKNESS on one line"
+    thickness = float(declared.group(1))
+
+    report = report_of(tmp_path)
+    by_id = {c["id"]: c for c in report["checks"]}
+
+    boss = by_id["pilot-boss-clearance"]
+    assert boss["kind"] == "keep_out" and boss["status"] == "pass"
+    # A STRING, and the right one. `(0, 0, 1)` is what the fleet guessed.
+    assert boss["region"]["axis"] == "y", "the plate's thickness runs in y"
+    assert boss["region"]["d"] == pytest.approx(float(nema17.PILOT_BOSS))
+
+    # The joint takes TWO regions, and each must leave the shared corner into
+    # one member's OWN territory or it proves nothing about that member. Both
+    # failure modes have been shipped in drafts of this example: a box inside
+    # the plate's thickness (satisfied by the plate, passed with the base cut
+    # away) and a box inside the base's (satisfied by the base, passed with no
+    # plate at all). Asserted against `THICKNESS` from the contract rather
+    # than a hardcoded 5.0, and on the NEAR corner too — constraining only the
+    # far one let a region be moved wholly out of its member and still pass
+    # (round 1 of #200's review).
+    plate_web, base_web = by_id["joint-web-plate"], by_id["joint-web-base"]
+    for web in (plate_web, base_web):
+        assert web["kind"] == "keep_in" and web["status"] == "pass"
+        # The API requires shell > 0; on these two it is inert (their shells
+        # escape the part's outer faces, so a solid brick passes them). The
+        # assertion is that the declaration carries one, not that it bites —
+        # the message used to claim the latter, which is false here.
+        assert web["region"]["shell"] > 0, "the API requires a shell on every region"
+        # Rooted in the shared corner, which both members supply.
+        assert web["region"]["min"][1] < thickness and web["region"]["min"][2] < thickness
+
+    # The plate web climbs past where the base stops; the base web runs past
+    # where the plate stops. Neither is inside the other's slab.
+    assert plate_web["region"]["max"][2] > thickness, "never enters plate-only material"
+    assert plate_web["region"]["max"][1] <= thickness, "strays outside the plate's slab"
+    assert base_web["region"]["max"][1] > thickness, "never enters base-only material"
+    assert base_web["region"]["max"][2] <= thickness, "strays outside the base's slab"
+
+    # And the README's block RUNS as pasted. Substring checks cannot see a
+    # missing import, and the first draft's block called `nema17.PILOT_BOSS`
+    # while importing only `region` — `NameError` for anyone who copied it,
+    # in the artifact this slice exists to provide (round 1 of #200's review).
+    from partspec import Part as _Part
+    from partspec import openscad as _openscad
+
+    readme = (EXAMPLES / "stepper-bracket" / "README.md").read_text()
+    blocks = re.findall(r"```python\n(.*?)```", readme, re.S)
+    pasted = [b for b in blocks if "p.keep_out(" in b]
+    assert len(pasted) == 1, "exactly one README block shows the region calls"
+    subject = _Part("readme-subject", _openscad("m.scad"))
+    exec(textwrap.dedent(pasted[0]), {"p": subject})  # noqa: S102 - the doc IS the test
+    assert [c.kind for c in subject.checks] == ["keep_out", "keep_in", "keep_in"]
+    assert 'axis="y"' in pasted[0], "the README must show the spelled-out axis"
+
+    # And the doc blocks show the CONTRACT'S numbers. Executing a block proves
+    # it runs, not that it is the example — the SKILL block could show a box
+    # spanning the air outside the L and survive, and the README's could drift
+    # from `spec.py` the moment THICKNESS changed (round 2 of #200's review).
+    skill_doc = (
+        Path(__file__).resolve().parents[1] / "skills" / "contract-authoring" / "SKILL.md"
+    ).read_text()
+    shipped = [c["region"] for c in report["checks"] if c["kind"] in ("keep_out", "keep_in")]
+    for doc, name in ((pasted[0], "the README block"), (_region_block(skill_doc), "SKILL.md")):
+        shown = _Part("doc-subject", _openscad("m.scad"))
+        exec(textwrap.dedent(doc), {"p": shown})  # noqa: S102
+        shown_regions = [{**c.region.to_json(), "shell": c.shell} for c in shown.checks if c.region]
+        assert shown_regions == shipped, f"{name} shows regions the contract does not declare"
 
 
 def test_the_bearing_family_follows_the_standard(tmp_path: Path):

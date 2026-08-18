@@ -29,7 +29,7 @@ Navigate by what you need to prove; the kind vocabulary itself is normative in
 | you need to prove | reach for | notes |
 |---|---|---|
 | the declared inputs are mutually sane | `p.param` / `p.requires` (§4.1) | runs before any engine; milliseconds |
-| the part fits / fills a space | `p.envelope`, `p.keep_out`, `p.keep_in` (§4.2, §4.4) | both tiers, exact |
+| the part fits / fills a space | `p.envelope`, `p.keep_out`, `p.keep_in` (§4.2, §4.4) | both tiers, exact — the region kinds take a spelled-out `axis="z"`, never a vector; worked call below |
 | the part is one sound solid | `p.watertight`, `p.solid_count` (§4.2) | both tiers |
 | through-holes exist — and stay holes | `p.genus` (§4.2) | genus sees through-holes only (a blind hole is genus 0 — route it to `hole_diameter` or `keep_out`); a hole reaching the boundary is a notch — FAILURE-MODES entry 3 |
 | a cavity is sealed | `p.cavities` (§4.2) | an open tray is also watertight, 1 solid, genus 0 |
@@ -40,6 +40,61 @@ Navigate by what you need to prove; the kind vocabulary itself is normative in
 | every wall is thick enough | `p.min_wall(min=)` (§4.11) | OCCT tier; a guaranteed interval — a limit inside it adjudicates `approximate`, never a guess |
 | a whole interface standard | a fragment — `nema17.mount(p)`, `iso15.seat(p, n)` (§11) | one call, cited |
 | material amount / wall drift over time | `p.volume`, `p.area` (§4.2) | drift shows in `diff` even while both runs pass |
+
+### Regions, written out
+
+A table row is not enough for these two: they are the only checks whose argument is a
+shape you construct, and every worked contract in the tree went without one until #200.
+
+```python
+from partspec import region
+from partspec.refs import nema17
+
+# keep_out — this space must hold NO material. The motor's locating boss
+# needs it clear, so the requirement is about volume rather than about a
+# feature, and both tiers answer it. (`hole_diameter` would state the same
+# interface as a bore, which the mesh tier refuses: a faceted hole has no
+# diameter.)
+p.keep_out(
+    region.cylinder(d=nema17.PILOT_BOSS, h=2.0, at=(0.0, 0.0, 34.0), axis="y"),
+    shell=0.6,
+    id="pilot-boss-clearance",
+)
+
+# keep_in — this space must be ENTIRELY material. Here, an L-bracket's
+# corner: TWO boxes, because the members are perpendicular slabs and one box
+# needing material from both would also span the air outside the L.
+p.keep_in(region.box(min=(-26.0, 0.5, 0.5), max=(26.0, 4.5, 12.0)), shell=1.0,
+          id="joint-web-plate")   # up the plate, past where the base stops
+p.keep_in(region.box(min=(-26.0, 0.5, 0.5), max=(26.0, 12.0, 4.5)), shell=1.0,
+          id="joint-web-base")    # along the base, past where the plate stops
+```
+
+- **`axis` is one of the strings `"x"`, `"y"`, `"z"`.** Not `(0, 0, 1)`, which is
+  refused — and which two fleet agents on different engines both reached for.
+- **`at` is the centre of the cylinder's base**, in the model's own coordinates.
+  Locate it off the datum the model uses, not off accumulated offsets.
+- **`shell` is not optional thinking** — it is the anti-vacuity guard. An absent part
+  has an empty region too, so `keep_out` pairs "no material here" with "material near
+  here", and `keep_in` pairs the converse. Size it to a real clearance. Know when it
+  cannot help, too: a `keep_in` rooted near the part's outer surface has a shell that
+  escapes into free space, so it is never entirely solid and a solid brick passes it.
+  Both `keep_in`s above are in that position; their work is done by the pair of them,
+  and the brick is excluded by `envelope` and `solid_count`.
+- **A region must reach where the claim is.** A single `keep_in` box that fits inside
+  one feature is satisfied by that feature alone, whatever happened to the thing you
+  meant to prove. Both ways of getting this wrong were shipped in drafts of the bracket
+  example: a box inside the plate passed with the base cut away, and a box inside the
+  base passed with no plate at all. The fix is not a bigger box — one cannot exist here
+  — but the PAIR above, which is why each of them may sit inside a single member: what
+  carries the claim is that between them they enter both. **Check by breaking the model
+  and watching the check fail**, and check that the right one fails; that is the only
+  way to know a region says what you think.
+- **A region's numbers do not reach `checks[].source`,** even when they come from
+  `partspec.refs`. Attribution is carried by the nine bound-carrying methods (§10);
+  region kinds are not among them (#250).
+
+`examples/stepper-bracket/` is the worked part; its README explains each choice.
 
 ## 2. `param` vs `requires` vs geometry — a worked before/after
 
