@@ -193,9 +193,15 @@ def _two_part_contract(tmp_path: Path) -> None:
 
 
 def _rendered(tmp_path: Path, slug: str) -> dict:
-    """That target's `renders` block, or `{}` if it has none."""
+    """That target's `renders` block, or `{}` if the key is absent.
+
+    `.get(key, {})` rather than `.get(key) or {}`: SPEC-report §8.4 says the
+    key MUST be absent rather than an empty object, so the `or` form would
+    quietly accept the shape the spec forbids.
+    """
     report = json.loads((tmp_path / "out" / slug / "report.json").read_text())
-    return report.get("renders") or {}
+    assert report.get("renders") != {}, "SPEC-report §8.4: absent, never an empty object"
+    return report.get("renders", {})
 
 
 @needs_scad_tier
@@ -210,8 +216,10 @@ def test_render_covers_every_target_in_a_batch(tmp_path: Path, monkeypatch, caps
     Both arms of the display branch are asserted, because the mesh-only CI job
     keeps no xvfb on purpose and OpenSCAD 2021.01 cannot export PNG without
     one. An earlier draft asserted success unconditionally and went red there
-    while `main` stayed green — the repo's other `--render` tests all carry
-    this arm and it was simply missed (round 1 of #189's review).
+    while `main` stayed green — the repo's other OPENSCAD-TIER `--render`
+    tests both carry this arm and it was simply missed (round 1 of #189's
+    review). The OCCT-tier ones do not, and do not need to: no display is in
+    that loop, as one of their docstrings says.
     """
     monkeypatch.chdir(tmp_path)
     _two_part_contract(tmp_path)
@@ -236,10 +244,12 @@ def test_render_covers_every_target_in_a_batch(tmp_path: Path, monkeypatch, caps
             assert rel == f"renders/{view}.png"
             assert (tmp_path / "out" / slug / rel).is_file()
 
-    # Distinct files, not one directory written twice.
+    # Two directories written, not one written twice. `a_iso != b_iso`
+    # compares two literals and can never be false; what carries the assertion
+    # is that both paths hold bytes.
     a_iso = tmp_path / "out" / "spec-a" / "renders" / "iso.png"
     b_iso = tmp_path / "out" / "spec-b" / "renders" / "iso.png"
-    assert a_iso.read_bytes() and b_iso.read_bytes() and a_iso != b_iso
+    assert a_iso.read_bytes() and b_iso.read_bytes()
 
 
 @needs_scad_tier
@@ -268,7 +278,16 @@ def test_a_failing_render_in_a_batch_names_the_target(tmp_path: Path, monkeypatc
     assert code == 4
     err = capsys.readouterr().err
 
+    # Scoped to targets that reached the render at all. A report can lack
+    # `renders` without anything having failed — a parameter blocker leaves
+    # `builds` unproven, so no render is attempted and none is owed — and the
+    # correspondence would then accuse the attribution code of a bug it does
+    # not have. Both parts here build, which is what makes it exact.
     for spec, slug in (("spec.py:a", "spec-a"), ("spec.py:b", "spec-b")):
+        report = json.loads((tmp_path / "out" / slug / "report.json").read_text())
+        assert any(c["kind"] == "builds" and c["status"] == "pass" for c in report["checks"]), (
+            f"{spec}: premise — a part that never built is owed no render"
+        )
         named = f"partspec: {spec}: " in err
         assert named == (_rendered(tmp_path, slug) == {}), (
             f"{spec}: named on stderr={named}, but its report "

@@ -593,7 +593,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
     # directory's `renders/`, and each report records paths relative to
     # itself. Fleet agents in two arms hit the refusal, plus one in the
     # earlier spike; each dropped `--render` from the batch check and
-    # rendered per target through the standalone `render` subcommand instead,
+    # rendered target by target through the standalone `render` subcommand,
     # which writes `render.json` and no report at all — a1's frozen log
     # carries 20 of them (#189).
     if batch and args.out is not None:

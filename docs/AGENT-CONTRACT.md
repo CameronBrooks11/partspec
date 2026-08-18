@@ -43,7 +43,7 @@ part asserts nothing. Route per-part from each part's own report, never from the
 exit; iterate on the one failing part singly and re-run the batch to confirm. The one
 thing the reports do not carry is §2's exception: a render the run was asked for and did
 not deliver is a fact about the RUN, so it reaches the exit and stderr — named with its
-target — while that part's own report still reads `pass`.
+target — while that part's own report says whatever the part deserved, `pass` included.
 
 ## 2. What each outcome instructs
 
