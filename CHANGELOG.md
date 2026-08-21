@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A region's dimensions carry their citation** (#250). `keep_out` and
+  `keep_in` now record `checks[].source` for the numbers that size the region —
+  a box's `min`/`max`, a cylinder's `d`/`h`, and `shell` — so a keep-out sized
+  from `partspec.refs` is attributed like any other bound, and both kinds join
+  `DIMENSIONAL_KINDS`. Carrying the citation without counting it would have left
+  the misleading half in place: a contract whose one externally-footed number is
+  a region dimension still reported `attributed: 0` and printed the
+  unattributed-limits disclosure.
+  A region's `at` stays uncited on purpose. A standard vouches for how big a
+  feature is, never for where a design puts it, so recording a citation against
+  a position would claim authority the standard never lent.
+  Found by the round-1 review of #200 — in `examples/stepper-bracket`, whose own
+  docstring calls it the citation exemplar, and which shipped taking a keep-out's
+  diameter from `refs.nema17` into a check reporting `source: null`. The gap was
+  invisible without opening the JSON.
+  **#250's stated cause is one cause; measured, it is two.** A box's corners were
+  flattened by validation — `Referenced` is a float subclass, `_finite` returned
+  `float(value)` and `__post_init__` wrote it back. A cylinder's `d`/`h` never
+  were, because `__post_init__` validates them and discards the result — so the
+  exemplar's own shape kept its citation the whole time and lost it only because
+  `_region_spec` passed no `source`. The two tests are pinned against each half
+  separately: dropping the recording fails both, dropping the preservation fails
+  only the box.
+
 - **A worked `keep_out` / `keep_in`, in a real part and in the skill** (#200).
   They appeared in no contract anywhere in the tree, so an author learning to
   write one had a single line of `SPEC-contract.md` — bare parameter names, no

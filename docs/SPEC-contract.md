@@ -887,8 +887,8 @@ from the model's own constants cannot fail however the design moves, and a singl
 cannot distinguish that from a proof.
 
 <!-- BEGIN GENERATED: dimensional-kinds -->
-`DIMENSIONAL_KINDS`: `param_range`, `envelope`, `volume`, `area`, `hole_diameter`, `bolt_circle`,
-`fillet_radius`, `draft_angle`, `min_wall`
+`DIMENSIONAL_KINDS`: `param_range`, `envelope`, `volume`, `area`, `keep_out`, `keep_in`,
+`hole_diameter`, `bolt_circle`, `fillet_radius`, `draft_angle`, `min_wall`
 <!-- END GENERATED: dimensional-kinds -->
 
 Attribution (§10) is the distinguisher: **the absence of `source` IS the unattributed
@@ -980,14 +980,15 @@ p.hole_diameter(seat.od, tol=0.05)     # the check records source: ISO 15 / 608 
 p.volume(min=1000.0)                    # a bare literal records nothing
 ```
 
-The nine bound-carrying methods (`param`, `envelope`, `volume`, `area`,
-`hole_diameter`, `bolt_circle`, `fillet_radius`, `draft_angle`, `min_wall`) record
+The bound-carrying methods (`param`, `envelope`, `volume`, `area`, `hole_diameter`,
+`bolt_circle`, `fillet_radius`, `draft_angle`, `min_wall`) record
 `source: {field: citation}` on the
 check when a `Referenced` reaches their bounds (`SPEC-report.md` §7.1) — the report states
-not just what was claimed but on whose authority. Region and shell dimensions do not yet
-carry attribution: their values pass through geometric validation that normalises to plain
-floats, and a citation silently dropped is worse documented as coverage than implied.
-Three rules:
+not just what was claimed but on whose authority. `keep_out` and `keep_in` do the same for
+the dimensions of the region they take — a box's `min`/`max`, a cylinder's `d`/`h` — and for
+`shell`. A region's `at` is deliberately excluded: a standard vouches for how big a feature
+is, never for where this design puts it, so a position stays the author's even when every
+number in it came from a table. Three rules:
 
 1. **Attribution is additive, never required.** Bare literals behave exactly as before.
 2. **Arithmetic sheds it.** `seat.od + 0.1` is a plain float: the derived number is the

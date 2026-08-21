@@ -72,9 +72,10 @@ An L-bracket mounting a NEMA 17 stepper, in build123d. What it teaches:
   The keep-out earns its place beside `nema17.mount`: that call declares the
   pilot *bore* through `hole_diameter`, a cylinder-precision claim the mesh
   tier refuses because a faceted bore has no diameter. The same requirement
-  stated as space is a claim about volume, which both tiers answer. Note that
-  a region's numbers do **not** reach `checks[].source` even when they come
-  from `refs` — see #250.
+  stated as space is a claim about volume, which both tiers answer. The
+  keep-out's diameter reaches `checks[].source` as a NEMA citation, the same
+  as a `hole_diameter` bound would; its *position* does not, because a
+  standard vouches for a feature's size and not for where a design puts it.
 
 ```sh
 partspec check spec.py:stepper_bracket

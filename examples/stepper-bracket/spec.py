@@ -61,12 +61,12 @@ def stepper_bracket() -> Part:
     # taken from `refs.nema17` rather than retyped; its 2 mm projection is the
     # designer's reading of the motor and stays a bare number.
     #
-    # It does NOT reach the report as a citation, unlike the `nema17.mount`
-    # claims above: `checks[].source` is populated for the nine bound-carrying
-    # methods (SPEC-contract §10) and a region is not one of them, so this
-    # check's `source` is null. Filed as #250 — worth knowing here, because
-    # this file is the citation exemplar and the gap is invisible until you
-    # look at the JSON.
+    # It reaches the report as a citation, like the `nema17.mount` claims
+    # above: `checks[].source` carries `{"d": ...}` here, naming NEMA ICS 16
+    # (SPEC-contract §10). It did not until #250 — this file is the citation
+    # exemplar and shipped with the one number that silently was not one.
+    # `at` stays uncited on purpose: the standard vouches for how wide the
+    # boss is, not for where this bracket puts it.
     #
     # `shell=0.6` is what stops this passing vacuously. An absent part has an
     # empty region too, so the check pairs "no material here" with "material
