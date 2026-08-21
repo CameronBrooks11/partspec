@@ -253,6 +253,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`source_closure` attributes imports to the target whose model reaches
+  them** (#216, epic #229). `imports` is read from `sys.modules`, which is
+  process-global, so a Python target behind another in one batch inherits every
+  library the earlier one loaded — measured, the same build123d cube records 38
+  imports alone and 44 behind a CadQuery target, `cadquery` among them. v0.7.5
+  qualified that with `preloaded`, which states the **inability**; this settles
+  the part of it the object graph can settle.
+  `reached` names the entries of `imports` this target's **own modules provably
+  reach**, walked from the model and the helpers beside it. `diff` subtracts it
+  from the unattributable set, which closes a real under-report: a follower
+  whose model begins importing a library the leader also loads had the entry on
+  one side only *and* preloaded, so a genuine new build input was reported as a
+  non-event.
+  **One-directional, and that is the safety argument.** It proves reach and
+  cannot disprove it — `from mylib import WALL_THICKNESS` binds a float, a float
+  has no `__module__`, and the edge does not exist in the object graph at all,
+  while `mylib` supplies a dimension. So absence means *not proven reached*,
+  never *proven unreached*: a consumer may attribute an entry with it and MUST
+  NOT dismiss one. Every report without the field — all of them until now, and
+  every OpenSCAD one — is read as proving nothing, which is what those readers
+  already did.
+  Measured end to end on the batch #216 was filed against: 44 imports, all 44
+  `preloaded`, **38 `reached` and `cadquery` not among them**; the CadQuery
+  target reaches `cadquery` and not `build123d`, and both reach the shared
+  `cadquery-ocp`, which is the semantic a `sys.modules` delta cannot express.
+  Two things measurement changed on the way. Adding a reached package's loaded
+  **submodules** cost 4005 ms against 42 ms — the membership scan is quadratic
+  in `sys.modules` — and changed the answer not at all, so it is not done. And
+  a walk from a model **imported into `__main__`** reaches essentially
+  everything, because `IPython.core.completer` holds a reference to `__main__`
+  and `__main__` holds every top-level import; partspec is unaffected only
+  because `pycad` execs a model under a private name rather than importing it,
+  and that is now written down so nobody re-derives it from a harness.
+
 - **The OpenSCAD closure asks the engine what it read instead of guessing**
   (#226, epic #229). `Closure.reads_external_data` was a bool by deliberate
   design, on the stated ground that *"the path may be computed at render time,

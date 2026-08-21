@@ -637,9 +637,14 @@ def _python_doc(
     imports: dict | None = None,
     unseen: list[str] | None = None,
     preloaded: list[str] | None = None,
+    reached: list[str] | None = None,
     **overrides,
 ) -> dict:
-    """A report whose closure has the 0.7.5 shape — the Python tier's."""
+    """A report whose closure has the 0.7.5 shape — the Python tier's.
+
+    `reached` is omitted entirely when not asked for, which is the pre-#216
+    producer shape every other test in this file exercises.
+    """
     doc = _doc(**overrides)
     doc["part"]["source_closure"] = {
         "digest": "sha256:k1",
@@ -650,6 +655,8 @@ def _python_doc(
         "preloaded": [] if preloaded is None else preloaded,
         "unseen": ["native_reads"] if unseen is None else unseen,
     }
+    if reached is not None:
+        doc["part"]["source_closure"]["reached"] = reached
     return doc
 
 
@@ -1980,3 +1987,51 @@ def test_a_status_that_is_not_a_status_is_corrupt_input():
         _diff(bad, _doc())
     with pytest.raises(DiffUsageError, match="`status` is not a string"):
         _diff(_doc(), bad)
+
+
+def test_an_import_the_target_provably_reached_is_attributable_after_all():
+    """`preloaded` names an inability, and #216 is the half of it that can be
+    settled: a distribution the target's OWN module graph reaches is its build
+    input whoever imported it first.
+
+    Without this the under-report is real, not theoretical. A follower whose
+    model begins importing a library the leader also loads produces exactly
+    this shape — the entry is on one side only AND preloaded — and it is a
+    genuine new build input reported as a non-event.
+    """
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")})
+    new = _python_doc(
+        {"build123d": _dist("0.10.1", "aaa"), "cqgridfinity": _dist("0.5.7", "bbb")},
+        preloaded=["build123d", "cqgridfinity"],
+        reached=["build123d", "cqgridfinity"],
+    )
+
+    doc = _diff(old, new)
+    assert doc["source"]["imports"]["added"] == {"cqgridfinity": _dist("0.5.7", "bbb")}
+    assert doc["source"]["imports"]["unattributable"] == [], (
+        "the model's own graph reaches it, so the inability preloaded records does not apply"
+    )
+    assert "appeared" in summary_of(doc, new), "a real new build input must read as a finding"
+
+
+def test_reach_may_attribute_an_import_but_never_dismiss_one():
+    """One-directional, and the direction is the whole safety argument.
+
+    `reached` proves reach and cannot disprove it — `from mylib import
+    WALL_THICKNESS` binds a float, a float has no `__module__`, and the edge
+    does not exist in the object graph at all. So an entry absent from
+    `reached` is *not proven reached*, never *proven unreached*, and must be
+    governed exactly as it was before the field existed.
+    """
+    imports_new = {"build123d": _dist("0.10.1", "aaa"), "cadquery": _dist("2.8.0", "bbb")}
+    old = _python_doc({"build123d": _dist("0.10.1", "aaa")})
+
+    # Present and empty, and absent entirely: both mean "nothing proven", and
+    # both must leave the qualification exactly where it was.
+    for reached in ([], None):
+        new = _python_doc(imports_new, preloaded=["build123d", "cadquery"], reached=reached)
+        doc = _diff(old, new)
+        assert doc["source"]["imports"]["unattributable"] == ["cadquery"], (
+            f"reached={reached!r} must not dismiss the qualification"
+        )
+        assert "appeared" not in summary_of(doc, new)

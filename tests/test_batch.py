@@ -854,3 +854,67 @@ def test_the_measure_verbs_failed_resolve_evicts_the_sibling(tmp_path: Path):
     dirs = _sibling_pair(tmp_path, raise_in_a=True)
     assert main(["measure", f"{dirs['a'] / 'spec.py'}:make"]) == 64
     _b_is_clean(tmp_path, dirs)
+
+
+def test_a_library_the_model_itself_reaches_is_attributed_to_that_target(tmp_path: Path):
+    """`preloaded` records an inability; `reached` settles the part of it that
+    can be settled (#216).
+
+    `imports` is read from one `sys.modules`, so a follower inherits the
+    leader's libraries and `preloaded` has to name all of them — it cannot tell
+    an inherited import from one the follower genuinely uses. That is the right
+    bound and the wrong answer for the case that matters: a follower whose own
+    model imports the shared library really does have it as a build input, and
+    silencing it is the under-report §8.3 refuses.
+
+    The object graph can settle it. Walked from the MODEL's modules, so the
+    library the follower's model imports is reached while a library only the
+    leader loaded is not — whoever imported it first.
+
+    Deliberately imported by the MODEL rather than the contract: the walk
+    starts at the model, and the contract is excluded from this closure
+    entirely (its digest is `contract_digest`).
+    """
+    pytest.importorskip("build123d", reason="occt extra not installed")
+    site = tmp_path / "site"
+    _install(site, "shared-lib-30", "sharedlib30")
+    _install(site, "leader-only-30", "leaderonly30")
+
+    follower_dir = tmp_path / "follower"
+    follower_dir.mkdir()
+    (follower_dir / "model.py").write_text(
+        f"import sys\n\nsys.path.insert(0, {str(site)!r})\nimport sharedlib30\n"
+        "from build123d import Box\n\n\n"
+        "def make_part():\n    return Box(sharedlib30.VALUE / 29, 1, 1)\n"
+    )
+    (follower_dir / "spec.py").write_text(
+        "from partspec import Part, build123d\n\n\n"
+        "def make():\n"
+        "    p = Part('follower', build123d('model.py'))\n"
+        "    p.volume(min=0.0)\n"
+        "    return p\n"
+    )
+    follower = f"{follower_dir / 'spec.py'}:make"
+
+    # The leader loads BOTH, so both are preloaded for the follower and
+    # `preloaded` alone cannot tell them apart.
+    leader = _inheriting_target(
+        tmp_path / "leader",
+        "leader",
+        {"sharedlib30": site, "leaderonly30": site},
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(2, 1, 1)\n",
+    )
+
+    _cold("check", leader, follower, "--quiet")
+    closure = _report(follower)["part"]["source_closure"]
+
+    assert "shared-lib-30" in closure["preloaded"], "premise: the leader loaded it first"
+    assert "leader-only-30" in closure["preloaded"], "premise: inherited, and only that"
+
+    assert "shared-lib-30" in closure["reached"], (
+        "the follower's own model imports it, so it is this target's build input"
+    )
+    assert "leader-only-30" not in closure["reached"], (
+        "reaching everything would manufacture findings, which is what preloaded prevents"
+    )
+    assert set(closure["reached"]) <= set(closure["imports"]), "reached is a subset of imports"
