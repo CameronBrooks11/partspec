@@ -394,7 +394,12 @@ class OcctBackend:
         return self._version
 
     def build(
-        self, source: pycad.PyCADSource, out_dir: Path, *, timeout_s: float | None = None
+        self,
+        source: pycad.PyCADSource,
+        out_dir: Path,
+        *,
+        timeout_s: float | None = None,
+        deps_out: list[Any] | None = None,
     ) -> Any | BuildError:
         """Build the part. `out_dir` is unused — nothing is exported to measure.
 

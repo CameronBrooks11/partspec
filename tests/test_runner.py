@@ -770,3 +770,82 @@ def test_an_undeclared_empty_build_still_fails_exactly_as_before(tmp_path: Path)
     assert report.verdict is Verdict.FAIL
     assert next(c for c in report.checks if c.kind == "builds").status is Status.FAIL
     assert next(c for c in report.checks if c.kind == "volume").status is Status.SKIPPED
+
+
+# ---------------------------------------------------------------------------
+# what the engine reported reading (#226)
+# ---------------------------------------------------------------------------
+
+
+def _external_data_part(tmp_path: Path) -> tuple[Path, Path]:
+    """A model whose data-file path is COMPUTED, plus the file it reads.
+
+    Computed deliberately: a literal `import("x.stl")` is findable with a
+    regex, and `_EXTERNAL_DATA_RE` roughly is one. `import(names[0])` is the
+    case `reads_external_data`'s docstring admits defeat on, so it is the case
+    that has to be closed for the claim to mean anything.
+    """
+    data = tmp_path / "input.stl"
+    data.write_bytes(b"solid x\nendsolid x\n")
+    entry = tmp_path / "part.scad"
+    entry.write_text('names = ["input.stl"];\nimport(names[0]);\ncube([2, 2, 2]);\n')
+    return entry, data
+
+
+@needs_scad_tier
+def test_a_complete_engine_report_closes_the_external_data_gap(tmp_path: Path):
+    """The point of #226, at the level `diff` reads.
+
+    `external_data_reads` was an UNCONDITIONAL gap for any model containing
+    `import()`/`surface()`, so such a model was permanently `partial` and
+    `diff` permanently indeterminate on it — the complaint #190 was filed for,
+    still live on the other engine. The engine knew all along; nothing asked.
+    """
+    entry, data = _external_data_part(tmp_path)
+    report = run(Part("p", openscad(entry)), out_dir=tmp_path / "out")
+    closure = report.source_closure
+    assert closure is not None, report.error
+
+    assert closure["reads_external_data"] is True, "premise: it does read external data"
+    assert closure["engine_inputs"]["state"] == "complete"
+    assert data.name in " ".join(closure["engine_inputs"]["data_files"])
+    assert "external_data_reads" not in closure["unseen"]
+    assert "partial" not in closure, "no gap left, so no partial — SPEC-report §8.3"
+
+
+@needs_scad_tier
+def test_the_data_file_is_hashed_not_merely_named(tmp_path: Path):
+    """Naming a file while leaving it out of the digest would claim a coverage
+    the digest does not have: edit the STL, and a closure that only LISTED it
+    still answers `identical`. That is the gap re-opened one field over, which
+    is the shape every fix in this area has taken."""
+    entry, data = _external_data_part(tmp_path)
+    out = tmp_path / "out"
+
+    before = run(Part("p", openscad(entry)), out_dir=out).source_closure
+    entry_bytes = entry.read_bytes()
+    data.write_bytes(b"solid y\nendsolid y\n")  # a different build input
+    after = run(Part("p", openscad(entry)), out_dir=out).source_closure
+
+    assert before is not None and after is not None
+    assert entry.read_bytes() == entry_bytes, "premise: the model itself is untouched"
+    assert before["digest"] != after["digest"], "the closure must see the data file move"
+
+
+@needs_scad_tier
+@pytest.mark.parametrize("state", ["absent", "partial"])
+def test_only_a_complete_report_may_close_the_gap(tmp_path: Path, state: str):
+    """`absent` is not "the render read nothing" and `partial` is a floor, not
+    a set. Treating either as closure is silence reading as success in the one
+    field built to prevent it — so both must leave the gap exactly where an
+    engine that never answered would."""
+    from partspec.engines.openscad import RenderDeps
+    from partspec.runner import _closure
+
+    entry, _ = _external_data_part(tmp_path)
+    closure = _closure(openscad(entry), RenderDeps(state=state))
+
+    assert closure is not None
+    assert closure["engine_inputs"]["state"] == state
+    assert "external_data_reads" in closure["unseen"], f"{state} must not read as complete"
+    assert closure["partial"] is True

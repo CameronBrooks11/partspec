@@ -201,13 +201,27 @@ class GeometryBackend(Protocol):
     # --- lifecycle ---
 
     def build(
-        self, source: Any, out_dir: Any, *, timeout_s: float | None = None
+        self,
+        source: Any,
+        out_dir: Any,
+        *,
+        timeout_s: float | None = None,
+        deps_out: list[Any] | None = None,
     ) -> Any | BuildError:
         """Run the engine and return an opaque artifact handle.
 
         `timeout_s` is interpreted through `effective_timeout` — None defaults,
         0 waives, positive bounds — and a blown budget is a `BuildError` with
         `origin="environment"`: a stopwatch disproves nothing about the part.
+
+        `deps_out`, when given, receives what the engine reports it actually
+        read (#226) — one `openscad.RenderDeps` on the mesh tier, nothing on a
+        tier whose engine has no such channel. The artifact handle cannot carry
+        it: the mesh tier loads the exported STL into a `trimesh` before
+        returning, so the render's own account of its inputs is gone by the
+        time a caller holds the result. Same shape as the runner's
+        `artifact_out`, and an empty list means "the engine did not say",
+        which is never "the render read nothing".
         """
         ...
 

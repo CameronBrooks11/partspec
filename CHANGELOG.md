@@ -253,6 +253,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The OpenSCAD closure asks the engine what it read instead of guessing**
+  (#226, epic #229). `Closure.reads_external_data` was a bool by deliberate
+  design, on the stated ground that *"the path may be computed at render time,
+  so no static reader can"* resolve it. That is true **statically, and only
+  statically**: OpenSCAD takes `-d` and writes the resolved input set. Measured
+  on 2021.01 against one model doing all three at once — an `include`, a
+  `surface(file = ...)`, and a **computed** `import(names[0])`, which is the
+  precise case the bool exists to admit defeat on — the dependency file names
+  every one of them, absolute. `render()` now passes `-d`, and
+  `source_closure.engine_inputs` carries what came back.
+  The consequence is the one the epic was filed for: a model that reads
+  external data was **permanently `partial`**, so `diff` was permanently
+  indeterminate on it — the complaint #190 was filed for, still live on the
+  other engine. With a `complete` engine report the gap is closed by evidence,
+  `external_data_reads` leaves `unseen`, and the comparison becomes conclusive.
+  **The data files are hashed into `digest`, not merely listed**: naming a file
+  without hashing it would claim a coverage the digest does not have — edit the
+  STL and a listing-only closure still answers `identical`.
+  **Three states, and `absent` never reads as `complete`.** Absence of a
+  dependency file means *unknown*, not *nothing was read*; a render that failed
+  after writing one reports a floor rather than the set. Only `complete` may
+  close the gap. **Which failures land in which state is engine-dependent** and
+  a consumer must not infer a cause from it: 2021.01 writes no dependency file
+  for a syntax error and the 2026.08.01 snapshot writes one anyway, so the same
+  broken model is `absent` on one engine and `partial` on the other. That is
+  F13, and this shipped a test asserting the 2021.01 answer as universal — the
+  two-version matrix caught it, review did not.
+  **It does not supersede the static walk**, and this contradicts part of the
+  issue: a **missing** `include` is not listed in the dependency file at all —
+  it records what was successfully *opened*, never what was *requested* — so
+  `unresolved` stays the only evidence an include was asked for, and
+  `include_closure` is still the only one that answers before a render.
+  Two defects found while building it, both by the suite rather than by review.
+  The first cut searched the whole of stderr for `-d` when deciding whether an
+  engine had rejected the flag — and an OpenSCAD rejection prints a `Usage:`
+  dump whose line 46 reads `-d [ --d ] arg  deps_file …`, so **every** rejected
+  option matched and silently disabled depfiles for the rest of the process;
+  `_is_unknown_option`'s own docstring already said "one line, not a window",
+  and the rule is now pinned one field over. The second was drift: `check`
+  gained `engine_inputs` while `measure` and `render` did not, which is #73's
+  failure exactly, caught by the pinned identity test that exists for it — and
+  the first fix for it covered only `render`'s success branch, so a headless
+  box, which is the only kind CI has, still disagreed.
+
 - **`SPEC-contract.md` §10.1 narrows the tolerancing exclusion rather than
   keeping or lifting it** (#246). The policy read *"out of scope: reproducing
   any standard's text, figures, or tolerancing tables"* — a blanket that also

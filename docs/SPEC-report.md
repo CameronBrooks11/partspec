@@ -870,6 +870,7 @@ An OpenSCAD report therefore carries:
   "reads_external_data": true,
   "partial": true,
   "imports": {},
+  "engine_inputs": { "state": "complete", "data_files": ["heights.dat"] },
   "unseen": ["external_data_reads", "unresolved_includes"]
 }
 ```
@@ -887,11 +888,18 @@ An OpenSCAD report therefore carries:
   spellings, `surface()`, the `dxf_*` extrudes and dimension functions, and
   `linear_extrude()`/`rotate_extrude()` given a `file=`. Those name STL/DXF/DAT files that
   genuinely are build inputs, and their paths may be computed at render time, so no static
-  reader can resolve them. **The deprecated spellings count**: the version floor executes
+  reader can resolve them — which is why `engine_inputs` below asks the engine instead.
+  The flag stays `true` either way: it says the model *reads* external data, which remains
+  a fact about the source whether or not this run learned what was read.
+  **The deprecated spellings count**: the version floor executes
   them, so a reader that recognised only the modern two reported a complete closure for a
   build that reads a file.
 - **`partial`** is `true` whenever the closure left anything unseen — `partial ==
-  bool(unseen)`, which for this tier is exactly "either of the previous two is non-empty".
+  bool(unseen)`, and that identity is the whole rule. It is **not** "either of the previous
+  two is non-empty", which is what this said until the engine could report its own inputs:
+  a model that reads external data under a `complete` `engine_inputs` has
+  `reads_external_data: true` and no gap, so it is not `partial`. Read the equivalence off
+  `unseen`, never off the fields above it.
   It is stated positively so a consumer cannot read the *absence* of those fields as a
   completeness guarantee the closure never made. **A comparator MUST treat a `partial`
   closure as inconclusive evidence of sameness**, exactly as `unsupported` is treated for a
@@ -899,7 +907,36 @@ An OpenSCAD report therefore carries:
 - **`imports`** is `{}` on this tier and MUST be present anyway. The render happens in a
   subprocess and loads no Python, and *that is a finding*: an absent `imports` means the
   question was never asked, which is what every report written before 0.7.5 says.
-- **`unseen`** names the gaps; see below.
+- **`engine_inputs`** is what the ENGINE said it read, from `openscad -d`, and it is the
+  one source of truth in this block that is not a static read of the source. It is present
+  only on a report whose run actually rendered. Three states, and **`absent` MUST NOT be
+  read as `complete`**:
+  - `complete` — the engine exited zero and wrote a dependency file: its resolved input
+    set, in full.
+  - `partial` — the engine failed but wrote one: what it had opened before it stopped,
+    which is a floor and not the set.
+  - `absent` — no dependency file. Nothing may be concluded; in particular this is *not*
+    "the render read nothing", which is what an empty `data_files` under either other
+    state would mean. **Which failures land here is engine-version-dependent** — 2021.01
+    writes nothing for a syntax error and the 2026.08.01 snapshot writes one anyway — so a
+    consumer MUST NOT infer a cause from the state. What holds on every engine is that a
+    failed render is never `complete`.
+
+  `data_files` names the entries the engine resolved that the static walk could not see —
+  the `import()`/`surface()` targets — and `missing` names entries the engine listed that
+  do not exist on disk, which is a build input the model asked for and did not get.
+  **A named data file is hashed into `digest`**; naming one without hashing it would claim
+  a coverage the digest does not have.
+
+  This does **not** supersede the static walk, and a reader must not treat it as a
+  replacement. Measured on 2021.01: a **missing** `include` is not listed in the dependency
+  file at all — it records what was successfully opened, never what was requested — so
+  `unresolved` remains the only evidence that an include was asked for. The two are
+  complementary, and `include_closure` additionally answers before any render happens.
+- **`unseen`** names the gaps; see below. `external_data_reads` is omitted **only** when
+  `engine_inputs.state` is `complete`: the gap is then closed by evidence rather than
+  assumed away, and a `partial` or `absent` state leaves it exactly where an engine that
+  never answered would.
 
 A **Python** report carries a closure too, of a different shape:
 
@@ -1025,7 +1062,7 @@ A closed vocabulary. `partial` is derived from it: `partial == bool(unseen)`.
 | --- | --- | --- | --- |
 | `native_reads` | Python | irreducible | a C extension may read files Python cannot observe |
 | `unidentified_imports` | Python | bounded | an import with no `__file__`, listed in `imports` |
-| `external_data_reads` | OpenSCAD | bounded | `import()`/`surface()`/`import_stl()`/… in the closure |
+| `external_data_reads` | OpenSCAD | bounded | `import()`/`surface()`/`import_stl()`/… in the closure, and `engine_inputs` did not report `complete` |
 | `unresolved_includes` | OpenSCAD | bounded | named `include`/`use` targets not found |
 
 A **bounded** gap is one a run could in principle close; an **irreducible** one is a

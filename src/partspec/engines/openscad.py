@@ -283,7 +283,11 @@ def _output_over_an_input(source: OpenSCADSource, out_dir: Path, stl: Path) -> B
 
 
 def render(
-    source: OpenSCADSource, out_dir: Path, *, timeout_s: float | None = DEFAULT_TIMEOUT_S
+    source: OpenSCADSource,
+    out_dir: Path,
+    *,
+    timeout_s: float | None = DEFAULT_TIMEOUT_S,
+    deps_out: list[RenderDeps] | None = None,
 ) -> Path | BuildError:
     """Render to binary STL, returning the path or a BuildError.
 
@@ -324,6 +328,8 @@ def render(
     unbounded (the explicit `--timeout 0` waiver). The None-means-default rule
     lives one layer up, in `effective_timeout`.
     """
+    global _DEPS_FLAG_OK
+
     executable = find_executable()
     if executable is None:
         return BuildError(
@@ -382,6 +388,16 @@ def render(
             dir=out_dir, prefix=".partspec-build-", ignore_cleanup_errors=True
         ) as build_dir:
             staged = Path(build_dir) / stl.name
+            wanted_deps = _DEPS_FLAG_OK
+            # `-d` inside the scratch directory, which this call created empty
+            # and which is removed with it: the engine's own account of what it
+            # read is provenance, not an artifact, and it must not appear in a
+            # directory the caller owns. Passed unconditionally because it is
+            # inert on the render — 2021.01 documents it as
+            # `deps_file -generate a dependency file for make`, and an engine
+            # that does not accept it is handled where every other rejected
+            # option is.
+            depfile = Path(build_dir) / "deps"
             cmd = [
                 executable,
                 "--export-format",
@@ -389,6 +405,7 @@ def render(
                 *backend_args,
                 "-o",
                 str(staged),
+                *(["-d", str(depfile)] if wanted_deps else []),
                 *defines,
                 str(render_path),
             ]
@@ -396,6 +413,22 @@ def render(
                 proc = subprocess.run(
                     cmd, capture_output=True, text=True, timeout=timeout_s, check=False
                 )
+                rejected = _signal_lines(proc.stderr)
+                if (
+                    proc.returncode != 0
+                    and wanted_deps
+                    and _is_unknown_option(proc.stderr)
+                    and _DEPS_RE.search(rejected[0])
+                ):
+                    # This engine has no `-d`. Drop it for the rest of the
+                    # process and render again: the depfile is provenance, and
+                    # losing it must cost the closure a claim, never the build.
+                    _DEPS_FLAG_OK = False
+                    wanted_deps = False
+                    cmd = [a for a in cmd if a not in ("-d", str(depfile))]
+                    proc = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=timeout_s, check=False
+                    )
             except subprocess.TimeoutExpired:
                 return BuildError(f"openscad timed out after {timeout_s}s", origin="environment")
             except OSError as exc:
@@ -409,6 +442,17 @@ def render(
                     hint=f"{ENV_EXECUTABLE} is set to this path"
                     if os.environ.get(ENV_EXECUTABLE)
                     else None,
+                )
+
+            if deps_out is not None:
+                # Once, here: every return below this point has the same answer,
+                # and `exit 0 but no geometry` is a COMPLETE depfile rather than
+                # a failed one — measured, a model whose `include` did not
+                # resolve exits 0 and the depfile lists the source alone.
+                deps_out.append(
+                    _read_depfile(depfile, ok=proc.returncode == 0)
+                    if wanted_deps
+                    else RenderDeps(state="absent")
                 )
 
             if proc.returncode != 0:
@@ -683,7 +727,11 @@ def _display_failure(returncode: int, stderr: str) -> bool:
 
 
 def render_views(
-    source: OpenSCADSource, out_dir: Path, *, timeout_s: float | None = DEFAULT_TIMEOUT_S
+    source: OpenSCADSource,
+    out_dir: Path,
+    *,
+    timeout_s: float | None = DEFAULT_TIMEOUT_S,
+    deps_out: list[RenderDeps] | None = None,
 ) -> dict[str, Path] | BuildError:
     """Render the canonical views to PNG, or say exactly why not.
 
@@ -733,7 +781,7 @@ def render_views(
     dependency output names what this render actually READ, and the move can
     then be refused on a real collision rather than a guess.
     """
-    stl = render(source, out_dir, timeout_s=timeout_s)
+    stl = render(source, out_dir, timeout_s=timeout_s, deps_out=deps_out)
     if isinstance(stl, BuildError):
         return stl
     executable = find_executable()
@@ -1020,6 +1068,122 @@ against `import_stl("input.stl")` ate their own input and reported
 The deprecated `dxf_*` forms are matched by name because a file is all they
 take. `linear_extrude`/`rotate_extrude` are matched only with `file=`, since
 the overwhelming majority of their uses extrude a child and read nothing."""
+
+
+# make-style depfile tokens: runs of non-space, with `\ ` escaping a space.
+# A trailing `\` before a newline is a line continuation and matches neither
+# alternative, so continuations terminate a token rather than joining into one.
+_DEPS_FLAG_OK = True
+"""Whether this process has seen the engine accept `-d`.
+
+Set false the first time a build is rejected for it, and that build is retried
+without it. `-d` has been in OpenSCAD since long before 2021.01 and is in
+current master, so this is expected to stay true — but a `PARTSPEC_OPENSCAD`
+pin can name any binary, and the alternative to degrading is that EVERY render
+fails on such a build, under a hint telling the reader to drop a contract
+argument they never passed. Provenance is not worth a render.
+"""
+
+
+_DEPS_RE = re.compile(r"(?<![\w-])(?:-d|--d)(?![\w-])")
+"""The `-d` flag as an engine's REJECTION LINE names it, never as its usage does.
+
+Matched against `_signal_lines(...)[0]` alone, for the reason
+`_is_unknown_option` gives at length and this constant re-learned the hard way:
+a rejection is followed by a `Usage:` dump listing every allowed option, and on
+2021.01 line 46 of it reads `-d [ --d ] arg  deps_file -generate a dependency
+file for make`. Searching the whole of stderr therefore matched on EVERY
+rejected option — `--backend=CGAL` on 2021.01 is the ordinary case — so any
+such build silently disabled depfiles for the rest of the process. Caught by
+the suite, not by review, and pinned below.
+
+`deps_file` is deliberately not in the pattern: it appears only in that dump's
+prose, never in a rejection.
+"""
+
+
+_DEP_TOKEN = re.compile(r"(?:[^\s\\]|\\.)+")
+
+
+@dataclass(frozen=True, slots=True)
+class RenderDeps:
+    """What the engine says it actually read, from `openscad -d`.
+
+    `Closure` is what a *static* reader can see; this is what the render
+    resolved. The two are complementary and neither supersedes the other —
+    measured on 2021.01, a **missing** `include` is not listed here at all (the
+    depfile names what was successfully opened, never what was requested), so
+    `include_closure`'s regex stays the only thing that knows an include was
+    asked for. What this adds is the half no static reader can have: a
+    `surface(file = ...)` target, and an `import(names[i])` whose path is
+    computed at render time.
+    """
+
+    state: str
+    """`complete`, `partial` or `absent` — and `absent` MUST NOT read as `complete`.
+
+    - `complete` — the engine exited 0 and wrote a depfile: its resolved input
+      set, in full.
+    - `partial` — the engine failed but wrote a depfile: what it had opened
+      before it stopped, which is a floor and not the whole set.
+    - `absent` — no depfile at all. Nothing may be concluded from it; in
+      particular it is not "the render read nothing", which is what an empty
+      `files` under any other state would mean.
+
+      **Which failures land here is engine-version-dependent, so do not key on
+      the cause.** Measured: 2021.01 writes nothing for a syntax error (exit 1,
+      no file) while the 2026.08.01 snapshot writes one anyway, making the same
+      broken model `absent` on one engine and `partial` on the other. That is
+      F13, and the first cut of this feature shipped a test asserting the
+      2021.01 answer as universal. What holds on both is the only thing worth
+      asserting: a failed render is never `complete`.
+    """
+
+    files: tuple[Path, ...] = ()
+    """Resolved dependencies, sorted. Absolute, except where noted in `missing`."""
+
+    missing: tuple[Path, ...] = ()
+    """Listed dependencies that do not exist on disk.
+
+    Not a contradiction and not a parse failure: a **missing** `import()` target
+    is listed by its resolved absolute path (measured), which is strictly more
+    than the silence partspec had before — it names a build input the model
+    wanted and did not get. Anything hashing this list must treat `ENOENT` as a
+    normal outcome.
+    """
+
+
+def _parse_depfile(text: str, cwd: Path) -> tuple[Path, ...]:
+    """Resolved dependencies from a make-style depfile, entry file included.
+
+    The target is everything up to the first colon and is dropped. Paths are
+    resolved against `cwd` because they are not uniformly absolute: OpenSCAD
+    emits resolved dependencies absolute but **echoes the invoked source as it
+    was given**, and partspec passes `source.path` unresolved (`contract.py`
+    builds `Source` with a bare `Path(path)`), so a contract saying
+    `openscad("part.scad")` puts a relative entry in this list.
+    """
+    _, _, body = text.partition(":")
+    out: set[Path] = set()
+    for match in _DEP_TOKEN.finditer(body):
+        token = re.sub(r"\\(.)", r"\1", match.group())
+        if token:
+            out.add((cwd / token).resolve())
+    return tuple(sorted(out))
+
+
+def _read_depfile(path: Path, *, ok: bool) -> RenderDeps:
+    """Grade a render's depfile. `ok` is whether the engine exited zero."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return RenderDeps(state="absent")
+    files = _parse_depfile(text, Path.cwd())
+    return RenderDeps(
+        state="complete" if ok else "partial",
+        files=files,
+        missing=tuple(f for f in files if not f.exists()),
+    )
 
 
 @dataclass(frozen=True, slots=True)

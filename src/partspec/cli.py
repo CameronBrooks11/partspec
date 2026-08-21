@@ -431,7 +431,13 @@ def _names_the_artifact(raw: str) -> bool:
     return path.suffix == ARTIFACT_SUFFIX
 
 
-def _build_to_file(backend: Any, source: Any, dest: Path, timeout_s: float) -> Any | BuildError:
+def _build_to_file(
+    backend: Any,
+    source: Any,
+    dest: Path,
+    timeout_s: float,
+    deps_out: list[Any] | None = None,
+) -> Any | BuildError:
     """Build so the artifact lands at exactly `dest`, and only if it exists.
 
     **Nothing touches `dest` until there is an artifact to put there.** The
@@ -484,7 +490,7 @@ def _build_to_file(backend: Any, source: Any, dest: Path, timeout_s: float) -> A
         with tempfile.TemporaryDirectory(
             dir=dest.parent, prefix=".partspec-build-", ignore_cleanup_errors=True
         ) as scratch:
-            built = backend.build(source, Path(scratch), timeout_s=timeout_s)
+            built = backend.build(source, Path(scratch), timeout_s=timeout_s, deps_out=deps_out)
             if isinstance(built, BuildError):
                 return built
             (Path(scratch) / f"{source.path.stem}{ARTIFACT_SUFFIX}").replace(dest)
@@ -1037,6 +1043,7 @@ def _measure_resolved(
 
     try:
         backend = _backend_for(part.source.engine)
+        engine_deps: list[Any] = []
     except ContractError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -1107,11 +1114,11 @@ def _measure_resolved(
                 f"{source.path.stem}{ARTIFACT_SUFFIX}",
             )
             return EXIT_USAGE
-        artifact = _build_to_file(backend, source, dest, timeout_s)
+        artifact = _build_to_file(backend, source, dest, timeout_s, engine_deps)
         written_to = dest
     else:
         out = _out_dir(args.target, Path(args.out) if args.out is not None else None)
-        artifact = backend.build(source, out, timeout_s=timeout_s)
+        artifact = backend.build(source, out, timeout_s=timeout_s, deps_out=engine_deps)
         # The name inside the directory is partspec's, not the caller's, which
         # is the whole of #225: the caller chose `out` and cannot know the rest
         # without re-deriving a rule this tool owns and has already changed once
@@ -1179,7 +1186,9 @@ def _measure_resolved(
         # a Python model's imports are only knowable once it has run.
         "schema_version": SCHEMA_VERSION,
         "tool": {"name": "partspec", "version": tool_version()},
-        "part": identity(part, target.path, built=True),
+        "part": identity(
+            part, target.path, built=True, engine_deps=engine_deps[0] if engine_deps else None
+        ),
         "engine": engine_block(part, backend),
         "params": dict(part.source.params),
         "geometry": backend.provenance(artifact),
@@ -1385,6 +1394,7 @@ def _render_files(
     timeout_s: float,
     section: tuple[str, float | None] | None = None,
     prebuilt: Any | None = None,
+    deps_out: list[Any] | None = None,
 ) -> tuple[dict[str, Path], dict[str, object]] | BuildError:
     """The view files for either tier — one dispatcher, so the `render` verb
     and `check --render` cannot drift apart (#18).
@@ -1405,7 +1415,7 @@ def _render_files(
         from .engines import openscad
 
         views = openscad.render_views(
-            _engine_source(part), out, timeout_s=effective_timeout(timeout_s)
+            _engine_source(part), out, timeout_s=effective_timeout(timeout_s), deps_out=deps_out
         )
         if isinstance(views, BuildError):
             return views
@@ -1587,12 +1597,29 @@ def _render_resolved(
     # The same stale-artifact rule as every render file: a failing run must
     # not leave the previous run's payload to be read as this run's (#21).
     (out / "render.json").unlink(missing_ok=True)
-    result = _render_files(part, out, timeout_s, section)
+    render_deps: list[Any] = []
+    result = _render_files(part, out, timeout_s, section, deps_out=render_deps)
+
+    def _identity() -> dict[str, Any]:
+        # `built=True`: a Python model's imports are only knowable once it has
+        # run. On BOTH branches, because the STL renders before the views do:
+        # a headless box fails at the image stage with the engine's account of
+        # its inputs already in hand, and discarding it there made `render`'s
+        # failure payload disagree with `check`'s report on a machine with no
+        # display — which is the only kind CI has.
+        return identity(
+            part,
+            target.path,
+            built=True,
+            engine_deps=render_deps[0] if render_deps else None,
+        )
+
     if isinstance(result, BuildError):
         # The failure is an artifact too (#47): this path used to print to
         # stderr and return a bare 4 — machine-invisible exactly where a
         # machine is the audience. Empty rather than absent, mirroring
         # measure's failure shape: the identity prefix stays exact.
+        payload["part"] = _identity()
         payload["renders"] = {}
         payload["error"] = result.message
         payload["hint"] = result.hint
@@ -1610,9 +1637,7 @@ def _render_resolved(
         return exit_code(Verdict.ERROR)
 
     views, meta = result
-    # `built=True`: a Python model's imports are only knowable once it has
-    # run, and on this path it just did. No-op for OpenSCAD.
-    payload["part"] = identity(part, target.path, built=True)
+    payload["part"] = _identity()
     payload["renders"] = {view: str(path) for view, path in views.items()}
     payload.update(meta)
     # The payload, on disk beside the images (#21): stdout serves the

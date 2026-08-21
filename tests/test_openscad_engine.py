@@ -451,9 +451,12 @@ def test_the_engine_names_the_data_files_a_render_read(tmp_path: Path, body: str
     and the deps file names it by absolute path anyway — because the engine
     reports what it opened, not what it could parse.
 
-    Deliberately drives the binary rather than `render()`: partspec does not
-    pass `-d` yet. That is the point — this is the evidence #226 would build
-    on, and it should be known to hold before anything is built on it.
+    Deliberately drives the binary rather than `render()`, and stays that way
+    now that #226 has landed and `render()` passes `-d` itself. This is the
+    ENGINE-behaviour premise the feature rests on, so it must keep failing for
+    the right reason: routed through `render()` it would also fail when
+    partspec's own parsing or plumbing broke, and the two are different
+    findings on two different engine versions.
     """
     import subprocess
 
@@ -1058,3 +1061,155 @@ def test_a_move_that_fails_before_any_view_moves_says_nothing_was_touched(
     assert "nothing in the output directory has been touched" in (result.hint or "")
     for view in openscad.VIEWS:
         assert (renders / f"{view}.png").read_bytes() == b"previous"
+
+
+# ---------------------------------------------------------------------------
+# what the engine says it read (#226)
+# ---------------------------------------------------------------------------
+
+
+def test_the_depfile_parser_drops_the_target_and_unescapes(tmp_path: Path):
+    """Make syntax, parsed as make syntax.
+
+    The target is not a dependency; a trailing backslash is a line continuation
+    and not part of a path; and `\\ ` is one escaped space inside a single
+    filename rather than a separator. Reading any of those wrong puts a path
+    that does not exist into a list whose whole purpose is naming files to hash.
+    """
+    (tmp_path / "a b.stl").write_text("x")
+    text = "out.stl: \\\n\t/abs/one.scad \\\n\t" + f"{tmp_path}/a\\ b.stl" + " \\\n\trel.scad\n"
+
+    files = openscad._parse_depfile(text, tmp_path)
+
+    assert Path("/abs/one.scad") in files
+    assert (tmp_path / "a b.stl") in files, "an escaped space must not split a filename"
+    assert (tmp_path / "rel.scad") in files, "relative entries resolve against the render cwd"
+    assert not any("out.stl" in str(f) for f in files), "the target is not a dependency"
+
+
+@needs_openscad
+def test_a_render_reports_the_data_files_no_static_reader_can_find(tmp_path: Path):
+    """The whole point of #226, end to end through `render()`.
+
+    A **computed** `import(names[0])` and a `surface(file = ...)` are precisely
+    what `Closure.reads_external_data` exists to admit defeat on. The engine
+    resolves both and says so, for one extra argument.
+    """
+    donor = _scad(tmp_path, "input.scad", "cube([3, 7, 11]);\n")
+    stl = openscad.render(OpenSCADSource(path=donor), tmp_path)
+    assert isinstance(stl, Path), stl
+    heights = tmp_path / "heights.dat"
+    heights.write_text("5 5 5\n5 5 5\n")
+
+    source = _scad(
+        tmp_path,
+        "part.scad",
+        'names = ["input.stl"];\nimport(names[0]);\nsurface(file = "heights.dat");\n',
+    )
+    deps: list[openscad.RenderDeps] = []
+    built = openscad.render(OpenSCADSource(path=source), tmp_path, deps_out=deps)
+    assert isinstance(built, Path), built
+
+    assert len(deps) == 1
+    assert deps[0].state == "complete"
+    assert stl.resolve() in deps[0].files, "the computed import target"
+    assert heights.resolve() in deps[0].files, "the surface() target"
+    assert deps[0].missing == ()
+
+
+def test_a_depfile_that_was_never_written_reads_as_absent(tmp_path: Path):
+    """`absent` is a third state and not a spelling of "read nothing".
+
+    Unit-level and engine-independent on purpose. The first cut of this test
+    asserted that a SYNTAX ERROR produces `absent`, which is true on 2021.01
+    and false on the 2026.08.01 snapshot — that engine writes a depfile even
+    for an unparseable model, so the state is `partial`. F13 again, and caught
+    by the matrix rather than by review. What is version-independent is the
+    thing the state actually means: no file, no claim.
+    """
+    deps = openscad._read_depfile(tmp_path / "never-written", ok=True)
+    assert deps.state == "absent"
+    assert deps.files == ()
+
+
+@needs_openscad
+def test_a_broken_model_never_reports_a_complete_input_set(tmp_path: Path):
+    """Whichever of the two non-complete states this engine gives.
+
+    Both engine versions must agree on the part that matters: a render that
+    failed has NOT told us its whole input set, so reading it as `complete`
+    would let the strongest source of truth degrade into a false negative
+    exactly when the model is most broken — silence reading as success, in the
+    one field built to prevent it.
+    """
+    source = _scad(tmp_path, "broken.scad", "cube([1,1,1)\n")
+    deps: list[openscad.RenderDeps] = []
+    result = openscad.render(OpenSCADSource(path=source), tmp_path, deps_out=deps)
+
+    assert isinstance(result, BuildError), result
+    assert deps[0].state in ("absent", "partial"), deps[0].state
+    assert deps[0].state != "complete"
+
+    # The contrast is the evidence: without it this passes against a tree with
+    # the whole feature reverted, since an engine never asked for a depfile
+    # answers `absent` here too.
+    ok = _scad(tmp_path, "fine.scad", "cube([1,1,1]);\n")
+    good: list[openscad.RenderDeps] = []
+    assert isinstance(openscad.render(OpenSCADSource(path=ok), tmp_path, deps_out=good), Path)
+    assert good[0].state == "complete", "a failed render must be distinguishable from a real one"
+    assert ok.resolve() in good[0].files
+
+
+@needs_openscad
+def test_a_missing_import_target_is_named_rather_than_left_silent(tmp_path: Path):
+    """A dependency the engine lists need not exist on disk.
+
+    Measured: a missing `import()` target is listed by its resolved absolute
+    path. That is not a parse failure to defend against — it names a build
+    input the model wanted and did not get, which is strictly more than the
+    silence partspec had before. Anything hashing this list must survive it.
+    """
+    source = _scad(tmp_path, "part.scad", 'import("nope.stl");\n')
+    deps: list[openscad.RenderDeps] = []
+    result = openscad.render(OpenSCADSource(path=source), tmp_path, deps_out=deps)
+
+    assert isinstance(result, BuildError), result
+    assert len(deps) == 1
+    assert deps[0].state == "partial", "the engine stopped; this is a floor, not the set"
+    assert (tmp_path / "nope.stl").resolve() in deps[0].missing
+
+
+def test_another_options_rejection_is_not_read_as_a_rejected_depfile():
+    """A rejected `--backend` must not be read as a rejected `-d`.
+
+    OpenSCAD answers an unknown option with a `Usage:` dump listing every
+    option it DOES take, and on 2021.01 one of those lines is
+    `-d [ --d ] arg  deps_file -generate a dependency file for make`. The first
+    cut of the fallback searched the whole of stderr, so EVERY rejected option
+    matched — and `backend=` on 2021.01 is the ordinary experience of a
+    contract written against a newer engine, not an exotic one — silently
+    turning depfiles off for the rest of the process.
+
+    Pinned at the predicate rather than by driving the binary, because the two
+    engine versions do not agree on what an unknown backend even is: 2021.01
+    rejects it as an option, and the 2026.08.01 snapshot accepts the option and
+    fails the model with `ERROR: Unknown rendering backend`. The defect is in
+    the matching, so that is what this holds still.
+
+    `_is_unknown_option`'s own docstring already says why — "One line, not a
+    window" — and this is the same rule one field over.
+    """
+    stderr = (
+        "unrecognised option '--backend=CGAL'\n"
+        "Usage: openscad [options] file.scad\n"
+        "  -o [ --o ] arg               output file\n"
+        "  -d [ --d ] arg               deps_file -generate a dependency file for make\n"
+    )
+
+    assert openscad._is_unknown_option(stderr), "premise: the engine rejected an option"
+    assert openscad._DEPS_RE.search(stderr) is not None, (
+        "premise: the usage dump names -d, which is why searching all of stderr was wrong"
+    )
+    assert openscad._DEPS_RE.search(openscad._signal_lines(stderr)[0]) is None, (
+        "the rejection names --backend, not -d; the dump below it is not evidence"
+    )

@@ -81,9 +81,16 @@ class MeshBackend:
         return self._version
 
     def build(
-        self, source: openscad.OpenSCADSource, out_dir: Path, *, timeout_s: float | None = None
+        self,
+        source: openscad.OpenSCADSource,
+        out_dir: Path,
+        *,
+        timeout_s: float | None = None,
+        deps_out: list[Any] | None = None,
     ) -> Any | BuildError:
-        result = openscad.render(source, out_dir, timeout_s=effective_timeout(timeout_s))
+        result = openscad.render(
+            source, out_dir, timeout_s=effective_timeout(timeout_s), deps_out=deps_out
+        )
         if isinstance(result, BuildError):
             return result
         return self.load(result)
