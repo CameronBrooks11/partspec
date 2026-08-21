@@ -23,16 +23,24 @@ draft did, and it cost three wrong rows.
 
 ## What this carries, and what it deliberately does not
 
-**The size, not the fit.** `SPEC-contract.md` §10.1 puts a standard's
-tolerancing tables out of scope, so ISO 965's 6g/6H classes are not here — see
-#246, which argues that policy question on its own merits rather than settling
-it inside a data module. What is here is the diameter/pitch series and the basic
-profile geometry, which are dimensional interface facts in exactly the sense
-§10.1 means: a bolt's nominal size is what a hole, a nut and a tap all interface
-with.
+**The size, not the fit.** What is here is the diameter/pitch series and the
+basic profile geometry, which are dimensional interface facts in exactly the
+sense `SPEC-contract.md` §10.1 means: a bolt's nominal size is what a hole, a
+nut and a tap all interface with.
 
-The fit is the designer's, the same way `iso15` carries a bearing's boundary
+ISO 965's 6g/6H **limits** are not here and are not coming. §10.1 excluded every
+tolerancing table when this module was written; #246 then argued the question on
+its own merits and narrowed the exclusion rather than lifting it — a standard's
+tolerance *grades* and *fundamental deviations* are in scope where the standard
+states them as a formula the test suite can execute against every shipped value,
+and limits of size stay out. A limit is a fit, and a wrong digit in a fit is a
+part that does not assemble under a citation saying the standard blessed it. So
+the fit stays the designer's, the same way `iso15` carries a bearing's boundary
 envelope and leaves `tol=` to the author.
+
+The grades and deviations that ruling does license are #260, deliberately not
+shipped here: their formulae are not sourced anywhere in this repo, and this
+module's own history is the argument for not writing them from memory.
 
 ## Why the derived diameters still carry a citation
 

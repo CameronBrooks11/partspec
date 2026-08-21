@@ -1064,6 +1064,20 @@ Out of scope: reproducing any standard's text, figures, or tolerancing tables, a
 value not verifiable from public manufacturer documentation. An unknown designation is a
 `ContractError` naming what the table does carry — a table must not guess.
 
+**One exception to the tolerancing exclusion, and the test it must pass.** A standard's
+tolerance **grades** and **fundamental deviations** are in scope where the standard states
+them as a *formula* and that formula is executed by the test suite against every value
+shipped. **Limits of size stay out.** The distinction is not size, it is what can be
+checked: a deviation a table recomputes from the standard's own formula is verifiable by
+construction, which is a stronger guarantee than any boundary dimension in these tables
+gets — nothing arithmetically validates a bearing's 22 mm. A limit is a *fit*, and a
+wrong digit in a fit is a part that does not assemble under a citation saying the standard
+blessed it: worse than no data, because the reader stops checking. So the author derives
+the limit from the deviation and the grade and owns the result (§10 rule 2), or a fragment
+derives it and states the derivation in the citation's `note` (§11 rule 3). A table that
+cannot execute the formula ships nothing: the exception is the test, not the subject
+matter.
+
 ---
 
 ## 11. Contract fragments — an interface standard as an import
