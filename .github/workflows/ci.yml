@@ -64,7 +64,7 @@ jobs:
       # the tj-actions compromise. `astral-sh/setup-uv@v9` is a 404, so the
       # floating-major form every other action here uses would fail the job
       # outright. Bump the number; do not "tidy" it back to a major.
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
       - name: Setup
@@ -105,7 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: extractions/setup-just@v4
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -205,7 +205,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: extractions/setup-just@v4
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
       - name: Install OpenSCAD (apt)
@@ -230,7 +230,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: extractions/setup-just@v4
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
       - name: Test
@@ -263,7 +263,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: extractions/setup-just@v4
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
       - name: Install OpenSCAD (apt)
         run: |
           sudo apt-get update
@@ -289,7 +289,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: extractions/setup-just@v4
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
       - name: Install OpenSCAD (apt)
         run: |
           sudo apt-get update
@@ -313,7 +313,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: extractions/setup-just@v4
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
       - name: Install OpenSCAD (apt)
