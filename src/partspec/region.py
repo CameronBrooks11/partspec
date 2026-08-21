@@ -22,6 +22,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+from .provenance import Referenced
 from .status import ContractError, short_repr
 
 __all__ = ["BoxRegion", "CylinderRegion", "Region", "box", "cylinder"]
@@ -30,10 +31,21 @@ _AXES = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
 
 
 def _finite(value: float, what: str) -> float:
+    """Validate finiteness without flattening a `Referenced`.
+
+    `Referenced` is a float SUBCLASS, so `float(value)` strips the citation. It
+    mattered on exactly the paths that write the validated value BACK — a box's
+    corners, and a cylinder's `at` — and not on a cylinder's `d`/`h`, which
+    `__post_init__` validates and then discards the result of. #250 reads as one
+    cause ("their values pass through geometric validation that normalises to
+    plain floats"); measured, it is two, and the tree's own exemplar sits on the
+    half that never lost anything. Its citation was intact all along and only
+    `_region_spec` failed to record it.
+    """
     v = float(value)
     if not math.isfinite(v):
         raise ContractError(f"{what} is {value!r}, which is not a number")
-    return v
+    return value if isinstance(value, Referenced) else v
 
 
 @dataclass(frozen=True, slots=True)

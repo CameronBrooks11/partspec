@@ -90,9 +90,10 @@ p.keep_in(region.box(min=(-26.0, 0.5, 0.5), max=(26.0, 12.0, 4.5)), shell=1.0,
   carries the claim is that between them they enter both. **Check by breaking the model
   and watching the check fail**, and check that the right one fails; that is the only
   way to know a region says what you think.
-- **A region's numbers do not reach `checks[].source`,** even when they come from
-  `partspec.refs`. Attribution is carried by the nine bound-carrying methods (§10);
-  region kinds are not among them (#250).
+- **A region's DIMENSIONS carry their citation** into `checks[].source` — a box's
+  `min`/`max`, a cylinder's `d`/`h`, and `shell` — so a keep-out sized from
+  `partspec.refs` is attributed like any other bound (§10). A region's `at` does not:
+  a standard vouches for how big a feature is, never for where your design puts it.
 
 `examples/stepper-bracket/` is the worked part; its README explains each choice.
 

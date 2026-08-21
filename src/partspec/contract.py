@@ -153,6 +153,29 @@ Held complete in both directions by `scripts/gen_docs.py`'s
 here, or an entry naming no kind, fails the gate rather than quietly generating
 a table with a hole in it."""
 
+
+def _region_source(region: Region, shell: float) -> dict[str, dict[str, Any]] | None:
+    """The citations a region declaration carries, keyed by the field they came in on.
+
+    A region's numbers reach `checks[].source` like every other bound's
+    (SPEC-contract 10). They did not until #250: `Referenced` is a float
+    subclass and the geometric validation in `region.py` returned `float(value)`,
+    so the citation was flattened one call before this could record it — in a
+    tree whose worked example takes a keep-out's diameter straight from
+    `refs.nema17`, and whose own docstring calls it the citation exemplar.
+
+    Which fields are offered differs by kind because only the DIMENSIONS are
+    citable: a standard vouches for how big a feature is, never for where this
+    design puts it, so `at` is deliberately absent — a position is the author's
+    even when every number in it came from a table. `shell` is the author's
+    tolerance for the same reason, and is included because it is a dimension a
+    standard can genuinely vouch for.
+    """
+    if isinstance(region, BoxRegion):
+        return source_map(min=region.min, max=region.max, shell=shell)
+    return source_map(d=region.d, h=region.h, shell=shell)
+
+
 DIMENSIONAL_KINDS = frozenset(
     {
         "param_range",
@@ -164,6 +187,8 @@ DIMENSIONAL_KINDS = frozenset(
         "fillet_radius",
         "draft_angle",
         "min_wall",
+        "keep_out",
+        "keep_in",
     }
 )
 """The kinds whose limits are numbers an author chose — and so the kinds that
@@ -825,7 +850,12 @@ class Part:
                 f"an absent feature fail instead of vacuously passing"
             )
         return CheckSpec(
-            id=id or kind, kind=kind, phase=GEOMETRY, region=region, shell=float(shell)
+            id=id or kind,
+            kind=kind,
+            phase=GEOMETRY,
+            region=region,
+            shell=float(shell),
+            source=_region_source(region, shell),
         )
 
     # -- internals ---------------------------------------------------------

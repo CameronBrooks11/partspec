@@ -130,6 +130,101 @@ def test_a_referenced_tuple_component_is_recorded_with_its_position():
     }
 
 
+def test_a_regions_dimensions_carry_their_citation():
+    """#250: they reached `source: null` while the check beside them carried a
+    standard, in the tree whose own exemplar takes a keep-out's diameter from
+    `refs.nema17`.
+
+    The cause is two causes. A box's corners were flattened by validation —
+    `Referenced` is a float subclass and `_finite` returned `float(value)`,
+    which `__post_init__` then wrote back. A cylinder's `d`/`h` never were:
+    `__post_init__` validates them and discards the result, so this case — the
+    exemplar's own shape — kept its citation the whole time and lost it only
+    because `_region_spec` passed no `source`.
+
+    Measured, so the two tests are not one test twice: dropping `_region_source`
+    fails this AND the box case below, while dropping `_finite`'s preservation
+    fails only the box. So this pins the recording and the box pins the
+    flattening, and neither alone would have caught both halves.
+    """
+    from partspec import region
+    from partspec.refs import nema17
+
+    p = _part()
+    p.keep_out(
+        region.cylinder(d=nema17.PILOT_BOSS, h=2.0, at=(0.0, 0.0, 34.0), axis="y"),
+        shell=0.6,
+        id="cited",
+    )
+    p.keep_in(region.box(min=(0.0, 0.0, 0.0), max=(10.0, 10.0, 10.0)), shell=1.0, id="plain")
+    cited, plain = p.checks
+
+    assert cited.source == {
+        "d": {
+            "standard": "NEMA ICS 16",
+            "subject": "flange 17 (Table 4)",
+            "field": "AK (pilot diameter)",
+            "note": "0.8661 in +0/-0.0020, converted to mm",
+        }
+    }
+    # Attribution stays additive: a region declared from literals claims nothing.
+    assert plain.source is None
+
+
+def test_a_box_regions_corners_carry_citations_by_position():
+    """`min`/`max` are vectors, so they key like `envelope`'s do."""
+    from partspec import region
+
+    p = _part()
+    p.keep_out(
+        region.box(min=(0.0, 0.0, iso15.bearing(608).od), max=(10.0, 10.0, 30.0)),
+        shell=1.0,
+    )
+    assert p.checks[0].source == {
+        "min.2": {"standard": "ISO 15", "subject": "608", "field": "outside_diameter"}
+    }
+
+
+def test_a_regions_position_is_the_authors_even_when_its_number_is_cited():
+    """`at` is excluded on purpose. A standard vouches for how big a feature is,
+    never for where this design puts it, so recording a citation against a
+    position would claim authority the standard never lent (SPEC-contract 10).
+
+    `shell` is included by the same test and passes it: it is a dimension.
+    """
+    from partspec import region
+    from partspec.refs import nema17
+
+    p = _part()
+    p.keep_out(
+        region.cylinder(d=8.0, h=2.0, at=(0.0, 0.0, nema17.PILOT_BOSS), axis="z"),
+        shell=1.0,
+        id="positioned",
+    )
+    p.keep_out(
+        region.cylinder(d=8.0, h=2.0, at=(0.0, 0.0, 5.0), axis="z"),
+        shell=nema17.PILOT_BOSS,
+        id="shelled",
+    )
+    positioned, shelled = p.checks
+    assert positioned.source is None, "a cited position must not read as an attributed bound"
+    assert shelled.source is not None and "shell" in shelled.source
+
+
+def test_region_kinds_count_toward_attribution():
+    """Carrying the citation only closes #250 if it is also COUNTED — otherwise a
+    contract whose one externally-footed number is a region dimension still
+    reports `attributed: 0` and prints the disclosure.
+
+    They belong in the set by its own definition: a region's dimensions are
+    numbers an author chose, so a bound recomputed from the model's own
+    constants cannot fail however the design moves.
+    """
+    from partspec.contract import DIMENSIONAL_KINDS
+
+    assert {"keep_out", "keep_in"} <= DIMENSIONAL_KINDS
+
+
 def test_source_serialises_between_hole_and_detail():
     from partspec.report import CheckResult, Report
     from partspec.status import Limit, Status
