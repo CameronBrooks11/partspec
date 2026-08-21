@@ -86,7 +86,13 @@ class BoxRegion:
         constructor rejects its own eroded copy — measured, a legal 8 mm-thin
         keep-out at x = 1e5 raised `ContractError` from a search that had
         already paid every boolean (round-3 review of #207).
+
+        `t` is checked rather than clamped: `max(0.0, nan)` is `0.0`, so a NaN
+        offset graded as "erodes to nothing" — an answer — where `expand(-nan)`
+        raises. This was the only region entry point accepting a non-finite
+        argument (#245).
         """
+        t = _finite(t, "an erosion offset")
         return math.prod(max(0.0, (b - a) - 2 * t) for a, b in zip(self.min, self.max, strict=True))
 
     def mesh(self) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
@@ -253,6 +259,7 @@ class CylinderRegion:
         See `BoxRegion.eroded_volume`: the coordinates cannot affect the answer
         and at a large `at` they defeat the constructor's own guard.
         """
+        t = _finite(t, "an erosion offset")
         n = self.segments
         r = max(0.0, (self.d - 2 * t) / 2) / math.cos(math.pi / n)
         return (n * r * r * math.sin(2 * math.pi / n) / 2) * max(0.0, self.h - 2 * t)
