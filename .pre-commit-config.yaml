@@ -40,7 +40,7 @@ repos:
   # `test_lint_config.py::test_both_ruff_pins_name_one_version` holds them
   # equal, so bumping one alone fails the gate instead of drifting quietly.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.2
+    rev: v0.16.3
     hooks:
       - id: ruff-check
         args: [--fix]

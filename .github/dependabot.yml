@@ -63,4 +63,13 @@ updates:
     commit-message:
       prefix: "chore"
     ignore:
-      - dependency-name: "astral-sh/ruff-pre-commit"
+      # The FULL URL, not `astral-sh/ruff-pre-commit`. The pre-commit ecosystem
+      # names a hook repo by its `repo:` URL, so the short form matched nothing
+      # and this ignore was inert from the day it was added (#176, 2026-08-12).
+      # #252 is the proof: one weekly cycle later Dependabot bumped the rev
+      # alone, `test_both_ruff_pins_name_one_version` refused it exactly as the
+      # comment above says it would, and the PR's own compatibility badge reads
+      # `dependency-name=https://github.com/astral-sh/ruff-pre-commit`. A rule
+      # that silently matches nothing is the failure mode this whole block
+      # exists to prevent, one level up.
+      - dependency-name: "https://github.com/astral-sh/ruff-pre-commit"
