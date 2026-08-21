@@ -100,6 +100,15 @@ Rules:
    appearance the `preloaded` sets do not explain is exactly what this verb has always
    said it was.
 
+   **Except where a side proved it reached the entry itself.** `reached` (§8.3 rule 7)
+   names what a target's own module graph provably reaches, and a distribution it names is
+   that target's build input whoever imported it first — so such an entry is attributable
+   and is NOT listed as unattributable. This subtracts from the unattributable set and
+   never adds to it: `reached` proves reach and cannot disprove it, so an entry absent from
+   it is governed exactly as before. A producer that omits `reached` — every report before
+   the field existed, and every OpenSCAD one — is read as proving nothing, which reproduces
+   what this verb already did.
+
    **It still makes the closure `changed`, and `source.closure` MUST NOT be read as a
    claim about the part's inputs.** That field says whether the two reports *recorded*
    different closures, and two `imports` maps that differ differ — the batch case,

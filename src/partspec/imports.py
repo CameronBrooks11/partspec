@@ -48,9 +48,10 @@ import sys
 import sysconfig
 from functools import cache
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
-__all__ = ["CONTENT", "METADATA", "UNIDENTIFIED", "inventory", "names_of"]
+__all__ = ["CONTENT", "METADATA", "UNIDENTIFIED", "inventory", "names_of", "reached_from"]
 
 METADATA = "metadata"
 """The imported file is owned by a distribution's RECORD; take its word."""
@@ -194,6 +195,86 @@ def names_of(modules: frozenset[str]) -> frozenset[str]:
     """
     dists, unowned, fileless, identified = _scan(None, frozenset(), names=modules)
     return frozenset(dists | set(unowned) | (fileless - identified))
+
+
+def reached_from(roots: frozenset[str]) -> frozenset[str]:
+    """`sys.modules` names this target's own modules provably reach.
+
+    `inventory` is read from a process, and one `partspec check` runs several
+    targets in one interpreter, so a target inherits every library an earlier
+    one imported (#216). `preloaded` records that inability; this records what
+    can be *proven* about it. A module reached from the model's own modules is
+    this target's build input whoever imported it first — which is the right
+    semantic, and the one a snapshot-and-delta cannot give.
+
+    Walked over the live object graph rather than parsed: module attributes
+    that are modules, and the `__module__` of everything else, transitively,
+    plus parent packages and resident submodules.
+
+    **This proves reach; it never disproves it.** A `from mylib import
+    WALL_THICKNESS` binds a float, a float has no `__module__`, and so the edge
+    does not exist in the object graph at all — measured, and `mylib` is a real
+    build input supplying a dimension. So an entry that is not here is *not
+    proven reached*, never *proven unreached*, and a consumer must treat absence
+    as the weaker claim. That is the whole reason this is additive.
+
+    **Precision matters in one direction and it is not the obvious one.** A
+    consumer uses this to lift an entry out of `unattributable` — so
+    over-claiming reach manufactures a *finding*, which is the false
+    `inputs appeared: cadquery 2.8.0` that `preloaded` was added to stop.
+    Under-claiming only leaves the entry where it already was. Reach is
+    therefore built to be conservative, and a doubtful edge is left out.
+
+    Loaded **submodules** of a reached package are deliberately not added, for
+    both reasons at once. Measured on a two-target batch with build123d and
+    CadQuery both resident: adding them changed the answer not at all (38 and
+    14 inventory keys either way) and cost 4005 ms against 42 ms, because the
+    membership scan is quadratic in `sys.modules`.
+
+    One measurement that does NOT reproduce outside a real run, recorded so
+    nobody re-derives it: walking from a model IMPORTED INTO `__main__` reaches
+    essentially everything, because `IPython.core.completer` holds a reference
+    to `__main__` and `__main__` holds every top-level import — build123d
+    reached cadquery through exactly that chain. partspec is unaffected only
+    because `pycad._load` execs a model under a private `_partspec_model_*`
+    name instead of importing it into `__main__`. A harness that does otherwise
+    will measure a graph with a universal hub in it.
+    """
+    seen: set[str] = set()
+    queue: list[Any] = [sys.modules[name] for name in roots if name in sys.modules]
+
+    while queue:
+        module = queue.pop()
+        name = getattr(module, "__name__", None)
+        # Identity, not just presence: a module object whose name no longer
+        # maps back to it has been evicted or shadowed, and following it would
+        # attribute a reach to a module this process no longer has.
+        if not isinstance(name, str) or name in seen or sys.modules.get(name) is not module:
+            continue
+        seen.add(name)
+
+        # Parent packages only: importing `a.b` imports `a`, so the parent is
+        # genuinely reached. Loaded SUBmodules are deliberately not added --
+        # see the note on cost and precision in the docstring.
+        parts = name.split(".")
+        for i in range(1, len(parts)):
+            parent = sys.modules.get(".".join(parts[:i]))
+            if parent is not None:
+                queue.append(parent)
+
+        try:
+            namespace = list(vars(module).values())
+        except TypeError:  # a module-like object with no __dict__
+            continue
+        for value in namespace:
+            if isinstance(value, ModuleType):
+                queue.append(value)
+                continue
+            owner = getattr(value, "__module__", None)
+            if isinstance(owner, str) and owner in sys.modules:
+                queue.append(sys.modules[owner])
+
+    return frozenset(seen)
 
 
 def _scan(

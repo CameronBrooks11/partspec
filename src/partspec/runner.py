@@ -1643,7 +1643,8 @@ def _python_closure(
     excluded = {contract_path.resolve()} if contract_path is not None else set()
 
     members: set[Path] = set()
-    for module in list(sys.modules.values()):
+    roots: set[str] = set()
+    for name, module in list(sys.modules.items()):
         filename = getattr(module, "__file__", None)
         if not filename:
             continue
@@ -1651,6 +1652,9 @@ def _python_closure(
         if path in excluded or not path.is_relative_to(root) or not path.is_file():
             continue
         members.add(path)
+        # The model and the helpers beside it are where a reach walk starts:
+        # they are this target's own code, whoever else is resident.
+        roots.add(name)
 
     found = imports.inventory(skip_tree=root, exclude=frozenset(excluded))
     unseen = ["native_reads"]
@@ -1665,6 +1669,7 @@ def _python_closure(
         "partial": bool(unseen),
         "imports": found,
         "preloaded": sorted(imports.names_of(loaded_before) & found.keys()),
+        "reached": sorted(imports.names_of(imports.reached_from(frozenset(roots))) & found.keys()),
         "unseen": sorted(unseen),
     }
 

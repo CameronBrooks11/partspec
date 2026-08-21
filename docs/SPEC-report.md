@@ -951,6 +951,7 @@ A **Python** report carries a closure too, of a different shape:
     "cqgridfinity": { "identity": "content",  "version": null, "digest": "sha256:…", "files": 16 }
   },
   "preloaded": [],
+  "reached": ["cadquery", "cqgridfinity"],
   "unseen": ["native_reads"]
 }
 ```
@@ -966,6 +967,18 @@ A **Python** report carries a closure too, of a different shape:
   that moved whenever a claim changed would answer a different question than its name.
 - **`preloaded`** names the entries of `imports` this run cannot attribute to itself,
   because a batch shares one interpreter; rule 7 below states the bound in full.
+- **`reached`** names the entries of `imports` this target's **own modules provably reach**,
+  walked over the live object graph from the model and the helpers beside it. It is the part
+  of `preloaded`'s inability that can actually be settled: a distribution the model's graph
+  reaches is this target's build input **whoever imported it first**, which is the attribution
+  a snapshot-and-delta cannot give and the direction §8.3 refuses to under-report in.
+  **It proves reach and never disproves it.** A `from mylib import WALL_THICKNESS` binds a
+  float, a float has no `__module__`, and the edge therefore does not exist in the object
+  graph — while `mylib` is a real build input supplying a dimension. So **absence from
+  `reached` means not-proven-reached, never proven-unreached**, and a consumer MUST treat it
+  as the weaker claim: it may lift an entry out of `unattributable`, and MUST NOT use it to
+  dismiss one. A producer that cannot walk the graph omits the field, which every reader
+  already handles as "the question was not asked".
 - **`partial` is unconditional here**, because `native_reads` always is. Python can import
   from anywhere on `sys.path`, read data files at run time and load C extensions, none of
   which this sees — measured: an audit hook watching `OCP.StlAPI_Reader().Read()` load an
@@ -1053,6 +1066,17 @@ Rules a producer MUST follow:
    the coverage is not incomplete, the attribution is, and routing it through the gap
    vocabulary would make every multi-target Python comparison indeterminate — the exact
    outcome #190 removed.
+
+   **`reached` settles the part of that inability the object graph can settle**, and a
+   consumer MAY use it to lift an entry out of the unattributable set. Walked from the
+   model's own modules over the live object graph, so a distribution it names is this
+   target's build input whoever loaded it first — measured on a build123d target running
+   behind a CadQuery one, where all 44 entries are `preloaded` and the 38 `reached` do not
+   include `cadquery`. **It is one-directional**: absence is not-proven-reached and never
+   proven-unreached, because an edge can fail to exist at all — `from mylib import
+   WALL_THICKNESS` binds a float, which has no `__module__`. So a consumer MUST NOT use
+   `reached` to dismiss an entry, only to attribute one, and an entry that is in neither
+   `reached` nor an earlier target's `preloaded` is governed by this rule exactly as before.
 
 #### `unseen` — the gaps, by name
 

@@ -308,6 +308,12 @@ def _malformed_fields(closure: dict[str, Any]) -> list[str]:
     exit 0 — the exact positive claim the field exists to prevent, made out
     of a field the reader could not interpret.
 
+    `reached` is here on the same argument turned the other way up. A non-list
+    read as "nothing reached" is *safe* — it lifts nothing out of
+    `unattributable` — but a malformed one is still a producer this reader
+    cannot interpret, and letting it through would mean a later field of the
+    same shape got the benefit of a precedent it should not have.
+
     Presence is what is checked, never absence, which is what keeps this off
     every older producer: a pre-0.7.5 closure carries no `preloaded`, and
     neither does a 0.7.5 OpenSCAD one, whose render imports nothing (§8.3
@@ -317,7 +323,12 @@ def _malformed_fields(closure: dict[str, Any]) -> list[str]:
     """
     return [
         field
-        for field, shape in (("unseen", list), ("imports", dict), ("preloaded", list))
+        for field, shape in (
+            ("unseen", list),
+            ("imports", dict),
+            ("preloaded", list),
+            ("reached", list),
+        )
         if field in closure and not isinstance(closure[field], shape)
     ]
 
@@ -475,7 +486,15 @@ def _imports_delta(
         }
     added = {name: e for name, e in sorted(new_imports.items()) if name not in old_imports}
     removed = {name: e for name, e in sorted(old_imports.items()) if name not in new_imports}
-    carried = _preloaded(old_closure) | _preloaded(new_closure)
+    # An entry this target's own module graph provably reached is ITS build
+    # input, whoever imported it first (#216). `preloaded` records an inability
+    # to attribute; `reached` is the part of that inability the object graph
+    # can actually settle, so it is subtracted rather than added to. An entry
+    # that is merely absent from `reached` is not proven unreached and stays
+    # exactly where it was.
+    carried = (_preloaded(old_closure) | _preloaded(new_closure)) - (
+        _reached(old_closure) | _reached(new_closure)
+    )
     return {
         "changed": {
             name: {"old": entry, "new": new_imports[name]}
@@ -486,6 +505,18 @@ def _imports_delta(
         "removed": removed,
         "unattributable": sorted((added.keys() | removed.keys()) & carried),
     }
+
+
+def _reached(closure: dict[str, Any] | None) -> set[str]:
+    """What a closure says this target's own modules provably reached.
+
+    Absent on every report before this field existed, and on the OpenSCAD tier,
+    whose render imports nothing. Absence means the question was not asked, and
+    an empty set is the right reading of that here: nothing is lifted out of
+    `unattributable`, which is exactly what those readers already did.
+    """
+    names = (closure or {}).get("reached")
+    return {str(name) for name in names} if isinstance(names, list) else set()
 
 
 def _preloaded(closure: dict[str, Any] | None) -> set[str]:
