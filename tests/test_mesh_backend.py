@@ -645,3 +645,76 @@ def test_curved_geometry_is_still_exact_for_the_polyhedron(backend: MeshBackend,
     assert volume.value == pytest.approx(prism_volume, rel=1e-4)
     assert volume.value < math.pi * r**2 * h, "inscribed prism reads low"
     assert volume.exact
+
+
+@needs_scad_tier
+def test_a_contact_sheet_reads_twice_its_patch_and_volume_does_not_refuse_it(
+    backend: MeshBackend, tmp_path: Path
+):
+    """The number `skills/contract-authoring/SKILL.md` tells an author to expect
+    from a clearance probe, executed rather than asserted (#238).
+
+    `intersection()` of two boxes meeting on a face is a zero-thickness sheet.
+    Both of its sides are exported, so `area` is TWICE the 10 x 10 patch — the
+    trap the skill exists to name, because 100.0 and 200.0 are both plausible
+    and nothing distinguishes them after the fact.
+
+    `volume` is asserted NOT to refuse here, which is the half #238 was filed
+    without: four triangles meeting two-per-edge are watertight, so the
+    precondition holds and the integral is exactly zero. The refusal the issue
+    reports needs a mesh that is genuinely non-manifold — see the annular case
+    below.
+    """
+    scad = tmp_path / "contact.scad"
+    scad.write_text(
+        "intersection() {\n  cube([10, 10, 10]);\n  translate([0, 0, 10]) cube([10, 10, 10]);\n}\n"
+    )
+    mesh = backend.build(OpenSCADSource(path=scad), tmp_path)
+    assert not isinstance(mesh, BuildError), mesh
+
+    patch = 10.0 * 10.0
+    area = measured(backend.area(mesh))
+    assert area.value == pytest.approx(2 * patch, rel=1e-9), (
+        "both sides of the sheet are exported; a bound written against the "
+        "patch alone is out by exactly 2x"
+    )
+
+    # Volume answers, and answers zero — it does not refuse this shape.
+    volume = measured(backend.volume(mesh))
+    assert volume.value == pytest.approx(0.0, abs=1e-9)
+
+
+@needs_scad_tier
+def test_an_annular_contact_refuses_volume_while_area_still_answers(
+    backend: MeshBackend, tmp_path: Path
+):
+    """The other half of the same table: where `volume` legitimately refuses,
+    `area` is what the author has left (#238).
+
+    An annular contact — a plate resting on a tube's end face — exports a mesh
+    that is not closed, so the volume precondition fails and the check is `n/a`.
+    Refusing is correct; integrating over an open surface is meaningless. `area`
+    is ungated for the mirror reason and still reports, which is what makes the
+    resting-on case gradeable at all.
+    """
+    from partspec.backend import Unsupported
+
+    scad = tmp_path / "annular.scad"
+    scad.write_text(
+        "$fn = 48;\n"
+        "intersection() {\n"
+        "  difference() {\n"
+        "    cylinder(d = 20, h = 10);\n"
+        "    translate([0, 0, -1]) cylinder(d = 12, h = 12);\n"
+        "  }\n"
+        "  translate([-15, -15, 10]) cube([30, 30, 5]);\n"
+        "}\n"
+    )
+    mesh = backend.build(OpenSCADSource(path=scad), tmp_path)
+    assert not isinstance(mesh, BuildError), mesh
+
+    assert isinstance(backend.volume(mesh), Unsupported), (
+        "premise: this is the shape that makes volume refuse"
+    )
+    area = measured(backend.area(mesh))
+    assert area.value > 0.0

@@ -40,6 +40,29 @@ Navigate by what you need to prove; the kind vocabulary itself is normative in
 | every wall is thick enough | `p.min_wall(min=)` (§4.11) | OCCT tier; a guaranteed interval — a limit inside it adjudicates `approximate`, never a guess |
 | a whole interface standard | a fragment — `nema17.mount(p)`, `iso15.seat(p, n)` (§11) | one call, cited |
 | material amount / wall drift over time | `p.volume`, `p.area` (§4.2) | drift shows in `diff` even while both runs pass |
+| two parts touch but do not interpenetrate | `p.area` on an `intersection()` part (§4.2) | `volume` refuses on a contact sheet; `area` does not — and it reads **twice** the patch. See below |
+
+### A clearance probe reads on `area`, not `volume`
+
+Build `intersection() { partA; partB; }` as its own part and the shared space becomes
+something you can claim about. Its three outcomes do not all land the same way:
+
+| the two parts | what builds | grade it on |
+|---|---|---|
+| interpenetrate | a closed solid | `p.volume(max=...)` — the ordinary case |
+| rest on a face | a zero-thickness sheet | `p.area(...)` — `volume` may refuse here |
+| do not touch at all | **nothing**; the build fails | not yet expressible — #237 |
+
+`volume` is gated on a closed surface and a contact sheet is often not one: an annular
+contact measured on 2021.01 exports 94 non-manifold edges, so the check reports `n/a`
+and the run is `incomplete`. That refusal is right — integrating volume over an open
+surface is meaningless — and `area` is ungated for the mirror reason, so it answers
+where `volume` cannot. Declare `area` alone and the resting-on case passes cleanly.
+
+**The number is twice the contact patch.** Both sides of the sheet are exported, so a
+10 x 10 mm face reads `200.0`, not `100.0`. Write the bound against the measured value or
+against `2 x` your own arithmetic — never against the patch you computed by hand, because
+both numbers look plausible and nothing will tell you which one you used.
 
 ### Regions, written out
 
