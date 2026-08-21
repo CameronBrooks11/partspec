@@ -849,3 +849,57 @@ def test_only_a_complete_report_may_close_the_gap(tmp_path: Path, state: str):
     assert closure["engine_inputs"]["state"] == state
     assert "external_data_reads" in closure["unseen"], f"{state} must not read as complete"
     assert closure["partial"] is True
+
+
+@needs_build123d
+def test_a_declared_build_input_that_never_loaded_is_a_run_level_error(tmp_path: Path):
+    """SPEC-contract §10.2 rule 2, and the silence it refuses.
+
+    A declaration naming something that never loaded means the contract
+    described a build it did not get — a contract-versus-reality mismatch, not
+    a geometry claim, so `verdict: error` rather than a failing check. It
+    cannot be judged at the call site: nothing is imported when a contract is
+    being declared, so the distribution may simply not be installed *yet*.
+
+    Accepting it silently is the option that is clearly wrong. The
+    declaration's whole purpose is to strengthen coverage, so a typo would
+    quietly WEAKEN coverage while looking exactly like it had been asked for —
+    the §8.3 rule 5 mistake made a second time in a new place.
+    """
+    from partspec import build123d
+
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(1, 1, 1)\n"
+    )
+    part = Part("p", build123d(tmp_path / "m.py")).watertight()
+    part.build_inputs.append("no-such-distribution-215")
+
+    report = run(part, out_dir=tmp_path / "out")
+
+    assert report.verdict is Verdict.ERROR
+    assert "never imported" in (report.error or "")
+    assert "no-such-distribution-215" in (report.error or "")
+    statuses = {c.kind: c.status for c in report.checks}
+    assert statuses["watertight"] is Status.SKIPPED, "a claim was not disproven, only unevaluated"
+    assert statuses["builds"] is Status.SKIPPED
+
+
+@needs_build123d
+def test_a_declaration_the_build_met_is_recorded_and_does_not_error(tmp_path: Path):
+    """The other half, so the test above cannot pass by erroring on everything."""
+    from partspec import build123d
+
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(1, 1, 1)\n"
+    )
+    part = Part("p", build123d(tmp_path / "m.py")).watertight()
+    part.build_inputs.append("build123d")
+
+    report = run(part, out_dir=tmp_path / "out")
+
+    assert report.verdict is Verdict.PASS, report.error
+    closure = report.source_closure
+    assert closure is not None
+    assert closure["declared"] == ["build123d"], "recorded as the author spelled it"
+    assert closure["imports"]["build123d"]["identity"] == "content"
+    assert closure["imports"]["build123d"]["declared"] is True

@@ -258,7 +258,28 @@ def _evaluate(
     # once it has run, and helpers imported lazily inside the factory would be
     # invisible to a snapshot taken any earlier.
     if part.source.engine != "openscad":
-        report.source_closure = _python_closure(part.source, contract_path, loaded_before)
+        report.source_closure = _python_closure(
+            part.source, contract_path, loaded_before, tuple(part.build_inputs)
+        )
+        unmet = _unmet_build_inputs(part, report.source_closure)
+        if unmet:
+            # A run-level fault, not a failing check (SPEC-contract §10.2 rule
+            # 2). The contract described a build it did not get, which says
+            # nothing about the geometry — and silence is clearly wrong, since
+            # the declaration's whole purpose is to strengthen coverage, so a
+            # typo would quietly WEAKEN it while looking like it was asked for.
+            report.error = (
+                f"the contract declares build input(s) that were never imported: {', '.join(unmet)}"
+            )
+            report.hint = (
+                "build_input() names a distribution this build must byte-hash; remove "
+                "the declaration, or fix the name if the model does import it"
+            )
+            reason = f"not evaluated: {report.error}"
+            results.append(_skipped(_builds_spec(), reason))
+            results.extend(_skipped(spec, reason) for spec in geometry_specs)
+            report.checks = results
+            return
     elif engine_deps:
         # The OpenSCAD half of the same idea (#226). `_closure` ran before the
         # build from a static read of the source; the engine has since said what
@@ -1588,8 +1609,28 @@ def _digest(path: Path | None) -> str | None:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _unmet_build_inputs(part: Part, closure: dict[str, Any]) -> list[str]:
+    """Declared distributions that no entry of `imports` turned out to be.
+
+    Compared on the NORMALISED name, because the entry is keyed as the
+    installer spells it and the author may have written either form — matching
+    raw strings would fail `cadquery_ocp` as "never imported" when it was
+    imported, which is a false run-level error and worse than the silence it
+    replaced.
+    """
+    resolved = {
+        imports.normalize(name)
+        for name, entry in closure.get("imports", {}).items()
+        if entry.get("declared")
+    }
+    return [name for name in part.build_inputs if imports.normalize(name) not in resolved]
+
+
 def _python_closure(
-    source: Any, contract_path: Path | None, loaded_before: frozenset[str] = frozenset()
+    source: Any,
+    contract_path: Path | None,
+    loaded_before: frozenset[str] = frozenset(),
+    declared: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """The local modules a Python model actually imported.
 
@@ -1656,13 +1697,15 @@ def _python_closure(
         # they are this target's own code, whoever else is resident.
         roots.add(name)
 
-    found = imports.inventory(skip_tree=root, exclude=frozenset(excluded))
+    found = imports.inventory(
+        skip_tree=root, exclude=frozenset(excluded), declared=frozenset(declared)
+    )
     unseen = ["native_reads"]
     if any(entry["identity"] == imports.UNIDENTIFIED for entry in found.values()):
         unseen.append("unidentified_imports")
 
     hashes = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in members)
-    return {
+    closure: dict[str, Any] = {
         "digest": "sha256:" + hashlib.sha256("".join(hashes).encode()).hexdigest(),
         "files": len(hashes),
         "scope": "model_directory",
@@ -1672,6 +1715,13 @@ def _python_closure(
         "reached": sorted(imports.names_of(imports.reached_from(frozenset(roots))) & found.keys()),
         "unseen": sorted(unseen),
     }
+    if declared:
+        # Recorded even when it changed nothing (#215 Q3): a reader must be
+        # able to tell coverage that was ASKED FOR from coverage that happened
+        # to be free. Names as the author wrote them, so the report echoes the
+        # contract rather than partspec's normalisation of it.
+        closure["declared"] = sorted(declared)
+    return closure
 
 
 def _closure(source: Any, deps: Any = None) -> dict[str, Any] | None:

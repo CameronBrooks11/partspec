@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`p.build_input("cadquery-ocp")` — an author may force byte identity for a
+  named distribution** (#215, epic #229, stage 4 of #190). Identity is decided
+  automatically in two tiers, and `metadata` — what almost everything gets —
+  trusts the installer: version plus a digest over the RECORD's own hashes.
+  `SPEC-report.md` §8.3 rule 5 states its bound plainly, that **an edit to a
+  file the RECORD *does* declare leaves the digest unmoved**, because ownership
+  is decided by path and hashing every loaded file is the cost that tier exists
+  to avoid. This is the opt-out, for the one distribution an author knows is the
+  subject.
+  **Opt-in because the cost is lopsided**, which is the whole reason it is a
+  declaration rather than a default: measured, `build123d` 1.4 ms over 41
+  declared files against `cadquery-ocp` **228.5 ms over 396**. Right for a
+  contract whose geometry is OCCT-version-sensitive, wrong for one that is not,
+  and only the author can tell which.
+  Digested over **the RECORD's own rows, not the package tree**, and that
+  distinction is load-bearing: a distribution's unit can be wider than its
+  package directory — `cadquery_ocp.libs/` sits beside `OCP/` — and rooting at
+  the tree would silently drop exactly the vendored shared objects an
+  OCCT-sensitive contract wants this for.
+  **Additive, never required.** Tiers 1 and 2 keep running unconditionally, so a
+  contract declaring nothing still gets a complete inventory and behaves exactly
+  as before. Absence of a declaration never produces a stronger claim.
+  Two mistakes are refused rather than absorbed. A **module** name is rejected
+  at the call site with the distribution that ships it — `build_input("OCP")`
+  says *OCP is the module; the distribution that ships it is `cadquery-ocp`* —
+  answerable there because installed metadata is readable before anything is
+  imported; and spelling is normalised per PEP 503, so `cadquery_ocp` resolves.
+  A declaration naming something that **never loaded** is a run-level `error`
+  adjudicated after the build, because the contract described a build it did not
+  get. Accepting it silently is the clearly wrong option: the declaration exists
+  to strengthen coverage, so a typo would quietly *weaken* it while looking
+  exactly like it had been asked for.
+  A declaration that changed nothing is still recorded (`declared: true`), so a
+  reader can tell coverage that was asked for from coverage that happened to be
+  free.
+
 - **`p.empty()` — a part may declare that nothing is the result** (#237). A
   clearance probe, `intersection() { A; B; }` declared as its own part, has
   three outcomes and until now only the *bad* one could be graded: parts that

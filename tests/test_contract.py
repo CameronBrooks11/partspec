@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from partspec import Part, openscad
+from partspec import Part, contract, openscad
 from partspec.contract import GEOMETRY_KINDS
 from partspec.expr import evaluate, operands_of
 from partspec.status import ContractError
@@ -766,3 +766,46 @@ def test_a_refused_argument_is_quoted_but_not_pasted_whole():
     for message in raised:
         assert len(message) < 400, f"{len(message)} chars: {message[:120]}"
         assert "chars)" in message, "and it says the quote was cut rather than pretending"
+
+
+# --------------------------------------------------------------------------
+# build_input (#215)
+# --------------------------------------------------------------------------
+
+
+def test_a_module_name_is_refused_with_the_distribution_that_ships_it():
+    """`build_input` takes a DISTRIBUTION, because that is what `imports` keys
+    a RECORD-owned entry by. `OCP` is one keystroke from right, and a value
+    that close must be routed rather than accepted and quietly ignored — an
+    accepted-and-ignored declaration would leave the author believing they had
+    coverage they do not have, which is the failure the field exists to close.
+
+    Answerable at the call site because `packages_distributions()` reads
+    installed metadata, not imports — so this fails where the mistake is,
+    rather than after a build.
+    """
+    pytest.importorskip("OCP", reason="occt extra not installed")
+    p = Part("p", openscad("x.scad"))
+    with pytest.raises(ContractError) as excinfo:
+        p.build_input("OCP")
+
+    assert "OCP is the module" in str(excinfo.value)
+    assert "cadquery-ocp" in str(excinfo.value)
+    assert p.build_inputs == [], "a refused declaration must not be recorded"
+
+
+def test_a_declaration_is_not_a_check():
+    """It declares provenance — how hard to look at an input — and never what
+    the part must be. So it adds no `CheckSpec`, cannot pass or fail, and has
+    no row in §4's vocabulary (`contract.PROVENANCE_METHODS`)."""
+    p = Part("p", openscad("x.scad")).build_input("partspec")
+    assert p.checks == []
+    assert p.build_inputs == ["partspec"]
+    assert "build_input" in contract.PROVENANCE_METHODS
+
+
+@pytest.mark.parametrize("bad", ["", "   ", None, 7])
+def test_a_declaration_needs_a_name(bad):
+    p = Part("p", openscad("x.scad"))
+    with pytest.raises(ContractError, match="non-empty string"):
+        p.build_input(bad)

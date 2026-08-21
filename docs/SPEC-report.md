@@ -952,6 +952,7 @@ A **Python** report carries a closure too, of a different shape:
   },
   "preloaded": [],
   "reached": ["cadquery", "cqgridfinity"],
+  "declared": ["cadquery-ocp"],
   "unseen": ["native_reads"]
 }
 ```
@@ -979,6 +980,24 @@ A **Python** report carries a closure too, of a different shape:
   as the weaker claim: it may lift an entry out of `unattributable`, and MUST NOT use it to
   dismiss one. A producer that cannot walk the graph omits the field, which every reader
   already handles as "the question was not asked".
+- **`declared`** lists the distributions the contract named with `build_input`
+  (`SPEC-contract.md` §10.2), as the author spelled them. Each such entry is byte-hashed
+  over **every file its RECORD declares** — not over its package tree, because a
+  distribution's unit can be wider than its package directory (`cadquery_ocp.libs/` beside
+  `OCP/`) and only the RECORD knows the association. The entry reads
+  `identity: "content"` with `declared: true` and a `files` count.
+  This is the author's opt-out from rule 5 below, and it is **opt-in because the cost is
+  lopsided**: measured, `build123d` 1.4 ms over 41 declared files against `cadquery-ocp`
+  228.5 ms over 396.
+  **A declaration that changed nothing is still recorded** — an entry no RECORD claims is
+  already `content`, and it gets `declared: true` and no other difference — so a reader can
+  tell coverage that was *asked for* from coverage that happened to be free. Adding a
+  declaration therefore moves `identity` and `digest` for a previously-`metadata` entry, and
+  a comparator reports that as `changed`, which it is: the report describes the same library
+  under a stronger claim. For an entry that was already `content` nothing moves, and the
+  contract's own change is carried by `contract_digest`.
+  **A declared distribution that was never imported is a run-level `error`**, adjudicated
+  after the build; see §10.2 rule 2 for why silence is the wrong answer there.
 - **`partial` is unconditional here**, because `native_reads` always is. Python can import
   from anywhere on `sys.path`, read data files at run time and load C extensions, none of
   which this sees — measured: an audit hook watching `OCP.StlAPI_Reader().Read()` load an
@@ -1039,10 +1058,17 @@ Rules a producer MUST follow:
    digest** and does not demote the entry to `content`. Detecting it would mean hashing
    every loaded file to compare against its declared hash, which is the cost this tier
    exists to avoid. What rule 1 bounds is vacuity, not tampering.
+   **`build_input` is the author's opt-out from this rule**, per distribution and by name
+   (`SPEC-contract.md` §10.2): a declared entry is byte-hashed over the RECORD's own rows,
+   so the edit this rule describes does move its digest. It is opt-in, and a contract that
+   declares nothing behaves exactly as this rule says. Absence of a declaration MUST NOT
+   produce a stronger claim.
 6. A `content` digest covers **the package tree the import was loaded from**. Where a
    distribution's unit is wider than that tree — vendored shared objects in a sibling
    directory, as in rule 3 — nothing outside RECORD can discover the association, so a
-   `content` entry MUST NOT be read as covering it. This is a stated bound rather than a
+   `content` entry MUST NOT be read as covering it. **A `declared` entry is the exception
+   and is why it digests RECORD rows rather than a tree**: where the RECORD exists it names
+   the sibling, so declaring a distribution covers exactly what its installer wrote. This is a stated bound rather than a
    gap token because a Python-tier closure is `partial` unconditionally (`native_reads`),
    so no reader may treat any of it as complete coverage.
 7. **`imports` is read from a process and describes a part, so it over-reports in a

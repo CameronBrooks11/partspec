@@ -1078,6 +1078,58 @@ derives it and states the derivation in the citation's `note` (§11 rule 3). A t
 cannot execute the formula ships nothing: the exception is the test, not the subject
 matter.
 
+### 10.2 `build_input` — forcing byte identity for a named distribution
+
+A second, separate declaration on the same axis, and it declares **provenance rather than a
+claim**: it says how hard to look at a build input, never what the part must be. So it has
+no measurand, no phase, no check id and no row in §4's vocabulary, and it can neither pass
+nor fail.
+
+```python
+p.build_input("cadquery-ocp")
+```
+
+`source_closure.imports` decides identity in two automatic tiers (`SPEC-report.md` §8.3).
+`metadata` trusts the installer — version plus a digest over the RECORD's own hashes — and
+its bound is §8.3 rule 5: an edit to a file the RECORD *does* declare leaves the digest
+unmoved, because ownership is decided by path and hashing every loaded file is the cost that
+tier exists to avoid. This is the author's opt-out from that bound for the one distribution
+they know is the subject: every file the RECORD declares is byte-hashed instead.
+
+**Opt-in, because the cost is real and lopsided.** Measured: `build123d` 1.4 ms over 41
+declared files, `cadquery-ocp` 228.5 ms over 396. Right for a contract whose geometry is
+OCCT-version-sensitive, wrong for one that is not, and only the author can tell which.
+
+**Additive, never required** — §10's rule 1, for §10's reason. Tiers 1 and 2 keep running
+unconditionally, so a contract declaring nothing still gets a complete, honest inventory
+with byte hashes wherever metadata would be vacuous. **Absence of a declaration MUST NOT
+produce a stronger claim, only a weaker and clearly-labelled one.** A design that *leaned*
+on the declaration would make the common case — an author who declares nothing — look
+covered and not be, which is the §8.3 rule 5 mistake made a second time in a new place.
+
+**Explicitly refused: coverage that depends on a size threshold.** No "hash it if it is
+under 50 MB". That would make what a report claims depend on which machine wrote it, which
+is the property the content-hash-not-path design exists to prevent. Coverage is a stated
+property of the contract, never an emergent property of the filesystem.
+
+Two rules on the name:
+
+1. **It is a distribution, not a module.** That is what `imports` keys a RECORD-owned entry
+   by. A module name is refused at the call site with the distribution that ships it —
+   `build_input("OCP")` says *OCP is the module; the distribution that ships it is
+   `cadquery-ocp`* — because a value one keystroke from correct must not be accepted and
+   silently ignored. Spelling is normalised per PEP 503, so `cadquery_ocp` resolves.
+2. **A declaration naming something that never loaded is a run-level `error`.** It cannot be
+   judged when the contract is declared, because nothing is imported yet; it is adjudicated
+   after the build. The contract described a build it did not get, which is a
+   contract-versus-reality mismatch rather than a geometry claim — so `verdict: error`, not
+   a failing check. Silence is clearly wrong here: the declaration's entire purpose is to
+   strengthen coverage, so a typo in it would silently *weaken* coverage while looking like
+   it had been asked for.
+
+A declaration that changed nothing is still recorded (`declared: true` on the entry), so a
+reader can tell coverage that was **asked for** from coverage that happened to be free.
+
 ---
 
 ## 11. Contract fragments — an interface standard as an import

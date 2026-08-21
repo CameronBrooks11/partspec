@@ -77,6 +77,7 @@ def _assert_vocabulary_is_complete() -> None:
         {m for m, _ in _PARAMETER_PHASE}
         | set(contract.GEOMETRY_KINDS)
         | (contract.BUILD_PHASE_KINDS & declared)
+        | set(contract.PROVENANCE_METHODS)
     )
     if undocumented := declared - covered:
         raise SystemExit(
@@ -85,6 +86,16 @@ def _assert_vocabulary_is_complete() -> None:
         )
     if phantom := covered - declared:
         raise SystemExit(f"the vocabulary names methods Part does not have: {sorted(phantom)}")
+
+    # The provenance exemption is not a place to hide a method. These declare
+    # no claim and so have no table row, but they are still public API, and an
+    # undocumented one is exactly the silent gap this gate exists to close.
+    spec = (ROOT / "docs" / "SPEC-contract.md").read_text(encoding="utf-8")
+    if undescribed := {m for m in contract.PROVENANCE_METHODS if f"`{m}" not in spec}:
+        raise SystemExit(
+            f"provenance methods absent from SPEC-contract.md: {sorted(undescribed)}\n"
+            "They have no vocabulary row, so the prose is the only place they exist."
+        )
 
     kinds = (
         {kind for _, kind in _PARAMETER_PHASE}
