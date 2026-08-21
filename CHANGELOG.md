@@ -394,6 +394,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A canonical view is no longer written over a heightmap the model reads**
+  (#267, completing #263). `render --out .` against a model reading
+  `renders/iso.png` through `surface()` had partspec write its own iso view
+  over that heightmap, and from the next run **the part IS the previous run's
+  picture**: measured on 2021.01, `IMAGE_SIZE` is 800x800 and `surface()`
+  spans one unit per pixel gap, so `render_bbox` reads **799 in x and y**, at
+  exit 0 with nothing on stderr, on every run after. #224 fixed the *unlink*
+  on this path; the *move* was left, and #263's own docstring recorded it as a
+  known residue rather than an unanswerable one.
+  **It costs no new question of the engine.** A `surface()` target is opened
+  when the source is parsed, so the STL pass's depfile already names the
+  heightmap — the views are four re-parses of one source and could not differ.
+  **Every view is asked before any view moves**, which is the constraint the
+  batched move exists for (#234): a per-view refuse-then-continue would let
+  three land and the fourth refuse, leaving a directory of images from two
+  different builds. What survives is the case no depfile reaches — an engine
+  with no `-d` keeps this path's previous behaviour, which was no guard at
+  all, because a refusal nothing can justify is worse than the residue.
+
 - **`p.empty()` could not pass on the OCCT tier for any input at all** (#271).
   `a & b` on two disjoint solids returns an **empty `Compound`** — not a null
   shape and not an empty CadQuery stack, which were the only two null results
