@@ -59,6 +59,43 @@ def test_the_shell_thickness_is_part_of_the_claim():
     assert compare(bracket(5.0), bracket(5.0)) == []
 
 
+def test_a_regions_citation_is_part_of_the_claim_and_a_literal_region_is_untouched():
+    """#250 put `source` on region checks, and `source` is in the slug — so
+    upgrading past it re-pins a CITED region and leaves an uncited one alone.
+
+    Both halves matter and only one is obvious. That a citation participates is
+    the point: swapping a standard's number for a hand-typed one of the same
+    value is a real weakening, and the slug must see it. That an uncited region
+    is byte-identical is what bounds the upgrade cost — otherwise every lock in
+    existence would need re-pinning for a change most contracts never made.
+
+    The CHANGELOG says exactly this; it is executed here rather than asserted
+    there, because a claim about slug stability is one a test can settle.
+    """
+    from partspec import Part, openscad
+    from partspec.expectation import claims_of
+    from partspec.provenance import Referenced
+    from partspec.region import box, cylinder
+
+    cited = Referenced(22.0, {"standard": "ISO 15", "subject": "608", "field": "od"})
+
+    def part(diameter: float) -> dict[str, str]:
+        p = Part("b", openscad("m.scad"))
+        p.keep_out(cylinder(d=diameter, h=4.0, at=(0, 0, 0)), shell=1.0, id="seat")
+        return claims_of(p)
+
+    # Same number, different authority — a weakening the pin must see.
+    assert compare(part(cited), part(22.0)), "a dropped citation must not slip the pin"
+    assert compare(part(cited), part(cited)) == []
+
+    # A region with no citation carries no `source` in its slug at all, which is
+    # why an uncited contract's lock survives the upgrade untouched.
+    plain = Part("b", openscad("m.scad"))
+    plain.keep_out(box(min=(0, 0, 0), max=(5, 5, 5)), shell=1.0, id="clearance")
+    assert "source=" not in claims_of(plain)["clearance"]
+    assert "source=" in part(cited)["seat"]
+
+
 def test_a_missing_or_corrupt_lock_is_a_named_refusal(tmp_path: Path):
     with pytest.raises(LockError, match="--pin"):
         read_lock(tmp_path / "absent.lock")

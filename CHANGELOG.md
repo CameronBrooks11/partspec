@@ -72,6 +72,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A region's `at` stays uncited on purpose. A standard vouches for how big a
   feature is, never for where a design puts it, so recording a citation against
   a position would claim authority the standard never lent.
+  **Upgrading re-pins a cited region.** `source` participates in the claims pin
+  (`expectation._claim_slug`), so a region that now carries a citation has a
+  different slug than it did before, and `--expect` against a lock written by an
+  earlier partspec reports `changed: <id>` and exits 4 on a contract file nobody
+  touched. That is the pin working — the claim did change, it gained attribution
+  — but the change came from the tool rather than the author, so it is stated
+  here rather than left to be discovered. Measured: only a region whose
+  dimension is `Referenced` is affected; a region declared from literals has an
+  identical slug before and after. Re-pin once.
   Found by the round-1 review of #200 — in `examples/stepper-bracket`, whose own
   docstring calls it the citation exemplar, and which shipped taking a keep-out's
   diameter from `refs.nema17` into a check reporting `source: null`. The gap was
