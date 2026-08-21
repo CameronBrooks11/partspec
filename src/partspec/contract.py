@@ -469,6 +469,28 @@ class Part:
     def area(
         self, *, min: float | None = None, max: float | None = None, id: str | None = None
     ) -> Part:
+        """Total surface area, ungated where `volume` is precondition-gated.
+
+        A sum over the exported triangles is well defined whatever they enclose,
+        so this answers on meshes `volume` must refuse — and refusing it too
+        would be its own dishonesty (`SPEC-backend.md` §7). That makes it the
+        measure for a part that is legitimately not a solid.
+
+        The case worth naming is a **clearance probe**: `intersection() { A; B; }`
+        built as its own part. Its three outcomes separate on area and volume
+        together — interpenetrating gives a volume, resting-on gives area with no
+        volume, and not-touching does not build at all (#237). Measured on
+        2021.01: two boxes meeting on a face export four triangles that are
+        watertight, so `volume` reads exactly `0.0`; an annular contact exports a
+        mesh with 94 non-manifold edges, so `volume` refuses and `area` still
+        answers (#238).
+
+        **On such a part the number is TWICE the contact patch.** The sheet has
+        two sides and both are exported: a 10 x 10 mm face reads `200.0`. Nothing
+        is wrong with it — that is the surface area of a closed zero-thickness
+        solid — but a bound written against a hand-computed patch is out by
+        exactly 2x, and silently, because both numbers look plausible.
+        """
         return self._add(
             CheckSpec(
                 id=id or "area",

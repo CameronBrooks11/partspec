@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`area` says what it is for, and names the 2x trap** (#238). It had no
+  docstring at all — alone among the bound-carrying methods — while being the
+  only measure that answers on a part that is legitimately not a solid.
+  A clearance probe, `intersection() { A; B; }` built as its own part, has three
+  outcomes and they do not land alike. Interpenetrating gives a closed solid and
+  `volume` grades it. Resting on a face gives a zero-thickness sheet, where
+  `volume` may refuse — an annular contact measured on 2021.01 exports 94
+  non-manifold edges — and `area` still answers, because it is ungated for the
+  mirror reason `volume` is gated. Not touching at all does not build, which is
+  #237 and stays open.
+  **On such a part `area` is twice the contact patch**: both sides of the sheet
+  are exported, so a 10 x 10 mm face reads `200.0`. Nothing is wrong with the
+  number — that is the surface area of a closed zero-thickness solid — but a
+  bound written against a hand-computed patch is out by exactly 2x and silently,
+  because 100.0 and 200.0 are both plausible and nothing distinguishes them
+  afterwards.
+  Pinned by execution rather than asserted in prose: one test measures the 2x on
+  a box contact and that `volume` does NOT refuse there (four triangles meeting
+  two-per-edge are watertight, so the integral is exactly zero — the half #238
+  was filed without), and a second measures the annular case where `volume`
+  refuses and `area` answers.
+
 - **A region's dimensions carry their citation** (#250). `keep_out` and
   `keep_in` now record `checks[].source` for the numbers that size the region —
   a box's `min`/`max`, a cylinder's `d`/`h`, and `shell` — so a keep-out sized
