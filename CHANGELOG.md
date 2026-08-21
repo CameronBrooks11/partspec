@@ -428,6 +428,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partspec then never saw. Pinned with a real divergence — `OPENSCADPATH` set
   for the engine, `library_path` emptied for partspec — and the pin fails
   against the narrower gate.
+  **A complete dependency list that CONTRADICTS the source is not an answer
+  either**, and that is F13 arriving in a guard. `import_stl()` is deprecated:
+  2021.01 executes it and the 2026.08.01 snapshot ignores it, so **one source**
+  gives a depfile naming the data file on one engine and omitting it on the
+  other. The first cut of this fix took the second at face value and handed
+  back "safe to write" for a file the same contract reads on the machine beside
+  it; the two-engine matrix caught it, and this machine could not have. Where
+  the closure says the source reads external data and the render read none, the
+  accounts disagree, and a disagreement is now treated exactly as no answer at
+  all — so both callers keep the answer they gave before. It over-refuses by
+  that clause alone (an `import()` in a branch the render never took reads
+  nothing legitimately), which is the direction to err in, because the cost of
+  the other one is the caller's data.
   **Neither arm is loosened where the engine cannot answer.** An unresolved
   `include` is listed in no depfile at all — the file names what the render
   *opened*, never what it asked for — so that arm still refuses before the

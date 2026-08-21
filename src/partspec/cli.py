@@ -438,7 +438,7 @@ def _build_to_file(
     timeout_s: float,
     deps_out: list[Any] | None = None,
     *,
-    closure_is_partial: bool = False,
+    closure: Any | None = None,
     refusal_out: list[BuildError] | None = None,
 ) -> Any | BuildError:
     """Build so the artifact lands at exactly `dest`, and only if it exists.
@@ -497,7 +497,7 @@ def _build_to_file(
             built = backend.build(source, Path(scratch), timeout_s=timeout_s, deps_out=deps_out)
             if isinstance(built, BuildError):
                 return built
-            if closure_is_partial:
+            if closure is not None and closure.partial:
                 # Asked here rather than before the build because here is where
                 # it can be answered, and asked before the rename so that a
                 # refusal leaves `dest` exactly as the caller left it. The
@@ -528,6 +528,7 @@ def _build_to_file(
                     deps_out[-1] if deps_out else RenderDeps(state="absent"),
                     dest,
                     source.path.name,
+                    closure=closure,
                     refuse_unanswered=True,
                 )
                 if refusal is not None:
@@ -1165,7 +1166,7 @@ def _measure_resolved(
             dest,
             timeout_s,
             engine_deps,
-            closure_is_partial=closure.partial,
+            closure=closure,
             refusal_out=dest_refusal,
         )
         if dest_refusal:

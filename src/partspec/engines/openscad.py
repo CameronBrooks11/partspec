@@ -292,7 +292,7 @@ def _output_over_an_input(
 
 
 def _wrote_over_an_input(
-    deps: RenderDeps, dest: Path, name: str, *, refuse_unanswered: bool
+    deps: RenderDeps, dest: Path, name: str, *, closure: Closure, refuse_unanswered: bool
 ) -> BuildError | None:
     """Refuse the move into place when the render itself read `dest`.
 
@@ -327,6 +327,20 @@ def _wrote_over_an_input(
     #208 shipped. Neither loosens on an engine that cannot answer; both become
     exact on one that can.
 
+    **A complete list that CONTRADICTS the source is not an answer either**, and
+    this is F13 arriving in a guard. `import_stl()` is deprecated; 2021.01 still
+    executes it and the 2026.08.01 snapshot ignores it — so for one source the
+    depfile names the data file on one engine and omits it on the other, and
+    taking the second at face value would hand back "safe to write" for a file
+    the same contract reads on the machine next to it. Where the closure says
+    the source reads external data and the render read none, the two disagree,
+    and a disagreement is treated exactly as no answer at all: `refuse_unanswered`
+    decides, so both callers keep the answer they gave before #263.
+
+    It over-refuses by that clause alone — an `import()` inside a branch the
+    render never took reads nothing legitimately — and that is the direction to
+    err in, because the cost of the other one is the caller's data.
+
     `partial` is unreachable from both call sites — a failed render returns
     before either mover is reached — and refuses under the same flag if that
     ever changes.
@@ -344,7 +358,19 @@ def _wrote_over_an_input(
             origin="environment",
         )
     if dest.resolve() not in deps.files:
-        return None
+        if not _contradicts(deps, closure):
+            return None
+        if not refuse_unanswered:
+            return None
+        return BuildError(
+            f"{name} reads external data (import()/surface()) and this render read "
+            f"none, so the engine's account of its inputs contradicts the source and "
+            f"cannot say whether {dest.name} is one of them",
+            hint=f"this engine may ignore the form the source uses, or the read may sit "
+            f"in a branch the render did not take; write the artifact somewhere {name} "
+            f"cannot be reading — a directory that holds none of its inputs",
+            origin="environment",
+        )
     return BuildError(
         f"the render of {name} read {dest.resolve()}, so writing the build artifact "
         f"there would destroy one of its own inputs — the next run would measure "
@@ -354,6 +380,20 @@ def _wrote_over_an_input(
         f"does not read",
         origin="environment",
     )
+
+
+def _contradicts(deps: RenderDeps, closure: Closure) -> bool:
+    """The source says it reads data and the render read none of it.
+
+    "None of it" is measured against the static closure: every `.scad` the
+    walker already found is subtracted, and what is left is what the render
+    opened that no include accounts for — the data files. An empty remainder
+    beside `reads_external_data` is the disagreement.
+    """
+    if not closure.reads_external_data:
+        return False
+    walked = {f.resolve() for f in closure.files}
+    return not any(f.resolve() not in walked for f in deps.files)
 
 
 def render(
@@ -603,7 +643,11 @@ def render(
                 # The exact question #223's guard could not ask, asked where it
                 # can be answered and while the caller's file is still intact.
                 refusal = _wrote_over_an_input(
-                    deps, stl, source.path.name, refuse_unanswered=would_overwrite
+                    deps,
+                    stl,
+                    source.path.name,
+                    closure=closure,
+                    refuse_unanswered=would_overwrite,
                 )
                 if refusal is not None:
                     return refusal

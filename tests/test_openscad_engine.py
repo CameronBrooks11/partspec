@@ -419,8 +419,6 @@ def test_a_render_over_a_file_the_model_reads_is_refused(tmp_path: Path):
     asked whether the destination was the source's own directory, and this one
     is not.
     """
-    donor = FIXTURES.joinpath("block_with_hole.scad")
-    assert donor.is_file()  # the fixture tree is what it claims to be
     sub = tmp_path / "sub"
     sub.mkdir()
     stl = sub / "m.stl"
@@ -456,12 +454,16 @@ def test_an_include_only_the_engine_can_find_is_still_asked_about(tmp_path: Path
     """
     libs = tmp_path / "libs"
     libs.mkdir()
-    (libs / "lib.scad").write_text('import("sub/m.stl");\n')
     model = tmp_path / "model"
     sub = model / "sub"
     sub.mkdir(parents=True)
     donor = sub / "m.stl"
     donor.write_bytes(_one_triangle_stl())
+    # Absolute, so no engine's rule for resolving a relative path inside an
+    # INCLUDED file decides whether this test is testing anything. Which file
+    # such a path resolves against is exactly the sort of thing the two
+    # engines in the matrix are entitled to disagree about.
+    (libs / "lib.scad").write_text(f'import("{donor}");\n')
     source = _scad(model, "m.scad", "include <lib.scad>\ncube([5, 5, 5]);\n")
 
     monkeypatch.setenv("OPENSCADPATH", str(libs))
@@ -473,6 +475,46 @@ def test_an_include_only_the_engine_can_find_is_still_asked_about(tmp_path: Path
     result = openscad.render(OpenSCADSource(path=source), sub)
     assert isinstance(result, BuildError), result
     assert "one of its own inputs" in result.message
+    assert donor.read_bytes() == _one_triangle_stl()
+
+
+@needs_openscad
+def test_a_depfile_that_contradicts_the_source_is_not_an_answer(tmp_path: Path):
+    """F13 arriving in a guard, and why a complete depfile is not enough.
+
+    `import_stl()` is deprecated: 2021.01 executes it and the 2026.08.01
+    snapshot ignores it, so ONE source gives a depfile naming the data file on
+    one engine and omitting it on the other. Taking the second at face value
+    hands back "safe to write" for a file the same contract reads on the
+    machine beside it — and the first cut of #263 did exactly that, which the
+    two-engine matrix caught and this machine could not have.
+
+    Written with a branch the render never takes rather than with the
+    deprecated spelling, so it is the same disagreement on **both** engines
+    instead of a test that asserts one machine's answer as universal.
+
+    The refusal is the caller's own pre-#263 answer, not a new one: a
+    contradiction is treated exactly as no answer at all.
+    """
+    donor = tmp_path / "input.stl"
+    donor.write_bytes(_one_triangle_stl())
+    source = _scad(
+        tmp_path,
+        "m.scad",
+        'if (false) { import("input.stl"); }\ncube([5, 5, 5]);\n',
+    )
+    closure = openscad.include_closure(source)
+    assert closure.reads_external_data, "the premise: the regex sees the import"
+
+    # Nothing to overwrite yet, so the conservative answer is to allow.
+    first = openscad.render(OpenSCADSource(path=source), tmp_path)
+    assert isinstance(first, Path), first
+
+    # Now the derived name is taken, the render still reads no data, and the
+    # two accounts disagree.
+    second = openscad.render(OpenSCADSource(path=source), tmp_path)
+    assert isinstance(second, BuildError), second
+    assert "contradicts the source" in second.message
     assert donor.read_bytes() == _one_triangle_stl()
 
 

@@ -257,9 +257,15 @@ def test_measure_out_leaves_the_destination_alone_when_the_build_fails(tmp_path:
 
 
 @needs_scad_tier
-@pytest.mark.parametrize("source", ["imports_data.scad", "imports_stl_data.scad"])
+@pytest.mark.parametrize(
+    ("source", "grounds"),
+    [
+        ("imports_data.scad", ("one of its own inputs",)),
+        ("imports_stl_data.scad", ("one of its own inputs", "contradicts the source")),
+    ],
+)
 def test_measure_out_refuses_a_file_when_the_model_reads_external_data(
-    tmp_path: Path, capsys, source: str
+    tmp_path: Path, capsys, source: str, grounds: tuple[str, ...]
 ):
     """`.stl` is an input extension as well as an output one.
 
@@ -285,6 +291,16 @@ def test_measure_out_refuses_a_file_when_the_model_reads_external_data(
     answer was a guess, the caller's remedy is still a different `--out`, and a
     script reading the exit code must not see a build failure where an argument
     is what is wrong.
+
+    **`grounds` is a list because `import_stl` gets a different one per
+    engine, and that is F13 rather than a choice.** 2021.01 executes the
+    deprecated spelling, so the depfile names the file and the refusal is the
+    exact one; the 2026.08.01 snapshot ignores it, so the render reads no data
+    at all, the two accounts of the source contradict each other, and the
+    refusal is the conservative one. Asserting the 2021.01 phrasing as
+    universal is what the first cut of #263 did, and the matrix caught it.
+    What holds on both is what a caller reads: exit 64, the donor untouched,
+    and a refusal that names the file at stake.
     """
     (tmp_path / "input.stl").write_bytes(b"donor")
     target = scad_target(tmp_path, source=source, claims="")
@@ -293,11 +309,10 @@ def test_measure_out_refuses_a_file_when_the_model_reads_external_data(
     assert dest.read_bytes() == b"donor", "an input is not an output path"
     doc = json.loads(capsys.readouterr().out)
     assert "input.stl" in doc["error"], "the refusal names the file at stake"
-    assert "one of its own inputs" in doc["error"]
-    assert "took a render to find out" in doc["hint"], (
+    assert any(g in doc["error"] for g in grounds), doc["error"]
+    assert "cannot be reading" in doc["hint"] or "took a render to find out" in doc["hint"], (
         "the caller could not have known, and the hint must not imply they could"
     )
-    assert "nothing has been written" in doc["hint"]
 
 
 @needs_scad_tier
