@@ -251,6 +251,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SCHEMA_VERSION` does not move. `keep_in` carries none: its failure is a
   deficit of material, not a breach.
 
+### Changed
+
+- **`SPEC-contract.md` §10.1 narrows the tolerancing exclusion rather than
+  keeping or lifting it** (#246). The policy read *"out of scope: reproducing
+  any standard's text, figures, or tolerancing tables"* — a blanket that also
+  excluded the one half of thread data agents measurably duplicate: all three
+  fleet-01 arm-C replicates hand-built 6g/6H for M3 and M8 before they could
+  assert a limit, and none of them needed the pitch series to do it.
+  The exclusion now turns on **what can be checked, not on how big the table
+  is.** Tolerance *grades* and *fundamental deviations* are in scope where the
+  standard states them as a formula and the test suite executes that formula
+  against every shipped value — the deviation #246 records for class g,
+  `es(g) = −(15 + 11P)` µm, is verifiable by construction in a way that no
+  transcribed limit is, and a stronger guarantee than any boundary dimension in
+  `partspec.refs` gets, since nothing arithmetically validates a bearing's
+  22 mm. **Limits of size stay out.** A limit is a *fit*, and a wrong digit in a
+  fit is a part that does not assemble under a citation saying the standard
+  blessed it — worse than no data, because the reader stops checking. The author
+  derives the limit and owns it (§10 rule 2), or a fragment derives it and
+  states the derivation in the citation's `note` (§11 rule 3).
+  **No numbers ship with this ruling.** `iso_metric_thread.py`'s bar is that
+  every value is checked against the primary documents, and that module's own
+  docstring records what a draft written from memory costs — three defective
+  rows, plus a retracted claim about the prior art. The grade formulae are
+  sourced nowhere in this repo, so they are #260 with the documents open, not a
+  side effect of a policy PR.
+
 ### Fixed
 
 - **What `builds` means, now that `empty` exists.** `p.empty()` shipped and made
