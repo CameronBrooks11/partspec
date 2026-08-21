@@ -431,7 +431,13 @@ def _names_the_artifact(raw: str) -> bool:
     return path.suffix == ARTIFACT_SUFFIX
 
 
-def _build_to_file(backend: Any, source: Any, dest: Path, timeout_s: float) -> Any | BuildError:
+def _build_to_file(
+    backend: Any,
+    source: Any,
+    dest: Path,
+    timeout_s: float,
+    deps_out: list[Any] | None = None,
+) -> Any | BuildError:
     """Build so the artifact lands at exactly `dest`, and only if it exists.
 
     **Nothing touches `dest` until there is an artifact to put there.** The
@@ -484,7 +490,7 @@ def _build_to_file(backend: Any, source: Any, dest: Path, timeout_s: float) -> A
         with tempfile.TemporaryDirectory(
             dir=dest.parent, prefix=".partspec-build-", ignore_cleanup_errors=True
         ) as scratch:
-            built = backend.build(source, Path(scratch), timeout_s=timeout_s)
+            built = backend.build(source, Path(scratch), timeout_s=timeout_s, deps_out=deps_out)
             if isinstance(built, BuildError):
                 return built
             (Path(scratch) / f"{source.path.stem}{ARTIFACT_SUFFIX}").replace(dest)
@@ -1037,6 +1043,7 @@ def _measure_resolved(
 
     try:
         backend = _backend_for(part.source.engine)
+        engine_deps: list[Any] = []
     except ContractError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -1107,11 +1114,11 @@ def _measure_resolved(
                 f"{source.path.stem}{ARTIFACT_SUFFIX}",
             )
             return EXIT_USAGE
-        artifact = _build_to_file(backend, source, dest, timeout_s)
+        artifact = _build_to_file(backend, source, dest, timeout_s, engine_deps)
         written_to = dest
     else:
         out = _out_dir(args.target, Path(args.out) if args.out is not None else None)
-        artifact = backend.build(source, out, timeout_s=timeout_s)
+        artifact = backend.build(source, out, timeout_s=timeout_s, deps_out=engine_deps)
         # The name inside the directory is partspec's, not the caller's, which
         # is the whole of #225: the caller chose `out` and cannot know the rest
         # without re-deriving a rule this tool owns and has already changed once
@@ -1179,7 +1186,9 @@ def _measure_resolved(
         # a Python model's imports are only knowable once it has run.
         "schema_version": SCHEMA_VERSION,
         "tool": {"name": "partspec", "version": tool_version()},
-        "part": identity(part, target.path, built=True),
+        "part": identity(
+            part, target.path, built=True, engine_deps=engine_deps[0] if engine_deps else None
+        ),
         "engine": engine_block(part, backend),
         "params": dict(part.source.params),
         "geometry": backend.provenance(artifact),
@@ -1404,8 +1413,9 @@ def _render_files(
     if part.source.engine == "openscad":
         from .engines import openscad
 
+        render_deps: list[Any] = []
         views = openscad.render_views(
-            _engine_source(part), out, timeout_s=effective_timeout(timeout_s)
+            _engine_source(part), out, timeout_s=effective_timeout(timeout_s), deps_out=render_deps
         )
         if isinstance(views, BuildError):
             return views
@@ -1417,6 +1427,13 @@ def _render_files(
         stl = out / f"{_engine_source(part).path.stem}.stl"
         bbox = openscad._stl_bbox(stl)
         meta: dict[str, object] = {"render_bbox": bbox_block(*bbox)}
+        if render_deps:
+            # Under a private key the caller pops before the payload is
+            # emitted: this is not render metadata, it is the identity
+            # block's, and `render` must not drift from `check` and
+            # `measure` on what the closure says (#73, and the pinned
+            # identity test that caught exactly this).
+            meta["_engine_deps"] = render_deps[0]
         if section is None:
             return views, meta
         plane, offset = section
@@ -1612,7 +1629,9 @@ def _render_resolved(
     views, meta = result
     # `built=True`: a Python model's imports are only knowable once it has
     # run, and on this path it just did. No-op for OpenSCAD.
-    payload["part"] = identity(part, target.path, built=True)
+    payload["part"] = identity(
+        part, target.path, built=True, engine_deps=meta.pop("_engine_deps", None)
+    )
     payload["renders"] = {view: str(path) for view, path in views.items()}
     payload.update(meta)
     # The payload, on disk beside the images (#21): stdout serves the

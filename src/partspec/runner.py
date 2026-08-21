@@ -169,7 +169,10 @@ def _evaluate(
     backend = _backend_for(part.source.engine)
     report.engine = engine_block(part, backend)
 
-    artifact = backend.build(_engine_source(part), out_dir, timeout_s=timeout_s)
+    engine_deps: list[Any] = []
+    artifact = backend.build(
+        _engine_source(part), out_dir, timeout_s=timeout_s, deps_out=engine_deps
+    )
     if isinstance(artifact, BuildError):
         report.hint = artifact.hint
         report.build_origin = artifact.origin
@@ -256,6 +259,11 @@ def _evaluate(
     # invisible to a snapshot taken any earlier.
     if part.source.engine != "openscad":
         report.source_closure = _python_closure(part.source, contract_path, loaded_before)
+    elif engine_deps:
+        # The OpenSCAD half of the same idea (#226). `_closure` ran before the
+        # build from a static read of the source; the engine has since said what
+        # it actually opened, which is the one thing no static reader can know.
+        report.source_closure = _closure(part.source, engine_deps[0])
 
     results.append(CheckResult(id="builds", kind="builds", phase=GEOMETRY, status=Status.PASS))
     if artifact_out is not None:
@@ -284,7 +292,13 @@ def _evaluate(
     report.checks = results
 
 
-def identity(part: Part, contract_path: Path | None, *, built: bool = False) -> dict[str, Any]:
+def identity(
+    part: Part,
+    contract_path: Path | None,
+    *,
+    built: bool = False,
+    engine_deps: Any = None,
+) -> dict[str, Any]:
     """The part-identity block, shared by `check`'s report and `measure` (#47).
 
     One builder, because the two verbs had already drifted once before (#73,
@@ -312,7 +326,7 @@ def identity(part: Part, contract_path: Path | None, *, built: bool = False) -> 
     source_digest = _digest(part.source.path)
     if source_digest:
         out["source_digest"] = source_digest
-    closure = _closure(part.source)
+    closure = _closure(part.source, engine_deps)
     if built and part.source.engine != "openscad":
         closure = _python_closure(part.source, contract_path)
     if closure:
@@ -1655,7 +1669,7 @@ def _python_closure(
     }
 
 
-def _closure(source: Any) -> dict[str, Any] | None:
+def _closure(source: Any, deps: Any = None) -> dict[str, Any] | None:
     """Digest every file the build reads, not just the entry point.
 
     OpenSCAD only — the Python tier is handled after its build, by
@@ -1673,11 +1687,29 @@ def _closure(source: Any) -> dict[str, Any] | None:
     from .engines.openscad import include_closure
 
     closure = include_closure(source.path)
-    members = sorted(
-        hashlib.sha256(f.read_bytes()).hexdigest() for f in closure.files if f.is_file()
-    )
+    covered = [f for f in closure.files if f.is_file()]
+
+    # What the engine reported reading that the static walk could not see: the
+    # `import()`/`surface()` targets. Resolved on both sides before comparing,
+    # because a depfile echoes the invoked source as it was GIVEN while
+    # `include_closure` resolves everything.
+    engine_state = getattr(deps, "state", None)
+    seen_paths = {f.resolve() for f in closure.files}
+    data_files = [f for f in getattr(deps, "files", ()) if f.resolve() not in seen_paths]
+
+    # Hashed into the digest, not merely listed. Naming a data file while
+    # leaving it out of the digest would claim a coverage the digest does not
+    # have: edit the STL and the closure would say `identical`. A model that
+    # reads no external data has nothing here, so its digest is unchanged.
+    covered += [f for f in data_files if f.is_file()]
+    members = sorted(hashlib.sha256(f.read_bytes()).hexdigest() for f in covered)
+
     unseen = []
-    if closure.reads_external_data:
+    if closure.reads_external_data and engine_state != "complete":
+        # Dropped only on a COMPLETE engine report. `partial` is a floor on what
+        # the render opened, and `absent` is not "nothing was read" — neither
+        # closes the gap, and reading either as closure is the failure this
+        # field exists to prevent.
         unseen.append("external_data_reads")
     if closure.unresolved:
         unseen.append("unresolved_includes")
@@ -1690,6 +1722,21 @@ def _closure(source: Any) -> dict[str, Any] | None:
         out["unresolved"] = list(closure.unresolved)
     if closure.reads_external_data:
         out["reads_external_data"] = True
+    if engine_state is not None:
+        # Framed against the MODEL's directory rather than the contract's:
+        # OpenSCAD resolves `import()`/`surface()` relative to the entry file,
+        # so that is the frame these paths are meaningful in — and relative
+        # keeps them machine-independent, which is the property the whole block
+        # is built to have.
+        block: dict[str, Any] = {"state": engine_state}
+        if data_files:
+            block["data_files"] = sorted(_relative(f, source.path) or f.name for f in data_files)
+        if deps.missing:
+            # Listed by the engine and not on disk. A build input the model
+            # asked for and did not get, which is strictly more than the
+            # silence this field replaces.
+            block["missing"] = sorted(_relative(f, source.path) or f.name for f in deps.missing)
+        out["engine_inputs"] = block
     if unseen:
         # Stated positively so a consumer cannot mistake absence of the two
         # fields above for a guarantee it never made. Derived from `unseen`,
