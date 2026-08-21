@@ -437,6 +437,9 @@ def _build_to_file(
     dest: Path,
     timeout_s: float,
     deps_out: list[Any] | None = None,
+    *,
+    reads_external_data: bool = False,
+    refusal_out: list[BuildError] | None = None,
 ) -> Any | BuildError:
     """Build so the artifact lands at exactly `dest`, and only if it exists.
 
@@ -461,8 +464,9 @@ def _build_to_file(
     ran made a model importing it build without its import and report a
     confident, complete, wrong answer at exit 0. That is the defect #187
     exists to abolish, reintroduced by its own fix. `_measure_resolved`
-    refuses a file destination for a model that reads external data; this
-    function no longer removes anything it did not create.
+    refuses a file destination for a model whose includes did not resolve, and
+    this function refuses one the render is then found to have read (#263);
+    neither removes anything it did not create.
 
     **The build happens in a scratch directory beside `dest`.** The engine
     names its export after the source file, so building straight into
@@ -493,6 +497,31 @@ def _build_to_file(
             built = backend.build(source, Path(scratch), timeout_s=timeout_s, deps_out=deps_out)
             if isinstance(built, BuildError):
                 return built
+            if reads_external_data and deps_out:
+                # Asked here rather than before the build because here is where
+                # it can be answered, and asked before the rename so that a
+                # refusal leaves `dest` exactly as the caller left it. The
+                # engine renders into a scratch directory of its own inside
+                # this one, so the destination it was given was never `dest`
+                # and its own copy of this guard cannot have fired.
+                #
+                # Reported through `refusal_out` as well as returned, because
+                # this is the one failure here that is the CALLER'S ARGUMENT
+                # rather than the environment: `--out` names a file the model
+                # reads, and the remedy is a different path. It exited
+                # `EXIT_USAGE` when the same invocation was refused statically
+                # and it still does; a build failure and a bad argument are not
+                # the same answer, and the exit code is the part of a refusal a
+                # script reads.
+                from .engines.openscad import _wrote_over_an_input
+
+                refusal = _wrote_over_an_input(
+                    deps_out[-1], dest, source.path.name, refuse_unanswered=True
+                )
+                if refusal is not None:
+                    if refusal_out is not None:
+                        refusal_out.append(refusal)
+                    return refusal
             (Path(scratch) / f"{source.path.stem}{ARTIFACT_SUFFIX}").replace(dest)
             return built
     except OSError as exc:
@@ -1085,15 +1114,18 @@ def _measure_resolved(
         # measures, so this is refused rather than guessed at, and the refusal
         # says which two files it cannot tell apart.
         #
-        # The question asked is the whole of `partial`, not
-        # `reads_external_data`, because those are the same question: a closure
-        # with an UNRESOLVED include cannot see inside that file, so it cannot
-        # know whether the file imports data either. `partial_reason` is
-        # exactly "there are inputs I cannot account for" and says which kind,
-        # non-None on precisely the closures `partial` is true of; it is
-        # already computed (SPEC-report §8.3), and phrased in one place because
-        # `openscad.render` refuses on the same grounds (#208).
-        reason = include_closure(source.path).partial_reason
+        # The question asked is the UNRESOLVED-include arm alone, not the whole
+        # of `partial`. A closure that cannot see inside a file cannot know
+        # whether that file imports data either, and nothing later will tell it
+        # — the depfile names what the render opened, never what it asked for —
+        # so this is the case where refusing before the render is the only
+        # honest answer available. The other arm, `reads_external_data`, is now
+        # answered exactly after the render by `_build_to_file`, which knows
+        # which files were read instead of guessing that any of them might be
+        # `dest` (#263). Phrased in one place because `openscad.render` refuses
+        # on the same grounds (#208).
+        closure = include_closure(source.path)
+        reason = closure.unresolved_reason
         if reason is not None:
             _measure_failure(
                 part,
@@ -1114,7 +1146,19 @@ def _measure_resolved(
                 f"{source.path.stem}{ARTIFACT_SUFFIX}",
             )
             return EXIT_USAGE
-        artifact = _build_to_file(backend, source, dest, timeout_s, engine_deps)
+        dest_refusal: list[BuildError] = []
+        artifact = _build_to_file(
+            backend,
+            source,
+            dest,
+            timeout_s,
+            engine_deps,
+            reads_external_data=closure.reads_external_data,
+            refusal_out=dest_refusal,
+        )
+        if dest_refusal:
+            _measure_failure(part, target, backend, dest_refusal[0].message, dest_refusal[0].hint)
+            return EXIT_USAGE
         written_to = dest
     else:
         out = _out_dir(args.target, Path(args.out) if args.out is not None else None)

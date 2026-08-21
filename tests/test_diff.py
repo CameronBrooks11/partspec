@@ -1323,8 +1323,10 @@ def test_a_gap_beside_a_moved_closure_digest_names_the_digest():
     assert doc["outcome"] == "indeterminate"
     assert doc["indeterminate"][0]["reason"] == (
         "no declared claim changed, but the source closure digest moved; the model reads "
-        "external data: import()/surface() name files whose paths partspec cannot resolve "
-        "statically — so the change this diff names is not necessarily all that changed"
+        "external data (import()/surface()) and this run carries no complete "
+        "engine-reported input set, so which files those were is unrecorded (a successful "
+        "render on an engine that accepts -d records them) — so the change this diff names "
+        "is not necessarily all that changed"
     )
     assert SENTENCE not in summary_of(doc, new)
     # And the movement reaches the artifact, not only the prose.
@@ -1674,8 +1676,10 @@ def test_an_openscad_model_reading_external_data_keeps_its_message():
     doc = _diff(_legacy(dict(closure)), _legacy(dict(closure)))
     assert doc["outcome"] == "indeterminate"
     assert doc["indeterminate"][0]["reason"] == (
-        "no differences found, but the model reads external data: import()/surface() name "
-        f"files whose paths partspec cannot resolve statically, so {SENTENCE}"
+        "no differences found, but the model reads external data (import()/surface()) and "
+        "this run carries no complete engine-reported input set, so which files those were "
+        "is unrecorded (a successful render on an engine that accepts -d records them), "
+        f"so {SENTENCE}"
     )
     # No Python tier, so no irreducible caveat to print.
     assert "not covered" not in summary_of(doc, _legacy(dict(closure)))

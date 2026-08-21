@@ -276,6 +276,15 @@ def test_measure_out_refuses_a_file_when_the_model_reads_external_data(
     demanded the paren straight after the name — so three consecutive runs of
     the `import_stl` model ate their own input and answered `[30,10,10]`,
     `[50,10,10]`, `[70,10,10]`, each at exit 0, with nothing on stderr.
+
+    **The refusal is exact since #263 and the exit code is not.** It used to
+    fire before the render on the mere presence of `import()`; it now fires
+    after it, on the engine's own dependency list, and names the file that was
+    actually read rather than the fact that some file was. `EXIT_USAGE` is
+    pinned here deliberately: the same invocation was refused at 64 when the
+    answer was a guess, the caller's remedy is still a different `--out`, and a
+    script reading the exit code must not see a build failure where an argument
+    is what is wrong.
     """
     (tmp_path / "input.stl").write_bytes(b"donor")
     target = scad_target(tmp_path, source=source, claims="")
@@ -283,14 +292,12 @@ def test_measure_out_refuses_a_file_when_the_model_reads_external_data(
     assert main(["measure", target, "--out", str(dest)]) == 64
     assert dest.read_bytes() == b"donor", "an input is not an output path"
     doc = json.loads(capsys.readouterr().out)
-    assert "reads external data" in doc["error"]
-    assert "input.stl" in doc["error"]
-    assert "pass a directory" in doc["hint"]
-    # …"other than the model's own". The bare form always worked until #223
-    # gave the directory spelling its own refusal on the same grounds, and the
-    # obvious directory to reach for is the model's — see the test below, which
-    # follows this hint rather than reading it.
-    assert str(tmp_path) in doc["hint"], doc["hint"]
+    assert "input.stl" in doc["error"], "the refusal names the file at stake"
+    assert "one of its own inputs" in doc["error"]
+    assert "took a render to find out" in doc["hint"], (
+        "the caller could not have known, and the hint must not imply they could"
+    )
+    assert "nothing has been written" in doc["hint"]
 
 
 @needs_scad_tier
@@ -300,29 +307,32 @@ def test_the_remedy_for_a_refused_out_file_actually_works(tmp_path: Path, capsys
     "pass a directory" was true until #223 gave the DIRECTORY spelling of the
     same request its own refusal on the same grounds. The v0.7.6 pre-tag audit
     read that as the remedy routing straight into a second refusal; measured,
-    it is worse than that. `_output_over_an_input` requires `<stem>.stl` to
-    already EXIST, so the obvious directory — the model's own — **works on the
-    first run and is refused from the second**, at a different exit code with a
+    it was worse than that. The old guard required `<stem>.stl` to already
+    EXIST, so the obvious directory — the model's own — **worked on the first
+    run and was refused from the second**, at a different exit code with a
     different message. A remedy that works once is harder to diagnose than one
     that never works.
 
-    So the hint now excludes the model's directory, and this test takes the
-    hint at its word: refuse, read the remedy, do what it says, and require
-    that to succeed — repeatedly, since once is not the property in question.
+    **#263 removed the trap rather than routing around it.** The hint says to
+    name a destination the model does not read, and every such destination now
+    works repeatedly — the model's own directory included, because the engine's
+    dependency list proves `imports_data.stl` is not `input.stl` rather than
+    guessing that it might be. This test executes both: the ruled-out
+    directory, which is no longer ruled out, and somewhere else.
     """
     (tmp_path / "input.stl").write_bytes(b"donor")
     target = scad_target(tmp_path, source="imports_data.scad", claims="")
 
     assert main(["measure", target, "--out", str(tmp_path / "input.stl")]) == 64
     hint = json.loads(capsys.readouterr().out)["hint"]
+    assert "does not read" in hint, hint
 
-    # The directory the hint rules out: fine once, refused thereafter.
-    assert main(["measure", target, "--out", str(tmp_path)]) == 0
-    capsys.readouterr()
-    assert main(["measure", target, "--out", str(tmp_path)]) == 4, (
-        "premise: the model's own directory is refused once its artifact is there"
-    )
-    capsys.readouterr()
+    # The directory the old hint had to rule out. Now fine, and fine again.
+    for run in (1, 2):
+        assert main(["measure", target, "--out", str(tmp_path)]) == 0, (
+            f"run {run}: the model's own directory is a destination it does not read"
+        )
+        capsys.readouterr()
 
     # Somewhere else, which is what the hint leaves. Following it must work.
     elsewhere = tmp_path / "artifacts"
@@ -339,9 +349,10 @@ def test_the_remedy_for_a_refused_out_file_actually_works(tmp_path: Path, capsys
 @needs_scad_tier
 def test_measure_out_refuses_a_file_when_an_include_cannot_be_resolved(tmp_path: Path, capsys):
     """A closure that cannot read one of its members cannot say what that
-    member imports either, so `partial` — not `reads_external_data` — is the
-    question this guard asks. Both are "there are inputs I cannot account
-    for", and only one of them is the whole of it."""
+    member imports either — and nothing later will tell it, because the
+    depfile names what the render OPENED and never what it asked for. So this
+    is the one arm that still refuses before the render (#263 moved the other),
+    and the refusal has to name the include rather than the data."""
     (tmp_path / "a.stl").write_bytes(b"mine")
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "m.scad").write_text("include <nowhere/missing.scad>\ncube([2, 2, 2]);\n")
@@ -621,6 +632,12 @@ def test_measure_out_refuses_the_model_s_own_directory_over_a_colliding_input(
     part that measures `[8, 7, 11]`, with the input gone. Building in a scratch
     directory fixes the number; it does not stop `os.replace` from putting the
     output on top of the input afterwards, which is what this refusal is for.
+
+    This is the case #263 made exact rather than removed, and the distinction
+    is the whole of the fix: `self_named_import.scad` genuinely reads the file
+    the derived name lands on, so the engine's dependency list refuses it —
+    where `imports_data.scad`, whose import is a different file in the same
+    directory, is now allowed through the same guard.
     """
     donor = _donor_stl(tmp_path, tmp_path / "self_named_import.stl")
     target = scad_target(tmp_path, source="self_named_import.scad", claims="")
@@ -628,8 +645,8 @@ def test_measure_out_refuses_the_model_s_own_directory_over_a_colliding_input(
     assert (tmp_path / "self_named_import.stl").read_bytes() == donor
     doc = json.loads(capsys.readouterr().out)
     assert "self_named_import.stl" in doc["error"], "the refusal names the file at stake"
-    assert "reads external data" in doc["error"]
-    assert "pass an output directory other than the model's own" in doc["hint"]
+    assert "one of its own inputs" in doc["error"]
+    assert "does not read" in doc["hint"]
 
 
 @needs_openscad
@@ -679,47 +696,48 @@ def test_measure_out_measures_the_import_and_a_repeat_run_is_not_refused(tmp_pat
 
 
 @needs_scad_tier
-def test_measure_out_compounds_when_the_import_is_below_the_out_dir(tmp_path: Path, capsys):
-    """The residue this fix leaves, executed rather than predicted.
+def test_measure_out_refuses_when_the_import_is_below_the_out_dir(tmp_path: Path, capsys):
+    """The residue #223 shipped knowingly, and the run that ends it.
 
-    The refusal covers the model's own directory and nothing else, because no
-    signal distinguishes the two files anywhere else: `reads_external_data` is
-    a bool by design, since a data path may be computed at render time. So
-    `--out sub` for a model importing `sub/<stem>.stl` still writes the
-    artifact over that import.
+    #223's guard covered the model's own directory and nothing else, because
+    no signal distinguished the two files anywhere else: `reads_external_data`
+    is a bool by design, since a data path may be computed at render time. So
+    `--out sub` for a model importing `sub/<stem>.stl` wrote the artifact over
+    that import, and the artifact REPLACED it rather than deleting it — the
+    import still resolved and the model ate its own output. Measured then:
+    `[8, 7, 11]`, `[13, 7, 11]`, `[18, 7, 11]`, every one at exit 0, and a
+    `check` claim that is false of the real part passing from run 2 onward.
+    That was #208's own headline symptom surviving in a narrower case.
 
-    An earlier revision of this test said the cost was one file and that the
-    next run would answer `[5, 5, 5]` — a number that was written rather than
-    run, in a repo whose whole subject is the difference. The artifact
-    REPLACES the import rather than deleting it, so the import still resolves
-    and the model eats its own output: `[8, 7, 11]`, then `[13, 7, 11]`, then
-    `[18, 7, 11]`, every one at exit 0, and a `check` claim that is false of
-    the real part passes from run 2 onward. That is #208's own headline
-    symptom surviving in a narrower case, and the same compounding
-    `_EXTERNAL_DATA_RE`'s docstring records from the #187 review.
-
-    Pinned because it is a KNOWN residue, not an accepted behaviour: if a
+    An earlier revision of this test pinned that residue and said so: "if a
     later change closes it, this test fails and says so, which is the whole
-    point of writing the residue down where it can be executed. Widening the
-    guard to catch it is the thing that must not happen quietly — any rule
-    reaching a subdirectory import also refuses legitimate output directories.
+    point of writing the residue down where it can be executed." It did, and
+    the change is #263 — the engine's dependency list names a subdirectory
+    import by full resolved path, so where the destination sits stops
+    mattering. The refusal is now the same one wherever the collision is.
+
+    The widening #223 warned must not happen quietly did not happen at all:
+    `test_measure_still_takes_a_directory_for_a_model_that_reads_external_data`
+    and the runs in `test_the_remedy_for_a_refused_out_file_actually_works`
+    are the legitimate output directories, and they are not refused. Nothing
+    here is conservative — the guard refuses the file the render read, and
+    only that one.
     """
     donor = _donor_stl(tmp_path, tmp_path / "sub" / "subdir_import.stl")
     target = scad_target(tmp_path, source="subdir_import.scad", claims="")
     out = tmp_path / "sub"
 
-    measured = []
-    for run in (1, 2, 3):
-        assert main(["measure", target, "--out", str(out)]) == 0, (
-            f"run {run} of the residue must still SUCCEED — silently, which is the point"
+    for run in (1, 2):
+        assert main(["measure", target, "--out", str(out)]) == exit_code(Verdict.ERROR), (
+            f"run {run}: the destination is an input wherever it sits"
         )
-        measured.append(json.loads(capsys.readouterr().out)["measurements"]["bbox"]["value"])
+        doc = json.loads(capsys.readouterr().out)
+        assert "subdir_import.stl" in doc["error"]
+        assert "one of its own inputs" in doc["error"]
 
-    assert measured[0] == [8.0, 7.0, 11.0], "run 1 reads the real import and is right"
-    assert measured[1:] == [[13.0, 7.0, 11.0], [18.0, 7.0, 11.0]], (
-        "and every run after it measures the previous run's output, at exit 0"
+    assert (out / "subdir_import.stl").read_bytes() == donor, (
+        "and the import is byte-identical, so run 2 could only have measured the part"
     )
-    assert (out / "subdir_import.stl").read_bytes() != donor
 
 
 # --------------------------------------------------------------------------

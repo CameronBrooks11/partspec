@@ -376,33 +376,96 @@ def test_a_stale_artifact_cannot_answer_the_post_render_guards(tmp_path: Path, m
 
 @needs_openscad
 def test_a_first_render_into_the_source_directory_is_not_refused(tmp_path: Path):
-    """Clause (3) of the #208 guard: `<stem>.stl` must already EXIST.
+    """Rendering an external-data model beside its own source, twice.
 
-    Both this and the test below pin a clause whose deletion left the suite
-    green (adversarial review of #223). The guard refuses a render into the
-    model's own directory only when the derived name is already taken; a first
-    run there takes a name nothing holds, so nothing can be destroyed and
-    nothing is refused. Drop the clause and this ordinary invocation — an
-    external-data model rendered beside its own source, once — becomes a hard
-    environment error over a file that does not exist.
+    This pinned clause (3) of the #208 guard — `<stem>.stl` must already EXIST
+    — by requiring the FIRST run to succeed and the second to be refused, on
+    the ground that by then partspec's own artifact was sitting there and
+    nothing on disk said whether it or an input owned the name.
 
-    The second render IS refused, and that is the same boundary from the other
-    side: by then partspec's own artifact is sitting there, and nothing on disk
-    says whether it or an input owns the name.
+    **#263 gave that ground away, and the second run now succeeds too.** The
+    engine's dependency list says `imports_data.scad` read `input.stl` and
+    nothing else, so `imports_data.stl` is provably not an input and refusing
+    it would be refusing a question that has an answer. What the guard refuses
+    is the model that really does read the derived name — the case
+    `test_a_render_over_a_file_the_model_reads_is_refused` holds — and clause
+    (3) survives where it is still load-bearing: an engine that writes no
+    depfile cannot answer, and there the old conservative rule applies
+    unchanged (the test below it).
     """
     (tmp_path / "input.stl").write_bytes(b"donor")
     source = _scad(
         tmp_path, "imports_data.scad", FIXTURES.joinpath("imports_data.scad").read_text()
     )
 
-    first = openscad.render(OpenSCADSource(path=source), tmp_path)
-    assert isinstance(first, Path), first
-    assert first == tmp_path / "imports_data.stl"
-    assert first.stat().st_size > 0
+    for run in ("first", "second"):
+        result = openscad.render(OpenSCADSource(path=source), tmp_path)
+        assert isinstance(result, Path), f"{run}: {result}"
+        assert result == tmp_path / "imports_data.stl"
+        assert result.stat().st_size > 0
+    assert (tmp_path / "input.stl").read_bytes() == b"donor"
 
-    second = openscad.render(OpenSCADSource(path=source), tmp_path)
-    assert isinstance(second, BuildError), "now the derived name is taken"
-    assert "cannot prove imports_data.stl is not one of them" in second.message
+
+@needs_openscad
+def test_a_render_over_a_file_the_model_reads_is_refused(tmp_path: Path):
+    """The exact half of #263, and the reason the loosening above is safe.
+
+    `self_named_import.scad` imports `self_named_import.stl`, which is exactly
+    the name `render` derives for its own artifact. The depfile names it by
+    full resolved path, so the move into place is refused — and refused
+    BEFORE the rename, so the donor is byte-identical afterwards. Rendered
+    into a SUBDIRECTORY of the model's own here rather than into it, because
+    that is the case #223's guard could not reach at all: its first clause
+    asked whether the destination was the source's own directory, and this one
+    is not.
+    """
+    donor = FIXTURES.joinpath("block_with_hole.scad")
+    assert donor.is_file()  # the fixture tree is what it claims to be
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    stl = sub / "m.stl"
+    stl.write_bytes(_one_triangle_stl())
+    before = stl.read_bytes()
+    source = _scad(tmp_path, "m.scad", 'union() { cube([5, 5, 5]); import("sub/m.stl"); }\n')
+
+    result = openscad.render(OpenSCADSource(path=source), sub)
+    assert isinstance(result, BuildError), result
+    assert "one of its own inputs" in result.message
+    assert str(stl.resolve()) in result.message
+    assert result.origin == "environment"
+    assert stl.read_bytes() == before, "refused before the rename, so nothing moved"
+
+
+def test_an_engine_that_reports_nothing_keeps_the_conservative_refusal(tmp_path: Path, monkeypatch):
+    """`refuse_unanswered`: no depfile, so #223's rule stands unchanged.
+
+    An engine with no `-d` writes nothing for partspec to read, and `absent`
+    is not "the render read nothing" (`RenderDeps`). Making the guard exact
+    must not turn an unanswerable question into a pass — so where the engine
+    cannot answer, the answer is the one #223 shipped: refuse when the
+    destination is the model's own directory and the derived name is already
+    taken, allow everything else.
+
+    A stub engine rather than a version pin, because both engines in the CI
+    matrix accept `-d` and the behaviour under test is what happens when one
+    does not.
+    """
+    watched = tmp_path / "input.stl"
+    watched.write_bytes(b"donor")
+    stub = _recording_stub(tmp_path, watched)
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+    source = tmp_path / "m.scad"
+    source.write_text('union() { cube([5, 5, 5]); import("input.stl"); }\n')
+
+    elsewhere = openscad.render(OpenSCADSource(source), tmp_path / "out")
+    assert isinstance(elsewhere, Path), elsewhere
+
+    first = openscad.render(OpenSCADSource(source), tmp_path)
+    assert isinstance(first, Path), first
+    second = openscad.render(OpenSCADSource(source), tmp_path)
+    assert isinstance(second, BuildError), "the derived name is taken and nothing can say by what"
+    assert "did not report the files it read" in second.message
+    assert watched.read_bytes() == b"donor"
 
 
 @needs_openscad
@@ -436,9 +499,10 @@ def test_a_model_with_a_complete_closure_renders_twice_into_its_own_directory(tm
 def test_the_engine_names_the_data_files_a_render_read(tmp_path: Path, body: str):
     """`openscad -d` answers the question `reads_external_data` cannot.
 
-    `_output_over_an_input` refuses conservatively because a data path may be
+    Both output guards refused conservatively because a data path may be
     computed at render time, so no static reader can resolve it — and #226 is
-    the remedy that claim implies: ask the ENGINE what it read. This executes
+    the remedy that claim implies: ask the ENGINE what it read, which is what
+    `_wrote_over_an_input` does with the answer since #263. This executes
     that claim rather than asserting it in prose, on whichever binary is
     installed, which is why it is a test and not a comment. CI runs two engine
     versions (apt 2021.01 and a 2026.08.01 snapshot) and F13 is the finding

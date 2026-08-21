@@ -394,6 +394,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The output-collision guard is exact, so a subdirectory import no longer eats
+  its own output** (#263, closing out #226). `.stl` is an INPUT extension as well
+  as an output one, and until now nothing could say which — `reads_external_data`
+  is a bool by design, because an `import(names[i])` path is computed at render
+  time. So both guards refused conservatively, and #223's shipped its residue in
+  its own docstring: scoped to the model's own directory, `--out sub` for a model
+  importing `sub/<stem>.stl` **replaced** that import, which still resolved, so
+  the model ate its own output. Re-measured on this fix's own repro before and
+  after: `[8, 7, 11]`, `[13, 7, 11]`, `[18, 7, 11]` on three identical runs, each
+  at exit 0 — and a `check` claim false of the real part passing from run 2. Now
+  every one of those three runs refuses, the donor is byte-identical afterwards,
+  and the same contract into an ordinary output directory still measures
+  `[8, 7, 11]` on every run.
+  **The engine answers what no static reader could.** `openscad -d` names a
+  subdirectory import by full resolved path, so the guard asks the dependency
+  list instead of the destination's location — and asks it after the render and
+  **before the rename**, where both movers are still staging into a scratch
+  directory and the caller's file is untouched. The error says it took a render
+  to find out, rather than implying the caller could have known.
+  **It stops over-refusing in the same stroke**, which is the half a reader
+  notices first. `measure --out FILE` refused on the mere presence of `import()`
+  anywhere in the closure; it now refuses only where the render actually read
+  that file. The v0.7.6 audit's finding falls out with it: the old hint's remedy
+  — a directory — worked on the first run and was refused from the second, so it
+  had to exclude the model's own directory; that directory now simply works,
+  repeatedly, because the depfile proves `<stem>.stl` is not `input.stl`.
+  **Neither arm is loosened where the engine cannot answer.** An unresolved
+  `include` is listed in no depfile at all — the file names what the render
+  *opened*, never what it asked for — so that arm still refuses before the
+  render, which is the only honest answer available for it. And an engine with
+  no `-d` writes nothing, so there the pre-#263 rule applies unchanged rather
+  than an unanswerable question becoming a pass. `EXIT_USAGE` is unchanged too:
+  the same `--out` is refused at 64 as before, because a bad argument and a
+  build failure are not the same answer to a script.
+  `diff`'s phrase for the `external_data_reads` gap named a limitation without
+  naming the remedy, and now names both — phrased as a fact about *this run*
+  rather than about the engine, so it stays true of a pre-0.7.7 report, which
+  carries no `engine_inputs` at all.
+
 - **What `builds` means, now that `empty` exists.** `p.empty()` shipped and made
   three statements about `builds` false in the same batch that introduced it —
   including one in a docstring written by that PR. `SPEC-contract.md` §4.2 said
