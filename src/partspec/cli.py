@@ -438,7 +438,7 @@ def _build_to_file(
     timeout_s: float,
     deps_out: list[Any] | None = None,
     *,
-    reads_external_data: bool = False,
+    closure_is_partial: bool = False,
     refusal_out: list[BuildError] | None = None,
 ) -> Any | BuildError:
     """Build so the artifact lands at exactly `dest`, and only if it exists.
@@ -497,7 +497,7 @@ def _build_to_file(
             built = backend.build(source, Path(scratch), timeout_s=timeout_s, deps_out=deps_out)
             if isinstance(built, BuildError):
                 return built
-            if reads_external_data:
+            if closure_is_partial:
                 # Asked here rather than before the build because here is where
                 # it can be answered, and asked before the rename so that a
                 # refusal leaves `dest` exactly as the caller left it. The
@@ -519,6 +519,11 @@ def _build_to_file(
                 # ask". Reading a missing answer as a passing one is the shape
                 # of failure this whole guard exists to refuse, and it would be
                 # invisible: the artifact would land and the run would exit 0.
+                #
+                # Gated on the whole of `partial`, matching `render`, even
+                # though the unresolved arm cannot reach here — the static
+                # refusal above returns first. Passing the narrower question
+                # would be true only for as long as that stays true.
                 refusal = _wrote_over_an_input(
                     deps_out[-1] if deps_out else RenderDeps(state="absent"),
                     dest,
@@ -1160,7 +1165,7 @@ def _measure_resolved(
             dest,
             timeout_s,
             engine_deps,
-            reads_external_data=closure.reads_external_data,
+            closure_is_partial=closure.partial,
             refusal_out=dest_refusal,
         )
         if dest_refusal:
