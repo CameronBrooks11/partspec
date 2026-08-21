@@ -292,7 +292,13 @@ def _output_over_an_input(
 
 
 def _wrote_over_an_input(
-    deps: RenderDeps, dest: Path, name: str, *, closure: Closure, refuse_unanswered: bool
+    deps: RenderDeps,
+    dest: Path,
+    name: str,
+    *,
+    closure: Closure,
+    refuse_unanswered: bool,
+    what: str = "build artifact",
 ) -> BuildError | None:
     """Refuse the move into place when the render itself read `dest`.
 
@@ -372,7 +378,7 @@ def _wrote_over_an_input(
             origin="environment",
         )
     return BuildError(
-        f"the render of {name} read {dest.resolve()}, so writing the build artifact "
+        f"the render of {name} read {dest.resolve()}, so writing the {what} "
         f"there would destroy one of its own inputs — the next run would measure "
         f"this run's output",
         hint=f"only the engine's own dependency list can answer this, so it took a "
@@ -911,19 +917,31 @@ def render_views(
     spans one unit per pixel gap, giving 799 in x and y, at exit 0 with nothing
     on stderr, on every run after.
 
-    **The exact answer now exists and this function does not yet use it.** #226
-    landed the mechanism and #263 applied it to the STL move, where
-    `_wrote_over_an_input` refuses on the engine's own dependency list rather
-    than on a guess. The same list would answer here — `surface()` targets are
-    read at parse time, so the STL render's depfile already names the heightmap
-    — but the guard is asked only of `<stem>.stl`, and the view moves below go
-    through untouched. So the residue above survives for PNG destinations
-    exactly as measured, and it survives as a known one rather than as an
-    unanswerable one.
+    **That is the residue this function no longer ships.** #226 landed the
+    signal, #263 applied it to the STL move, and #267 applies it here:
+    `_wrote_over_an_input` refuses a destination the render actually read, on
+    the engine's own dependency list rather than on a guess. No second `-d`
+    pass is needed — a `surface()` target is opened when the source is parsed,
+    so the STL pass's depfile already names the heightmap — and the guard is
+    asked of every view **before any view moves**, which is the constraint the
+    batched move below exists for.
+
+    What survives is the case no depfile reaches: an engine with no `-d` writes
+    nothing to ask, and there this path keeps the behaviour it had, which was
+    no guard at all. A refusal nothing can justify would be worse than the
+    residue.
     """
-    stl = render(source, out_dir, timeout_s=timeout_s, deps_out=deps_out)
+    # Collected here and forwarded, rather than forwarded and forgotten: the
+    # pre-flight below needs the same answer, and a second `-d` pass over four
+    # PNG invocations would only re-read what one parse of one source already
+    # said.
+    stl_deps: list[RenderDeps] = []
+    stl = render(source, out_dir, timeout_s=timeout_s, deps_out=stl_deps)
+    if deps_out is not None:
+        deps_out.extend(stl_deps)
     if isinstance(stl, BuildError):
         return stl
+    closure = include_closure(source.path)
     executable = find_executable()
     assert executable is not None  # render() just used it
 
@@ -1025,6 +1043,37 @@ def render_views(
                     # (adversarial review of #234).
                     if (png.exists() or png.is_symlink()) and stat.S_ISDIR(png.lstat().st_mode)
                 ]
+                # In the same pre-flight, and for the same reason it exists:
+                # every view is asked before any view moves. A per-view
+                # refuse-then-continue would let three land and the fourth
+                # refuse, leaving a directory of images from two builds — the
+                # exact mix the batched move was written to prevent (#234).
+                #
+                # `refuse_unanswered=False`, so an engine that cannot name its
+                # inputs keeps the behaviour this path had before #267: none.
+                # The residue documented above survives there rather than
+                # becoming a refusal nothing can justify.
+                if closure.partial and stl_deps:
+                    read = next(
+                        (
+                            refusal
+                            for _, png in finished
+                            if (
+                                refusal := _wrote_over_an_input(
+                                    stl_deps[0],
+                                    png,
+                                    source.path.name,
+                                    closure=closure,
+                                    refuse_unanswered=False,
+                                    what="view artifact",
+                                )
+                            )
+                            is not None
+                        ),
+                        None,
+                    )
+                    if read is not None:
+                        return read
                 if blocked:
                     return BuildError(
                         f"the view artifacts cannot be moved into place: "

@@ -752,12 +752,20 @@ def _one_triangle_stl() -> bytes:
     return b"\0" * 80 + struct.pack("<I", 1) + facet
 
 
-def _recording_stub(tmp_path: Path, watched: Path, *, fail_from: int | None = None) -> Path:
+def _recording_stub(
+    tmp_path: Path, watched: Path, *, fail_from: int | None = None, reads_watched: bool = False
+) -> Path:
     """An engine that writes to `-o` and reports what `watched` held when it ran.
 
     A stub rather than the binary because the claim is about what the engine
     was ALLOWED TO SEE, and the real openscad cannot be asked. `fail_from`
     makes the Nth invocation (1-based) exit non-zero without writing.
+
+    `reads_watched` makes it honour `-d` and declare `watched` as an input,
+    which is what a real engine does for a `surface(file = ...)` target. A
+    stub is the only way to exercise the view guard at all: PNG rendering
+    needs a display, every CI runner is headless, and the guard's whole input
+    is the depfile the STL pass produced.
     """
     stl = tmp_path / "fixture.stl"
     stl.write_bytes(_one_triangle_stl())
@@ -766,12 +774,17 @@ def _recording_stub(tmp_path: Path, watched: Path, *, fail_from: int | None = No
     stub = tmp_path / "openscad-stub"
     stub.write_text(
         "#!/bin/sh\n"
-        'out=""; prev=""\n'
-        'for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done\n'
+        'out=""; dep=""; prev=""\n'
+        'for a in "$@"; do\n'
+        '  [ "$prev" = "-o" ] && out="$a"\n'
+        '  [ "$prev" = "-d" ] && dep="$a"\n'
+        '  prev="$a"\n'
+        "done\n"
         f'n=$(cat "{counter}" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "{counter}"\n'
         f'if [ -f "{watched}" ]; then cat "{watched}" >> "{log}"; '
         f'else echo GONE >> "{log}"; fi\n'
         f'echo "" >> "{log}"\n'
+        + (f'[ -n "$dep" ] && echo "$out: {watched}" > "$dep"\n' if reads_watched else "")
         + (
             f'[ "$n" -ge {fail_from} ] && {{ echo "stub refuses" >&2; exit 1; }}\n'
             if fail_from
@@ -785,6 +798,47 @@ def _recording_stub(tmp_path: Path, watched: Path, *, fail_from: int | None = No
     )
     stub.chmod(0o755)
     return stub
+
+
+def test_render_views_refuses_to_move_a_view_over_a_heightmap_the_model_reads(
+    tmp_path: Path, monkeypatch
+):
+    """#267: #208's defect one directory down, closed with #226's own signal.
+
+    A model reading `renders/iso.png` as a heightmap, rendered with `--out .`,
+    had partspec write its own iso view over that heightmap — and from the next
+    run the part IS the previous run's picture. Measured on 2021.01 before this
+    guard: `IMAGE_SIZE` is 800x800 and `surface()` spans one unit per pixel gap,
+    so `render_bbox` reads 799 in x and y, at exit 0 with nothing on stderr, on
+    every run after.
+
+    The `surface()` target is opened when the source is parsed, so the STL
+    pass's own depfile already names it — no second `-d` pass over four PNG
+    invocations, and no new question asked of the engine.
+
+    **Asked of every view before any view moves**, which is the constraint the
+    batched move exists for (#234): a per-view refuse-then-continue would let
+    three land and the fourth refuse, leaving a directory of images from two
+    different builds. Asserted here by requiring the directory to be untouched.
+    """
+    renders = tmp_path / "renders"
+    renders.mkdir()
+    watched = renders / "iso.png"
+    watched.write_text("DONOR")
+    stub = _recording_stub(tmp_path, watched, reads_watched=True)
+    monkeypatch.setenv(openscad.ENV_EXECUTABLE, str(stub))
+
+    source = tmp_path / "m.scad"
+    source.write_text('surface(file = "renders/iso.png", center = true);\n')
+    result = openscad.render_views(OpenSCADSource(source), tmp_path)
+
+    assert isinstance(result, BuildError), result
+    assert "view artifact" in result.message
+    assert "one of its own inputs" in result.message
+    assert watched.read_text() == "DONOR", "nothing moved, so the heightmap is untouched"
+    assert sorted(p.name for p in renders.iterdir()) == ["iso.png"], (
+        "and no other view landed either — every view is asked before any moves"
+    )
 
 
 def test_render_views_leaves_the_data_file_the_model_reads_intact_while_it_runs(
