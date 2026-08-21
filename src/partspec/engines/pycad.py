@@ -217,6 +217,24 @@ class PyCADSource:
     method: str | None = None
 
 
+_NO_GEOMETRY = (
+    "model returned a shape containing no geometry (an empty {} with no underlying handle)"
+)
+"""One spelling for the two ways build123d reports nothing at all.
+
+Both carry `produced_nothing`, which is the whole of #271. `a & b` on two
+disjoint solids returns an empty `Compound`, so this — not `IsNull()`, and not
+the empty CadQuery stack — is what a clearance probe on the OCCT tier actually
+hits, and it was the one null result the flag did not reach. `p.empty()` could
+therefore not pass for ANY input on that tier, while `SPEC-contract.md` §4.12
+said the check "reads the same on either tier".
+
+Setting it changes nothing for a contract that does not declare `empty`: the
+flag is read in exactly one place, inside `if empty_specs`, so a null result is
+still a hard build failure everywhere else — which is what #237 asked for.
+"""
+
+
 def _shape_map() -> dict[Any, Any]:
     """TopoDS shape type -> build123d wrapper.
 
@@ -302,15 +320,9 @@ def adopt(obj: Any) -> Any | BuildError:
         # assert is the library's; the empty shape is the model's. Same
         # answer as every other empty result: an artifact naming it, never
         # a traceback with empty stdout (#128).
-        return BuildError(
-            "model returned a shape containing no geometry (an empty "
-            f"{type(obj).__name__} with no underlying handle)"
-        )
+        return BuildError(_NO_GEOMETRY.format(type(obj).__name__), produced_nothing=True)
     if raw is None:
-        return BuildError(
-            "model returned a shape containing no geometry (an empty "
-            f"{type(obj).__name__} with no underlying handle)"
-        )
+        return BuildError(_NO_GEOMETRY.format(type(obj).__name__), produced_nothing=True)
     if not isinstance(raw, TopoDS_Shape):
         return BuildError(
             f"model returned {type(obj).__name__}, which is not a build123d or CadQuery shape"

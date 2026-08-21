@@ -394,6 +394,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`p.empty()` could not pass on the OCCT tier for any input at all** (#271).
+  `a & b` on two disjoint solids returns an **empty `Compound`** — not a null
+  shape and not an empty CadQuery stack, which were the only two null results
+  `produced_nothing` reached. So the natural spelling of a clearance probe on
+  that tier landed in the ordinary build-failure branch: `builds` **fail**,
+  `empty` **fail**, for a probe whose parts are nowhere near each other. The
+  check #237 added to grade the good outcome graded it as the bad one, on half
+  the tiers.
+  Found by measuring the line #270 recorded as "not measured", and the two
+  messages on that path already said *"a shape containing no geometry"* — the
+  classification was in the prose and not on the flag.
+  **Nothing else moves.** `produced_nothing` is read in exactly one place and
+  only inside `if empty_specs`, so a contract that does not declare `empty`
+  still fails its build on a null result exactly as before — pinned, because
+  that is the half #237 was explicit about not softening.
+  `SPEC-contract.md` §4.12 claimed the check "reads the same on either tier"
+  while enumerating two of the three null results that tier produces. It now
+  enumerates all three, and states plainly what a null result cannot tell you
+  on **any** kernel that declines to represent a zero-thickness one: whether
+  the parts are clear or merely touching (#270).
+
 - **An invocation that cannot cover its pin says so before the first build,
   not after the last one** (#202). `check a b c --expect lock.json` whose lock
   also covers a deleted `d` built every surviving target first — **56 to 108 s

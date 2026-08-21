@@ -674,6 +674,66 @@ def test_a_declared_empty_part_passes_and_never_reaches_a_measurement(tmp_path: 
     assert next(c for c in report.checks if c.id == "no-shared-space").status is Status.PASS
 
 
+@needs_build123d
+def test_a_declared_empty_part_passes_on_the_occt_tier_too(tmp_path: Path):
+    """#271: it could not pass there for ANY input, and §4.12 said it could.
+
+    `a & b` on two disjoint solids returns an **empty Compound**, not a null
+    shape and not an empty CadQuery stack — and those two were the only null
+    results `produced_nothing` reached. So the natural spelling of a clearance
+    probe on this tier landed in the ordinary build-failure branch, and the
+    check that exists to grade the good outcome graded it as the bad one.
+
+    Written as the probe rather than as `Compound()` on purpose: the constructed
+    empty was already pinned (`test_an_empty_compound_is_a_build_error_not_an_assert`)
+    and passed throughout, because what it pins is that a BuildError comes back
+    at all. What nothing exercised was a real model arriving there.
+    """
+    from partspec import build123d
+
+    model = tmp_path / "m.py"
+    model.write_text(
+        "from build123d import Box, Pos\n\n\n"
+        "def make_part():\n"
+        "    return Box(40, 12, 8) & (Pos(0, 0, 18) * Box(16, 10, 3))\n"
+    )
+    p = Part("clear", build123d(model))
+    p.empty(id="no-shared-space")
+
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.verdict is Verdict.PASS, [c.to_json() for c in report.checks]
+    assert next(c for c in report.checks if c.kind == "builds").status is Status.PASS
+    assert next(c for c in report.checks if c.id == "no-shared-space").status is Status.PASS
+
+
+@needs_build123d
+def test_an_undeclared_empty_result_still_fails_its_build_on_the_occt_tier(tmp_path: Path):
+    """The half #271's fix must not have moved, and the reason it is safe.
+
+    `produced_nothing` is read in exactly one place and only inside
+    `if empty_specs`, so marking the empty-Compound path changes nothing for a
+    contract that did not declare `empty`. For an ordinary part contract a null
+    render is a real fault, and #237 asked for a way to declare the intent, not
+    for the default to soften.
+    """
+    from partspec import build123d
+
+    model = tmp_path / "m.py"
+    model.write_text(
+        "from build123d import Box, Pos\n\n\n"
+        "def make_part():\n"
+        "    return Box(40, 12, 8) & (Pos(0, 0, 18) * Box(16, 10, 3))\n"
+    )
+    p = Part("oops", build123d(model))
+    p.watertight()
+
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.verdict is Verdict.FAIL, [c.to_json() for c in report.checks]
+    builds = next(c for c in report.checks if c.kind == "builds")
+    assert builds.status is Status.FAIL
+    assert "no geometry" in (builds.detail or "")
+
+
 @needs_openscad
 def test_an_empty_result_caused_by_an_unresolved_name_cannot_satisfy_it(tmp_path: Path):
     """The laundering guard, and the reason this check needed one (#237).
