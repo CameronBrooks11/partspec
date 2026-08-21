@@ -271,10 +271,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **The data files are hashed into `digest`, not merely listed**: naming a file
   without hashing it would claim a coverage the digest does not have — edit the
   STL and a listing-only closure still answers `identical`.
-  **Three states, and `absent` never reads as `complete`.** Measured: a syntax
-  error writes no dependency file at all, so absence is a third state meaning
-  *unknown*, not *nothing was read*; a failed render writes what it had opened,
-  which is a floor and not the set. Only `complete` may close the gap.
+  **Three states, and `absent` never reads as `complete`.** Absence of a
+  dependency file means *unknown*, not *nothing was read*; a render that failed
+  after writing one reports a floor rather than the set. Only `complete` may
+  close the gap. **Which failures land in which state is engine-dependent** and
+  a consumer must not infer a cause from it: 2021.01 writes no dependency file
+  for a syntax error and the 2026.08.01 snapshot writes one anyway, so the same
+  broken model is `absent` on one engine and `partial` on the other. That is
+  F13, and this shipped a test asserting the 2021.01 answer as universal — the
+  two-version matrix caught it, review did not.
   **It does not supersede the static walk**, and this contradicts part of the
   issue: a **missing** `include` is not listed in the dependency file at all —
   it records what was successfully *opened*, never what was *requested* — so
@@ -288,7 +293,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `_is_unknown_option`'s own docstring already said "one line, not a window",
   and the rule is now pinned one field over. The second was drift: `check`
   gained `engine_inputs` while `measure` and `render` did not, which is #73's
-  failure exactly, caught by the pinned identity test that exists for it.
+  failure exactly, caught by the pinned identity test that exists for it — and
+  the first fix for it covered only `render`'s success branch, so a headless
+  box, which is the only kind CI has, still disagreed.
 
 - **`SPEC-contract.md` §10.1 narrows the tolerancing exclusion rather than
   keeping or lifting it** (#246). The policy read *"out of scope: reproducing

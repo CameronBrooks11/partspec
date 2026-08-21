@@ -1126,10 +1126,17 @@ class RenderDeps:
       set, in full.
     - `partial` — the engine failed but wrote a depfile: what it had opened
       before it stopped, which is a floor and not the whole set.
-    - `absent` — no depfile. A syntax error produces none (measured: exit 1,
-      nothing written), and so would an engine build with no `-d`. Nothing may
-      be concluded from it; in particular it is not "the render read nothing",
-      which is what an empty `files` under any other state would mean.
+    - `absent` — no depfile at all. Nothing may be concluded from it; in
+      particular it is not "the render read nothing", which is what an empty
+      `files` under any other state would mean.
+
+      **Which failures land here is engine-version-dependent, so do not key on
+      the cause.** Measured: 2021.01 writes nothing for a syntax error (exit 1,
+      no file) while the 2026.08.01 snapshot writes one anyway, making the same
+      broken model `absent` on one engine and `partial` on the other. That is
+      F13, and the first cut of this feature shipped a test asserting the
+      2021.01 answer as universal. What holds on both is the only thing worth
+      asserting: a failed render is never `complete`.
     """
 
     files: tuple[Path, ...] = ()

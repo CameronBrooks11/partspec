@@ -915,10 +915,12 @@ An OpenSCAD report therefore carries:
     set, in full.
   - `partial` — the engine failed but wrote one: what it had opened before it stopped,
     which is a floor and not the set.
-  - `absent` — no dependency file. A syntax error produces none, and so would an engine
-    build that does not accept `-d`. Nothing may be concluded; in particular this is *not*
+  - `absent` — no dependency file. Nothing may be concluded; in particular this is *not*
     "the render read nothing", which is what an empty `data_files` under either other
-    state would mean.
+    state would mean. **Which failures land here is engine-version-dependent** — 2021.01
+    writes nothing for a syntax error and the 2026.08.01 snapshot writes one anyway — so a
+    consumer MUST NOT infer a cause from the state. What holds on every engine is that a
+    failed render is never `complete`.
 
   `data_files` names the entries the engine resolved that the static walk could not see —
   the `import()`/`surface()` targets — and `missing` names entries the engine listed that
