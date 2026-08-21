@@ -51,7 +51,16 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-__all__ = ["CONTENT", "METADATA", "UNIDENTIFIED", "inventory", "names_of", "reached_from"]
+__all__ = [
+    "CONTENT",
+    "METADATA",
+    "UNIDENTIFIED",
+    "distribution_for_module",
+    "inventory",
+    "names_of",
+    "normalize",
+    "reached_from",
+]
 
 METADATA = "metadata"
 """The imported file is owned by a distribution's RECORD; take its word."""
@@ -123,7 +132,10 @@ process."""
 
 
 def inventory(
-    *, skip_tree: Path | None = None, exclude: frozenset[Path] = frozenset()
+    *,
+    skip_tree: Path | None = None,
+    exclude: frozenset[Path] = frozenset(),
+    declared: frozenset[str] = frozenset(),
 ) -> dict[str, dict[str, Any]]:
     """Every non-stdlib import in this process, keyed by what identifies it.
 
@@ -154,9 +166,22 @@ def inventory(
     """
     versions = _record_index()[2]
     dists, unowned, fileless, identified = _scan(skip_tree, exclude)
+    wanted = {normalize(name) for name in declared}
 
     found: dict[str, dict[str, Any]] = {}
     for dist in sorted(dists):
+        if normalize(dist) in wanted:
+            # The author named this one, so pay for it: byte-hash what the
+            # RECORD declares instead of trusting the hashes it carries.
+            digest, count = _declared_digest(dist)
+            found[dist] = {
+                "identity": CONTENT,
+                "version": versions.get(dist),
+                "digest": digest,
+                "files": count,
+                "declared": True,
+            }
+            continue
         found[dist] = {
             "identity": METADATA,
             "version": versions.get(dist),
@@ -169,7 +194,21 @@ def inventory(
         # Content second, so it wins a name collision with a metadata entry:
         # it is a statement about bytes that were read, which outranks a
         # statement about bytes an installer once wrote.
-        found[unit] = {"identity": CONTENT, "version": None, "digest": digest, "files": count}
+        entry: dict[str, Any] = {
+            "identity": CONTENT,
+            "version": None,
+            "digest": digest,
+            "files": count,
+        }
+        if normalize(unit) in wanted:
+            # Already byte-hashed, because no RECORD claims it — an editable
+            # install or a `sys.path` checkout. The declaration changes nothing
+            # and is recorded anyway (#215 Q3): a reader must be able to tell
+            # coverage that was ASKED FOR from coverage that happened to be
+            # free, or re-running where the entry lands differently silently
+            # changes what the report appears to claim.
+            entry["declared"] = True
+        found[unit] = entry
 
     for name in fileless - identified:
         found.setdefault(name, {"identity": UNIDENTIFIED, "version": None, "digest": None})
@@ -476,7 +515,7 @@ def _keep_row(path: str, digest: str) -> bool:
 
 @cache
 def _record_index() -> tuple[
-    dict[str, str], dict[str, tuple[tuple[str, str], ...]], dict[str, str]
+    dict[str, str], dict[str, tuple[tuple[str, str], ...]], dict[str, str], dict[str, str]
 ]:
     """One pass over every installed RECORD: file → distribution, and its rows.
 
@@ -505,6 +544,9 @@ def _record_index() -> tuple[
     owners: dict[str, str] = {}
     rows: dict[str, tuple[tuple[str, str], ...]] = {}
     versions: dict[str, str] = {}
+    # Kept rather than recomputed: RECORD paths are relative to it, and
+    # `build_input` has to resolve them to bytes on disk.
+    bases: dict[str, str] = {}
     seen: set[str] = set()
     for dist in distributions():
         metadata = dist.metadata
@@ -535,9 +577,10 @@ def _record_index() -> tuple[
                 # RECORD paths are `/`-separated by PEP 376; `__file__` is not.
                 owners.setdefault(base + (row[0] if _POSIX else row[0].replace("/", os.sep)), name)
         rows[name] = tuple(sorted(kept))
+        bases[name] = base
         if version:
             versions[name] = version
-    return owners, rows, versions
+    return owners, rows, versions, bases
 
 
 @cache
@@ -553,6 +596,66 @@ def _metadata_digest(name: str) -> str:
     rows = _record_index()[1][name]
     body = "\n".join(f"{path},{digest}" for path, digest in rows)
     return "sha256:" + hashlib.sha256(body.encode()).hexdigest()
+
+
+def distribution_for_module(name: str) -> str | None:
+    """The distribution shipping a top-level module, if the name IS a module.
+
+    `p.build_input("OCP")` is one keystroke from right: `OCP` is the module and
+    `cadquery-ocp` is the distribution that ships it. `imports` keys a
+    RECORD-owned entry by distribution, so the module name would match nothing
+    — and accepting it silently, or guessing, is what this project refuses for
+    a value that close to correct. Answerable without importing anything, so a
+    contract can be corrected at the call site rather than after a build.
+    """
+    from importlib.metadata import packages_distributions
+
+    shipped = packages_distributions().get(name) or []
+    return shipped[0] if shipped else None
+
+
+def normalize(name: str) -> str:
+    """PEP 503 normalisation, so `cadquery_ocp` and `cadquery-ocp` are one name.
+
+    `cadquery-ocp` is a known distribution and `cadquery_ocp` is not, so a
+    lookup that compares raw strings fails an underscore spelling as "not
+    installed" — a wrong answer to a question the author asked correctly.
+    """
+    import re as _re
+
+    return _re.sub(r"[-_.]+", "-", name).lower()
+
+
+@cache
+def _declared_digest(name: str) -> tuple[str, int]:
+    """Byte-hash every file a distribution's RECORD declares (#215).
+
+    The tier `metadata` cannot be. `metadata` digests the hashes the installer
+    *wrote*, so an edit to a file the RECORD declares leaves it unmoved —
+    `SPEC-report.md` §8.3 rule 5 states that bound plainly, and this is the
+    author's opt-out from it for the one distribution they know is the subject.
+
+    Over the RECORD's own rows rather than the package tree, which matters and
+    is why this is not `_content_digest`: a distribution's unit can be wider
+    than its package directory — `cadquery_ocp.libs/` sits beside `OCP/` — and
+    only the RECORD knows the association. Rooting at the package tree would
+    silently drop exactly the vendored shared objects that make an OCCT-version
+    -sensitive contract want this in the first place.
+
+    A declared file that is not on disk is hashed as absent rather than
+    skipped, so a distribution missing a file it promised does not digest the
+    same as one that has it.
+    """
+    rows = _record_index()[1][name]
+    base = _record_index()[3][name]
+    lines = []
+    for row, _ in rows:
+        path = Path(base + (row if _POSIX else row.replace("/", os.sep)))
+        try:
+            lines.append(f"{row},{hashlib.sha256(path.read_bytes()).hexdigest()}")
+        except OSError:
+            lines.append(f"{row},<absent>")
+    return "sha256:" + hashlib.sha256("\n".join(lines).encode()).hexdigest(), len(lines)
 
 
 @cache

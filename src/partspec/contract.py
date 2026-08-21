@@ -52,6 +52,16 @@ fails the gate on a kind that appears in neither map. `builds` was hardcoded in
 the generator alone, which is the shape #194 caught elsewhere -- one place
 knowing a list the code also knows."""
 
+PROVENANCE_METHODS: frozenset[str] = frozenset({"build_input"})
+"""Public `Part` methods that declare PROVENANCE rather than a claim.
+
+They have no measurand, no phase and no vocabulary row, because nothing about
+them is adjudicated against geometry — `build_input` says how hard to look at
+an input, not what the part must be. `scripts/gen_docs.py` keeps them out of
+the check tables and, so that the exemption cannot become a place to hide an
+undocumented method, requires each one to be named in `SPEC-contract.md`.
+"""
+
 
 GEOMETRY_KINDS: dict[str, str] = {
     "envelope": "bbox",
@@ -338,6 +348,19 @@ class CheckSpec:
     `Limit`: it is what the claim is measured AGAINST, not a bound on it."""
 
 
+def _installed_distributions() -> frozenset[str]:
+    """Every distribution name this interpreter can see, for `build_input`.
+
+    Read from installed metadata rather than from `sys.modules`, because
+    nothing is imported yet when a contract is being declared. So this answers
+    "is that a real distribution name" at the call site, and leaves "was it
+    actually loaded" to adjudication after the build.
+    """
+    from importlib.metadata import distributions
+
+    return frozenset(name for dist in distributions() if (name := dist.metadata["Name"]))
+
+
 class Part:
     """A part and the claims it must satisfy.
 
@@ -351,6 +374,7 @@ class Part:
         self.id = part_id
         self.source = source
         self.checks: list[CheckSpec] = []
+        self.build_inputs: list[str] = []
 
     # -- parameter phase ---------------------------------------------------
 
@@ -469,6 +493,59 @@ class Part:
         return self._add(
             CheckSpec(id=id or "genus", kind="genus", phase=GEOMETRY, limit=Limit(equals=n))
         )
+
+    def build_input(self, distribution: str) -> Part:
+        """Force byte identity for one named distribution (SPEC-report.md §8.3).
+
+        Identity is decided automatically in two tiers. `metadata` trusts the
+        installer: version plus a digest over the RECORD's own hashes, ~0.1 ms,
+        and what almost everything gets. Its bound is stated in §8.3 rule 5 —
+        an edit to a file the RECORD *does* declare leaves the digest unmoved,
+        because ownership is decided by path and hashing every loaded file is
+        the cost that tier exists to avoid. This is the opt-out, for the one
+        distribution an author knows is the subject::
+
+            p.build_input("cadquery-ocp")
+
+        **Opt-in because the cost is real and lopsided.** Measured on this
+        machine: `build123d` 1.4 ms over 41 declared files, `cadquery-ocp`
+        228.5 ms over 396. That is right for a contract whose geometry is
+        OCCT-version-sensitive and wrong for one that is not, which is a
+        judgement only the author can make.
+
+        **Additive, never required**, following `Referenced`'s rule
+        (SPEC-contract.md §10) for the same reason: tiers 1 and 2 keep running
+        unconditionally, so a contract declaring nothing still gets a complete
+        inventory. Absence of a declaration must never produce a stronger
+        claim, only a weaker and clearly-labelled one.
+
+        Takes a **distribution** name, which is what `imports` keys a
+        RECORD-owned entry by. A module name is refused with the distribution
+        that ships it rather than accepted and quietly ignored — `OCP` is the
+        module, `cadquery-ocp` is the distribution — and spelling is normalised
+        per PEP 503, so `cadquery_ocp` resolves. A name that is neither cannot
+        be judged here, because nothing is imported when a contract is being
+        declared; it is adjudicated after the build, where naming something
+        that never loaded means the contract described a build it did not get.
+        """
+        if not isinstance(distribution, str) or not distribution.strip():
+            raise ContractError(
+                f"build_input({short_repr(distribution)}): a distribution name is a "
+                f"non-empty string"
+            )
+        from .imports import distribution_for_module, normalize
+
+        name = distribution.strip()
+        known = {normalize(d) for d in _installed_distributions()}
+        if normalize(name) not in known:
+            shipped = distribution_for_module(name)
+            if shipped is not None:
+                raise ContractError(
+                    f"build_input({name!r}): {name} is the module; the distribution "
+                    f"that ships it is {shipped!r}"
+                )
+        self.build_inputs.append(name)
+        return self
 
     def empty(self, *, id: str | None = None) -> Part:
         """The part is expected to build to NOTHING, and that is the passing result.

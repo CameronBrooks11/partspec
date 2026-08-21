@@ -24,6 +24,7 @@ def _clear() -> None:
     imports._record_index.cache_clear()
     imports._metadata_digest.cache_clear()
     imports._content_digest.cache_clear()
+    imports._declared_digest.cache_clear()
     imports._resolved.cache_clear()
 
 
@@ -147,6 +148,10 @@ def test_an_edit_to_an_installed_file_does_not_move_a_metadata_digest(tmp_path: 
     and `DESIGN-190.md` R3 takes that trade knowingly — §7.1 already limits a
     digest to comparison-based tamper evidence. If this test ever fails
     because the digest moved, the spec is what needs the edit.
+
+    It is the DEFAULT that is pinned here, not an absence of any remedy:
+    `p.build_input()` is the author's opt-out for a named distribution, and the
+    test below it is this one with the declaration added.
     """
     site = tmp_path / "site"
     _install(site, "tampered", "1.0", {"tampered/__init__.py": "VALUE = 1\n"})
@@ -508,3 +513,106 @@ def test_the_contract_is_not_an_import(tmp_path: Path, fresh: None):
 
     assert "spec" in imports.inventory()
     assert "spec" not in imports.inventory(exclude=frozenset({contract.resolve()}))
+
+
+# --------------------------------------------------------------------------
+# build_input — the author's opt-out from rule 5 (#215)
+# --------------------------------------------------------------------------
+
+
+def test_a_declared_distribution_is_byte_hashed_rather_than_taken_on_trust(
+    tmp_path: Path, fresh: None
+):
+    """The test above, with the declaration added — and the opposite outcome.
+
+    `metadata` digests the hashes the installer WROTE, so an edit to a file the
+    RECORD declares leaves it unmoved (§8.3 rule 5). Declaring the distribution
+    byte-hashes what the RECORD declares instead, which is the whole of #215.
+    """
+    site = tmp_path / "site"
+    _install(site, "declared-lib", "1.0", {"declared_lib/__init__.py": "VALUE = 1\n"})
+    _activate(site)
+    importlib.import_module("declared_lib")
+
+    undeclared = imports.inventory()["declared-lib"]
+    declared = imports.inventory(declared=frozenset({"declared-lib"}))["declared-lib"]
+    assert undeclared["identity"] == "metadata"
+    assert declared["identity"] == "content"
+    assert declared["declared"] is True
+    assert declared["files"] == 1
+    assert declared["version"] == "1.0", "the version is the installer's either way"
+
+    before = declared["digest"]
+    (site / "declared_lib" / "__init__.py").write_text("VALUE = 666\n")
+    _clear()
+
+    assert imports.inventory()["declared-lib"]["digest"] == undeclared["digest"], (
+        "premise: the default tier is still blind to this edit"
+    )
+    after = imports.inventory(declared=frozenset({"declared-lib"}))["declared-lib"]
+    assert after["digest"] != before, (
+        "the declaration is worthless if it does not see the bytes move"
+    )
+
+
+def test_a_declared_digest_covers_the_files_beside_the_package(tmp_path: Path, fresh: None):
+    """Over the RECORD's rows, never the package tree.
+
+    A distribution's unit can be wider than its package directory —
+    `cadquery_ocp.libs/` sits beside `OCP/` — and only the RECORD knows the
+    association. Rooting at the package tree would silently drop exactly the
+    vendored shared objects that make an OCCT-version-sensitive contract want
+    this in the first place, which is why `_declared_digest` is not
+    `_content_digest` with a different trigger.
+    """
+    site = tmp_path / "site"
+    _install(
+        site,
+        "wide-lib",
+        "1.0",
+        {"widelib/__init__.py": "VALUE = 1\n", "widelib.libs/vendored.so": "BYTES\n"},
+    )
+    _activate(site)
+    importlib.import_module("widelib")
+
+    before = imports.inventory(declared=frozenset({"wide-lib"}))["wide-lib"]
+    assert before["files"] == 2, "the sibling is one of the declared files"
+
+    (site / "widelib.libs" / "vendored.so").write_text("OTHER\n")
+    _clear()
+    after = imports.inventory(declared=frozenset({"wide-lib"}))["wide-lib"]
+    assert after["digest"] != before["digest"], "a vendored object moved and nothing saw it"
+
+
+def test_a_declaration_resolves_however_the_name_is_spelled(tmp_path: Path, fresh: None):
+    """PEP 503. `cadquery-ocp` is a known distribution and `cadquery_ocp` is
+    not, so a lookup comparing raw strings fails the underscore spelling as
+    "not installed" — a wrong answer to a question asked correctly."""
+    site = tmp_path / "site"
+    _install(site, "Two.Names", "1.0", {"twonames/__init__.py": "VALUE = 1\n"})
+    _activate(site)
+    importlib.import_module("twonames")
+
+    for spelling in ("Two.Names", "two_names", "TWO-NAMES", "two-names"):
+        entry = imports.inventory(declared=frozenset({spelling}))["Two.Names"]
+        assert entry.get("declared") is True, f"{spelling!r} did not resolve"
+
+
+def test_a_declaration_that_changed_nothing_is_still_recorded(tmp_path: Path, fresh: None):
+    """#215 Q3. A reader must be able to tell coverage that was ASKED FOR from
+    coverage that happened to be free — otherwise re-running on a machine where
+    the entry lands in the other tier silently changes what the report appears
+    to claim."""
+    checkout = tmp_path / "checkout"
+    (checkout / "already").mkdir(parents=True)
+    (checkout / "already" / "__init__.py").write_text("VALUE = 1\n")
+    _activate(checkout)
+    importlib.import_module("already")
+
+    plain = imports.inventory()["already"]
+    named = imports.inventory(declared=frozenset({"already"}))["already"]
+
+    assert plain["identity"] == "content", "premise: no RECORD claims it, so it was free"
+    assert "declared" not in plain
+    assert named["declared"] is True
+    assert named["digest"] == plain["digest"], "the declaration changed nothing but the record"
