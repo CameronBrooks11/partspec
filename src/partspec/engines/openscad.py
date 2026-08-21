@@ -447,6 +447,8 @@ def render(
                     f"openscad exited {proc.returncode}",
                     hint=reason,
                     stderr=proc.stderr,
+                    produced_nothing=_EMPTY_RESULT in proc.stderr,
+                    unresolved=_unresolved_lines(proc.stderr),
                 )
             # OpenSCAD exits 0 on some degenerate input while writing nothing
             # useful, so the artifact is checked rather than the exit code
@@ -459,6 +461,14 @@ def render(
                     "openscad exited 0 but produced no geometry",
                     hint=_first_error_line(proc.stderr),
                     stderr=proc.stderr,
+                    # Same outcome by another route, and flagged on both because
+                    # which one an empty model takes is a property of the engine
+                    # BUILD, not of the part: 2021.01 exits 1 here and the CI
+                    # matrix also runs 2026.08.01. Keying on one exit code would
+                    # make `empty` answer differently on two engines for one
+                    # source, which is F13 all over again.
+                    produced_nothing=True,
+                    unresolved=_unresolved_lines(proc.stderr),
                 )
             staged.replace(stl)
             return stl
@@ -621,6 +631,41 @@ def _camera(bbox: tuple[tuple[float, ...], tuple[float, ...]], rot: tuple[float,
     diagonal = sum((b - a) ** 2 for a, b in zip(lo, hi, strict=True)) ** 0.5
     distance = max(2.2 * diagonal, 1.0)  # a degenerate flat part still gets a frame
     return ",".join(repr(v) for v in (*center, *rot, distance))
+
+
+_EMPTY_RESULT = "Current top level object is empty"
+
+_UNRESOLVED_MARKERS = (
+    "Can't open include file",
+    "Ignoring unknown module",
+    "Ignoring unknown function",
+    "Ignoring unknown variable",
+    "undefined operation",
+)
+"""What OpenSCAD says when a name did not resolve — measured on 2021.01, not
+guessed. Each was produced from a source written to trigger it: a missing
+include, a misspelt module, an unknown function, an undefined variable, and a
+`vector * string`.
+
+The list exists because an unresolved name and a genuinely null result are
+INDISTINGUISHABLE downstream: both exit 1 with `Current top level object is
+empty.` and write no STL. A model whose whole top-level object comes from a
+failed include renders empty and, without these lines, reads exactly like a
+clean pass — which is how `p.empty()` would launder a broken probe into a green
+one. So the markers are the evidence, and they are all that separates the two.
+
+Matching on the message rather than a code because OpenSCAD has no distinct
+exit code for either; if a future engine version gains one, prefer it and keep
+this as the fallback."""
+
+
+def _unresolved_lines(stderr: str) -> tuple[str, ...]:
+    """The stderr lines naming something the engine could not resolve."""
+    return tuple(
+        line.strip()
+        for line in stderr.splitlines()
+        if any(marker in line for marker in _UNRESOLVED_MARKERS)
+    )
 
 
 def _display_failure(returncode: int, stderr: str) -> bool:

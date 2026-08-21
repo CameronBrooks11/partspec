@@ -285,7 +285,7 @@ def adopt(obj: Any) -> Any | BuildError:
         elif stack:
             obj = stack[0]
         else:
-            return BuildError("CadQuery result has nothing on its stack")
+            return BuildError("CadQuery result has nothing on its stack", produced_nothing=True)
     elif hasattr(obj, "val") and callable(obj.val):
         try:
             obj = obj.val()
@@ -316,7 +316,7 @@ def adopt(obj: Any) -> Any | BuildError:
             f"model returned {type(obj).__name__}, which is not a build123d or CadQuery shape"
         )
     if raw.IsNull():
-        return BuildError("model returned a null shape")
+        return BuildError("model returned a null shape", produced_nothing=True)
 
     wrapper = _shape_map().get(raw.ShapeType())
     if wrapper is None:

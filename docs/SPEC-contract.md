@@ -142,6 +142,7 @@ on. `p.requires` is the escape hatch for anything relational.
 | method | `kind` | measurement | tier |
 |---|---|---|---|
 | *(implicit)* | `builds` | none | both |
+| `p.empty(id=)` | `empty` | none | both |
 | `p.envelope(max=, min=, id=)` | `envelope` | vector, `mm`, exact | both |
 | `p.watertight(id=)` | `watertight` | bool-valued, exact | both |
 | `p.solid_count(n, id=)` | `solid_count` | scalar, `count`, exact | both |
@@ -792,6 +793,53 @@ voxel occupancy adds unsafe-direction gap fusion; morphological opening gives a 
 bracket but only above a corner-shed noise floor, which is a threshold, not a bound.
 POST-V0 §5's ship condition — "a different method on the BREP tier" — is met, within the
 measurand stated above.
+
+---
+
+### 4.12 `empty` — nothing is the declared result
+
+`p.empty(id=)`: the part is expected to build to **nothing**, and that is the passing
+result. Both tiers. It has no backend primitive and takes no bound — like `builds`, it is
+adjudicated from the build itself, which is why neither appears in `GEOMETRY_KINDS`.
+
+**Why the vocabulary needs it.** A clearance probe — `intersection() { A; B; }` declared
+as its own part — has three outcomes, and until this check only the *bad* one could be
+graded. Interpenetrating parts give a closed solid and `volume` grades it. Parts resting
+on a face give a zero-thickness sheet, which `area` measures (§4.2). Parts that share no
+space give nothing at all, and an empty build is a hard failure before any claim is
+evaluated — so `volume(max=0)` was **skipped rather than satisfied**, and the good answer
+was the one the tool could not state.
+
+**Opt-in, and nothing else moves.** A part that does not declare `empty` and builds to
+nothing still fails exactly as before. For an ordinary part contract a null render is a
+real fault and this does not relax it; what changes is only that the intent can now be
+declared.
+
+**A broken probe must not satisfy it.** This is the whole difficulty, and it is not
+visible in an exit code. On OpenSCAD 2021.01 a genuinely null intersection and a model
+whose geometry never existed are **identical downstream**: both exit 1 with
+`Current top level object is empty.` and write no STL. A misspelt module name, or an
+include that did not open, yields nothing to intersect — so without a guard, one typo
+would make every clearance probe in a contract pass, and the more broken the source the
+greener the run.
+
+The only evidence separating them is the engine's own diagnostics above that line —
+`Can't open include file`, `Ignoring unknown module` / `function` / `variable`,
+`undefined operation`, each measured rather than assumed. `empty` therefore **fails when
+the engine reported an unresolved name**, and its detail names the line. Engines own
+those strings, so the classification is made in the engine and carried on `BuildError`
+(`produced_nothing`, `unresolved`) rather than by the runner reading stderr.
+
+A Python model has no equivalent hazard: an unresolved name raises, it does not silently
+render empty. Its null results — a null shape, an empty CadQuery stack — set the same
+flag, so the check reads the same on either tier.
+
+**The claim is exclusive by nature, not by rule.** An empty part has no mesh, so every
+other geometry check on it is skipped and the run reports `incomplete` (§3.1) rather than
+a pass bought by silence. Declare `empty` alone on a probe.
+
+Related: #237, and #236 for the case a probe is a workaround *for* — declaring
+part-versus-part interference directly is an assemblies question (D19).
 
 ---
 
