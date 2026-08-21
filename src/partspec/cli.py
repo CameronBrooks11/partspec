@@ -497,7 +497,7 @@ def _build_to_file(
             built = backend.build(source, Path(scratch), timeout_s=timeout_s, deps_out=deps_out)
             if isinstance(built, BuildError):
                 return built
-            if reads_external_data and deps_out:
+            if reads_external_data:
                 # Asked here rather than before the build because here is where
                 # it can be answered, and asked before the rename so that a
                 # refusal leaves `dest` exactly as the caller left it. The
@@ -513,10 +513,17 @@ def _build_to_file(
                 # and it still does; a build failure and a bad argument are not
                 # the same answer, and the exit code is the part of a refusal a
                 # script reads.
-                from .engines.openscad import _wrote_over_an_input
+                from .engines.openscad import RenderDeps, _wrote_over_an_input
 
+                # An unpopulated `deps_out` is `absent`, not "no question to
+                # ask". Reading a missing answer as a passing one is the shape
+                # of failure this whole guard exists to refuse, and it would be
+                # invisible: the artifact would land and the run would exit 0.
                 refusal = _wrote_over_an_input(
-                    deps_out[-1], dest, source.path.name, refuse_unanswered=True
+                    deps_out[-1] if deps_out else RenderDeps(state="absent"),
+                    dest,
+                    source.path.name,
+                    refuse_unanswered=True,
                 )
                 if refusal is not None:
                     if refusal_out is not None:

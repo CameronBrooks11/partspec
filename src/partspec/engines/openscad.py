@@ -206,7 +206,7 @@ def _method_scratch(source: OpenSCADSource, out_dir: Path) -> Path | BuildError:
 
 
 def _output_over_an_input(
-    source: OpenSCADSource, out_dir: Path, stl: Path, closure: Closure
+    source: OpenSCADSource, stl: Path, closure: Closure, *, would_overwrite: bool
 ) -> BuildError | None:
     """Refuse, before rendering, when the artifact would land on a file that
     may be an input and nothing later can say whether it is.
@@ -232,15 +232,22 @@ def _output_over_an_input(
 
     1. the destination is the directory the source's relative
        `import()`/`surface()` paths resolve against — its own;
-    2. an include did not resolve, so inputs exist that partspec cannot
-       enumerate and the engine will not enumerate for it;
-    3. `<stem>.stl` is already there to be destroyed.
+    2. `<stem>.stl` is already there to be destroyed;
+    3. an include did not resolve, so inputs exist that partspec cannot
+       enumerate and the engine will not enumerate for it.
+
+    (1) and (2) together are `would_overwrite`, which the caller computes
+    before anything is written and hands to both guards — the post-render one
+    falls back on exactly this condition when the engine cannot name its
+    inputs, and by the time it runs, this call has created the file it would
+    be asking about.
 
     Each clause is load-bearing in the direction of NOT over-refusing. Without
     (1) the second run of any such model against the default `outputs/<slug>`
     finds run 1's own artifact there and is refused — the ordinary path,
-    broken. Without (3) a first run into the source directory is refused over a
-    file that does not exist.
+    broken. Without (2) a first run into the source directory is refused over a
+    file that does not exist. Without (3) any model rendering twice into its
+    own directory is refused on the second run.
 
     **What clause (1) used to cost, and no longer does.** Scoped this way, the
     old guard under-refused, and the cost was not one file. Where the import
@@ -269,7 +276,7 @@ def _output_over_an_input(
     was always a signal that says which files a render actually READ, and that
     signal now exists.
     """
-    if out_dir.resolve() != source.path.parent.resolve() or not stl.exists():
+    if not would_overwrite:
         return None
     reason = closure.unresolved_reason
     if reason is None:
@@ -290,9 +297,16 @@ def _wrote_over_an_input(
     """Refuse the move into place when the render itself read `dest`.
 
     Asked AFTER the render, which is the only time it can be answered, and
-    asked only of a model that reads external data — for one that does not, the
-    closure is `.scad` all the way down and the destination is an `.stl` no
-    part of it names.
+    asked only of a model whose closure is PARTIAL — for one that is not, every
+    file the engine can reach is a `.scad` partspec has already walked, and the
+    destination is an `.stl` no part of it names.
+
+    Partial rather than `reads_external_data`, because the unresolved arm is
+    not merely a case the depfile happens to cover as well. An `include` that
+    partspec cannot find on ITS search path may resolve on the engine's, and
+    the file behind it may hold the `import()` partspec then never saw — so a
+    closure reporting `reads_external_data: False` is not a promise that the
+    render read no data. It is the depfile, not the regex, that knows.
 
     **Nothing has been replaced yet**, which is what makes a late refusal
     correct rather than merely tidy: both movers stage into a scratch directory
@@ -325,7 +339,8 @@ def _wrote_over_an_input(
             f"{dest.name} is not one of {name}'s inputs — and {name} reads external "
             f"data (import()/surface())",
             hint=f"this engine does not accept -d, so nothing can name the render's "
-            f"inputs; pass a directory other than {dest.parent} for the artifact",
+            f"inputs; write the artifact somewhere {name} cannot be reading — a "
+            f"directory that holds none of its inputs",
             origin="environment",
         )
     if dest.resolve() not in deps.files:
@@ -416,7 +431,7 @@ def render(
     # below the render falls back on when the engine cannot name its inputs,
     # and by then this call has created the name it is asking about.
     would_overwrite = stl.exists() and out_dir.resolve() == source.path.parent.resolve()
-    refusal = _output_over_an_input(source, out_dir, stl, closure)
+    refusal = _output_over_an_input(source, stl, closure, would_overwrite=would_overwrite)
     if refusal is not None:
         return refusal
 
@@ -584,7 +599,7 @@ def render(
                     produced_nothing=True,
                     unresolved=_unresolved_lines(proc.stderr),
                 )
-            if closure.reads_external_data:
+            if closure.partial:
                 # The exact question #223's guard could not ask, asked where it
                 # can be answered and while the caller's file is still intact.
                 refusal = _wrote_over_an_input(

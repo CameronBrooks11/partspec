@@ -420,6 +420,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   — a directory — worked on the first run and was refused from the second, so it
   had to exclude the model's own directory; that directory now simply works,
   repeatedly, because the depfile proves `<stem>.stl` is not `input.stl`.
+  **The question is asked of the whole of `partial`, not of
+  `reads_external_data`**, and the difference is a hole the first cut of this
+  fix left open. A closure reporting no external data is not a promise that the
+  render read none: an `include` partspec cannot find on ITS search path may
+  resolve on the engine's, and the file behind it may hold the `import()`
+  partspec then never saw. Pinned with a real divergence — `OPENSCADPATH` set
+  for the engine, `library_path` emptied for partspec — and the pin fails
+  against the narrower gate.
   **Neither arm is loosened where the engine cannot answer.** An unresolved
   `include` is listed in no depfile at all — the file names what the render
   *opened*, never what it asked for — so that arm still refuses before the

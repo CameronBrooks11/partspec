@@ -436,6 +436,46 @@ def test_a_render_over_a_file_the_model_reads_is_refused(tmp_path: Path):
     assert stl.read_bytes() == before, "refused before the rename, so nothing moved"
 
 
+@needs_openscad
+def test_an_include_only_the_engine_can_find_is_still_asked_about(tmp_path: Path, monkeypatch):
+    """Why the post-render guard is gated on `partial`, not on
+    `reads_external_data`.
+
+    A closure saying `reads_external_data: False` is not a promise that the
+    render read no data. An `include` partspec cannot find on ITS search path
+    may resolve on the engine's, and the file behind it may hold the `import()`
+    partspec then never saw — so the regex answers about a file it could not
+    open, which is no answer at all. Only the depfile knows.
+
+    The divergence is real here rather than simulated: `OPENSCADPATH` is set,
+    so the engine resolves `lib.scad`, and `library_path` is emptied, so
+    partspec does not. partspec therefore sees an unresolved include, no
+    external data, and a destination outside the model's own directory — every
+    condition under which the older gate stayed silent — while the render reads
+    the destination and the depfile says so.
+    """
+    libs = tmp_path / "libs"
+    libs.mkdir()
+    (libs / "lib.scad").write_text('import("sub/m.stl");\n')
+    model = tmp_path / "model"
+    sub = model / "sub"
+    sub.mkdir(parents=True)
+    donor = sub / "m.stl"
+    donor.write_bytes(_one_triangle_stl())
+    source = _scad(model, "m.scad", "include <lib.scad>\ncube([5, 5, 5]);\n")
+
+    monkeypatch.setenv("OPENSCADPATH", str(libs))
+    monkeypatch.setattr(openscad, "library_path", lambda: [])
+    closure = openscad.include_closure(source)
+    assert closure.unresolved == ("lib.scad",), closure
+    assert not closure.reads_external_data, "the premise: the regex saw no import()"
+
+    result = openscad.render(OpenSCADSource(path=source), sub)
+    assert isinstance(result, BuildError), result
+    assert "one of its own inputs" in result.message
+    assert donor.read_bytes() == _one_triangle_stl()
+
+
 def test_an_engine_that_reports_nothing_keeps_the_conservative_refusal(tmp_path: Path, monkeypatch):
     """`refuse_unanswered`: no depfile, so #223's rule stands unchanged.
 
