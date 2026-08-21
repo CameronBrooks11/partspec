@@ -145,6 +145,30 @@ class BuildError:
     diagnosis rides along and reaches the report (#37). None for failures
     with no engine output (missing binary, unbound parameter)."""
 
+    produced_nothing: bool = False
+    """The engine completed and the result was EMPTY, rather than the engine
+    failing to run.
+
+    A null intersection is the motivating case: two parts that share no space
+    render nothing, which is a real answer and, for a clearance probe, the
+    passing one. Distinguished here rather than in the runner because the
+    evidence is an engine-specific string, and engines own their own strings.
+    A contract can declare that outcome with `p.empty()` (SPEC-contract 4.12);
+    without such a declaration this changes nothing and the failure is a
+    failure."""
+
+    unresolved: tuple[str, ...] = ()
+    """Diagnostic lines naming something the engine could not resolve.
+
+    An empty result means two very different things — "the intersection is
+    genuinely null" and "a module name was misspelt, or an include did not
+    open, so the geometry never existed to intersect". On OpenSCAD 2021.01 both
+    exit 1 with the same `Current top level object is empty.`, so the exit code
+    cannot separate them and the warning lines above it are the only evidence
+    that can. Carried so `empty` can refuse to be satisfied by a broken probe;
+    an empty result with unresolved names is a laundered pass, which is the one
+    outcome this whole check must not produce (#237)."""
+
 
 @runtime_checkable
 class GeometryBackend(Protocol):

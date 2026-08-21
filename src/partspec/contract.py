@@ -33,6 +33,22 @@ __all__ = [
 PARAMETER = "parameter"
 GEOMETRY = "geometry"
 
+BUILD_PHASE_KINDS: frozenset[str] = frozenset({"builds", "empty"})
+"""Kinds decided from the BUILD itself, before any backend primitive is asked.
+
+Neither has an entry in `GEOMETRY_KINDS`, because neither has a primitive that
+answers it: `builds` is whether the engine produced anything, and `empty` is the
+contract declaring that nothing was the intended result (SPEC-contract 4.12).
+Both run on either tier, since both are answered from `BuildError` rather than
+from geometry.
+
+Held here rather than in `scripts/gen_docs.py` so the table cannot go stale
+against the code: the generator reads this set, and its completeness assertion
+fails the gate on a kind that appears in neither map. `builds` was hardcoded in
+the generator alone, which is the shape #194 caught elsewhere -- one place
+knowing a list the code also knows."""
+
+
 GEOMETRY_KINDS: dict[str, str] = {
     "envelope": "bbox",
     "watertight": "watertight",
@@ -127,6 +143,7 @@ MEASURANDS: dict[str, Measurand] = {
     "param_range": Measurand("measurement + limit"),
     # Geometry phase (§4.2).
     "builds": Measurand("none"),
+    "empty": Measurand("none"),
     "envelope": Measurand("vector", "mm"),
     "watertight": Measurand("bool-valued", "bool"),
     "solid_count": Measurand("scalar", "count"),
@@ -445,6 +462,34 @@ class Part:
         return self._add(
             CheckSpec(id=id or "genus", kind="genus", phase=GEOMETRY, limit=Limit(equals=n))
         )
+
+    def empty(self, *, id: str | None = None) -> Part:
+        """The part is expected to build to NOTHING, and that is the passing result.
+
+        For a **clearance probe** — `intersection() { A; B; }` declared as its
+        own part — emptiness is the claim: the two parts share no space. Without
+        this, a null result is a build failure and the claim can only be written
+        as a bound on a measurement that was never taken, so the good answer was
+        the one outcome the tool could not grade (#237).
+
+        Declaring it changes nothing for any other contract. A part that does not
+        declare `empty` and builds to nothing still fails, exactly as before —
+        for a part contract that IS a real fault, and this does not relax it.
+
+        **A broken probe cannot satisfy it.** An empty result means two different
+        things, and on OpenSCAD 2021.01 they are identical downstream: both exit
+        1 with `Current top level object is empty.` and write no STL. A misspelt
+        module, or an include that did not open, produces geometry that never
+        existed to intersect — so the check refuses to be satisfied when the
+        engine also reported an unresolved name, and says which one. That is the
+        difference between asserting a clearance and laundering a typo into a
+        green run.
+
+        The claim is exclusive by nature rather than by rule: there is no mesh to
+        measure, so every other geometry check on the part is skipped and the run
+        reports `incomplete`. Declare `empty` alone on a probe.
+        """
+        return self._add(CheckSpec(id=id or "empty", kind="empty", phase=GEOMETRY))
 
     def volume(
         self, *, min: float | None = None, max: float | None = None, id: str | None = None

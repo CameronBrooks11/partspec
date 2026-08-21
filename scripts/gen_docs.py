@@ -70,7 +70,14 @@ def _assert_vocabulary_is_complete() -> None:
     exactly a silent one — §4.2 sat four kinds behind its own file (#151).
     """
     declared = {name for name in dir(contract.Part) if not name.startswith("_")}
-    covered = {m for m, _ in _PARAMETER_PHASE} | set(contract.GEOMETRY_KINDS)
+    # A build-phase kind counts as covered only if it IS a method: `builds` is
+    # implicit and `empty` is declared, and which is which follows from `Part`
+    # rather than from a list here that could disagree with it.
+    covered = (
+        {m for m, _ in _PARAMETER_PHASE}
+        | set(contract.GEOMETRY_KINDS)
+        | (contract.BUILD_PHASE_KINDS & declared)
+    )
     if undocumented := declared - covered:
         raise SystemExit(
             f"public Part methods no table would document: {sorted(undocumented)}\n"
@@ -79,7 +86,11 @@ def _assert_vocabulary_is_complete() -> None:
     if phantom := covered - declared:
         raise SystemExit(f"the vocabulary names methods Part does not have: {sorted(phantom)}")
 
-    kinds = {kind for _, kind in _PARAMETER_PHASE} | set(contract.GEOMETRY_KINDS) | {"builds"}
+    kinds = (
+        {kind for _, kind in _PARAMETER_PHASE}
+        | set(contract.GEOMETRY_KINDS)
+        | set(contract.BUILD_PHASE_KINDS)
+    )
     if unshaped := kinds - set(contract.MEASURANDS):
         raise SystemExit(f"kinds with no MEASURANDS entry: {sorted(unshaped)}")
     if orphan := set(contract.MEASURANDS) - kinds:
@@ -156,7 +167,15 @@ def render_parameter_table() -> str:
 def render_geometry_table() -> str:
     _assert_vocabulary_is_complete()
     rows = ["| method | `kind` | measurement | tier |", "|---|---|---|---|"]
-    rows.append(f"| *(implicit)* | `builds` | {_measurement_cell('builds')} | both |")
+    # The build-phase kinds first, and neither through `_tier_cell`: they have no
+    # primitive to derive a tier from, being answered from `BuildError` on either
+    # tier. Whether a kind shows a signature or `*(implicit)*` is read off `Part`,
+    # so `builds` is not named here — a generator holding a list the code also
+    # holds is the shape #194 caught in the attribution advisory.
+    declared = {name for name in dir(contract.Part) if not name.startswith("_")}
+    for kind in sorted(contract.BUILD_PHASE_KINDS):
+        method = _signature(kind) if kind in declared else "*(implicit)*"
+        rows.append(f"| {method} | `{kind}` | {_measurement_cell(kind)} | both |")
     # Every geometry kind's method is named after it; `_assert_vocabulary_is
     # _complete` is what makes that safe to rely on rather than assumed.
     for kind in contract.GEOMETRY_KINDS:

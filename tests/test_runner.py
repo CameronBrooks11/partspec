@@ -637,3 +637,108 @@ def test_a_declared_primitive_that_refuses_still_names_the_tier():
     assert result.status is Status.UNSUPPORTED
     assert result.detail == "this stub cannot integrate"
     assert result.requires == "occt", "the tier that would answer must survive into the report"
+
+
+# --------------------------------------------------------------------------
+# `p.empty()` — declaring that nothing is the intended result (#237, §4.12)
+# --------------------------------------------------------------------------
+
+_CLEARANCE_PROBE = (
+    "intersection() {{ cube([10, 10, 10]); translate([0, 0, {z}]) cube([10, 10, 10]); }}\n"
+)
+
+
+@needs_openscad
+def test_a_declared_empty_part_passes_and_never_reaches_a_measurement(tmp_path: Path):
+    """The clearance probe's good answer, which had no way to be stated (#237).
+
+    Two parts sharing no space render nothing. That is a real result and, for a
+    probe, the passing one — but an empty build is a hard failure before any
+    claim is evaluated, so `volume(max=0)` was SKIPPED rather than satisfied and
+    the only gradeable outcome was the bad one.
+
+    `builds` passes here: the engine ran, completed, and produced what the
+    contract asked for. No `needs_scad_tier` on purpose — there is no mesh, so
+    this never reaches the backend, which is the whole point.
+    """
+    scad = tmp_path / "clear.scad"
+    scad.write_text(_CLEARANCE_PROBE.format(z=15))
+    p = Part("clear", openscad(scad))
+    p.empty(id="no-shared-space")
+
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.verdict is Verdict.PASS, [c.to_json() for c in report.checks]
+
+    builds = next(c for c in report.checks if c.kind == "builds")
+    assert builds.status is Status.PASS
+    assert next(c for c in report.checks if c.id == "no-shared-space").status is Status.PASS
+
+
+@needs_openscad
+def test_an_empty_result_caused_by_an_unresolved_name_cannot_satisfy_it(tmp_path: Path):
+    """The laundering guard, and the reason this check needed one (#237).
+
+    An empty result means two different things and OpenSCAD 2021.01 reports them
+    identically: a genuinely null intersection and a model whose geometry never
+    existed both exit 1 with `Current top level object is empty.` and write no
+    STL. Measured — the only difference is the WARNING lines above it.
+
+    Without the guard this is the failure that matters: a misspelt module makes
+    every clearance probe pass, and the greener the run the more broken the
+    contract. The detail names the line, because "declared empty, and it was"
+    would be true and useless.
+    """
+    scad = tmp_path / "typo.scad"
+    scad.write_text("include <no_such_lib.scad>\nintersection() { lib_a(); lib_b(); }\n")
+    p = Part("typo", openscad(scad))
+    p.empty(id="no-shared-space")
+
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.verdict is Verdict.FAIL, [c.to_json() for c in report.checks]
+
+    result = next(c for c in report.checks if c.id == "no-shared-space")
+    assert result.status is Status.FAIL
+    assert result.detail is not None
+    assert "could not resolve a name" in result.detail
+    assert "lib_a" in result.detail or "no_such_lib" in result.detail
+
+
+@needs_scad_tier
+def test_a_part_that_builds_geometry_fails_its_declared_empty(tmp_path: Path):
+    """The other direction: the parts DO share space, so the claim is disproven.
+
+    This is the outcome a clearance probe is written to catch, and it must read
+    as a failed claim rather than as a passing build with nothing said about it.
+    """
+    scad = tmp_path / "overlap.scad"
+    scad.write_text(_CLEARANCE_PROBE.format(z=8))
+    p = Part("overlap", openscad(scad))
+    p.empty(id="no-shared-space")
+
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.verdict is Verdict.FAIL, [c.to_json() for c in report.checks]
+
+    result = next(c for c in report.checks if c.id == "no-shared-space")
+    assert result.status is Status.FAIL
+    assert result.detail == "declared empty, but the part built geometry"
+    assert next(c for c in report.checks if c.kind == "builds").status is Status.PASS
+
+
+@needs_openscad
+def test_an_undeclared_empty_build_still_fails_exactly_as_before(tmp_path: Path):
+    """`empty` is opt-in, and nothing else moves.
+
+    For an ordinary part contract a null render IS a real fault, and #237 says
+    so explicitly — it asks for a way to declare the intent, not for the default
+    to soften. Pinned because the change touches the shared build-failure path,
+    where a relaxation would be invisible until someone's broken part went green.
+    """
+    scad = tmp_path / "clear.scad"
+    scad.write_text(_CLEARANCE_PROBE.format(z=15))
+    p = Part("clear", openscad(scad))
+    p.volume(max=0.001)
+
+    report = run(p, out_dir=tmp_path / "out")
+    assert report.verdict is Verdict.FAIL
+    assert next(c for c in report.checks if c.kind == "builds").status is Status.FAIL
+    assert next(c for c in report.checks if c.kind == "volume").status is Status.SKIPPED

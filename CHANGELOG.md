@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`p.empty()` — a part may declare that nothing is the result** (#237). A
+  clearance probe, `intersection() { A; B; }` declared as its own part, has
+  three outcomes and until now only the *bad* one could be graded: parts that
+  interpenetrate give a solid `volume` measures, parts resting on a face give a
+  sheet `area` measures (#238), and parts that share no space give nothing at
+  all — where an empty build is a hard failure before any claim is evaluated, so
+  `volume(max=0)` was **skipped rather than satisfied**. The good answer was the
+  one the tool could not state.
+  Opt-in, and nothing else moves: a part that does not declare `empty` and
+  builds to nothing still fails exactly as before. For an ordinary part contract
+  a null render is a real fault, and #237 asked for a way to declare the intent,
+  not for the default to soften.
+  **A broken probe cannot satisfy it**, which is the whole difficulty and is
+  invisible in an exit code. Measured on 2021.01: a genuinely null intersection
+  and a model whose geometry never existed are identical downstream — both exit
+  1 with `Current top level object is empty.` and write no STL. So one misspelt
+  module would have made every probe in a contract pass, and the more broken the
+  source the greener the run. The only evidence separating them is the engine's
+  diagnostics above that line, so `empty` fails when the engine reported an
+  unresolved name and its detail says which. The five markers were each produced
+  from a source written to trigger them rather than taken from documentation.
+  Classification lives in the engine and rides on `BuildError`
+  (`produced_nothing`, `unresolved`), because engines own their own strings. A
+  Python model has no equivalent hazard — an unresolved name raises rather than
+  rendering empty — and its null results set the same flag, so the check reads
+  the same on either tier.
+  `SPEC-contract.md` §4.12 is normative for it; `builds` and `empty` are now
+  `BUILD_PHASE_KINDS`, which `gen_docs.py` reads instead of naming `builds`
+  itself, so the vocabulary table cannot go stale against the code.
+
 - **`area` says what it is for, and names the 2x trap** (#238). It had no
   docstring at all — alone among the bound-carrying methods — while being the
   only measure that answers on a part that is legitimately not a solid.

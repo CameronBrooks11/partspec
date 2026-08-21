@@ -189,6 +189,29 @@ def _evaluate(
             report.checks = results
             return
 
+        empty_specs = [spec for spec in geometry_specs if spec.kind == "empty"]
+        if empty_specs and artifact.produced_nothing and not artifact.unresolved:
+            # The engine ran, completed, and the result was empty -- which this
+            # contract declared as the intent (SPEC-contract 4.12). `builds`
+            # passes because the engine produced what it was asked for; the part
+            # IS the empty set. Nothing else can be measured, so every other
+            # geometry check is skipped and the verdict is `incomplete` rather
+            # than a pass bought by silence.
+            results.append(
+                CheckResult(id="builds", kind="builds", phase=GEOMETRY, status=Status.PASS)
+            )
+            results.extend(
+                CheckResult(id=spec.id, kind="empty", phase=GEOMETRY, status=Status.PASS)
+                for spec in empty_specs
+            )
+            results.extend(
+                _skipped(spec, "not evaluated: the part is empty, as declared")
+                for spec in geometry_specs
+                if spec.kind != "empty"
+            )
+            report.checks = results
+            return
+
         results.append(
             CheckResult(
                 id="builds",
@@ -198,8 +221,32 @@ def _evaluate(
                 detail=artifact.message,
             )
         )
+        for spec in empty_specs:
+            # Declared, and not satisfied. Two ways to get here and they are not
+            # the same fault, so the detail says which: the engine failed before
+            # it could produce anything, or it produced nothing BECAUSE a name
+            # did not resolve -- a probe whose geometry never existed to be
+            # intersected. The second is the case this check exists to refuse,
+            # and it is invisible in the exit code (#237).
+            results.append(
+                CheckResult(
+                    id=spec.id,
+                    kind="empty",
+                    phase=GEOMETRY,
+                    status=Status.FAIL,
+                    detail=(
+                        f"the result is empty, but the engine could not resolve a name, "
+                        f"so the geometry never existed to be empty of: "
+                        f"{artifact.unresolved[0]}"
+                        if artifact.unresolved
+                        else f"declared empty, but the part did not build: {artifact.message}"
+                    ),
+                )
+            )
         results.extend(
-            _skipped(spec, "not evaluated: the part did not build") for spec in geometry_specs
+            _skipped(spec, "not evaluated: the part did not build")
+            for spec in geometry_specs
+            if spec.kind != "empty"
         )
         report.checks = results
         return
@@ -218,7 +265,22 @@ def _evaluate(
         # model's renders silently disagree with its measured geometry.
         artifact_out.append(artifact)
     report.geometry = backend.provenance(artifact)
-    results.extend(_run_geometry_check(spec, backend, artifact) for spec in geometry_specs)
+    results.extend(
+        # A declared `empty` that reaches here is disproven: the engine built
+        # something. Answered from the build rather than from a primitive --
+        # `empty` is `builds`' sibling, decided before any backend is asked, and
+        # is deliberately absent from `GEOMETRY_KINDS` for that reason.
+        CheckResult(
+            id=spec.id,
+            kind="empty",
+            phase=GEOMETRY,
+            status=Status.FAIL,
+            detail="declared empty, but the part built geometry",
+        )
+        if spec.kind == "empty"
+        else _run_geometry_check(spec, backend, artifact)
+        for spec in geometry_specs
+    )
     report.checks = results
 
 
