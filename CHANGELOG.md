@@ -107,6 +107,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same on every kernel — which is the point, the kernels being exactly what
   disagree about the result. It consults no engine verdict and needs none.
 
+- **Part-versus-part interference is declarable, and `examples/clearance/` is
+  the worked pattern** (#236, with #237 and #238). partspec's unit of
+  verification is the single part through v1.0 (D19), and #236 read that as
+  *interference cannot be declared at all* — because the obvious workaround,
+  modelling `intersection() { A; B; }` at assembly pose as its own part,
+  "fails in **both** of its normal outcomes, for two independent reasons".
+  Those two reasons were #237 and #238, and both have closed. So the pattern
+  works now, and what was missing was that nothing said so.
+  **All three outcomes grade, and each on a different measurand.** Measured on
+  the new example: parts that interpenetrate build a solid and `volume` grades
+  it at **24.0 mm3**; parts that touch on a face build a sheet and `area`
+  grades it at **384.0 mm2** (#238); parts that share no space build nothing,
+  which was a hard failure before any claim was evaluated and is now
+  `empty()`'s passing result (#237). Documented in `SPEC-contract.md` §9.1 and
+  executed by `tests/test_examples.py`, parameterised so a regression names the
+  outcome that broke rather than reporting one failure for three unrelated
+  mechanisms.
+  **The two traps are written down because both are silent.** A sheet has two
+  sides and `area` counts both, so a 16 x 12 seated face measures 384 and the
+  claim carries the doubling. And `empty` belongs on the probe that should be
+  empty and on no other — on an interference probe an empty build is the
+  *loose joint*, so declaring `empty` there would grade the fault as the pass.
+  **Not superseded: `keep_out`/`keep_in` still take a declared region.** Their
+  shell is mandatory and a shell is an offset of the region, which a rendered
+  solid could only supply through 3D offsetting — measured, `manifold3d`'s
+  Minkowski gives the outward offset in 13 ms and the inward one in **1290 ms**,
+  inside a 24-iteration bisection. The shell exists to stop a `keep_out`
+  passing vacuously when the feature is absent, and that risk does not arise
+  here: the other part is a real rendered solid whose absence is a build
+  failure, not a silent pass. The expensive machinery would be bought for a
+  guarantee this case does not need.
+
 - **`p.build_input("cadquery-ocp")` — an author may force byte identity for a
   named distribution** (#215, epic #229, stage 4 of #190). Identity is decided
   automatically in two tiers, and `metadata` — what almost everything gets —

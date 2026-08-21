@@ -1133,8 +1133,10 @@ partspec pin `--backend cgal` were refused.
 other geometry check on it is skipped and the run reports `incomplete` (§3.1) rather than
 a pass bought by silence. Declare `empty` alone on a probe.
 
-Related: #237; #270 for the decision above; and #236 for the case a probe is a workaround
-*for* — declaring part-versus-part interference directly is an assemblies question (D19).
+Related: #237; #270 for the decision above; and §9.1 for the pattern this check
+completes — a clearance probe's three outcomes, worked in `examples/clearance/`.
+Declaring part-versus-part interference with a first-class verb remains an
+assemblies question (D19, #236).
 
 ---
 
@@ -1337,6 +1339,53 @@ constraints, adopted now at no cost:
 3. **The `skipped` status already exists** with the semantics assemblies need — *"absence is
    a legitimate run state, not an input error"* — so a standalone sub-assembly run can
    evaluate the same check list without the absent parts.
+
+### 9.1 Part-versus-part interference, with the unit of verification v0 has
+
+Until an assembly verb exists, interference between two parts is declared by modelling
+`intersection() { A; B; }` **at assembly pose** as a part of its own and claiming the
+outcome the design intends. `examples/clearance/` is the worked pattern.
+
+Every pair of parts is in exactly one of three states, and each grades on a different
+measurand. All three are gradable as of v0.7.7; before that only the first was, which is
+why this pattern was previously described as a workaround that did not work:
+
+| the two parts | the probe builds to | the claim | in the example |
+|---|---|---|---|
+| interpenetrate | a solid | `volume(min=, max=)` | 24.0 mm3 |
+| touch on a face | a sheet | `area(min=)` | 384.0 mm2 |
+| share no space | nothing | `empty()` | pass |
+
+**The second and third rows are recent and each was a hard failure before its own fix.**
+A sheet has no volume, and `volume` on it was a refusal until §4.2 admitted `area` as the
+measurand for a part that is not a solid; a null intersection failed its build before any
+claim could be evaluated, so `volume(max=0)` was *skipped rather than satisfied* until
+§4.12 (#238 and #237 respectively, both companions of #236).
+
+**Three rules the pattern depends on.**
+
+1. **Poses live in one file.** The probe intersects two modules *as placed*, so an
+   interference number is the assembly's and not a number about geometry at the origin.
+2. **A sheet has two sides and `area` counts both.** A 16 x 12 seated face measures 384,
+   not 192. The claim carries the doubling; the measurand does not hide it.
+3. **`empty` goes on the probe that should be empty and on no other.** On an interference
+   probe an empty build is the *loose joint* — the failure — so declaring `empty` there
+   would grade the fault as the pass. And declare it alone (§4.12).
+
+**What it costs, stated plainly**, because this is a pattern and not a feature: one extra
+source and one extra target per pair, the pair modelled at assembly pose, and no automatic
+all-pairs sweep. A first-class verb taking N sources and reporting pairwise shared volume
+needs `intersect_volume` and nothing else — no offsetting, no shell, no bisection — and is
+what the problem actually is. It is an assemblies feature, so it lands after 1.0 under D19.
+
+**Not `keep_out`/`keep_in`.** Those take a declared region — box or cylinder — because
+their shell is mandatory and a shell is an offset of the region, which a rendered solid
+can only supply through 3D offsetting: measured, `manifold3d`'s Minkowski gives the
+outward offset in 13 ms and the inward one in 1290 ms, inside a 24-iteration bisection.
+The shell exists to stop a `keep_out` passing vacuously when the feature is simply absent,
+and for part-versus-part interference that risk does not arise — the other part is a real
+rendered solid, and its absence is a build failure rather than a silent pass. So the
+expensive machinery would be bought for a guarantee this case does not need (#236).
 
 ---
 
