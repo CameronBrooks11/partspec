@@ -185,7 +185,7 @@ def test_every_exemplar_model_is_parameterised_and_documented():
     # review). And `== 4`, not `>= 3`: three-of-four passing is precisely how
     # that went unnoticed.
     exemplars = sorted(d for d in EXAMPLES.iterdir() if d.is_dir() and any(d.glob("spec*.py")))
-    assert len(exemplars) == 4, f"the exemplars moved; this test needs to know: {exemplars}"
+    assert len(exemplars) == 5, f"the exemplars moved; this test needs to know: {exemplars}"
     for d in exemplars:
         assert (d / "README.md").is_file(), f"{d.name} must explain what it teaches"
     bracket = (EXAMPLES / "stepper-bracket" / "bracket.py").read_text()
@@ -229,3 +229,88 @@ def test_the_spacer_readme_describes_the_contract_it_documents():
     assert {normalise(c) for c in claimed} == {normalise(d) for d in declared}, (
         f"undocumented claims: {sorted(declared)}; documented: {sorted(claimed)}"
     )
+
+
+@needs_scad_tier
+@pytest.mark.parametrize(
+    ("factory", "kind", "expected"),
+    [
+        ("interference", "volume", 24.0),
+        ("seat", "area", 384.0),
+        ("clearance", "empty", None),
+    ],
+)
+def test_the_clearance_example_grades_all_three_probe_outcomes(
+    tmp_path: Path, factory: str, kind: str, expected: float | None
+):
+    """#236: part-versus-part interference, declared with the unit of
+    verification v0 has.
+
+    Three outcomes and three measurands, and until v0.7.7 only the first of
+    them graded — a sheet had no volume to measure (#238) and a null
+    intersection failed its build before any claim was evaluated (#237). That
+    is why #236 called the pattern a workaround that fails in both of its
+    normal outcomes; both companions closed, and this is the executable form
+    of the claim that they did.
+
+    Parameterised so a regression names the outcome that broke rather than
+    reporting one failure for three unrelated mechanisms.
+    """
+    target = f"{EXAMPLES / 'clearance' / 'spec.py'}:{factory}"
+    assert main(["check", target, "--quiet", "--out", str(tmp_path)]) == 0
+
+    report = report_of(tmp_path)
+    check = next(c for c in report["checks"] if c["kind"] == kind)
+    assert check["status"] == "pass"
+    if expected is None:
+        # `empty` is adjudicated from the build, so there is nothing to
+        # measure — which is the whole of why it is not a `volume(max=0)`.
+        assert check.get("measurement") is None
+        assert [c["kind"] for c in report["checks"]] == ["builds", "empty"], (
+            "declared alone: an empty part has no mesh for anything else to read"
+        )
+    else:
+        assert check["measurement"]["value"] == pytest.approx(expected, abs=0.01)
+        # Prose about code is how this repo has repeatedly drifted, and both
+        # the README's table and `SPEC-contract.md` §9.1 quote these numbers as
+        # if they were facts. They are, once a run has to agree with them.
+        for doc in (
+            EXAMPLES / "clearance" / "README.md",
+            EXAMPLES.parent / "docs" / "SPEC-contract.md",
+        ):
+            assert str(expected) in doc.read_text(), f"{doc.name} quotes a stale {kind}"
+
+
+@needs_scad_tier
+def test_the_clearance_probes_intersect_placed_modules_rather_than_geometry():
+    """The pattern's first rule, checked against the sources.
+
+    A probe that translates a module itself has moved the part for the probe's
+    benefit, and its interference number is then about the probe rather than
+    about the assembly. Every pose belongs in `assembly.scad`; a probe is an
+    `intersection()` of two bare module calls and nothing else.
+
+    Written because the first draft of this example did exactly that — it
+    translated `foot()` inside the probe to manufacture an overlap the
+    assembly did not have.
+    """
+    import ast
+
+    home = EXAMPLES / "clearance"
+    for probe in ("interference", "seat", "clearance"):
+        body = (home / f"{probe}.scad").read_text()
+        assert "translate" not in body, f"{probe}.scad poses a part the assembly did not"
+        assert body.count("intersection()") == 1
+
+    # And every constant a claim is built from is stated by the contract, not
+    # read back out of a measurement.
+    spec = ast.parse((home / "spec.py").read_text())
+    named = {
+        n.id
+        for a in ast.walk(spec)
+        if isinstance(a, ast.Assign)
+        for t in a.targets
+        for n in ast.walk(t)
+        if isinstance(n, ast.Name)
+    }
+    assert {"CRUSH_MIN", "CRUSH_MAX", "SEAT_BEARING_MIN"} <= named
