@@ -685,6 +685,9 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             print(f"partspec: {exc}", file=sys.stderr)
             return EXIT_USAGE
 
+    if expect_lock is not None:
+        _warn_uncovered_before_building(targets, expect_lock, quiet=args.quiet)
+
     pinned_parts: dict[str, dict[str, str]] = {}
     covered_ids: set[str] = set()
     # Targets that were SUPPLIED and did not resolve. A target that failed has
@@ -853,6 +856,73 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             codes.append(exit_code(Verdict.ERROR))
 
     return _batch_exit(codes)
+
+
+def _warn_uncovered_before_building(
+    targets: list[str], expect_lock: dict[str, dict[str, str]], *, quiet: bool
+) -> None:
+    """Say, before the first build, that this invocation cannot cover its pin.
+
+    The authoritative check is after the loop and stays there. This one exists
+    because the answer is knowable at the start and was being delivered at the
+    end: a `check a b c --expect lock.json` whose lock also covers a deleted
+    `d` builds every surviving target first — 56 to 108 s each on the OCCT tier
+    — and only then says the invocation could never have covered its pin. A
+    human who is told at second one can abort; the exit code, the reports and
+    the verdict are unchanged for one who does not (#202).
+
+    **Coverage needs the RESOLVED set, and resolution is engine-free**, which
+    is the whole reason this is affordable: a mismatch run measures 0.095 s
+    against a build measured in minutes. What it costs is running the contract
+    factory twice, and `SPEC-contract.md` nowhere requires a factory to be
+    pure — so this takes nothing from the second resolve, holds no `Part`, and
+    lets the loop's own resolve be the one that counts.
+
+    **Silent whenever anything is uncertain.** A target that fails to resolve
+    here is not reported here: the post-loop check knows how to weigh a
+    failure against a missing part (#201, #243) and this does not, so any
+    failure abandons the preview entirely rather than guessing. Which also
+    means this cannot contradict the authoritative answer — it declines
+    instead.
+
+    **Silent under `--quiet`**, which the authoritative check is not. The whole
+    purpose here is "you can stop this now", and that is meaningless to a
+    non-interactive caller; the failure itself still reaches CI, once, from the
+    place that owns the exit code. Doubling a diagnosis nobody can act on is
+    noise, and noise on stderr is how a real one gets missed.
+
+    Model modules are evicted between resolutions, because a contract's
+    sibling import cached from one target must not answer for the next
+    (#114, #101). That is the same sequence `_check_one` already uses.
+    """
+    from .engines.pycad import invalidate_model_modules
+
+    ids: set[str] = set()
+    for spec in targets:
+        try:
+            part, target = resolve(spec)
+        except BaseException:  # noqa: BLE001 - a contract may raise anything
+            # The failed resolve may have cached sibling imports before
+            # raising, and they must not answer for the loop that follows.
+            with contextlib.suppress(TargetError):
+                invalidate_model_modules(Target.parse(spec).path)
+            return
+        ids.add(part.id)
+        # `_invalidate_after`'s sequence, for the same reason it exists: only
+        # the id is wanted here, so the `Part` is dropped and the per-target
+        # eviction the build loop relies on is left exactly as it was.
+        _invalidate_after(part, target)
+
+    uncovered = sorted(expect_lock.keys() - ids)
+    if not uncovered or quiet:
+        return
+    names = ", ".join(repr(p) for p in uncovered)
+    print(
+        f"partspec: the pin covers {names}, which no target in this invocation "
+        f"resolves to — the targets given are checked anyway, and this is reported "
+        f"again at the end",
+        file=sys.stderr,
+    )
 
 
 def _check_one(

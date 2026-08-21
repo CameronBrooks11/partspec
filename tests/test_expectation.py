@@ -557,3 +557,111 @@ def test_the_count_does_not_dedupe_the_targets_it_counts(tmp_path: Path, capsys,
     assert "rather than a deletion" in err, (
         "two crashed targets can account for two uncovered ids; nothing is provable"
     )
+
+
+# --------------------------------------------------------------------------
+# #202 — the coverage answer is knowable before the builds, and is now given
+#        there as well as after them
+# --------------------------------------------------------------------------
+
+
+_OTHERS_LOCK = '{"schema_version": 1, "parts": {"other": {"x": "watertight"}}}'
+
+
+@needs_openscad
+def test_an_uncovered_pin_is_announced_before_the_first_build(tmp_path: Path, capsys, monkeypatch):
+    """#202: the answer was available at second one and delivered at the end.
+
+    `check a b c --expect lock.json` whose lock also covers a deleted `d`
+    builds every surviving target first — 56 to 108 s each on the OCCT tier —
+    and only then says the invocation could never have covered its pin.
+
+    Ordering is the whole claim, so it is asserted as an ordering rather than
+    as the presence of a string: the builds are stubbed out and made to
+    announce themselves, and the warning must come first in the same stream.
+    """
+    import sys
+
+    from partspec import cli
+
+    def announce(*_args, **_kwargs) -> int:
+        print("BUILD-STARTED", file=sys.stderr)
+        return 0
+
+    monkeypatch.setattr(cli, "_check_one", announce)
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    lock.write_text(_OTHERS_LOCK)
+
+    main(["check", target, "--expect", str(lock), "--out", str(tmp_path / "out")])
+    err = capsys.readouterr().err
+
+    assert "BUILD-STARTED" in err, "premise: the stub stands in for the build loop"
+    assert err.index("checked anyway") < err.index("BUILD-STARTED"), err
+
+
+@needs_openscad
+def test_announcing_it_early_changes_nothing_about_the_run(tmp_path: Path, capsys):
+    """The half #202 asked for and did not get, deliberately.
+
+    The issue frames the surviving targets' builds as waste. They are the work:
+    a `check a b c` whose lock also covers a deleted `d` still checks `a`, `b`
+    and `c`, writes their reports, and reports the uncovered pin ON TOP of
+    that. Failing before the loop instead would write no report at all for the
+    targets the user supplied — which is what
+    `test_an_unpinned_part_does_not_pass_on_someone_elses_pin` pins.
+
+    So this asserts what the early warning must NOT have changed: exit code,
+    report, and the authoritative diagnosis still arriving from the place that
+    owns the exit code.
+    """
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    lock.write_text(_OTHERS_LOCK)
+    out = tmp_path / "out"
+
+    assert main(["check", target, "--expect", str(lock), "--out", str(out)]) == 4
+    report = report_of(out)
+    assert report["expectation"]["claims"] == 0
+    err = capsys.readouterr().err
+    assert "checked anyway" in err, "the heads-up"
+    assert "'other'" in err and "no target" in err, "the authoritative message is unchanged"
+
+
+@needs_openscad
+def test_the_early_warning_declines_when_a_target_did_not_resolve(tmp_path: Path, capsys):
+    """It must not contradict the careful answer, so it does not compete.
+
+    Weighing a resolution failure against a missing part is #201's and #243's
+    work and lives after the loop: a target that crashed proved nothing, so
+    the pin's entry may be that failure rather than a deletion. This preview
+    knows none of that, so any failure abandons it entirely — silence, and the
+    authoritative message untouched.
+    """
+    target = _target(tmp_path, STRICT)
+    broken = tmp_path / "broken.py"
+    broken.write_text("raise RuntimeError('boom')\n")
+    lock = tmp_path / "claims.lock"
+    lock.write_text(_OTHERS_LOCK)
+
+    main(["check", target, f"{broken}:make", "--expect", str(lock), "--out", str(tmp_path / "o")])
+    err = capsys.readouterr().err
+
+    assert "may be that failure rather than a deletion" in err, "premise: #201's path ran"
+    assert "checked anyway" not in err, "the preview declined; only the careful answer spoke"
+
+
+@needs_openscad
+def test_the_early_warning_is_silent_under_quiet(tmp_path: Path, capsys):
+    """Its whole purpose is "you can stop this now", which is meaningless to a
+    non-interactive caller — and the failure still reaches CI, once, from the
+    place that owns the exit code. Doubling a diagnosis nobody can act on is
+    noise, and noise on stderr is how a real one gets missed."""
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    lock.write_text(_OTHERS_LOCK)
+
+    assert main(["check", target, "--quiet", "--expect", str(lock), "--out", str(tmp_path)]) == 4
+    err = capsys.readouterr().err
+    assert "'other'" in err, "the authoritative message still lands"
+    assert "checked anyway" not in err, "and only that"

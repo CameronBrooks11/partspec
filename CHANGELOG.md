@@ -394,6 +394,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An invocation that cannot cover its pin says so before the first build,
+  not after the last one** (#202). `check a b c --expect lock.json` whose lock
+  also covers a deleted `d` built every surviving target first — **56 to 108 s
+  each on the OCCT tier** — and only then reported that the invocation could
+  never have covered its pin. The answer was knowable at second one, because
+  coverage needs the RESOLVED set and resolution is engine-free: a whole
+  mismatch run measures **0.095 s**.
+  **Nothing else moves, and that is the decision rather than the shortcut.**
+  The issue frames the surviving targets' builds as waste; the suite calls them
+  the work, and `test_an_unpinned_part_does_not_pass_on_someone_elses_pin`
+  pins it — failing before the loop would write no report at all for the
+  targets the user actually supplied. So the exit code, the reports and the
+  authoritative diagnosis are untouched; what a human gains is the chance to
+  abort at the start of a long run instead of at the end of one.
+  **Silent whenever anything is uncertain.** A target that fails to resolve
+  abandons the preview entirely rather than guessing: weighing a failure
+  against a missing part is #201's and #243's work, it lives after the loop,
+  and a preview that could contradict it would be worse than no preview.
+  Silent under `--quiet` for the same reason it exists — "you can stop this
+  now" is meaningless to a non-interactive caller, and the failure still
+  reaches CI once, from the place that owns the exit code.
+  It costs running the contract factory a second time, which `SPEC-contract.md`
+  nowhere forbids being impure, so the preview takes nothing from that resolve
+  but the part id, holds no `Part`, and evicts model modules between targets
+  exactly as the build loop does (#114, #101).
+
 - **The output-collision guard is exact, so a subdirectory import no longer eats
   its own output** (#263, closing out #226). `.stl` is an INPUT extension as well
   as an output one, and until now nothing could say which — `reads_external_data`
