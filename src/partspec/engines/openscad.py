@@ -205,8 +205,11 @@ def _method_scratch(source: OpenSCADSource, out_dir: Path) -> Path | BuildError:
     return scratch
 
 
-def _output_over_an_input(source: OpenSCADSource, out_dir: Path, stl: Path) -> BuildError | None:
-    """Refuse when the artifact would land on a file that may be an input.
+def _output_over_an_input(
+    source: OpenSCADSource, stl: Path, closure: Closure, *, would_overwrite: bool
+) -> BuildError | None:
+    """Refuse, before rendering, when the artifact would land on a file that
+    may be an input and nothing later can say whether it is.
 
     Building in a scratch directory keeps the MEASUREMENT honest — the engine
     reads whatever inputs are on disk, because nothing has been removed — but
@@ -217,59 +220,65 @@ def _output_over_an_input(source: OpenSCADSource, out_dir: Path, stl: Path) -> B
     the run the input is the output. Under `check` it was worse than a wrong
     number — a PASS verdict on geometry that was not the part.
 
-    `Closure.reads_external_data` is a bool by design: a data path may be
-    computed at render time, so no static reader can resolve it. So this
-    cannot know WHICH files are inputs and has to be conservative, the same
-    position the file-mode `--out` guard takes (`cli._measure_resolved`). The
-    narrowest condition that catches the repro is all three of:
+    **This guard used to carry that case and no longer does.** An
+    `import()`/`surface()` target is named in the engine's own dependency
+    output, so #263 moved the question to `_wrote_over_an_input`, which is
+    asked after the render and answers exactly which files were read. What is
+    left here is the arm no depfile can reach: an **unresolved include**, which
+    is listed nowhere at all because the depfile names what was opened and
+    never what was asked for. partspec cannot see inside a file it could not
+    find, so it cannot know whether that file imports data either — and no
+    later signal will tell it. The narrowest condition is all three of:
 
     1. the destination is the directory the source's relative
        `import()`/`surface()` paths resolve against — its own;
-    2. the closure is partial, so inputs exist that partspec cannot enumerate;
-    3. `<stem>.stl` is already there to be destroyed.
+    2. `<stem>.stl` is already there to be destroyed;
+    3. an include did not resolve, so inputs exist that partspec cannot
+       enumerate and the engine will not enumerate for it.
+
+    (1) and (2) together are `would_overwrite`, which the caller computes
+    before anything is written and hands to both guards — the post-render one
+    falls back on exactly this condition when the engine cannot name its
+    inputs, and by the time it runs, this call has created the file it would
+    be asking about.
 
     Each clause is load-bearing in the direction of NOT over-refusing. Without
-    (1) the second run of any external-data model against the default
-    `outputs/<slug>` finds run 1's own artifact there and is refused — the
-    ordinary path, broken. Without (2) any model rendering twice into its own
-    directory is refused on the second run. Without (3) a first run into the
-    source directory is refused over a file that does not exist.
+    (1) the second run of any such model against the default `outputs/<slug>`
+    finds run 1's own artifact there and is refused — the ordinary path,
+    broken. Without (2) a first run into the source directory is refused over a
+    file that does not exist. Without (3) any model rendering twice into its
+    own directory is refused on the second run.
 
-    It therefore **under-refuses**, and the cost of that is not one file. Where
-    the import sits in a subdirectory — `import("sub/part.stl")` with
-    `--out sub` — the artifact is REPLACED at that path rather than deleted, so
-    the import still resolves and the model eats its own output. Measured,
-    three identical consecutive runs against a 3x7x11 donor:
+    **What clause (1) used to cost, and no longer does.** Scoped this way, the
+    old guard under-refused, and the cost was not one file. Where the import
+    sat in a subdirectory — `import("sub/part.stl")` with `--out sub` — the
+    artifact was REPLACED at that path rather than deleted, so the import still
+    resolved and the model ate its own output. Measured then, three identical
+    consecutive runs against a 3x7x11 donor:
 
         run 1  exit 0  bbox [8, 7, 11]   (correct)
         run 2  exit 0  bbox [13, 7, 11]
         run 3  exit 0  bbox [18, 7, 11]
 
     and `check` with a claim that is FALSE of the real part — `envelope(min=(12,
-    7, 11))` — fails at run 1 and **passes at run 2**. So the residue is an
+    7, 11))` — failed at run 1 and **passed at run 2**. So the residue was an
     unbounded series of confident wrong answers — at exit 0 for `measure`, and
     for `check` a verdict computed on geometry that is not the part, whichever
-    way the claim points: a `min` claim flips to pass as the part grows, a
-    `max` claim flips to fail at exit 1, and neither exit describes the design.
-    That is #208's own headline symptom surviving in a narrower case, not
-    merely a lost file. It is the same compounding `_EXTERNAL_DATA_RE` records
-    from the #187 review ([30,10,10], [50,10,10], [70,10,10]).
+    way the claim points. That is #208's own headline symptom surviving in a
+    narrower case, and it is what the post-render guard exists to end: the
+    subdirectory import is in the dependency list by full resolved path, so the
+    replace is refused wherever the destination sits.
 
-    Shipped anyway, with eyes open, because the alternative is worse in the
-    direction that matters more: any rule wide enough to catch a subdirectory
-    import refuses legitimate output directories, and over-refusal breaks every
-    ordinary run rather than a rare one. Scanning the closure for the
-    destination's NAME was the precise alternative considered and rejected: it
-    resolves nothing when the path is computed, which is the case
-    `reads_external_data` exists to admit, so it would refuse in the easy case
-    and stay silent in the hard one. The real remedy is a signal that says
-    which files a render actually READ — the engine's own dependency output,
-    which 2021.01 already emits under `-d` and which lists a resolved
-    `import()` target by full path — and that is #226 rather than a guess here.
+    Scanning the closure for the destination's NAME was the precise alternative
+    considered and rejected at the time: it resolves nothing when the path is
+    computed, which is the case `reads_external_data` exists to admit, so it
+    would refuse in the easy case and stay silent in the hard one. The remedy
+    was always a signal that says which files a render actually READ, and that
+    signal now exists.
     """
-    if out_dir.resolve() != source.path.parent.resolve() or not stl.exists():
+    if not would_overwrite:
         return None
-    reason = include_closure(source.path).partial_reason
+    reason = closure.unresolved_reason
     if reason is None:
         return None
     return BuildError(
@@ -280,6 +289,111 @@ def _output_over_an_input(source: OpenSCADSource, out_dir: Path, stl: Path) -> B
         f"— the artifact lands in it as {stl.name}",
         origin="environment",
     )
+
+
+def _wrote_over_an_input(
+    deps: RenderDeps, dest: Path, name: str, *, closure: Closure, refuse_unanswered: bool
+) -> BuildError | None:
+    """Refuse the move into place when the render itself read `dest`.
+
+    Asked AFTER the render, which is the only time it can be answered, and
+    asked only of a model whose closure is PARTIAL — for one that is not, every
+    file the engine can reach is a `.scad` partspec has already walked, and the
+    destination is an `.stl` no part of it names.
+
+    Partial rather than `reads_external_data`, because the unresolved arm is
+    not merely a case the depfile happens to cover as well. An `include` that
+    partspec cannot find on ITS search path may resolve on the engine's, and
+    the file behind it may hold the `import()` partspec then never saw — so a
+    closure reporting `reads_external_data: False` is not a promise that the
+    render read no data. It is the depfile, not the regex, that knows.
+
+    **Nothing has been replaced yet**, which is what makes a late refusal
+    correct rather than merely tidy: both movers stage into a scratch directory
+    and this runs before the rename, so the caller's file is exactly as it was.
+    What it costs is a render, and the message says so — the caller could not
+    have known, and an error implying otherwise sends them looking for a
+    mistake they did not make.
+
+    **`refuse_unanswered` is what to say when the engine did not answer**, and
+    it is not a preference: it is the caller keeping its own old behaviour for
+    the case this cannot improve on. An engine with no `-d` writes no depfile,
+    so `deps` is `absent` — which is not "the render read nothing"
+    (`RenderDeps`) — and the exact question is unanswerable there exactly as it
+    was before #226. So `render` passes the pre-render answer its conservative
+    guard would have given (destination in the model's own directory, name
+    already taken), and `cli._build_to_file` passes True, because a
+    caller-named file destination was never provable and its refusal is the one
+    #208 shipped. Neither loosens on an engine that cannot answer; both become
+    exact on one that can.
+
+    **A complete list that CONTRADICTS the source is not an answer either**, and
+    this is F13 arriving in a guard. `import_stl()` is deprecated; 2021.01 still
+    executes it and the 2026.08.01 snapshot ignores it — so for one source the
+    depfile names the data file on one engine and omits it on the other, and
+    taking the second at face value would hand back "safe to write" for a file
+    the same contract reads on the machine next to it. Where the closure says
+    the source reads external data and the render read none, the two disagree,
+    and a disagreement is treated exactly as no answer at all: `refuse_unanswered`
+    decides, so both callers keep the answer they gave before #263.
+
+    It over-refuses by that clause alone — an `import()` inside a branch the
+    render never took reads nothing legitimately — and that is the direction to
+    err in, because the cost of the other one is the caller's data.
+
+    `partial` is unreachable from both call sites — a failed render returns
+    before either mover is reached — and refuses under the same flag if that
+    ever changes.
+    """
+    if deps.state != "complete":
+        if not refuse_unanswered:
+            return None
+        return BuildError(
+            f"the engine did not report the files it read, so partspec cannot prove "
+            f"{dest.name} is not one of {name}'s inputs — and {name} reads external "
+            f"data (import()/surface())",
+            hint=f"this engine does not accept -d, so nothing can name the render's "
+            f"inputs; write the artifact somewhere {name} cannot be reading — a "
+            f"directory that holds none of its inputs",
+            origin="environment",
+        )
+    if dest.resolve() not in deps.files:
+        if not _contradicts(deps, closure):
+            return None
+        if not refuse_unanswered:
+            return None
+        return BuildError(
+            f"{name} reads external data (import()/surface()) and this render read "
+            f"none, so the engine's account of its inputs contradicts the source and "
+            f"cannot say whether {dest.name} is one of them",
+            hint=f"this engine may ignore the form the source uses, or the read may sit "
+            f"in a branch the render did not take; write the artifact somewhere {name} "
+            f"cannot be reading — a directory that holds none of its inputs",
+            origin="environment",
+        )
+    return BuildError(
+        f"the render of {name} read {dest.resolve()}, so writing the build artifact "
+        f"there would destroy one of its own inputs — the next run would measure "
+        f"this run's output",
+        hint=f"only the engine's own dependency list can answer this, so it took a "
+        f"render to find out; nothing has been written — name a destination {name} "
+        f"does not read",
+        origin="environment",
+    )
+
+
+def _contradicts(deps: RenderDeps, closure: Closure) -> bool:
+    """The source says it reads data and the render read none of it.
+
+    "None of it" is measured against the static closure: every `.scad` the
+    walker already found is subtracted, and what is left is what the render
+    opened that no include accounts for — the data files. An empty remainder
+    beside `reads_external_data` is the disagreement.
+    """
+    if not closure.reads_external_data:
+        return False
+    walked = {f.resolve() for f in closure.files}
+    return not any(f.resolve() not in walked for f in deps.files)
 
 
 def render(
@@ -349,7 +463,15 @@ def render(
         )
     stl = out_dir / f"{source.path.stem}.stl"
 
-    refusal = _output_over_an_input(source, out_dir, stl)
+    # Walked once and used twice: the pre-render refusal below asks it for the
+    # arm no depfile can reach, and the post-render one asks whether to ask the
+    # depfile at all.
+    closure = include_closure(source.path)
+    # Asked before anything is written, because it is the question the guard
+    # below the render falls back on when the engine cannot name its inputs,
+    # and by then this call has created the name it is asking about.
+    would_overwrite = stl.exists() and out_dir.resolve() == source.path.parent.resolve()
+    refusal = _output_over_an_input(source, stl, closure, would_overwrite=would_overwrite)
     if refusal is not None:
         return refusal
 
@@ -444,16 +566,19 @@ def render(
                     else None,
                 )
 
+            # Once, here: every return below this point has the same answer,
+            # and `exit 0 but no geometry` is a COMPLETE depfile rather than a
+            # failed one — measured, a model whose `include` did not resolve
+            # exits 0 and the depfile lists the source alone. Read whether or
+            # not a caller wanted it, because the guard below the render wants
+            # it too and a second read would be a second answer.
+            deps = (
+                _read_depfile(depfile, ok=proc.returncode == 0)
+                if wanted_deps
+                else RenderDeps(state="absent")
+            )
             if deps_out is not None:
-                # Once, here: every return below this point has the same answer,
-                # and `exit 0 but no geometry` is a COMPLETE depfile rather than
-                # a failed one — measured, a model whose `include` did not
-                # resolve exits 0 and the depfile lists the source alone.
-                deps_out.append(
-                    _read_depfile(depfile, ok=proc.returncode == 0)
-                    if wanted_deps
-                    else RenderDeps(state="absent")
-                )
+                deps_out.append(deps)
 
             if proc.returncode != 0:
                 reason = _first_error_line(proc.stderr)
@@ -514,6 +639,18 @@ def render(
                     produced_nothing=True,
                     unresolved=_unresolved_lines(proc.stderr),
                 )
+            if closure.partial:
+                # The exact question #223's guard could not ask, asked where it
+                # can be answered and while the caller's file is still intact.
+                refusal = _wrote_over_an_input(
+                    deps,
+                    stl,
+                    source.path.name,
+                    closure=closure,
+                    refuse_unanswered=would_overwrite,
+                )
+                if refusal is not None:
+                    return refusal
             staged.replace(stl)
             return stl
     except OSError as exc:
@@ -774,12 +911,15 @@ def render_views(
     spans one unit per pixel gap, giving 799 in x and y, at exit 0 with nothing
     on stderr, on every run after.
 
-    `_output_over_an_input` does not reach it at all here: that guard knows only
-    `<stem>.stl` and fires only when the out dir IS the source's, which for a
-    view directory it need not be. Widening it means the same under-refusing
-    heuristic in a third place. #226 is the exact answer: the engine's own
-    dependency output names what this render actually READ, and the move can
-    then be refused on a real collision rather than a guess.
+    **The exact answer now exists and this function does not yet use it.** #226
+    landed the mechanism and #263 applied it to the STL move, where
+    `_wrote_over_an_input` refuses on the engine's own dependency list rather
+    than on a guess. The same list would answer here — `surface()` targets are
+    read at parse time, so the STL render's depfile already names the heightmap
+    — but the guard is asked only of `<stem>.stl`, and the view moves below go
+    through untouched. So the residue above survives for PNG destinations
+    exactly as measured, and it survives as a known one rather than as an
+    unanswerable one.
     """
     stl = render(source, out_dir, timeout_s=timeout_s, deps_out=deps_out)
     if isinstance(stl, BuildError):
@@ -1218,17 +1358,26 @@ class Closure:
         return bool(self.unresolved) or self.reads_external_data
 
     @property
-    def partial_reason(self) -> str | None:
-        """Why it is partial, phrased for a refusal — None when it is not.
+    def unresolved_reason(self) -> str | None:
+        """Why a *pre-render* guard must refuse, phrased for one — None if it need not.
 
-        One spelling, because two guards now ask this question: the file-mode
+        One spelling, because two guards ask this question: the file-mode
         `--out` refusal in `cli._measure_resolved` and the source-directory
         one in `render`. A reader who trips both must not be told the same
         thing two ways, and the phrasing is the part of a refusal most likely
         to drift when it is written twice.
+
+        **Narrower than `partial` since #263, and the difference is which
+        signal can answer later.** This used to refuse on either arm of
+        `partial`, because before the depfile nothing could ever do better. An
+        `import()`/`surface()` target now is named in the engine's own
+        dependency output, so refusing before the render refuses a case that
+        becomes decidable seconds later — that arm moved to
+        `_wrote_over_an_input`, which answers it exactly. An **unresolved
+        include** is named nowhere: the depfile lists what was opened, never
+        what was asked for (`RenderDeps`), so no later signal supersedes this
+        one and refusing early is the only honest answer there is.
         """
-        if self.reads_external_data:
-            return "reads external data (import()/surface())"
         if self.unresolved:
             return f"has include(s) partspec could not resolve ({', '.join(self.unresolved)})"
         return None

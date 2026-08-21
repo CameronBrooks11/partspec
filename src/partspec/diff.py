@@ -381,9 +381,16 @@ def _gap_phrase(token: str, sides: set[str], closures: dict[str, dict[str, Any]]
             "option closes that)"
         )
     if token == "external_data_reads":
+        # Phrased as a fact about THIS RUN, not about the engine, because it
+        # has to stay true of a report written before 0.7.7 — those carry no
+        # `engine_inputs` at all, and saying "the engine did not report" would
+        # assert something about a render this reader has no record of. The
+        # remedy is named because since #226 there is one: the gap survives
+        # only where the engine's own dependency output is missing or partial.
         return (
-            "the model reads external data: import()/surface() name files whose paths "
-            "partspec cannot resolve statically"
+            "the model reads external data (import()/surface()) and this run carries no "
+            "complete engine-reported input set, so which files those were is unrecorded "
+            "(a successful render on an engine that accepts -d records them)"
         )
     if token == "unresolved_includes":
         return "the model include()s or use()s files partspec could not find on any search path"
