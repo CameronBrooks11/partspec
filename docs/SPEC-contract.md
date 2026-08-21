@@ -838,8 +838,19 @@ those strings, so the classification is made in the engine and carried on `Build
 (`produced_nothing`, `unresolved`) rather than by the runner reading stderr.
 
 A Python model has no equivalent hazard: an unresolved name raises, it does not silently
-render empty. Its null results — a null shape, an empty CadQuery stack — set the same
-flag, so the check reads the same on either tier.
+render empty. Its null results all set the same flag, so the check reads the same on
+either tier — a null shape, an empty CadQuery stack, **and an empty `Compound` with no
+underlying handle**, which is what build123d returns for `a & b` on two disjoint solids
+and so the one a clearance probe on that tier actually produces. That third one did not
+set the flag until #271, which meant `empty` could not pass on the OCCT tier for any
+input at all while this paragraph said it read the same on both.
+
+**What a null result cannot tell you**, on any kernel that declines to represent a
+zero-thickness one: whether the two parts are clear of each other or merely touching.
+Both build to nothing on build123d and on OpenSCAD's manifold backend, so `empty` passes
+for either — the sheet §4.2 measures survives only where the kernel keeps it. Open as
+#270; until it is settled, a clearance probe's *pass* means "no shared volume" and not
+"no contact".
 
 **The claim is exclusive by nature, not by rule.** An empty part has no mesh, so every
 other geometry check on it is skipped and the run reports `incomplete` (§3.1) rather than
