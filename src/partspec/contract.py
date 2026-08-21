@@ -37,8 +37,12 @@ BUILD_PHASE_KINDS: frozenset[str] = frozenset({"builds", "empty"})
 """Kinds decided from the BUILD itself, before any backend primitive is asked.
 
 Neither has an entry in `GEOMETRY_KINDS`, because neither has a primitive that
-answers it: `builds` is whether the engine produced anything, and `empty` is the
-contract declaring that nothing was the intended result (SPEC-contract 4.12).
+answers it: `builds` is whether the engine produced what the contract asked
+for, and `empty` is the contract declaring that nothing was the intended result
+(SPEC-contract 4.12). Those two sentences interact, which is easy to miss:
+`empty` is the only thing that makes "produced what was asked for" differ from
+"produced anything", and a part declaring it passes `builds` on a render that
+wrote no artifact at all.
 Both run on either tier, since both are answered from `BuildError` rather than
 from geometry.
 
@@ -70,7 +74,10 @@ GEOMETRY_KINDS: dict[str, str] = {
 }
 """The closed geometry vocabulary, mapped to the backend primitive that answers
 it. `builds` is absent because it is implicit and has no primitive — it is
-whether the engine produced anything at all.
+whether the engine produced what the contract asked for, which is *anything*
+unless the contract declared `empty` (SPEC-contract 4.12). It read "produced
+anything at all" until `empty` shipped and made that false in the one case the
+check exists for.
 
 These entries have primitives that are **not** on both tiers — the checks that
 make the tier difference visible to a contract author rather than merely

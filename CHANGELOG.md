@@ -244,6 +244,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **What `builds` means, now that `empty` exists.** `p.empty()` shipped and made
+  three statements about `builds` false in the same batch that introduced it —
+  including one in a docstring written by that PR. `SPEC-contract.md` §4.2 said
+  `builds` "fails if the engine exits non-zero or emits no artifact", which is
+  exactly what a declared-empty part does while `builds` **passes**; and both the
+  `GEOMETRY_KINDS` and `BUILD_PHASE_KINDS` docstrings called it "whether the
+  engine produced anything". It is whether the engine produced *what the contract
+  asked for*, which is `anything` unless the contract declared `empty` — the one
+  case that makes the two readings differ.
+  §4.2 also now separates the two meanings of the word, which `p.empty()` made
+  collide: the **verdict** `empty` is a contract that declared nothing, the
+  **check** `empty` is a contract that declared nothing was the result. Nothing
+  in the code can confuse them — a `Verdict` member and a `kind` string are never
+  compared — so the risk is a reader's, and a test pins the one contract where
+  both could plausibly apply.
+
 - **A region declared 10 000 km from the origin no longer dies blaming its
   author** (#245). `_max_intrusion_depth` erodes the region 24 times to prove
   how deep material reaches, and at extreme coordinates the constructor refused

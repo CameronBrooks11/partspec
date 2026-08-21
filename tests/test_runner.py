@@ -725,6 +725,34 @@ def test_a_part_that_builds_geometry_fails_its_declared_empty(tmp_path: Path):
 
 
 @needs_openscad
+def test_the_empty_VERDICT_and_the_empty_CHECK_are_not_the_same_thing(tmp_path: Path):
+    """One word, two unrelated meanings, and they meet in one contract.
+
+    The verdict `empty` means a contract that declared NOTHING — the vacuous-green
+    guard above, exit 3. The check `empty` means a contract that declared nothing
+    was the RESULT. A part carrying only `p.empty()` is the case where both could
+    plausibly apply, and it must take the second: it asserted something, and the
+    assertion held.
+
+    Nothing in the code can confuse them — a `Verdict` member and a `kind` string
+    live in different namespaces and are never compared — so this pins the
+    distinction that a READER can conflate, and that `SPEC-contract.md` §4.2 now
+    spells out because `p.empty()` made the collision reachable (#237).
+    """
+    scad = tmp_path / "clear.scad"
+    scad.write_text(_CLEARANCE_PROBE.format(z=15))
+
+    declared_nothing_is_the_result = Part("probe", openscad(scad))
+    declared_nothing_is_the_result.empty()
+    report = run(declared_nothing_is_the_result, out_dir=tmp_path / "out")
+    assert report.verdict is Verdict.PASS
+    assert report.exit_code == 0
+
+    # And the default id is the kind, which must not be mistaken for the verdict.
+    assert [c.id for c in report.checks if c.kind == "empty"] == ["empty"]
+
+
+@needs_openscad
 def test_an_undeclared_empty_build_still_fails_exactly_as_before(tmp_path: Path):
     """`empty` is opt-in, and nothing else moves.
 

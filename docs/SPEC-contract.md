@@ -163,8 +163,15 @@ on. `p.requires` is the escape hatch for anything relational.
 <!-- END GENERATED: vocabulary-geometry -->
 
 `builds` is **implicit and always present**: every part gets it, and it fails if the engine
-exits non-zero or emits no artifact. It is the one check an author cannot forget, and it is
-why a contract with no declared checks still reports `empty` rather than crashing.
+exits non-zero or emits no artifact — *unless* the contract declared `empty` and the engine's
+own result was the empty one it declared, in which case the engine produced what it was asked
+for and `builds` passes (§4.12). It is the one check an author cannot forget, and it is why a
+contract with no declared checks still reports `empty` rather than crashing.
+
+The word `empty` carries two unrelated meanings here and they are worth separating: the
+**verdict** `empty` is a contract that declared nothing, and the **check** `empty` is a
+contract that declared nothing was the result. A part can be neither, either, or — for a
+`Part` carrying only `p.empty()` — not both, since that part has a declared check.
 
 ### 4.2.2 `topology` — the check that makes the tiers visible
 
