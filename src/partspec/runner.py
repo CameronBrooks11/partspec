@@ -1208,7 +1208,25 @@ def _max_intrusion_depth(
         if hi - lo <= _DEPTH_TOLERANCE:
             break
         mid = (lo + hi) / 2
-        outcome = backend.intersect_volume(artifact, backend.region_solid(region.expand(-mid)))
+        try:
+            eroded = region.expand(-mid)
+        except ContractError:
+            # The eroded region is not REPRESENTABLE at these coordinates, which
+            # is not the author's fault and is not a depth. `mid` is strictly
+            # below the inradius, so in exact arithmetic the region still
+            # encloses volume; what refuses it is that `min + mid` and
+            # `max - mid` round to the same double. That needs an elongated
+            # region — whose ceiling sits at its inradius, so the search probes
+            # to within `inradius * 2**-23` of the degeneracy — declared where
+            # the coordinate's ulp exceeds that: measured fine at x = 1e9 and
+            # refused at x = 1e10, ~10 000 km out (#245).
+            #
+            # No depth rather than a ContractError blaming a legal declaration,
+            # and rather than a zero that would read as "reaches nowhere" on a
+            # clause that is failing. Bounding the probe below the ceiling was
+            # the other candidate and does not reach this case at all.
+            return None
+        outcome = backend.intersect_volume(artifact, backend.region_solid(eroded))
         if isinstance(outcome, Unsupported):
             return None
         if float(outcome.value) > epsilon(0.0):

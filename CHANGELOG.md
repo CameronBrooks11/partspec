@@ -168,6 +168,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A region declared 10 000 km from the origin no longer dies blaming its
+  author** (#245). `_max_intrusion_depth` erodes the region 24 times to prove
+  how deep material reaches, and at extreme coordinates the constructor refused
+  its own eroded copy: `box region min must be strictly below max on every
+  axis; x: 10000000004.0 vs 10000000004.0`. A `ContractError` naming a
+  declaration that was legal, raised only after every backend boolean had been
+  paid for.
+  It takes two conditions, which is why #244 fixed the neighbouring case and
+  left this one. The search brackets `[0, inradius()]` and halves 24 times, but
+  `hi` collapses toward `_search_ceiling`, so only a region whose ceiling sits
+  *at* its inradius — an elongated one, where the erosion closes one axis
+  rather than three — probes near the degeneracy at all; an 8x8x8 keep-out
+  stops 1e-2 mm short of it and is fine at any offset. The coordinate's ulp
+  then has to exceed the extent left at that probe: 8x400x400 is fine at
+  x = 1e9 and refused at x = 1e10, an ulp of 1.9e-6 mm against an extent of
+  4.8e-7 mm.
+  The clause still fails — material fills the region, and that much is decided
+  by the same booleans as before. What it no longer does is claim a depth: the
+  erosion is not representable at those coordinates, so the honest answer is
+  the one this function already gives when the backend cannot answer. Bounding
+  the probe below the ceiling, the other remedy #245 proposes, was measured and
+  does not reach this case: the elongated region's ceiling *is* its inradius to
+  within 3e-12.
+
+- **`eroded_volume` refuses a non-finite offset, as `expand` already did**
+  (#245). It clamped with `max(0.0, ...)`, and `max(0.0, nan)` is `0.0` in
+  Python, so a NaN offset was graded "erodes to nothing" — an answer — while
+  `expand(-nan)` raised. It was the only region entry point that accepted a
+  non-finite argument. Not reachable from the search, whose probe is a midpoint
+  of two finite bounds, so this is a public method brought back in line rather
+  than a live defect.
+
 - **`check --render` takes the several targets `check` itself takes** (#189).
   It refused them — `partspec: --render is single-target for now`, exit 64 —
   and the "for now" was right: nothing under the refusal was load-bearing.

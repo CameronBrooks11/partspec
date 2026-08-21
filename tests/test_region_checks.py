@@ -1007,6 +1007,77 @@ def test_a_region_declared_far_from_the_origin_still_reports_a_depth():
     assert _search_ceiling(tall) < tall.inradius() == 20.5
 
 
+def test_a_region_too_far_from_the_origin_for_the_search_reports_no_depth():
+    """No depth, and above all no `ContractError` blaming the author (#245).
+
+    The residue of the case above, five orders of magnitude further out. It
+    takes BOTH conditions, which is why #245's own reproduction understates it:
+
+    * The loop brackets `[0, inradius()]` and halves `_DEPTH_BISECTIONS` times,
+      but `hi` collapses toward `_search_ceiling` because the predicate is False
+      above it. So the deepest probe is `ceiling - inradius * 2**-24`, and only
+      a region whose ceiling sits AT its inradius — an elongated one, where the
+      erosion collapses one axis and not three — probes near the degeneracy at
+      all. The 8x8x8 case stops 1e-2 mm short of it and is fine at any offset.
+    * The coordinate's ulp then has to exceed the extent left at that probe,
+      `inradius * 2**-23`. Measured: 8x400x400 is fine at x=1e9 and raises at
+      x=1e10, an ulp of 1.9e-6 against an extent of 4.8e-7.
+
+    Bounding the probe at the ceiling — the other remedy #245 offers — is what
+    the elongated case defeats: its ceiling IS its inradius to within 3e-12.
+
+    `None` is the honest answer rather than a depth of zero: the erosion is not
+    representable at these coordinates, which is what this function's other
+    `None` branches already mean.
+    """
+    from partspec.region import box
+
+    surround = _box_part((-1e12, -1e12, -1e12), (1e12, 1e12, 1e12))
+
+    # Elongated: the ceiling sits at the inradius, so the search probes into
+    # the degeneracy. This raised.
+    far = box(min=(1e10, 0.0, 0.0), max=(1e10 + 8.0, 400.0, 400.0))
+    got = _region_result(surround, "keep_out", far, 1.0)
+    assert got.status is Status.FAIL  # material fills it; that much is still decided
+    assert got.intrusion is None, got.intrusion
+
+    # Equilateral at the same offset still reports its depth — the fix must not
+    # buy safety by going blind on every distant region.
+    equilateral = box(min=(1e10, 0.0, 0.0), max=(1e10 + 8.0, 8.0, 8.0))
+    got = _region_result(surround, "keep_out", equilateral, 1.0)
+    assert got.intrusion is not None
+    assert got.intrusion["min_depth_mm"] == pytest.approx(3.995, abs=1e-3)
+
+    # And the elongated region is fine one order of magnitude in, which is what
+    # makes this the residue of the case above rather than a wider regression.
+    near = box(min=(1e9, 0.0, 0.0), max=(1e9 + 8.0, 400.0, 400.0))
+    got = _region_result(surround, "keep_out", near, 1.0)
+    assert got.intrusion is not None
+    assert got.intrusion["min_depth_mm"] == pytest.approx(4.0, abs=1e-5)
+
+
+def test_eroded_volume_refuses_a_non_finite_offset_as_expand_does():
+    """`max(0.0, nan)` is `0.0` in Python, so a NaN offset reported a volume of
+    zero — an answer — where `expand(-nan)` raises. It was the only region entry
+    point that accepted a non-finite argument (#245, round-4 review of #207).
+
+    Not reachable from the search, whose `mid` is a midpoint of two finite
+    bounds. Pinned because a public method that quietly grades `nan` as "erodes
+    to nothing" is the silent-wrong-answer channel, in the one place the codebase
+    already decided against it one method over.
+    """
+    from partspec.region import box, cylinder
+    from partspec.status import ContractError
+
+    for region in (
+        box(min=(0, 0, 0), max=(8, 400, 400)),
+        cylinder(d=41.0, h=18.0, at=(0, 0, -5)),
+    ):
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with pytest.raises(ContractError, match="not a number"):
+                region.eroded_volume(bad)
+
+
 def test_eroded_volume_is_expand_then_volume_without_the_coordinates():
     """Its whole contract, and it was unpinned: dropping the `sec(pi/n)` factor
     from the cylinder form put it 0.24% out and survived the suite (round-4
