@@ -868,20 +868,20 @@ penetration:
 | kernel | trips on | floor | result |
 |---|---|---|---|
 | OCCT — build123d / CadQuery | overlap depth | ≈5.97e-7 mm, constant | empty compound; `empty` passes |
-| CGAL — OpenSCAD 2021.01 | a feature's cross-section | ≈1.9e-6 mm | nothing exported; `empty` passes |
+| CGAL — OpenSCAD 2021.01 | a feature's cross-section | ≈1.9e-6 mm near the origin; further out, disputed (#315) | nothing exported; `empty` passes |
 | manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ≈2.4e-7 mm near the origin, and **not constant** — it rises with the feature's distance from it | nothing exported; `empty` passes |
 
 CGAL is the exception in one direction: bisected to 1e-13 mm it never discards a sheet
-for thinness alone, only for cross-section. manifold's is the one that **moves**: measured
-at half a float32 ULP at the feature's own coordinate — 2.4e-7 mm at the origin, 9.5e-7 mm
+for thinness alone, only for cross-section. And **manifold's floor moves**: measured at
+half a float32 ULP at the feature's own coordinate — 2.4e-7 mm at the origin, 9.5e-7 mm
 15 mm out — so a part modelled far from the origin has a coarser floor than one modelled
-at it, and the figures here are for parts near the origin.
+at it. One measurement has CGAL's rising the same way beyond ~100 mm; another has it
+constant. Every figure in the table above is therefore for a part near the origin.
 
-**How far it rises is not settled.** Two independent measurements of this repo disagree
-above ~100 mm: one has the half-ULP relation continuing to ~4.9e-4 mm at ten metres, the
-other has it flattening near 1.9e-6 mm. Both used oracles that avoid float32 export, so
-the disagreement is real rather than an artefact of one method, and it is tracked rather
-than resolved here (#315). **Do not rely on this bound for a part modelled far from the
+**How far it rises is not settled, for either OpenSCAD kernel.** Two independent
+measurements of this repo disagree above ~100 mm: one has the half-ULP relation continuing
+to ~4.9e-4 mm at ten metres, the other has it flattening near 1.9e-6 mm. Tracked rather
+than resolved here (#315). **Do not rely on these figures for a part modelled far from the
 origin** — which is the actionable half, and is true under either measurement.
 
 OCCT's floor is a declared kernel constant and does not vary with the face — but the
