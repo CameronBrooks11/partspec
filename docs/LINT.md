@@ -175,7 +175,11 @@ exists to name — the message describes the geometry instead.
   than the solid — an upper bound, which is all `csg-difference-order` needs,
   and the finding already says it compares upper bounds. And a **globally
   inverted** surface (every face reversed) is closed and coherently wound, so
-  it is measured; the magnitude is right and the sign is discarded.
+  it is measured; the magnitude is right and the sign is discarded. The one
+  shape that can therefore read *below* the true material is a solid plus a
+  disjoint inverted shell — measured 784 mm3 for 1000 mm3 of material — which
+  is a pathological authoring error rather than a partspec disagreement:
+  OpenSCAD's own exported mesh measures 784 too.
 - **Rationale:** skills/openscad-authoring rule 2 — the first child is the material;
   the wrong order is a different part, sometimes an empty one.
 - **Real example:** the skill's rule-2-before block fires; its after-form is clean.

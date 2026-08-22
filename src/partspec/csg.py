@@ -217,10 +217,15 @@ def _require_closed(points: list, faces: list) -> None:
     only because that runs on partspec's own canonical triangulation, where one
     index is one vertex by construction; user input carries no such invariant.
 
-    Welding is on exact equality. Two vertices a float apart are treated as
-    distinct and the surface is refused rather than measured -- the safe
-    direction, since the alternative is a number computed over a surface whose
-    closure was assumed.
+    Welding is on exact equality, and that is right rather than merely safe:
+    OpenSCAD's `.csg` writer prints coordinates at six significant digits, so
+    sub-precision noise has already been welded upstream by the exporter. Both
+    engines export `0.1 + 0.2` and `0.3` as the same literal `0.3`, and a
+    corner displaced by 1e-5 at scale 10 still exports as `10`. A tolerance
+    here would be strictly worse -- it would weld what the export kept apart,
+    which at 1e-3 is the case OpenSCAD itself reports as a leak. Measured on
+    both pinned engines, with zero disagreements between what the exporter
+    welds and what this accepts (review of PR #312).
     """
     canonical: dict[tuple[float, ...], int] = {}
     weld: list[int] = []

@@ -332,13 +332,16 @@ def test_no_test_shells_out_to_a_hardcoded_engine_name():
     honours the variable. Use it.
     """
     # Assembled rather than written out, so this file is not its own offender.
+    # Matched as a list literal's first element rather than on `subprocess.run(`,
+    # which would miss `check_output`, `Popen`, and `cmd = [...]` bound one line
+    # above the call -- three forms that fail exactly the same way.
     engine = "openscad"
-    needles = (f'subprocess.run(["{engine}"', f"subprocess.run(['{engine}'")
+    needle = re.compile(r"""\[\s*["']""" + engine + r"""["']""")
     offenders: list[str] = []
     for path in sorted(Path(__file__).parent.glob("test_*.py")):
         for number, line in enumerate(path.read_text().splitlines(), 1):
             if line.strip().startswith("#"):
                 continue
-            if any(needle in line for needle in needles):
+            if needle.search(line):
                 offenders.append(f"{path.name}:{number}")
     assert not offenders, f"use support.OPENSCAD, not the literal name: {', '.join(offenders)}"
