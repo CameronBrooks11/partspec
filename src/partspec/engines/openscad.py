@@ -1654,11 +1654,19 @@ def include_closure(entry: Path) -> Closure:
     unresolved: set[str] = set()
     unresolved_includes: set[str] = set()
     external = False
-    queue: deque[Path] = deque([entry])
+    # The flag is whether this file's top-level assignments reach the ENTRY's
+    # top level, which needs an unbroken chain of `include`. Measured rather
+    # than reasoned: with `entry` -> use -> include of a file declaring `X`,
+    # the engine prints `Ignoring unknown variable 'X'`, where including that
+    # file directly renders it. So `use` stops the chain even transitively, and
+    # a set of "includes seen anywhere in the walk" would claim the entry's
+    # variable list was shortened by a file that could never have widened it.
+    spliced: set[Path] = {entry}
+    queue: deque[tuple[Path, bool]] = deque([(entry, True)])
     search = library_path()
 
     while queue:
-        current = queue.popleft()
+        current, reaches_entry = queue.popleft()
         try:
             text = _strip_noise(current.read_text(encoding="utf-8", errors="replace"))
         except OSError:
@@ -1669,16 +1677,28 @@ def include_closure(entry: Path) -> Closure:
             ref = raw.strip()
             if not ref:
                 continue
+            spliced_here = reaches_entry and keyword == "include"
             found = next(
                 (c for c in ((b / ref) for b in (current.parent, *search)) if c.is_file()), None
             )
             if found is None:
                 unresolved.add(ref)
-                if keyword == "include":
+                if spliced_here:
                     unresolved_includes.add(ref)
-            elif (resolved := found.resolve()) not in seen:
+                continue
+            resolved = found.resolve()
+            if resolved not in seen:
                 seen.add(resolved)
-                queue.append(resolved)
+                if spliced_here:
+                    spliced.add(resolved)
+                queue.append((resolved, spliced_here))
+            elif spliced_here and resolved not in spliced:
+                # Reached first through a `use` and now through an `include`:
+                # the second visit is what makes its own includes splice, and
+                # `seen` alone would have swallowed it. Bounded -- a file is
+                # queued at most twice, and never again once spliced.
+                spliced.add(resolved)
+                queue.append((resolved, True))
 
     return Closure(
         files=tuple(sorted(seen)),

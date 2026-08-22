@@ -1562,3 +1562,39 @@ def test_an_unresolved_use_does_not_excuse_a_parameter_that_binds_nothing(tmp_pa
     # the missing file, after which the transposed `-D` reached `verdict: pass`.
     assert "INCOMPLETE" not in result.message
     assert result.origin == "model"
+
+
+def test_only_an_unbroken_include_chain_shortens_the_variable_list(tmp_path: Path):
+    """`use` stops the chain, and it stops it transitively.
+
+    Measured on the engine rather than reasoned from the manual: with
+    `entry -> use -> include` of a file declaring `X`, OpenSCAD prints
+    `Ignoring unknown variable 'X'` at the entry, where including that file
+    directly renders `X`. So a file behind a `use` can never widen the entry's
+    top-level variable list, and an unresolved `include` found inside one
+    cannot have narrowed it.
+
+    Without this, `unresolved_includes` was "every unresolved include seen
+    anywhere in the walk", which claims a shortened list for a file that could
+    not have contributed to it -- the same false sentence #287 exists to
+    remove, one level deeper (review of PR #310).
+    """
+    (tmp_path / "vars.scad").write_text("X = 5;\n")
+    (tmp_path / "behind_use.scad").write_text("include <gone_a.scad>\nmodule m() { cube(1); }\n")
+    (tmp_path / "mid.scad").write_text("include <gone_b.scad>\n")
+
+    # Reached only through a `use`: its unresolved include is invisible to the
+    # entry's variable list, so it must not be named as shortening it.
+    through_use = _scad(tmp_path, "e1.scad", "use <behind_use.scad>\ncube([1, 1, 1]);\n")
+    c1 = openscad.include_closure(through_use)
+    assert c1.unresolved == ("gone_a.scad",), "still unresolved for every other question"
+    assert c1.unresolved_includes == ()
+
+    # An unbroken include chain does reach the entry, at any depth.
+    through_include = _scad(tmp_path, "e2.scad", "include <mid.scad>\ncube([1, 1, 1]);\n")
+    c2 = openscad.include_closure(through_include)
+    assert c2.unresolved_includes == ("gone_b.scad",)
+
+    # A file both `use`d and `include`d is spliced: the include wins.
+    both = _scad(tmp_path, "e3.scad", "use <mid.scad>\ninclude <mid.scad>\ncube([1, 1, 1]);\n")
+    assert openscad.include_closure(both).unresolved_includes == ("gone_b.scad",)

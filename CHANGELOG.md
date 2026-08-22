@@ -419,7 +419,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `params` asserting the value the geometry never saw. Trading a loud false
   error for a silent false pass is the one trade this tool must not make.
   `Closure` therefore gains **`unresolved_includes`**, and only that arm takes
-  the new sentence. For every other question the two are the same fact —
+  the new sentence. It is include-*reachability*, not "an include seen anywhere
+  in the walk", and the difference was measured rather than reasoned: with
+  `entry → use → include` of a file declaring `X`, the engine prints
+  `Ignoring unknown variable 'X'` where including that file directly renders
+  it. `use` stops the chain transitively, so an unresolved include found behind
+  one cannot have narrowed a list it could never have widened — the same false
+  sentence, one level deeper. For every other question the two are the same fact —
   neither file was read — but for the variable list they differ absolutely:
   `include` splices top-level assignments into the entry and `use` imports only
   modules and functions. Saying otherwise was not merely imprecise, it was
