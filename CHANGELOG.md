@@ -313,15 +313,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unreleased, so this is its introduced meaning rather than a change to one.
   Measured on all three kernels partspec drives: OpenSCAD's CGAL backend keeps
   a zero-thickness contact patch and `empty` fails on it; the OCCT tier always
-  discards it; and **manifold is arrangement-dependent** — a face lying strictly
-  inside another keeps the sheet on the x-plane and discards it on y and z, so
-  neither outcome can be relied on there. `produced_nothing` is set or not with
-  nothing to say which case produced it. CGAL is the predictable one, not the
-  correct one.
-  The sharp end of that: **`empty` can also FAIL on a part whose interference is
-  exactly zero.** On an arrangement manifold keeps, a touching pair builds
+  discards it; and **manifold cannot be predicted at all** — measured, the same
+  two solids answer differently when the intersection's two children are
+  written in the other order, so the outcome tracks floating-point incidentals
+  of evaluation rather than geometry, and no property of the arrangement
+  predicts it. `produced_nothing` is set or not with nothing to say which case
+  produced it. CGAL is the predictable one, not the correct one.
+  The sharp end of that: **`empty` FAILS on a part whose interference is exactly
+  zero, wherever the kernel keeps the sheet** — on CGAL that is every face
+  contact, the ordinary case, not an exotic one. The touching pair builds
   geometry so `empty` fails, while `volume(max=0.0)` on the identical part
-  passes. It is not fixable by wording — the check adjudicates on whether the
+  passes. And in the other direction, on the OCCT tier an overlap below the
+  kernel's modelling tolerance — measured, 1e-7 mm across a 6×6 face — returns
+  an empty compound, so a **real** interference of 3.6e-6 mm3 passes; both
+  OpenSCAD kernels fail correctly at that scale. Sub-physical, and a declared
+  kernel constant rather than a defect, but it is the one direction where a
+  pass is weaker than it reads, so §4.12 states it rather than leaving it
+  implicit. It is not fixable by wording — the check adjudicates on whether the
   engine produced anything, which coincides with the meaning only where the
   kernel refuses to represent a contact — and it is one more reason to prefer
   the grown-part pattern, which never puts a kernel in that position.

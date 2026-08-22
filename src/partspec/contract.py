@@ -552,16 +552,24 @@ class Part:
 
         For an **interference probe** — `intersection() { A; B; }` declared as
         its own part — emptiness is the claim, and the claim is exactly this:
-        **no positive-volume interference**. Not "the parts do not touch", and
-        not "there is clearance". On a kernel that discards a zero-thickness
-        result -- OpenSCAD's manifold backend and the OCCT tier both do --
-        touching and clear are the same signal, so this cannot mean more than
-        it says (#270, SPEC-contract §4.12). The converse bites too: on an
-        arrangement where a kernel DOES keep the sheet, a touching pair builds
-        geometry and this check FAILS though the interference is exactly zero.
-        To assert a clearance, intersect
-        against a part grown by it: a violation then has volume, no
-        zero-thickness result is produced, and every kernel agrees.
+        **no positive-volume interference** -- more precisely, no volume the
+        kernel can represent. Not "the parts do not touch", and not "there is
+        clearance". Where a kernel discards a zero-thickness result -- the OCCT
+        tier always, manifold unpredictably -- touching and clear are the same
+        signal, so this cannot mean more than it says (#270, SPEC-contract
+        §4.12).
+
+        It cuts both ways, and both are worth knowing. Where the kernel KEEPS
+        the sheet -- on CGAL that is every face contact, the ordinary case --
+        a touching pair builds geometry and this check FAILS though the
+        interference is exactly zero. And on the OCCT tier an overlap below the
+        kernel's modelling tolerance (measured: 1e-7 mm across a 6x6 face)
+        returns an empty compound, so a real interference passes.
+
+        To assert a clearance, intersect against a part grown by it: a
+        violation with any margin encloses volume rather than a sheet, and only
+        exact equality between the gap and the declared clearance is
+        degenerate.
 
         Without this check a null result is a build failure and the claim can
         only be written as a bound on a measurement that was never taken, so

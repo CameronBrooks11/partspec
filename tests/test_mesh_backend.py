@@ -652,7 +652,7 @@ def test_a_contact_sheet_reads_twice_its_patch_and_volume_does_not_refuse_it(
     backend: MeshBackend, tmp_path: Path
 ):
     """The number `skills/contract-authoring/SKILL.md` tells an author to expect
-    from a interference probe, executed rather than asserted (#238).
+    from an interference probe, executed rather than asserted (#238).
 
     `intersection()` of two boxes meeting on a face is a zero-thickness sheet.
     Both of its sides are exported, so `area` is TWICE the 10 x 10 patch — the

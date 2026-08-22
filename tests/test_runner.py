@@ -643,7 +643,7 @@ def test_a_declared_primitive_that_refuses_still_names_the_tier():
 # `p.empty()` — declaring that nothing is the intended result (#237, §4.12)
 # --------------------------------------------------------------------------
 
-_CLEARANCE_PROBE = (
+_INTERFERENCE_PROBE = (
     "intersection() {{ cube([10, 10, 10]); translate([0, 0, {z}]) cube([10, 10, 10]); }}\n"
 )
 
@@ -662,7 +662,7 @@ def test_a_declared_empty_part_passes_and_never_reaches_a_measurement(tmp_path: 
     this never reaches the backend, which is the whole point.
     """
     scad = tmp_path / "clear.scad"
-    scad.write_text(_CLEARANCE_PROBE.format(z=15))
+    scad.write_text(_INTERFERENCE_PROBE.format(z=15))
     p = Part("clear", openscad(scad))
     p.empty(id="no-shared-space")
 
@@ -767,11 +767,11 @@ def test_an_empty_result_caused_by_an_unresolved_name_cannot_satisfy_it(tmp_path
 def test_a_part_that_builds_geometry_fails_its_declared_empty(tmp_path: Path):
     """The other direction: the parts DO share space, so the claim is disproven.
 
-    This is the outcome a interference probe is written to catch, and it must read
+    This is the outcome an interference probe is written to catch, and it must read
     as a failed claim rather than as a passing build with nothing said about it.
     """
     scad = tmp_path / "overlap.scad"
-    scad.write_text(_CLEARANCE_PROBE.format(z=8))
+    scad.write_text(_INTERFERENCE_PROBE.format(z=8))
     p = Part("overlap", openscad(scad))
     p.empty(id="no-shared-space")
 
@@ -800,7 +800,7 @@ def test_the_empty_VERDICT_and_the_empty_CHECK_are_not_the_same_thing(tmp_path: 
     spells out because `p.empty()` made the collision reachable (#237).
     """
     scad = tmp_path / "clear.scad"
-    scad.write_text(_CLEARANCE_PROBE.format(z=15))
+    scad.write_text(_INTERFERENCE_PROBE.format(z=15))
 
     declared_nothing_is_the_result = Part("probe", openscad(scad))
     declared_nothing_is_the_result.empty()
@@ -822,7 +822,7 @@ def test_an_undeclared_empty_build_still_fails_exactly_as_before(tmp_path: Path)
     where a relaxation would be invisible until someone's broken part went green.
     """
     scad = tmp_path / "clear.scad"
-    scad.write_text(_CLEARANCE_PROBE.format(z=15))
+    scad.write_text(_INTERFERENCE_PROBE.format(z=15))
     p = Part("clear", openscad(scad))
     p.volume(max=0.001)
 

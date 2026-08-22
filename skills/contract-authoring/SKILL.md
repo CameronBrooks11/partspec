@@ -73,8 +73,10 @@ intersection() { a(); grown_b(0.5); }     // "is there 0.5 mm of clearance"
 
 Declared with `empty()`, the second says *no part of `b`, plus 0.5 mm, meets `a`* — a
 violation with any margin encloses volume rather than a sheet, so every kernel agrees and the bound sits in the
-contract where a reviewer can see it. `partspec lint` flags the bare form advisorily
-(`csg-two-part-intersection`); the bare claim is valid, just narrower than it reads (#270).
+contract where a reviewer can see it. `partspec lint` flags the bare form advisorily on the OpenSCAD tier only
+(`csg-two-part-intersection`; it reads the `.csg` export, so a build123d probe written
+as `a & b` gets no finding). The bare claim is valid either way, just narrower than it
+reads (#270).
 
 `volume` is gated on a closed surface and a contact sheet is often not one: an annular
 contact measured on 2021.01 exports 94 non-manifold edges, so the check reports `n/a`
