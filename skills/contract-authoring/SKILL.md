@@ -55,10 +55,16 @@ something you can claim about. Two outcomes land the same way on every kernel:
 A third outcome exists on **one** kernel only. Parts resting on a face give a
 zero-thickness sheet, which `p.area(...)` measures — but only OpenSCAD's CGAL backend
 keeps that sheet reliably. The OCCT tier never does. Manifold (current OpenSCAD's
-default) is arrangement-dependent: measured, it keeps the sheet for a face lying strictly
-inside another on the x-plane and discards it on y and z. So there *touching* and *clear*
-are usually the same signal and `empty()` passes for either — and on the arrangements it
-keeps, `empty()` **fails** for a touching pair whose interference is exactly zero. **Do
+default) cannot be predicted: there are pairs of solids whose intersection answers
+differently when the intersection's two children are written in the other order, identical
+geometry either way. So there *touching* and *clear* are usually the same signal and
+`empty()` passes for either — and on the cases it keeps, `empty()` **fails** for a touching
+pair whose interference is exactly zero.
+
+Every kernel also has a floor beneath which a *real* interference is discarded and
+`empty()` passes — OCCT at an overlap depth of ~6e-7 mm, CGAL at a feature cross-section
+of ~1e-6 mm, manifold at a feature thickness of ~1e-8 mm. Sub-physical for real parts, and
+the reason `empty()` is stated as "no interference **the kernel can represent**". **Do
 not build a contract on the middle row unless you pin the kernel yourself.**
 
 **`empty()` means no positive-volume interference — not "these parts do not touch", and

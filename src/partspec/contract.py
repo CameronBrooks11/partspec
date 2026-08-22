@@ -560,11 +560,12 @@ class Part:
         §4.12).
 
         It cuts both ways, and both are worth knowing. Where the kernel KEEPS
-        the sheet -- on CGAL that is every face contact, the ordinary case --
-        a touching pair builds geometry and this check FAILS though the
-        interference is exactly zero. And on the OCCT tier an overlap below the
-        kernel's modelling tolerance (measured: 1e-7 mm across a 6x6 face)
-        returns an empty compound, so a real interference passes.
+        the sheet -- on CGAL that is every face contact at any practical
+        scale, its ordinary case -- a touching pair builds geometry and this
+        check FAILS though the interference is exactly zero. And every kernel
+        has a floor beneath which a REAL interference is discarded and this
+        check passes: measured, OCCT at ~6e-7 mm of overlap depth, CGAL at a
+        ~1e-6 mm feature cross-section, manifold at a ~1e-8 mm thickness.
 
         To assert a clearance, intersect against a part grown by it: a
         violation with any margin encloses volume rather than a sheet, and only
@@ -629,9 +630,9 @@ class Part:
         interference gives nothing, which `empty` grades (#237). Between them
         sits resting-on-a-face, which gives area with no volume — **and only on
         a kernel that keeps a zero-thickness result.** OpenSCAD's CGAL backend
-        does; the OCCT tier never does; manifold is arrangement-dependent and
-        usually does not. So that middle outcome cannot be relied on off CGAL
-        (#270, §4.12). Measured on 2021.01: two boxes meeting on a face export
+        does; the OCCT tier never does; manifold cannot be predicted. So that
+        middle outcome cannot be relied on off CGAL (#270, §4.12).
+        Measured on 2021.01: two boxes meeting on a face export
         four triangles that are watertight, so `volume` reads exactly `0.0`; an
         annular contact exports a mesh with 94 non-manifold edges, so `volume`
         refuses and `area` still answers (#238).
