@@ -190,8 +190,6 @@ def test_measure_out_file_refuses_without_touching_the_destination(tmp_path: Pat
     assert after == before, "the refusal overwrote the caller's artifact"
     # And the two are genuinely distinguishable, so the assertion above is not
     # satisfied by the parts happening to render the same bytes.
-    ref = tmp_path / "ref.stl"
-    ref.write_bytes(before)
     assert len(before) > 1000, "the good artifact must not degenerate to a bare cube"
 
 

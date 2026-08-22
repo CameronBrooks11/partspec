@@ -449,7 +449,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does lose its imported solid there and the guard really should say so.
   Alongside: `is_undef()` — how a source legitimately probes for a name it does
   not require — emits no warning, while reading an undefined variable directly
-  *does* warn and silently renders a default cube. One behaviour change worth naming: `include <optional.scad>`
+  *does* warn and silently renders a default cube. One behaviour change worth
+  naming: `include <optional.scad>`
   for a file that is deliberately absent now errors rather than rendering, and
   that is intended — the closure genuinely is partial.
 

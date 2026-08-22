@@ -1462,21 +1462,27 @@ def test_the_unresolved_markers_match_both_engine_spellings():
         assert not openscad._unresolved_lines(benign, openscad._UNRESOLVED_NAME_MARKERS), benign
 
 
-def test_the_empty_result_marker_matches_both_engines():
-    """`_EMPTY_RESULT` decides `produced_nothing`, which decides `p.empty()`.
+@needs_openscad
+def test_the_empty_result_marker_matches_what_the_engine_prints(tmp_path: Path):
+    """`_EMPTY_RESULT` decides `produced_nothing`, and so decides `p.empty()`.
 
-    Measured, not assumed, after the include marker turned out to have been
-    dead on 2026.08.01 since the snapshot leg was added: an intersection of two
-    disjoint cubes prints the same sentence on both binaries, byte for byte.
-    Pinned here because that is the fact the include marker lacked -- nothing
-    asserted it, so nothing noticed when it stopped being true.
+    Asserted against stderr an engine actually produced, not against a literal:
+    a literal spelled from the constant is a tautology that can only fail by
+    editing the constant, and would not have caught the include marker's
+    `Can't open` / `Can't find` divergence either. This renders a genuinely
+    null result -- two disjoint cubes intersected -- and checks the constant
+    against what came back, so it fails on whichever engine changes the
+    wording. Both pinned binaries print the bare sentence today.
     """
-    for line in (
-        # 2021.01 and 2026.08.01 alike, from `intersection()` of two disjoint cubes
-        "Current top level object is empty.",
-        "WARNING: Current top level object is empty.",
-    ):
-        assert openscad._EMPTY_RESULT in line
+    src = tmp_path / "e.scad"
+    src.write_text(
+        "intersection() {\n  cube([10,10,10]);\n  translate([50,0,0]) cube([10,10,10]);\n}\n"
+    )
+    result = openscad.render(OpenSCADSource(path=src), tmp_path / "out")
+
+    assert isinstance(result, BuildError)
+    assert result.produced_nothing, "the empty result was not recognised as one"
+    assert openscad._EMPTY_RESULT in (result.stderr or "")
 
 
 def test_a_missing_use_library_is_not_itself_an_unresolved_name():

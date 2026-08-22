@@ -126,7 +126,8 @@ Read the non-`pass` statuses in `checks[]`:
   unresolved module, function or variable names the file and the line number on both. An
   include that did not open reads `Can't open include file 'BOSL2/std.scad'.` on 2021.01
   — the include path and nothing else — and `Can't find include file 'BOSL2/std.scad'. in
-  file <entry>, line N` on 2026.08.01. So on the older engine, start from the include
+  file <the file containing the include>, line N` on 2026.08.01 — which for a nested
+  library include is not the entry file. So on the older engine, start from the include
   path; do not expect a location. Whether it is a typo or a library absent from this
   machine is what partspec cannot tell, which is why the origin is `null` rather than a
   guess.
