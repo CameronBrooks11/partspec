@@ -224,7 +224,7 @@ _NO_GEOMETRY = (
 
 Both carry `produced_nothing`, which is the whole of #271. `a & b` on two
 disjoint solids returns an empty `Compound`, so this — not `IsNull()`, and not
-the empty CadQuery stack — is what a clearance probe on the OCCT tier actually
+the empty CadQuery stack — is what an interference probe on the OCCT tier actually
 hits, and it was the one null result the flag did not reach. `p.empty()` could
 therefore not pass for ANY input on that tier, while `SPEC-contract.md` §4.12
 said the check "reads the same on either tier".

@@ -29,7 +29,7 @@ Verify CAD-as-code parts against declared engineering intent.
 > with no baseline in hand, and the rules an agent follows are
 > [`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md).
 > And the repo teaches the craft it verifies: `partspec lint` (advisory; tier 1 is
-> engine-free, the two `csg-*` tier-2 rules need the OpenSCAD binary and refuse without it),
+> engine-free, the three `csg-*` tier-2 rules need the OpenSCAD binary and refuse without it),
 > three authoring skills, worked exemplars, the observed
 > [failure catalogue](https://github.com/CameronBrooks11/partspec/blob/main/docs/FAILURE-MODES.md),
 > and a [recorded before/after](https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md)

@@ -32,7 +32,7 @@ import re
 from pathlib import Path
 
 import pytest
-from support import measured, needs_scad_tier
+from support import OPENSCAD, measured, needs_openscad, needs_scad_tier
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
@@ -847,3 +847,49 @@ def test_the_spec_samples_show_the_version_the_tool_actually_emits():
             f"{name} samples a tool version of {sorted(set(shown))} and the package is "
             f"{installed}. A sample is what a consumer copies: update the literal."
         )
+
+
+@needs_openscad
+def test_every_openscad_fence_in_the_docs_parses():
+    """A fenced example a reader copies must at least be OpenSCAD.
+
+    A mechanical rewrap of `SPEC-contract.md` once pushed the trailing word of
+    a `//` comment onto its own line *inside* the fence, so the flagship
+    example of §4.12 -- the clearance pattern the section exists to recommend
+    -- stopped parsing, while `skills/`' copy of the same block stayed intact.
+    Nothing caught it: `just check` does not read fenced code, and the two
+    documents silently disagreed (review of PR #313).
+
+    Covers ```openscad and ```scad alike -- `skills/openscad-authoring`
+    uses the short form, and a guard that misses the document teaching
+    OpenSCAD would be the wrong half. Undefined modules are expected: the
+    blocks are fragments, and `Ignoring unknown module` is a warning, so the
+    assertion is on the exit status, which is what a rewrap breaks.
+    """
+    import re
+    import subprocess
+    import tempfile
+
+    fences: list[tuple[str, str]] = []
+    for md in sorted(ROOT.glob("docs/*.md")) + sorted(ROOT.glob("skills/**/*.md")):
+        for block in re.findall(r"```(?:openscad|scad)\n(.*?)```", md.read_text(), re.S):
+            fences.append((md.relative_to(ROOT).as_posix(), block))
+    assert fences, "no openscad fences found; the query is wrong, not the docs"
+    assert OPENSCAD is not None  # guaranteed by @needs_openscad
+
+    with tempfile.TemporaryDirectory(prefix="partspec-fence-") as tmp:
+        for name, block in fences:
+            src = Path(tmp) / "fence.scad"
+            src.write_text(block)
+            proc = subprocess.run(
+                [OPENSCAD, "-o", str(Path(tmp) / "fence.csg"), str(src)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            # returncode, not just the absence of "Parser error": a fence can
+            # be syntactically valid and still fail to export, and the
+            # docstring claims the export succeeds.
+            assert proc.returncode == 0, (
+                f"{name}: fenced openscad did not export\n{proc.stderr}\n---\n{block}"
+            )

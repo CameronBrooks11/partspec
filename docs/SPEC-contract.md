@@ -809,13 +809,16 @@ measurand stated above.
 result. Both tiers. It has no backend primitive and takes no bound — like `builds`, it is
 adjudicated from the build itself, which is why neither appears in `GEOMETRY_KINDS`.
 
-**Why the vocabulary needs it.** A clearance probe — `intersection() { A; B; }` declared
-as its own part — has three outcomes, and until this check only the *bad* one could be
-graded. Interpenetrating parts give a closed solid and `volume` grades it. Parts resting
-on a face give a zero-thickness sheet, which `area` measures (§4.2). Parts that share no
-space give nothing at all, and an empty build is a hard failure before any claim is
+**Why the vocabulary needs it.** An interference probe — `intersection() { A; B; }`
+declared as its own part — could until this check grade only the *bad* outcome.
+Interpenetrating parts give a closed solid and `volume` grades it. Parts that do not
+interfere give nothing at all, and an empty build is a hard failure before any claim is
 evaluated — so `volume(max=0)` was **skipped rather than satisfied**, and the good answer
 was the one the tool could not state.
+
+Parts resting on a face give a zero-thickness sheet, which `area` measures (§4.2) — but
+only CGAL keeps that sheet reliably, so it is not part of this check's vocabulary. The
+meaning below says why.
 
 **Opt-in, and nothing else moves.** A part that does not declare `empty` and builds to
 nothing still fails exactly as before. For an ordinary part contract a null render is a
@@ -827,7 +830,7 @@ visible in an exit code. On OpenSCAD 2021.01 a genuinely null intersection and a
 whose geometry never existed are **identical downstream**: both exit 1 with
 `Current top level object is empty.` and write no STL. A misspelt module name, or an
 include that did not open, yields nothing to intersect — so without a guard, one typo
-would make every clearance probe in a contract pass, and the more broken the source the
+would make every interference probe in a contract pass, and the more broken the source the
 greener the run.
 
 The only evidence separating them is the engine's own diagnostics above that line —
@@ -841,23 +844,117 @@ A Python model has no equivalent hazard: an unresolved name raises, it does not 
 render empty. Its null results all set the same flag, so the check reads the same on
 either tier — a null shape, an empty CadQuery stack, **and an empty `Compound` with no
 underlying handle**, which is what build123d returns for `a & b` on two disjoint solids
-and so the one a clearance probe on that tier actually produces. That third one did not
+and so the one an interference probe on that tier actually produces. That third one did not
 set the flag until #271, which meant `empty` could not pass on the OCCT tier for any
 input at all while this paragraph said it read the same on both.
 
-**What a null result cannot tell you**, on any kernel that declines to represent a
-zero-thickness one: whether the two parts are clear of each other or merely touching.
-Both build to nothing on build123d and on OpenSCAD's manifold backend, so `empty` passes
-for either — the sheet §4.2 measures survives only where the kernel keeps it. Open as
-#270; until it is settled, a clearance probe's *pass* means "no shared volume" and not
-"no contact".
+**What `empty` means.** A passing `empty` says the intersection of the two parts encloses
+**no volume the kernel can represent** — no positive-volume interference, to the limit of
+what the kernel keeps. Not "the parts do not touch", not "there is clearance", and not "no
+interference whatsoever": that last qualifier is load-bearing, and §4.11 states
+`min_wall`'s interval for the same reason.
+
+**Why it cannot mean more, and why it sometimes means less.** Past the unresolved-name
+guard above, the check adjudicates on one thing: *did the engine produce anything*. That
+coincides with "no interference" only where the kernel both refuses to represent a contact
+and can represent every real overlap — and no kernel does both. The floors and the
+sheet-representation split below are both consequences of that; manifold's
+unpredictability is not, and is an independent fact about one kernel.
+
+**Every kernel has a representational floor** beneath which a real interference is
+discarded, and the floors sit in different places. Measured, each on a genuine
+penetration:
+
+| kernel | trips on | floor | result |
+|---|---|---|---|
+| OCCT — build123d / CadQuery | overlap depth | ≈5.97e-7 mm, constant | empty compound; `empty` passes |
+| CGAL — OpenSCAD 2021.01 | a feature's cross-section | ≈1.9e-6 mm near the origin; further out, disputed (#315) | nothing exported; `empty` passes |
+| manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ≈2.4e-7 mm near the origin, and **not constant** — it rises with the feature's distance from it | nothing exported; `empty` passes |
+
+CGAL is the exception in one direction: bisected to 1e-13 mm it never discards a sheet
+for thinness alone, only for cross-section. And **manifold's floor moves**: measured at
+half a float32 ULP at the feature's own coordinate — 2.4e-7 mm at the origin, 9.5e-7 mm
+15 mm out — so a part modelled far from the origin has a coarser floor than one modelled
+at it. One measurement has CGAL's rising the same way beyond ~100 mm; another has it
+constant. **Both OpenSCAD figures above are therefore for a part near the origin**; OCCT's
+is not — measured, it does not move with the coordinate out to 1e6 mm.
+
+**How far it rises is not settled, for either OpenSCAD kernel.** Two independent
+measurements of this repo disagree above ~100 mm: one has the half-ULP relation continuing
+to ~4.9e-4 mm at ten metres, the other has it flattening near 1.9e-6 mm. Tracked rather
+than resolved here (#315). **Do not rely on these figures for a part modelled far from the
+origin** — which is the actionable half, and is true under either measurement.
+
+OCCT's floor is a declared kernel constant and does not vary with the face — but the
+*volume* lost at it does: 1.5e-7 mm3 across a 0.5 mm face, 2.2e-3 mm3 across a 60 mm one.
+For OCCT, and for parts modelled near the origin, these are sub-physical. They are the
+direction in which a pass is weaker than it reads, so they are stated rather than
+implied.
+
+**And a zero-thickness contact is represented by some kernels and not others**, which is
+the other half of the same bit:
+
+| kernel | parts **touching** on a face | parts **clear** |
+|---|---|---|
+| CGAL — 2021.01 (its only kernel), or 2026.08.01 `--backend cgal` | a sheet — `empty` fails, `area` measurable | nothing — `empty` passes |
+| manifold — 2026.08.01's default | unpredictable: usually nothing, sometimes a sheet | nothing — `empty` passes |
+| OCCT — build123d / CadQuery | nothing — `empty` passes | nothing — `empty` passes |
+
+Where a kernel discards the sheet, contact and clearance become the same downstream
+signal, and nothing remains to tell them apart — which is why `empty` cannot mean "not
+touching" however it is worded. CGAL is the predictable one: measured across eleven
+arrangements it never varies. OCCT discards the sheet always — five distinct contact
+types, including the two manifold keeps. **manifold cannot be predicted at all**: there are
+pairs of solids whose intersection answers differently when the intersection's two
+children are written in the other order, identical geometry either way. The flip is
+deterministic across runs, so it tracks floating-point incidentals of evaluation rather
+than noise — and no property of the arrangement predicts it, since a syntactic
+reordering changes the answer. Nothing distinguishes the cases in the report:
+`produced_nothing` is set or not, with nothing to say which produced it. (2021.01 does
+not accept `--backend`; the flag names the kernel only on builds with more than one.)
+
+**So it fails in both directions**, which is the "more" and the "less" above. Where a kernel keeps the sheet, a touching
+pair builds geometry and `empty` **fails** although the interference is exactly zero —
+on CGAL that is every face contact at any practical scale, its ordinary case. Where a
+kernel is below its floor, a real interference **passes**. Measured on 2021.01, the same
+part:
+
+```
+volume(max=0.0)  ->  ok volume    PASS
+empty()          ->  FAIL empty — declared empty, but the part built geometry
+```
+
+Neither is fixable by wording, because both are that single bit being asked to answer a
+question about volume.
+
+**To assert a clearance, state the number and let a violation have volume.** Intersect
+against a part grown by the clearance rather than against the part itself:
+
+```openscad
+// "is there interference" — this check
+intersection() { a(); b(); }
+
+// "is there 0.5 mm of clearance" — a solid when violated
+intersection() { a(); grown_b(0.5); }
+```
+
+Declared with `empty` the second says *no part of `b`, plus 0.5 mm, meets `a`*. A
+violation with any margin encloses volume rather than a sheet — only exact equality
+between the gap and the declared clearance is degenerate — so every kernel agrees, and the
+bound is a number in the contract where a reviewer can see it. `partspec lint` flags the
+bare form advisorily (`csg-two-part-intersection`, `LINT.md`) — the bare claim is valid,
+it is simply narrower than it reads.
+
+partspec does **not** select a backend to make this check answerable. Which kernel ran is
+recorded, never chosen — F13's rule, and the reason the two options that would have had
+partspec pin `--backend cgal` were refused.
 
 **The claim is exclusive by nature, not by rule.** An empty part has no mesh, so every
 other geometry check on it is skipped and the run reports `incomplete` (§3.1) rather than
 a pass bought by silence. Declare `empty` alone on a probe.
 
-Related: #237, and #236 for the case a probe is a workaround *for* — declaring
-part-versus-part interference directly is an assemblies question (D19).
+Related: #237; #270 for the decision above; and #236 for the case a probe is a workaround
+*for* — declaring part-versus-part interference directly is an assemblies question (D19).
 
 ---
 

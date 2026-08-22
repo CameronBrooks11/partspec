@@ -51,9 +51,10 @@ RULES = {
     "py-function-size": f"a function body over {FUNCTION_LINE_LIMIT} lines",
     "csg-difference-order": "a difference() whose first child is not the largest",
     "csg-coincident-face": "a subtrahend sharing a face plane with its minuend",
+    "csg-two-part-intersection": "a whole file that is one intersection of two parts",
 }
 
-TIER2_RULES = ("csg-difference-order", "csg-coincident-face")
+TIER2_RULES = ("csg-difference-order", "csg-coincident-face", "csg-two-part-intersection")
 """Geometry-dependent rules over the engine's constant-folded `.csg` export
 (#118). They MAY require the engine and MUST report `unsupported` — never
 silent absence — when it is missing (the audit's honesty shape). Findings
@@ -461,7 +462,7 @@ def _numeric_constants(exprs: list[ast.expr]):
 
 
 def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], list[dict]]:
-    """The two geometry rules, or honest refusals.
+    """The three geometry rules, or honest refusals.
 
     Returns (findings, unsupported) where each unsupported entry is
     {"rule", "reason"} — a rule that could not run says so per file, because
@@ -586,6 +587,46 @@ def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], 
                     else f"the tree could not be evaluated: {exc}"
                 )
                 unsupported.append({"rule": "csg-coincident-face", "reason": reason})
+
+    # Shape only, and only the whole file: exactly one top-level node, an
+    # `intersection` of exactly two children. A probe whose two parts are
+    # module calls matches too, because the export folds `rail(); cover();`
+    # into two `group` children; a `difference`, a second top-level node, or a
+    # third child does not.
+    #
+    # THIS SHAPE IS NOT UNIQUE TO PROBES and the finding does not claim it is.
+    # `intersection()` of two solids is also how a part gets built -- a lens
+    # blank, a chamfer by rotated cube, two perpendicular extrusions, a lattice
+    # trimmed to its envelope; all four fire, measured. The finding is
+    # conditional on purpose ("declared with empty() this proves..."), because
+    # the discriminator is the CONTRACT and `partspec lint` never sees one. The
+    # noise is owned in LINT.md rather than denied here.
+    #
+    # No engine result is consulted and none is needed: the `.csg` export is
+    # the tree BEFORE any boolean runs, so the predicate reads the same on
+    # every kernel -- which is the point, since the kernels are exactly what
+    # disagree about the answer (#270).
+    if len(nodes) == 1 and nodes[0].kind == "intersection" and len(nodes[0].children) == 2:
+        findings.append(
+            Finding(
+                rule="csg-two-part-intersection",
+                file=str(path),
+                line=0,
+                message=(
+                    "the whole file is an intersection of two parts — declared with "
+                    "empty() this proves no positive-volume interference, which is NOT "
+                    "the same as proving the parts are separated: a zero-thickness "
+                    "contact collapses to empty on the OCCT tier always, and on "
+                    "OpenSCAD's manifold backend for most arrangements though not "
+                    "all, so touching and clear are usually one signal unless the "
+                    "contract pins a kernel that keeps the sheet. To assert a numeric "
+                    "clearance, intersect against a part grown by it — a violation "
+                    "then has volume on every kernel (SPEC-contract.md 4.12). If this "
+                    "intersection is how the part is BUILT rather than a probe, the "
+                    "finding does not apply (LINT.md)"
+                ),
+            )
+        )
 
     try:
         walk(nodes, csg._IDENTITY)
