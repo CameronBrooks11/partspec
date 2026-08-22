@@ -337,10 +337,15 @@ def test_no_test_shells_out_to_a_hardcoded_engine_name():
     # above the call -- three forms that fail exactly the same way.
     engine = "openscad"
     needle = re.compile(r"""\[\s*["']""" + engine + r"""["']""")
+    # A parametrize case list may legitimately lead with the engine's name --
+    # `tests/test_diff.py` already carries `ids=[..., "openscad"]`, and escapes
+    # only because the name is second. Firing on those would make this guard the
+    # thing it exists to prevent: a refusal of correct code.
+    metadata = ("parametrize", "ids=")
     offenders: list[str] = []
     for path in sorted(Path(__file__).parent.glob("test_*.py")):
         for number, line in enumerate(path.read_text().splitlines(), 1):
-            if line.strip().startswith("#"):
+            if line.strip().startswith("#") or any(m in line for m in metadata):
                 continue
             if needle.search(line):
                 offenders.append(f"{path.name}:{number}")
