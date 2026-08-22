@@ -860,9 +860,11 @@ def test_every_openscad_fence_in_the_docs_parses():
     Nothing caught it: `just check` does not read fenced code, and the two
     documents silently disagreed (review of PR #313).
 
-    Parses only. Undefined modules are expected -- the blocks are fragments,
-    and `Ignoring unknown module` is a warning, not a parse error -- so this
-    asserts the export succeeds, which is exactly the property a rewrap breaks.
+    Covers ```openscad and ```scad alike -- `skills/openscad-authoring`
+    uses the short form, and a guard that misses the document teaching
+    OpenSCAD would be the wrong half. Undefined modules are expected: the
+    blocks are fragments, and `Ignoring unknown module` is a warning, so the
+    assertion is on the exit status, which is what a rewrap breaks.
     """
     import re
     import subprocess
@@ -870,7 +872,7 @@ def test_every_openscad_fence_in_the_docs_parses():
 
     fences: list[tuple[str, str]] = []
     for md in sorted(ROOT.glob("docs/*.md")) + sorted(ROOT.glob("skills/**/*.md")):
-        for block in re.findall(r"```openscad\n(.*?)```", md.read_text(), re.S):
+        for block in re.findall(r"```(?:openscad|scad)\n(.*?)```", md.read_text(), re.S):
             fences.append((md.relative_to(ROOT).as_posix(), block))
     assert fences, "no openscad fences found; the query is wrong, not the docs"
     assert OPENSCAD is not None  # guaranteed by @needs_openscad
@@ -885,6 +887,9 @@ def test_every_openscad_fence_in_the_docs_parses():
                 text=True,
                 check=False,
             )
-            assert "Parser error" not in (proc.stderr or ""), (
-                f"{name}: fenced openscad does not parse\n{proc.stderr}\n---\n{block}"
+            # returncode, not just the absence of "Parser error": a fence can
+            # be syntactically valid and still fail to export, and the
+            # docstring claims the export succeeds.
+            assert proc.returncode == 0, (
+                f"{name}: fenced openscad did not export\n{proc.stderr}\n---\n{block}"
             )

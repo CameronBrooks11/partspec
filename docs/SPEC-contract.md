@@ -849,14 +849,17 @@ set the flag until #271, which meant `empty` could not pass on the OCCT tier for
 input at all while this paragraph said it read the same on both.
 
 **What `empty` means.** A passing `empty` says the intersection of the two parts encloses
-**no positive-volume interference the kernel can represent**. Not "the parts do not
-touch", not "there is clearance", and not "no interference whatsoever" — the last clause
-is load-bearing and §4.11 states `min_wall`'s interval for the same reason.
+**no volume the kernel can represent** — no positive-volume interference, to the limit of
+what the kernel keeps. Not "the parts do not touch", not "there is clearance", and not "no
+interference whatsoever": that last qualifier is load-bearing, and §4.11 states
+`min_wall`'s interval for the same reason.
 
-**Why it cannot mean more, and why it sometimes means less.** The check adjudicates on
-one bit: *did the engine produce anything*. That coincides with "no interference" only
-where the kernel both refuses to represent a contact and can represent every real overlap
-— and no kernel does both. Everything below follows from that one sentence.
+**Why it cannot mean more, and why it sometimes means less.** Past the unresolved-name
+guard above, the check adjudicates on one thing: *did the engine produce anything*. That
+coincides with "no interference" only where the kernel both refuses to represent a contact
+and can represent every real overlap — and no kernel does both. The floors and the
+sheet-representation split below are both consequences of that; manifold's
+unpredictability is not, and is an independent fact about one kernel.
 
 **Every kernel has a representational floor** beneath which a real interference is
 discarded, and the floors sit in different places. Measured, each on a genuine
@@ -866,11 +869,15 @@ penetration:
 |---|---|---|---|
 | OCCT — build123d / CadQuery | overlap depth | ≈5.97e-7 mm, constant | empty compound; `empty` passes |
 | CGAL — OpenSCAD 2021.01 | a feature's cross-section | ≈1.9e-6 mm | nothing exported; `empty` passes |
-| manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ≈2.4e-7 mm | nothing exported; `empty` passes |
+| manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ≈2.4e-7 mm near the origin, rising with the feature's coordinate and saturating near CGAL's | nothing exported; `empty` passes |
 
 CGAL is the exception in one direction: bisected to 1e-13 mm it never discards a sheet
-for thinness alone, only for cross-section. OCCT's floor is a declared kernel constant
-and does not vary with the face — but the
+for thinness alone, only for cross-section. manifold's is the one that moves — measured at
+half a float32 ULP at the feature's own coordinate (2.4e-7 mm at the origin, 9.5e-7 mm at
+15 mm out), rising until it saturates around CGAL's 1.9e-6 mm and staying there: a 1e-4 mm
+pin penetrating 1 mm at ten metres from the origin is reported by both engines, and
+`empty` correctly fails. OCCT's floor is a declared kernel constant and does not vary with
+the face — but the
 *volume* lost at it does: 1.5e-7 mm3 across a 0.5 mm face, 2.2e-3 mm3 across a 60 mm one.
 These are sub-physical for real parts, and they are the direction in which a pass is
 weaker than it reads, so they are stated rather than implied.
@@ -884,8 +891,11 @@ the other half of the same bit:
 | manifold — 2026.08.01's default | unpredictable: usually nothing, sometimes a sheet | nothing — `empty` passes |
 | OCCT — build123d / CadQuery | nothing — `empty` passes | nothing — `empty` passes |
 
-CGAL is the predictable one — measured across eleven arrangements it never varies. OCCT
-discards the sheet in all of them. **manifold cannot be predicted at all**: there are
+Where a kernel discards the sheet, contact and clearance become the same downstream
+signal, and nothing remains to tell them apart — which is why `empty` cannot mean "not
+touching" however it is worded. CGAL is the predictable one: measured across eleven
+arrangements it never varies. OCCT discards the sheet always — five distinct contact
+types, including the two manifold keeps. **manifold cannot be predicted at all**: there are
 pairs of solids whose intersection answers differently when the intersection's two
 children are written in the other order, identical geometry either way. The flip is
 deterministic across runs, so it tracks floating-point incidentals of evaluation rather
@@ -894,7 +904,7 @@ reordering changes the answer. Nothing distinguishes the cases in the report:
 `produced_nothing` is set or not, with nothing to say which produced it. (2021.01 does
 not accept `--backend`; the flag names the kernel only on builds with more than one.)
 
-**So the one bit fails in both directions.** Where a kernel keeps the sheet, a touching
+**So it fails in both directions**, which is the "more" and the "less" above. Where a kernel keeps the sheet, a touching
 pair builds geometry and `empty` **fails** although the interference is exactly zero —
 on CGAL that is every face contact at any practical scale, its ordinary case. Where a
 kernel is below its floor, a real interference **passes**. Measured on 2021.01, the same

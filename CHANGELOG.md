@@ -313,13 +313,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unreleased, so this is its introduced meaning rather than a change to one.
   Measured on all three kernels partspec drives: OpenSCAD's CGAL backend keeps
   a zero-thickness contact patch and `empty` fails on it; the OCCT tier always
-  discards it; and **manifold cannot be predicted at all** — measured, the same
+  discards it; and **manifold cannot be predicted at all** — measured,
   **there are pairs of solids** whose intersection answers differently when the
   intersection's two children are written in the other order, identical geometry
   either way. The flip is deterministic across runs, so it tracks floating-point
   incidentals of evaluation rather than noise — and no property of the
   arrangement can predict it, since a syntactic reordering changes the answer.
-  Measured across eleven arrangements, CGAL never varies. `produced_nothing` is set or not with nothing to say which case
+  Measured across eleven arrangements, CGAL never varies. `produced_nothing`
+  is set or not with nothing to say which case
   produced it. CGAL is the predictable one, not the correct one.
   The sharp end of that: **`empty` FAILS on a part whose interference is exactly
   zero, wherever the kernel keeps the sheet** — on CGAL that is every face
@@ -330,18 +331,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overlap depth of ~6e-7 mm (constant, though the volume lost at it scales with
   the face: 1.5e-7 mm3 across 0.5 mm, 2.2e-3 mm3 across 60 mm), CGAL below a
   ~1.9e-6 mm feature cross-section — though never for thinness alone — and
-  manifold below ~2.4e-7 mm of either. Sub-physical
+  manifold below ~2.4e-7 mm of either near the origin, rising with the
+  feature's coordinate and saturating near CGAL's. Sub-physical
   for real parts, and kernel constants rather than defects, but it is the one
   direction where a pass is weaker than it reads — so `empty` is now specified
   as "no positive-volume interference **the kernel can represent**", the same
-  discipline §4.11 applies to `min_wall`. It is not fixable by wording — the check adjudicates on whether the
+  discipline §4.11 applies to `min_wall`. It is not fixable by wording — the
+  check adjudicates on whether the
   engine produced anything, which coincides with the meaning only where the
   kernel refuses to represent a contact — and it is one more reason to prefer
   the grown-part pattern, which never puts a kernel in that position.
   So the ambiguity is a property of the question, not a gap to close, and the
-  fix is to say what the check does claim. A passing `empty` says the
-  intersection encloses no volume. That is true, useful, and narrower than
-  "separated".
+  fix is to say what the check does claim: a passing `empty` says the
+  intersection encloses no volume **the kernel can represent**. True, useful,
+  and narrower than "separated".
   **To assert a clearance, state the number and let a violation have volume**:
   intersect against a part grown by the clearance rather than against the part
   itself. No zero-thickness result is ever produced, so every kernel agrees and
