@@ -315,3 +315,38 @@ def test_arg_is_declined_and_the_comment_does_not_quantify_it():
     assert not re.search(r"ARG.{0,80}\b\d+\b", paragraphs[0], re.S), (
         "the ARG rationale must not carry a hand-maintained count"
     )
+
+
+def test_no_test_shells_out_to_a_hardcoded_engine_name():
+    """A test that runs `openscad` by name tests whichever engine PATH holds.
+
+    `PARTSPEC_OPENSCAD` is how the CI matrix's snapshot leg selects its
+    binary, and that leg installs no apt package at all -- so a literal
+    `"openscad"` in a subprocess call is a `FileNotFoundError` there while
+    passing locally, where the apt binary is on `PATH` regardless of the
+    variable. Worse than the failure: on any machine that has both, the test
+    silently exercises the wrong engine and a two-engine run proves one thing
+    twice. Both happened in PR #312.
+
+    `support.OPENSCAD` resolves through `openscad.find_executable()`, which
+    honours the variable. Use it.
+    """
+    # Assembled rather than written out, so this file is not its own offender.
+    # Matched as a list literal's first element rather than on `subprocess.run(`,
+    # which would miss `check_output`, `Popen`, and `cmd = [...]` bound one line
+    # above the call -- three forms that fail exactly the same way.
+    engine = "openscad"
+    needle = re.compile(r"""\[\s*["']""" + engine + r"""["']""")
+    # A parametrize case list may legitimately lead with the engine's name --
+    # `tests/test_diff.py` already carries `ids=[..., "openscad"]`, and escapes
+    # only because the name is second. Firing on those would make this guard the
+    # thing it exists to prevent: a refusal of correct code.
+    metadata = ("parametrize", "ids=")
+    offenders: list[str] = []
+    for path in sorted(Path(__file__).parent.glob("test_*.py")):
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if line.strip().startswith("#") or any(m in line for m in metadata):
+                continue
+            if needle.search(line):
+                offenders.append(f"{path.name}:{number}")
+    assert not offenders, f"use support.OPENSCAD, not the literal name: {', '.join(offenders)}"

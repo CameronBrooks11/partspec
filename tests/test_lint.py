@@ -14,8 +14,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import OPENSCAD, needs_openscad
 
+from partspec import csg
 from partspec.cli import main
 from partspec.lint import (
     FUNCTION_LINE_LIMIT,
@@ -25,6 +26,8 @@ from partspec.lint import (
     RULES,
     lint_path,
 )
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 ROOT = Path(__file__).resolve().parents[1]
 LINT_DOC = (ROOT / "docs" / "LINT.md").read_text()
@@ -786,3 +789,183 @@ def test_a_string_hidden_in_dropped_geometry_still_refuses(tmp_path: Path, capsy
     unsupported = entry.get("unsupported", [])
     assert {u["rule"] for u in unsupported} == {"csg-difference-order", "csg-coincident-face"}
     assert all("refused whole" in u["reason"] or "unreadable" in u["reason"] for u in unsupported)
+
+
+# --------------------------------------------------------------------------
+# volume_of must refuse a surface that encloses nothing (#289)
+# --------------------------------------------------------------------------
+
+_OPEN_BOX_FACES = [
+    [0, 1, 2, 3],  # the missing lid is the point: five faces where a solid needs six
+    [4, 5, 1, 0],
+    [5, 6, 2, 1],
+    [6, 7, 3, 2],
+    [7, 4, 0, 3],
+]
+_BOX_POINTS = [
+    [0, 0, 0],
+    [10, 0, 0],
+    [10, 10, 0],
+    [0, 10, 0],
+    [0, 0, 10],
+    [10, 0, 10],
+    [10, 10, 10],
+    [0, 10, 10],
+]
+
+
+def _polyhedron(points: list, faces: list) -> csg.Node:
+    return csg.Node(kind="polyhedron", kwargs={"points": points, "faces": faces})
+
+
+def test_volume_of_refuses_a_polyhedron_that_encloses_nothing():
+    """`tests/fixtures/open_box.scad` states the requirement in its own header:
+
+        Every measurement library will still hand you a volume for this -- 500
+        rather than 1000, computed over a surface that does not enclose
+        anything -- which is the case partspec must REFUSE rather than answer.
+
+    It was answering. A signed-tetrahedron sum has no watertightness
+    precondition, so five faces of a cube returned a number, `abs()` hid the
+    sign, and `csg-difference-order` reported a finding computed from it.
+    `planes_of` refuses the same node honestly; this is `volume_of` catching up.
+    """
+    with pytest.raises(csg.CsgError) as exc:
+        csg.volume_of(_polyhedron(_BOX_POINTS, _OPEN_BOX_FACES))
+    assert "not closed" in str(exc.value)
+
+
+def test_volume_of_still_answers_for_a_closed_polyhedron():
+    """The refusal must be the unsound surface, not the node kind: `LINT.md`
+    says volumes are exact for polyhedra, and for a closed one they are."""
+    closed = [*_OPEN_BOX_FACES, [7, 6, 5, 4]]  # the lid, wound to match
+    assert csg.volume_of(_polyhedron(_BOX_POINTS, closed)) == pytest.approx(1000.0)
+
+
+def test_volume_of_refuses_a_polyhedron_wound_inconsistently():
+    """Closed is not enough: the divergence sum needs consistent orientation.
+
+    Flipping one face leaves every edge paired but two of them traversed the
+    same way twice, so the surface is no longer coherently oriented and the
+    signed sum stops meaning a volume.
+    """
+    flipped = [*_OPEN_BOX_FACES, [4, 5, 6, 7]]  # the lid, reversed
+    with pytest.raises(csg.CsgError) as exc:
+        csg.volume_of(_polyhedron(_BOX_POINTS, flipped))
+    assert "coherently wound" in str(exc.value), "the pairing check would say the wrong thing"
+
+
+def _cube_faces(points: list, origin: tuple[float, float, float], size: float) -> list:
+    """Append one cube's 8 corners to `points`, returning its 6 outward quads."""
+    x, y, z = origin
+    corners = [
+        (x, y, z),
+        (x + size, y, z),
+        (x + size, y + size, z),
+        (x, y + size, z),
+        (x, y, z + size),
+        (x + size, y, z + size),
+        (x + size, y + size, z + size),
+        (x, y + size, z + size),
+    ]
+    base = len(points)
+    points.extend([list(c) for c in corners])
+    return [
+        [base + i for i in quad]
+        for quad in (
+            [0, 1, 2, 3],
+            [4, 5, 1, 0],
+            [5, 6, 2, 1],
+            [6, 7, 3, 2],
+            [7, 4, 0, 3],
+            [7, 6, 5, 4],
+        )
+    ]
+
+
+def test_volume_of_refuses_two_shells_that_meet_along_one_edge():
+    """The doubled-edge branch is the only thing that catches this.
+
+    Two cubes touching along a single vertical edge: that edge belongs to four
+    faces, so every directed edge still has its reverse and the pairing test is
+    satisfied -- but two of them are traversed the same way twice. The surface
+    is non-manifold, which `polyhedron()` is documented to require, and the
+    divergence sum over it is not a solid volume.
+
+    Written because a pairing-only implementation passed every other test here
+    (review of PR #312), leaving the branch that catches this unpinned.
+    """
+    points: list = []
+    faces = _cube_faces(points, (0.0, 0.0, 0.0), 10.0)
+    faces += _cube_faces(points, (10.0, 10.0, 0.0), 10.0)
+
+    with pytest.raises(csg.CsgError) as exc:
+        csg.volume_of(_polyhedron(points, faces))
+    assert "coherently wound" in str(exc.value)
+
+
+@needs_openscad
+def test_volume_of_measures_a_polyhedron_written_as_a_triangle_soup(tmp_path: Path):
+    """Per-face vertices, no index sharing -- what an STL/OBJ conversion emits.
+
+    Driven through a real `.csg` export rather than a hand-built node, because
+    this shape only arises from real ones: the first version of the closure
+    check keyed edges on the point INDEX, so all 24 edges of this cube read as
+    belonging to one face while OpenSCAD rendered a watertight 1000 mm3 solid
+    and the code being guarded had measured it correctly. The engine welds
+    coincident vertices; the check now does too (review of PR #312).
+    """
+    corners = [
+        (0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0),
+        (0, 0, 10), (10, 0, 10), (10, 10, 10), (0, 10, 10),
+    ]  # fmt: skip
+    quads = [(0, 1, 2, 3), (4, 5, 1, 0), (5, 6, 2, 1), (6, 7, 3, 2), (7, 4, 0, 3), (7, 6, 5, 4)]
+    pts: list = []
+    tris: list = []
+    for quad in quads:
+        a, b, c, d = (corners[i] for i in quad)
+        base = len(pts)
+        pts += [a, b, c, d]
+        tris += [[base, base + 1, base + 2], [base, base + 2, base + 3]]
+
+    src = tmp_path / "soup.scad"
+    src.write_text(
+        "polyhedron(\n  points = ["
+        + ",".join(f"[{x},{y},{z}]" for x, y, z in pts)
+        + "],\n  faces = ["
+        + ",".join(str(f) for f in tris)
+        + "]\n);\n"
+    )
+    out = tmp_path / "soup.csg"
+    # `OPENSCAD`, not the literal: `PARTSPEC_OPENSCAD` is how the CI snapshot
+    # leg selects its engine, and that leg installs no apt binary at all, so a
+    # hardcoded name is a FileNotFoundError there and a different engine here.
+    assert OPENSCAD is not None  # guaranteed by @needs_openscad
+    subprocess.run([OPENSCAD, "-o", str(out), str(src)], capture_output=True, check=True)
+
+    node = csg.parse_csg(out.read_text())[0]
+    assert node.kind == "polyhedron"
+    assert csg.volume_of(node) == pytest.approx(1000.0)
+
+
+@needs_openscad
+def test_the_open_box_fixture_refuses_through_a_real_export(tmp_path: Path):
+    """The fixture whose header states the requirement, driven end to end.
+
+    The other refusal tests build nodes by hand; this one exports
+    `tests/fixtures/open_box.scad` with the engine and reads the `.csg` back,
+    which is the path `partspec lint` actually takes.
+    """
+    src = tmp_path / "open_box.scad"
+    src.write_text((FIXTURES / "open_box.scad").read_text())
+    out = tmp_path / "open_box.csg"
+    # `OPENSCAD`, not the literal: `PARTSPEC_OPENSCAD` is how the CI snapshot
+    # leg selects its engine, and that leg installs no apt binary at all, so a
+    # hardcoded name is a FileNotFoundError there and a different engine here.
+    assert OPENSCAD is not None  # guaranteed by @needs_openscad
+    subprocess.run([OPENSCAD, "-o", str(out), str(src)], capture_output=True, check=True)
+
+    node = csg.parse_csg(out.read_text())[0]
+    with pytest.raises(csg.CsgError) as exc:
+        csg.volume_of(node)
+    assert "not closed" in str(exc.value)

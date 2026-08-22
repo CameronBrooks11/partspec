@@ -159,10 +159,28 @@ exists to name — the message describes the geometry instead.
 ### `csg-difference-order`
 
 - **Predicate:** a `difference()` whose first child's analytic volume is smaller than
-  a later child's. Volumes are exact for cubes, polyhedra, and ideal
+  a later child's. Volumes are exact for cubes, **closed** polyhedra, and ideal
   cylinders/spheres, scaled by `|det M|`; union/group volumes are the **sum** of
   children — an upper bound when children overlap — so the verdict is
   upper-bound-vs-upper-bound and the finding says so.
+  A `polyhedron()` whose faces do not bound a volume — an edge with no reverse,
+  or one traversed twice the same way — is **refused, not estimated** (#289):
+  the divergence sum returns a number for any surface, and a number computed
+  over a surface that encloses nothing is a finding invented out of nothing.
+  The rule goes to `unsupported` with the edge named. Edges are matched by
+  vertex **coordinate**, because the engine welds coincident vertices and a
+  mesh converted from STL/OBJ shares none of its indices.
+  Two limits of "exact", stated because the rule leans on the number: a closed
+  but **self-intersecting** polyhedron measures the sum of its shells rather
+  than the solid — an upper bound, which is all `csg-difference-order` needs,
+  and the finding already says it compares upper bounds. And a **globally
+  inverted** surface (every face reversed) is closed and coherently wound, so
+  it is measured; the magnitude is right and the sign is discarded. The one
+  shape that can therefore read *below* the material is a solid plus a disjoint
+  inverted shell — measured 784 mm3 for a shape a CGAL boolean on 2021.01 puts
+  at 1216 mm3 — which is a pathological authoring error rather than a partspec
+  disagreement: OpenSCAD's own exported mesh measures 784 too, on both pinned
+  engines, directly and through `render()`.
 - **Rationale:** skills/openscad-authoring rule 2 — the first child is the material;
   the wrong order is a different part, sometimes an empty one.
 - **Real example:** the skill's rule-2-before block fires; its after-form is clean.

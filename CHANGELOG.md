@@ -394,6 +394,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`partspec lint` no longer computes a volume for a surface that encloses
+  nothing** (#289, epic #305). `csg.volume_of`'s `polyhedron()` branch is a
+  signed-tetrahedron sum with no watertightness precondition.
+  `tests/fixtures/open_box.scad` names
+  this case in its own header — "every measurement library will still hand you
+  a volume for this … which is the case partspec must **refuse** rather than
+  answer" — and partspec was answering: exporting that fixture and reading it
+  back gave **666.67** for five faces of a cube. `planes_of` refuses the same
+  node honestly; this is `volume_of` catching up.
+  Measured end to end before the fix: an open polyhedron differenced against a
+  smaller cube produced a `csg-difference-order` finding whose order was
+  correct, computed from a volume that does not exist. A wrong lint finding is
+  the same fault as a wrong check, one advisory step removed.
+  The precondition needs only the faces and points: on a closed,
+  coherently-oriented surface every directed edge appears exactly once and its
+  reverse exactly once. A missing face leaves edges unpaired; a face wound the
+  wrong way traverses one twice in the same direction. Both are refused, the
+  offending edge is named, and the rule goes to `unsupported` rather than
+  silently producing nothing — so the reason survives into the report.
+  **Edges are keyed by coordinate, not by index.** Keying on the index refused
+  a cube written as a triangle soup — per-face vertices, which is what every
+  STL/OBJ-to-`polyhedron()` conversion emits — reporting all 24 of its edges as
+  belonging to one face while OpenSCAD rendered a watertight 1000 mm3 solid
+  that the old code had measured correctly. The engine welds coincident
+  vertices; the check now does too. That over-refusal was caught in review, and
+  it is worth naming because the same index-pairing rule *is* sound in
+  `tests/test_region.py`, where it runs on partspec's own canonical
+  triangulation and one index is one vertex by construction — user input
+  carries no such invariant.
+  Two limits of "exact" are now stated in `LINT.md` rather than implied: a
+  closed but self-intersecting polyhedron measures the sum of its shells (an
+  upper bound, which is what the rule compares), and a globally inverted
+  surface is measured with its sign discarded.
+
 - **A parameter refusal no longer claims to have read includes it could not
   open** (#287, epic #305). `unbound_parameters` answers from
   `top_level_variables`, which reads the files partspec *resolved*, and the
