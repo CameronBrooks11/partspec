@@ -564,8 +564,9 @@ class Part:
         scale, its ordinary case -- a touching pair builds geometry and this
         check FAILS though the interference is exactly zero. And every kernel
         has a floor beneath which a REAL interference is discarded and this
-        check passes: measured, OCCT at ~6e-7 mm of overlap depth, CGAL at a
-        ~1e-6 mm feature cross-section, manifold at a ~1e-8 mm thickness.
+        check passes: measured on a 1 mm-deep penetration, OCCT below ~6e-7 mm
+        of overlap depth, CGAL below a ~1.9e-6 mm feature cross-section (though
+        never for thinness alone), manifold below ~2.4e-7 mm of either.
 
         To assert a clearance, intersect against a part grown by it: a
         violation with any margin encloses volume rather than a sheet, and only

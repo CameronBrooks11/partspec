@@ -62,8 +62,9 @@ geometry either way. So there *touching* and *clear* are usually the same signal
 pair whose interference is exactly zero.
 
 Every kernel also has a floor beneath which a *real* interference is discarded and
-`empty()` passes — OCCT at an overlap depth of ~6e-7 mm, CGAL at a feature cross-section
-of ~1e-6 mm, manifold at a feature thickness of ~1e-8 mm. Sub-physical for real parts, and
+`empty()` passes — measured on a 1 mm-deep penetration, OCCT below ~6e-7 mm of overlap
+depth, CGAL below a ~1.9e-6 mm feature cross-section, manifold below ~2.4e-7 mm of either
+cross-section or thickness. Sub-physical for real parts, and
 the reason `empty()` is stated as "no interference **the kernel can represent**". **Do
 not build a contract on the middle row unless you pin the kernel yourself.**
 

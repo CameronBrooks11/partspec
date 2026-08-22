@@ -328,8 +328,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passes. And in the other direction **every kernel has a floor** beneath which
   a *real* interference is discarded and `empty` passes — measured, OCCT at an
   overlap depth of ~6e-7 mm (constant, though the volume lost at it scales with
-  the face: 1.5e-7 mm3 across 0.5 mm, 2.2e-3 mm3 across 60 mm), CGAL at a
-  ~1e-6 mm feature cross-section, manifold at a ~1e-8 mm thickness. Sub-physical
+  the face: 1.5e-7 mm3 across 0.5 mm, 2.2e-3 mm3 across 60 mm), CGAL below a
+  ~1.9e-6 mm feature cross-section — though never for thinness alone — and
+  manifold below ~2.4e-7 mm of either. Sub-physical
   for real parts, and kernel constants rather than defects, but it is the one
   direction where a pass is weaker than it reads — so `empty` is now specified
   as "no positive-volume interference **the kernel can represent**", the same

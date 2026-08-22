@@ -865,10 +865,12 @@ penetration:
 | kernel | trips on | floor | result |
 |---|---|---|---|
 | OCCT — build123d / CadQuery | overlap depth | ≈5.97e-7 mm, constant | empty compound; `empty` passes |
-| CGAL — OpenSCAD 2021.01 | feature cross-section | ≈1e-6 mm | nothing exported; `empty` passes |
-| manifold — OpenSCAD 2026.08.01 | feature thickness | ≈1e-8 mm | nothing exported; `empty` passes |
+| CGAL — OpenSCAD 2021.01 | a feature's cross-section | ≈1.9e-6 mm | nothing exported; `empty` passes |
+| manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ≈2.4e-7 mm | nothing exported; `empty` passes |
 
-OCCT's floor is a declared kernel constant and does not vary with the face — but the
+CGAL is the exception in one direction: bisected to 1e-13 mm it never discards a sheet
+for thinness alone, only for cross-section. OCCT's floor is a declared kernel constant
+and does not vary with the face — but the
 *volume* lost at it does: 1.5e-7 mm3 across a 0.5 mm face, 2.2e-3 mm3 across a 60 mm one.
 These are sub-physical for real parts, and they are the direction in which a pass is
 weaker than it reads, so they are stated rather than implied.
