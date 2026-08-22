@@ -1598,3 +1598,37 @@ def test_only_an_unbroken_include_chain_shortens_the_variable_list(tmp_path: Pat
     # A file both `use`d and `include`d is spliced: the include wins.
     both = _scad(tmp_path, "e3.scad", "use <mid.scad>\ninclude <mid.scad>\ncube([1, 1, 1]);\n")
     assert openscad.include_closure(both).unresolved_includes == ("gone_b.scad",)
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"a.scad": "include <a.scad>\ncube(1);\n"},
+        {"a.scad": "include <b.scad>\ncube(1);\n", "b.scad": "include <a.scad>\n"},
+        {
+            "a.scad": "use <b.scad>\ninclude <c.scad>\ncube(1);\n",
+            "b.scad": "include <c.scad>\n",
+            "c.scad": "use <a.scad>\ninclude <gone.scad>\n",
+        },
+        {
+            "a.scad": "include <b.scad>\nuse <c.scad>\n",
+            "b.scad": "include <d.scad>\n",
+            "c.scad": "include <d.scad>\n",
+            "d.scad": "include <gone.scad>\n",
+        },
+    ],
+    ids=["self", "mutual", "use-include-cycle", "diamond"],
+)
+def test_the_closure_walk_terminates_on_a_cycle(tmp_path: Path, files: dict[str, str]):
+    """Cycles are legal in OpenSCAD, and the walk now visits some files twice.
+
+    Tracking include-reachability means a file reached first through a `use`
+    and later through an `include` is re-queued, so `seen` alone is no longer
+    what bounds the walk -- a file is queued at most twice and never again once
+    spliced. These are the shapes that would expose a bound that does not hold;
+    a regression here hangs rather than fails, which is why they are pinned.
+    """
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    closure = openscad.include_closure(tmp_path / "a.scad")
+    assert len(closure.files) == len(files)
