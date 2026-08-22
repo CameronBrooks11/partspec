@@ -403,9 +403,29 @@ report the design as disproven.
 The distinction is carried in `BuildError.origin` (`"environment"` or `"model"`) and
 surfaced in the report as a field a consumer can branch on — not as prose in `detail`.
 
+A third case reaches `error` by neither route: the build **succeeded** and a name the
+source asked for did not resolve, so whatever that name would have contributed is absent
+from the render. For a module or an include the mechanism is direct — OpenSCAD renders an
+unresolved call's children *not at all*, so a misspelt module or an include that did not
+open removes geometry and still exits `0` with a well-formed, watertight mesh
+(`FAILURE-MODES.md` §1). For an unresolved function or variable the expression yields
+`undef` instead, which may or may not reach geometry; partspec refuses either way, because
+stderr cannot say which, and a value silently substituted into a dimension is precisely
+the case it must not wave through. In neither case can the tool claim it measured the part
+the contract describes, so no geometry check is evaluated:
+`builds` and every geometry check are `skipped`, `verdict: "error"`, exit `4`, and `error`
+carries the engine's own diagnostic line. Parameter-phase checks are unaffected — they are
+arithmetic over the contract's inputs and need no engine.
+
+Here `builds` MUST NOT be reported as `fail` and `build_origin` MUST remain `null`: the
+source compiled, so a failing `builds` would be a statement about the design that has not
+been earned, and whether the unresolved name is a typo in the source or a library absent
+from this machine is exactly what partspec cannot determine. It claims neither, and states
+only what it knows — that it did not measure the part it was given.
+
 | verdict | condition |
 |---|---|
-| `error` | the contract raised, or the build could not be *attempted* (see above) |
+| `error` | the contract raised, the build could not be *attempted*, or the engine could not resolve a name and rendered without it (see above) |
 | `empty` | zero checks were declared |
 | `fail` | ≥1 `fail` |
 | `incomplete` | no `fail`, but ≥1 `approximate` / `unsupported` / `skipped` |
@@ -423,7 +443,7 @@ it does not know what to assert.
 | `1` | `fail` | something asserted was disproven |
 | `2` | `incomplete` | nothing disproven, **not everything proven** |
 | `3` | `empty` | no checks declared |
-| `4` | `error` | the contract raised, or the environment prevented a build |
+| `4` | `error` | the contract raised, the environment prevented a build, or the engine could not resolve a name and rendered without it |
 | `64` | — | usage error: unresolvable target, bad arguments (`EX_USAGE`) |
 | `130` | — | user interrupt (SIGINT convention); the operator's own abort, never a verdict |
 

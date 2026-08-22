@@ -117,6 +117,20 @@ Read the non-`pass` statuses in `checks[]`:
 - **`error` mentions the claims pin** → the contract does not match its committed lock.
   If you did not change the contract, someone else's change is unreviewed — escalate.
   If you did: §4.
+- **`error` names a name the engine could not resolve** (`build_origin: null`) → the
+  build *succeeded* and the artifact is not the part: OpenSCAD renders an unresolved
+  call's children not at all, so a misspelt module or an include that did not open
+  removed geometry the contract is about (`FAILURE-MODES.md` §1). **Do not touch the
+  contract** — the fix is in the model source or on `OPENSCADPATH`. `error` quotes the
+  engine's own line verbatim, and the two pinned engines word it differently. An
+  unresolved module, function or variable names the file and the line number on both. An
+  include that did not open reads `Can't open include file 'BOSL2/std.scad'.` on 2021.01
+  — the include path and nothing else — and `Can't find include file 'BOSL2/std.scad'. in
+  file <the file containing the include>, line N` on 2026.08.01 — which for a nested
+  library include is not the entry file. So on the older engine, start from the include
+  path; do not expect a location. Whether it is a typo or a library absent from this
+  machine is what partspec cannot tell, which is why the origin is `null` rather than a
+  guess.
 - **Otherwise** → the contract itself raised (the report says "the contract is wrong,
   not the part"), or the report is still the placeholder ("run did not complete") —
   whose most common cause is deterministic, not transient: **the contract failed to

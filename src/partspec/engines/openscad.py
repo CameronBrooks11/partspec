@@ -408,8 +408,19 @@ def render(
     *,
     timeout_s: float | None = DEFAULT_TIMEOUT_S,
     deps_out: list[RenderDeps] | None = None,
+    unresolved_out: list[str] | None = None,
 ) -> Path | BuildError:
     """Render to binary STL, returning the path or a BuildError.
+
+    `unresolved_out`, when given, receives the stderr lines naming something the
+    engine could not resolve **on a render that succeeded** (#286). OpenSCAD
+    renders an unresolved call's children not at all and still exits 0 with a
+    well-formed mesh, so the artifact alone cannot say that the geometry
+    measured is not the geometry the source describes -- and this return type
+    has no room to say it. Before #286 those lines were read only to build a
+    `BuildError`, which is to say only when the engine had already failed; the
+    success path discarded `proc.stderr` outright and every downstream check
+    reported PASS against a part the engine had quietly hollowed out.
 
     Binary STL specifically: lib3mf cannot read ASCII STL, and OpenSCAD 2021.01
     defaults to ASCII. Choosing the format explicitly means the export does not
@@ -657,6 +668,11 @@ def render(
                 )
                 if refusal is not None:
                     return refusal
+            # Read here, on the path that WORKED, and not only where a
+            # BuildError is built: an unresolved name does not have to fail the
+            # render to have changed the part.
+            if unresolved_out is not None:
+                unresolved_out.extend(_unresolved_lines(proc.stderr, _UNRESOLVED_NAME_MARKERS))
             staged.replace(stl)
             return stl
     except OSError as exc:
@@ -822,11 +838,57 @@ def _camera(bbox: tuple[tuple[float, ...], tuple[float, ...]], rot: tuple[float,
 
 _EMPTY_RESULT = "Current top level object is empty"
 
-_UNRESOLVED_MARKERS = (
+_UNRESOLVED_NAME_MARKERS = (
+    # BOTH spellings, because the engines disagree and matching one is F13 in
+    # miniature. Measured by running the same missing-include source under each
+    # binary the CI matrix pins:
+    #   2021.01     WARNING: Can't open include file 'nowhere/absent.scad'.
+    #   2026.08.01  WARNING: Can't find include file 'nowhere/absent.scad'. ...
+    # Only the first was listed until PR #306, so on the newer engine this
+    # marker had been dead since the day the snapshot leg was added -- silently,
+    # because nothing asserted it there. `test_openscad_engine.py` now pins both
+    # strings against the matcher directly, which needs no engine to run.
     "Can't open include file",
+    "Can't find include file",
     "Ignoring unknown module",
     "Ignoring unknown function",
     "Ignoring unknown variable",
+)
+"""The diagnostics that name a NAME the engine could not resolve.
+
+Separated from `_UNRESOLVED_MARKERS` because the two sets answer different
+questions and only one of them is safe to ask of a render that SUCCEEDED.
+Each says a name was looked up and not found; what follows from that differs
+by kind. A module or include is direct -- OpenSCAD renders that call's children
+not at all, so geometry the source asked for is simply gone. A function or
+variable yields `undef` into an expression instead, which may or may not reach
+geometry: `echo(nofunc(3))` beside a correct cube is refused on this evidence
+even though the cube is right. That is deliberate. stderr cannot say whether
+the `undef` reached a dimension, the diagnosis (a name did not resolve) is true
+either way, and the remedy is the same -- while a value silently substituted
+into a dimension is the case that must not be waved through (#286).
+
+One success-path shape is knowingly given up by narrowing to these: an
+expression whose type error defaults a dimension -- `linear_extrude(undef + 1)`
+-- prints `undefined operation` alone and still passes. That is a type error
+rather than an unresolved name, and catching it wants a different marker
+(`Unable to convert`, which names the substitution directly) and its own
+issue.
+
+`undefined operation` is deliberately NOT here. It reports a type error in an
+expression, not a lookup that failed, and on the success path it fires on code
+whose geometry is completely correct: `echo("holes: " + holes)` -- `+` where
+`str()` was meant, and among the most common things in a real .scad -- renders
+a perfect part and prints exactly that line. Guarding on it errored that part
+at exit 4 while telling the reader a name had not resolved and to check
+`OPENSCADPATH`, which was false in every clause. Caught in review of PR #306.
+
+It remains in `_UNRESOLVED_MARKERS` below, where the question is narrower and
+the docstring's reasoning holds: there, the render already produced NOTHING,
+and `vector * string` is real evidence that a null result is not genuine."""
+
+_UNRESOLVED_MARKERS = (
+    *_UNRESOLVED_NAME_MARKERS,
     "undefined operation",
 )
 """What OpenSCAD says when a name did not resolve — measured on 2021.01, not
@@ -846,13 +908,17 @@ exit code for either; if a future engine version gains one, prefer it and keep
 this as the fallback."""
 
 
-def _unresolved_lines(stderr: str) -> tuple[str, ...]:
-    """The stderr lines naming something the engine could not resolve."""
-    return tuple(
-        line.strip()
-        for line in stderr.splitlines()
-        if any(marker in line for marker in _UNRESOLVED_MARKERS)
-    )
+def _unresolved_lines(
+    stderr: str, markers: tuple[str, ...] = _UNRESOLVED_MARKERS
+) -> tuple[str, ...]:
+    """The stderr lines naming something the engine could not resolve.
+
+    `markers` defaults to the wide set, which is right where the render already
+    produced nothing. A caller asking about a render that SUCCEEDED must pass
+    `_UNRESOLVED_NAME_MARKERS` -- see its docstring for the one that does not
+    survive the move.
+    """
+    return tuple(line.strip() for line in stderr.splitlines() if any(m in line for m in markers))
 
 
 def _display_failure(returncode: int, stderr: str) -> bool:

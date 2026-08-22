@@ -1413,3 +1413,90 @@ def test_another_options_rejection_is_not_read_as_a_rejected_depfile():
     assert openscad._DEPS_RE.search(openscad._signal_lines(stderr)[0]) is None, (
         "the rejection names --backend, not -d; the dump below it is not evidence"
     )
+
+
+# --------------------------------------------------------------------------
+# the marker strings, against both engines the CI matrix pins (#286)
+# --------------------------------------------------------------------------
+
+
+def test_the_unresolved_markers_match_both_engine_spellings():
+    """The engines word these differently, and matching one is F13 in miniature.
+
+    Each line below was produced by running the same source under the binary
+    named, not transcribed from documentation. `Can't open include file` was the
+    only include spelling listed until PR #306, so on 2026.08.01 that marker had
+    been dead since the snapshot leg was added — a guard that silently stops
+    guarding on one half of the matrix is exactly the failure the matrix exists
+    to make loud.
+
+    Asserted against the matcher directly rather than through a render, so it
+    runs on a machine with no engine at all and cannot be skipped into silence.
+    """
+    observed = [
+        # 2021.01
+        "WARNING: Can't open include file 'nowhere/absent.scad'.",
+        "WARNING: Ignoring unknown module 'bore_hole' in file um.scad, line 3",
+        "WARNING: Ignoring unknown function 'nofunc' in file q.scad, line 1",
+        "WARNING: Ignoring unknown variable 'nope' in file q.scad, line 2",
+        # 2026.08.01 — note "find" for "open", and double quotes on the variable
+        "WARNING: Can't find include file 'nowhere/absent.scad'. in file q.scad, line 1",
+        "WARNING: Ignoring unknown module 'nope_module' in file q.scad, line 2",
+        "WARNING: Ignoring unknown function 'nofunc' in file q.scad, line 1",
+        'WARNING: Ignoring unknown variable "nope" in file q.scad, line 2',
+    ]
+    for line in observed:
+        assert openscad._unresolved_lines(line, openscad._UNRESOLVED_NAME_MARKERS), line
+
+    # Positive-only, a marker list of ("WARNING",) would satisfy every line
+    # above. These are ordinary engine chatter and a real diagnostic that is
+    # NOT a name failing to resolve; matching any of them would refuse correct
+    # parts, which is how `undefined operation` came off this list.
+    for benign in (
+        "WARNING: undefined operation (string + number) in file q.scad, line 2",
+        "WARNING: Can't open library 'nowhere/absent.scad'.",
+        'ECHO: "include file: none"',
+        "Geometries in cache: 2",
+        "WARNING: Unable to convert cube(size=[undef, 5, 5], ...) parameter to a number",
+    ):
+        assert not openscad._unresolved_lines(benign, openscad._UNRESOLVED_NAME_MARKERS), benign
+
+
+@needs_openscad
+def test_the_empty_result_marker_matches_what_the_engine_prints(tmp_path: Path):
+    """`_EMPTY_RESULT` decides `produced_nothing`, and so decides `p.empty()`.
+
+    Asserted against stderr an engine actually produced, not against a literal:
+    a literal spelled from the constant is a tautology that can only fail by
+    editing the constant, and would not have caught the include marker's
+    `Can't open` / `Can't find` divergence either. This renders a genuinely
+    null result -- two disjoint cubes intersected -- and checks the constant
+    against what came back, so it fails on whichever engine changes the
+    wording. Both pinned binaries print the bare sentence today.
+    """
+    src = tmp_path / "e.scad"
+    src.write_text(
+        "intersection() {\n  cube([10,10,10]);\n  translate([50,0,0]) cube([10,10,10]);\n}\n"
+    )
+    result = openscad.render(OpenSCADSource(path=src), tmp_path / "out")
+
+    assert isinstance(result, BuildError)
+    assert result.produced_nothing, "the empty result was not recognised as one"
+    assert openscad._EMPTY_RESULT in (result.stderr or "")
+
+
+def test_a_missing_use_library_is_not_itself_an_unresolved_name():
+    """`use <absent.scad>` alone removes no geometry, so it is not this guard's.
+
+    Both engines say `Can't open library` for it — a third spelling, deliberately
+    unmatched. `use` imports modules and functions but evaluates nothing, so a
+    library that did not load only matters once something it defined is
+    *called*, and that call prints `Ignoring unknown module`, which is matched.
+    Guarding on the library line as well would refuse a source that imports a
+    library it never uses — correct code, refused.
+    """
+    for line in (
+        "WARNING: Can't open library 'nowhere/absent.scad'.",
+        "WARNING: Can't open library 'nowhere/absent.scad'. in file u.scad, line 1",
+    ):
+        assert not openscad._unresolved_lines(line, openscad._UNRESOLVED_NAME_MARKERS)

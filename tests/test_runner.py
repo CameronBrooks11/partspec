@@ -963,3 +963,184 @@ def test_a_declaration_the_build_met_is_recorded_and_does_not_error(tmp_path: Pa
     assert closure["declared"] == ["build123d"], "recorded as the author spelled it"
     assert closure["imports"]["build123d"]["identity"] == "content"
     assert closure["imports"]["build123d"]["declared"] is True
+
+
+# --------------------------------------------------------------------------
+# names the engine could not resolve, on a build that SUCCEEDED (#286)
+# --------------------------------------------------------------------------
+#
+# OpenSCAD renders an unresolved call's children not at all and still exits 0
+# with a well-formed mesh. The geometry measured is then not the geometry the
+# source describes, so no geometry check can be honestly evaluated -- and until
+# #286 every one of them reported PASS, because stderr was read only on the
+# failure path. `docs/FAILURE-MODES.md` §1 is this exact shape.
+
+
+def _unresolved_part(tmp_path: Path, body: str, name: str = "probe") -> Part:
+    """A model that builds, but whose stderr names something unresolved."""
+    src = tmp_path / f"{name}.scad"
+    src.write_text(body)
+    p = Part(name, openscad(src))
+    p.envelope(max=(40, 30, 6))
+    p.watertight()
+    p.solid_count(1)
+    return p
+
+
+@needs_scad_tier
+def test_an_unknown_module_on_a_successful_build_is_not_a_pass(tmp_path: Path):
+    # No missing include: the name is simply not defined. The engine drops the
+    # difference()'s second child, exports a bare cube, and exits 0.
+    p = _unresolved_part(
+        tmp_path,
+        "difference() {\n  cube([40,30,6], center=true);\n  bore_hole(d=8);\n}\n",
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.exit_code == 4
+    assert _status(report, "builds") is Status.SKIPPED
+    assert _status(report, "watertight") is Status.SKIPPED
+    assert report.error is not None
+    assert "bore_hole" in report.error
+
+
+@needs_scad_tier
+def test_an_unresolved_include_on_a_successful_build_is_not_a_pass(tmp_path: Path):
+    p = _unresolved_part(
+        tmp_path,
+        "include <nowhere/absent.scad>\n"
+        "difference() {\n  cube([40,30,6], center=true);\n  bore_hole(d=8);\n}\n",
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.exit_code == 4
+    assert report.error is not None
+    assert "absent.scad" in report.error
+
+
+@needs_scad_tier
+def test_the_fault_is_not_a_statement_about_the_part(tmp_path: Path):
+    # `builds` must not be emitted FAILING: the source compiled. Whose fault the
+    # unresolved name is -- a misspelt module, or a library absent from this
+    # machine -- partspec cannot tell, so it claims neither. SPEC-report §6.1.
+    p = _unresolved_part(tmp_path, "cube([40,30,6], center=true);\nnope_module();\n")
+    report = run(p, out_dir=tmp_path)
+
+    assert _status(report, "builds") is not Status.FAIL
+    assert report.build_origin is None
+    assert all(c.status is not Status.PASS for c in report.checks if c.phase == "geometry")
+
+
+@needs_scad_tier
+def test_a_parameter_check_still_answers_when_a_name_did_not_resolve(tmp_path: Path):
+    # Arithmetic over the contract's own inputs needs no engine, so it is still
+    # honest and is still reported. Only the geometry is unmeasurable.
+    src = tmp_path / "probe.scad"
+    src.write_text("wall = 2.0;\ncube([40,30,6], center=true);\nnope_module();\n")
+    p = Part("probe", openscad(src, wall=2.0))
+    p.requires("wall > 0")
+    p.watertight()
+
+    report = run(p, out_dir=tmp_path)
+    assert _status(report, "wall_gt_0") is Status.PASS
+    assert report.verdict is Verdict.ERROR
+
+
+@needs_scad_tier
+@pytest.mark.parametrize(
+    ("body", "named"),
+    [
+        # One per marker in `_UNRESOLVED_NAME_MARKERS`, so an implementation
+        # that guards on a subset cannot pass this file. Each of these BUILDS:
+        # the engine drops the unresolved call and exports a well-formed mesh.
+        ("cube([40,30,6], center=true);\nnope_module();\n", "nope_module"),
+        ("include <nowhere/absent.scad>\ncube([40,30,6], center=true);\n", "absent.scad"),
+        ("echo(nofunc(3));\ncube([40,30,6], center=true);\n", "nofunc"),
+        (
+            "cube([40,30,6], center=true);\ntranslate([nope,0,0]) cube([1,1,1]);\n",
+            "nope",
+        ),
+    ],
+    ids=["module", "include", "function", "variable"],
+)
+def test_every_unresolved_name_marker_is_read_on_the_success_path(
+    tmp_path: Path, body: str, named: str
+):
+    report = run(_unresolved_part(tmp_path, body), out_dir=tmp_path)
+    assert report.verdict is Verdict.ERROR
+    assert report.error is not None
+    assert named in report.error
+
+
+@needs_scad_tier
+def test_an_undefined_operation_on_a_successful_build_is_not_an_unresolved_name(
+    tmp_path: Path,
+):
+    """A type error in an expression is not a name that failed to resolve.
+
+    `echo("holes: " + holes)` -- `+` where `str()` was meant, and among the most
+    common things in a real .scad -- prints `undefined operation` and renders a
+    completely correct part. Guarding on that marker (it is in the wider
+    `_UNRESOLVED_MARKERS`, for the empty-result path) errored this part at exit
+    4 while telling the reader a name had not resolved and to check
+    `OPENSCADPATH`, which was false in every clause. Caught reviewing PR #306.
+    """
+    src = tmp_path / "probe.scad"
+    src.write_text(
+        'holes = 4;\necho("holes: " + holes);\n'
+        "difference() {\n  cube([40,30,6], center=true);\n"
+        "  cylinder(d=8, h=20, center=true, $fn=64);\n}\n"
+    )
+    p = Part("probe", openscad(src))
+    p.watertight()
+    p.solid_count(1)
+    p.genus(1)  # the bore is really there -- this is not a hollowed part
+
+    report = run(p, out_dir=tmp_path)
+    assert report.verdict is Verdict.PASS
+    assert report.error is None
+
+
+@needs_scad_tier
+def test_the_is_undef_idiom_is_not_an_unresolved_name(tmp_path: Path):
+    # The false-positive bound, measured rather than assumed: `is_undef()` is
+    # how an OpenSCAD source legitimately probes for a name it does not require,
+    # and it emits no warning. Reading an undefined variable DIRECTLY does warn
+    # -- and silently renders a default cube -- which is why that one is caught.
+    src = tmp_path / "probe.scad"
+    src.write_text("w = is_undef(nope) ? 40 : nope;\ncube([w, 30, 6], center=true);\n")
+    p = Part("probe", openscad(src))
+    p.envelope(max=(40, 30, 6))
+    p.watertight()
+    p.solid_count(1)
+
+    report = run(p, out_dir=tmp_path)
+    assert report.verdict is Verdict.PASS
+    assert report.error is None
+
+
+@needs_scad_tier
+def test_a_declared_empty_part_is_not_laundered_by_an_unresolved_name(tmp_path: Path):
+    """#237's rule, on the branch #286 added.
+
+    `p.empty()` declares that the result is legitimately nothing. An unresolved
+    name must never satisfy it: "the intersection is genuinely null" and "the
+    geometry never existed to intersect" are opposite facts with one exit code.
+    The BuildError branch has enforced that since #237. This pins the other
+    side, where the render SUCCEEDS and the two paths are mutually exclusive by
+    construction -- the empty arm lives inside `isinstance(artifact, BuildError)`
+    and the #286 arm strictly after it, so neither can reach the other.
+    """
+    src = tmp_path / "probe.scad"
+    # Builds something, and lost a name doing it: `empty` is declared and false,
+    # but the evidence for "false" is not trustworthy either.
+    src.write_text("cube([40,30,6], center=true);\nnope_module();\n")
+    p = Part("probe", openscad(src))
+    p.empty()
+
+    report = run(p, out_dir=tmp_path)
+    assert report.verdict is Verdict.ERROR
+    assert _status(report, "empty") is not Status.PASS
+    assert report.error is not None and "nope_module" in report.error

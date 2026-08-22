@@ -41,7 +41,16 @@ quietly-wrong part shows you.
   stderr. No `assert()` in the library could catch it — the 18-library corpus
   contains zero asserts; the one library with any (the bayonet, 12 of them, from a
   separate collection) was the outlier, and even those only guard inputs.
-- **Guards.** `PARTSPEC_OPENSCAD` pins the binary; the version is recorded in every
+- **Guards.** partspec reads the *mechanism* directly since #286: `check` and `measure`
+  scan the engine's stderr for unresolved names on the path that **succeeded**, not only
+  where the build had already failed, and both refuse — `verdict: "error"`, exit `4`,
+  every geometry check `skipped` (`SPEC-report.md` §6.1). Before that the warning was
+  read only after a failed build, so this shape was invisible: the gear above was caught
+  by the envelope check, which needed a contract carrying theory-derived bounds and a
+  second engine to compare against. The stderr line is now evidence on its own, and
+  needs neither. **`render` is not yet guarded** (tracked separately): it still writes
+  views of a part the engine hollowed out. Alongside that: `PARTSPEC_OPENSCAD`
+  pins the binary; the version is recorded in every
   report because it changes the artifact; bounds derived from theory, not measured off
   the part (see `docs/SPEC-contract.md` §10 on reference-derived limits).
 

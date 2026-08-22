@@ -113,6 +113,86 @@ def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
     assert "verdict" not in doc and "checks" not in doc
 
 
+@needs_scad_tier
+def test_measure_refuses_a_part_the_engine_hollowed_out(tmp_path: Path, capsys):
+    """`measure` is where numbers become claims, so a wrong one outlives the run.
+
+    Exit 0 on a broken part is correct for this verb (see above) -- it asks no
+    question. This is not that. The engine dropped a call it could not resolve
+    and exported a mesh of something the source does not describe, so the
+    quantities are real measurements of the wrong object. An author reading
+    `volume: 7200.0 exact` off a hollowed part writes it into a contract that
+    then passes forever (#286).
+    """
+    src = tmp_path / "hollow.scad"
+    src.write_text("difference() {\n  cube([40,30,6], center=true);\n  bore_hole(d=8);\n}\n")
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('hollow', openscad('hollow.scad'))\n"
+    )
+
+    assert main(["measure", f"{spec}:make"]) == 4
+    captured = capsys.readouterr()
+
+    # The JSON, not the console: SPEC-report's Scope requires the identity
+    # prefix plus error/hint on any failure after the target resolves, and an
+    # implementation printing to stderr alone would satisfy a stderr-only
+    # assertion while being machine-invisible -- the exact defect #47 fixed.
+    doc = json.loads(captured.out)
+    assert doc["part"]["id"] == "hollow"
+    assert "measurements" not in doc, "no quantity may be offered off a hollowed part"
+    assert "bore_hole" in doc["error"]
+    assert "something other than what this source describes" in doc["error"]
+    assert doc["hint"]
+    assert "bore_hole" in captured.err
+
+
+@needs_scad_tier
+def test_measure_out_file_refuses_without_touching_the_destination(tmp_path: Path, capsys):
+    """A refusal must leave `--out FILE` exactly as the caller left it.
+
+    Asked after the rename, the refusal replaced a good artifact with the
+    hollowed one and then declined to measure it -- a documented refusal that
+    destroys the destination, which is worse than the silence it replaced.
+    Round-2 review of PR #306; the rule is `_build_to_file`'s own docstring.
+    """
+    # A bore the hollowed build cannot reproduce. A bare cube here would make
+    # this test VACUOUS: `bad.scad` degenerates to exactly a bare cube, so the
+    # two artifacts came out byte-identical and the assertion below held whether
+    # the guard ran before the rename or after it -- round-3 review of PR #306
+    # caught it standing over the very bug it was written for.
+    good = tmp_path / "good.scad"
+    good.write_text(
+        "difference() {\n  cube([40,30,6], center=true);\n"
+        "  cylinder(d=8, h=20, center=true, $fn=64);\n}\n"
+    )
+    bad = tmp_path / "bad.scad"
+    bad.write_text("difference() {\n  cube([40,30,6], center=true);\n  bore_hole(d=8);\n}\n")
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def good():\n    return Part('good', openscad('good.scad'))\n\n\n"
+        "def bad():\n    return Part('bad', openscad('bad.scad'))\n"
+    )
+    dest = tmp_path / "dst" / "thing.stl"
+
+    assert main(["measure", f"{spec}:good", "--out", str(dest)]) == 0
+    before = dest.read_bytes()
+    capsys.readouterr()
+
+    hollowed = tmp_path / "hollowed.stl"
+    assert main(["measure", f"{spec}:bad", "--out", str(hollowed)]) == 4
+    assert not hollowed.exists(), "the refusal wrote its artifact anyway"
+
+    assert main(["measure", f"{spec}:bad", "--out", str(dest)]) == 4
+    after = dest.read_bytes()
+    assert after == before, "the refusal overwrote the caller's artifact"
+    # And the two are genuinely distinguishable, so the assertion above is not
+    # satisfied by the parts happening to render the same bytes.
+    assert len(before) > 1000, "the good artifact must not degenerate to a bare cube"
+
+
 # --------------------------------------------------------------------------
 # measure --out (#187): the flag means what a reader passes
 # --------------------------------------------------------------------------

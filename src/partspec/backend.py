@@ -207,6 +207,7 @@ class GeometryBackend(Protocol):
         *,
         timeout_s: float | None = None,
         deps_out: list[Any] | None = None,
+        unresolved_out: list[str] | None = None,
     ) -> Any | BuildError:
         """Run the engine and return an opaque artifact handle.
 
@@ -222,6 +223,13 @@ class GeometryBackend(Protocol):
         time a caller holds the result. Same shape as the runner's
         `artifact_out`, and an empty list means "the engine did not say",
         which is never "the render read nothing".
+
+        `unresolved_out`, when given, receives the diagnostic lines naming a
+        name the engine could not resolve on a build that nonetheless SUCCEEDED
+        (#286) -- populated on the mesh tier, empty on a tier whose engine
+        cannot half-render. Same reason it is an out-parameter rather than part
+        of the return: the handle is a `trimesh` by the time a caller holds it,
+        and a mesh cannot say what its own source failed to name.
         """
         ...
 

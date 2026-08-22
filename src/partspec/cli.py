@@ -431,6 +431,25 @@ def _names_the_artifact(raw: str) -> bool:
     return path.suffix == ARTIFACT_SUFFIX
 
 
+def _hollowed_measurements(first_line: str) -> BuildError:
+    """`measure` refusing a part the engine rendered without a name it lost.
+
+    A `BuildError` rather than a bespoke branch so both `--out` forms end at
+    the one `isinstance(artifact, BuildError)` arm, with one message. `origin`
+    is never read on this path -- `_measure_failure` takes the message and hint
+    directly -- so the default does not become a claim the way it would in
+    `render`'s payload, which records one (#307).
+    """
+    return BuildError(
+        "the engine could not resolve a name and rendered without it, so these "
+        "would be measurements of something other than what this source describes: "
+        f"{first_line}",
+        hint="the engine exited 0 and wrote a mesh, so this is not a compile error — "
+        "either the source misspells the name, or whatever defines it is not on "
+        "OPENSCADPATH. Fix the name or install the library, then re-run",
+    )
+
+
 def _build_to_file(
     backend: Any,
     source: Any,
@@ -440,6 +459,7 @@ def _build_to_file(
     *,
     closure: Any | None = None,
     refusal_out: list[BuildError] | None = None,
+    unresolved_out: list[str] | None = None,
 ) -> Any | BuildError:
     """Build so the artifact lands at exactly `dest`, and only if it exists.
 
@@ -494,7 +514,13 @@ def _build_to_file(
         with tempfile.TemporaryDirectory(
             dir=dest.parent, prefix=".partspec-build-", ignore_cleanup_errors=True
         ) as scratch:
-            built = backend.build(source, Path(scratch), timeout_s=timeout_s, deps_out=deps_out)
+            built = backend.build(
+                source,
+                Path(scratch),
+                timeout_s=timeout_s,
+                deps_out=deps_out,
+                unresolved_out=unresolved_out,
+            )
             if isinstance(built, BuildError):
                 return built
             if closure is not None and closure.partial:
@@ -535,6 +561,25 @@ def _build_to_file(
                     if refusal_out is not None:
                         refusal_out.append(refusal)
                     return refusal
+            if unresolved_out:
+                # Before the rename, like the guard above and for the reason
+                # this function's docstring gives: a refusal must leave `dest`
+                # exactly as the caller left it. Asked after it, the "refusal"
+                # replaced a good 272-facet artifact with the 12-facet hollowed
+                # one and then declined to measure it (round-2 review of #306).
+                #
+                # AFTER the destination guard, not before, and the order is
+                # load-bearing on one engine. `import_stl()` is a name
+                # 2026.08.01 does not resolve, so both guards fire on
+                # `imports_stl_data.scad` there and only there. The destination
+                # question is the more urgent of the two -- it is about not
+                # writing over the caller's file -- and its `EXIT_USAGE` is
+                # pinned deliberately, so a script reading the exit code does
+                # not see a build failure where an argument is what is wrong.
+                # Answering it first keeps that answer identical on both
+                # engines; this one still fires whenever the destination is
+                # fine, which is every other case.
+                return _hollowed_measurements(unresolved_out[0])
             (Path(scratch) / f"{source.path.stem}{ARTIFACT_SUFFIX}").replace(dest)
             return built
     except OSError as exc:
@@ -1156,6 +1201,7 @@ def _measure_resolved(
     try:
         backend = _backend_for(part.source.engine)
         engine_deps: list[Any] = []
+        engine_unresolved: list[str] = []
     except ContractError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -1238,6 +1284,7 @@ def _measure_resolved(
             engine_deps,
             closure=closure,
             refusal_out=dest_refusal,
+            unresolved_out=engine_unresolved,
         )
         if dest_refusal:
             _measure_failure(part, target, backend, dest_refusal[0].message, dest_refusal[0].hint)
@@ -1245,7 +1292,13 @@ def _measure_resolved(
         written_to = dest
     else:
         out = _out_dir(args.target, Path(args.out) if args.out is not None else None)
-        artifact = backend.build(source, out, timeout_s=timeout_s, deps_out=engine_deps)
+        artifact = backend.build(
+            source,
+            out,
+            timeout_s=timeout_s,
+            deps_out=engine_deps,
+            unresolved_out=engine_unresolved,
+        )
         # The name inside the directory is partspec's, not the caller's, which
         # is the whole of #225: the caller chose `out` and cannot know the rest
         # without re-deriving a rule this tool owns and has already changed once
@@ -1257,6 +1310,15 @@ def _measure_resolved(
             if part.source.engine == "openscad"
             else None
         )
+    if engine_unresolved and not isinstance(artifact, BuildError):
+        # `measure` is the surface an author turns into a contract, so a number
+        # taken off a part the engine hollowed out does not merely mislead this
+        # run -- it gets written down as a claim and passes forever after. The
+        # quantities are real; they are measurements of something other than
+        # the source. `measure` promises every quantity the backend can
+        # HONESTLY produce, and these do not qualify (#286). The `--out FILE`
+        # form has already refused inside `_build_to_file`, before its rename.
+        artifact = _hollowed_measurements(engine_unresolved[0])
     if isinstance(artifact, BuildError):
         _measure_failure(part, target, backend, artifact.message, artifact.hint)
         return exit_code(Verdict.ERROR)
