@@ -157,8 +157,16 @@ def test_measure_out_file_refuses_without_touching_the_destination(tmp_path: Pat
     destroys the destination, which is worse than the silence it replaced.
     Round-2 review of PR #306; the rule is `_build_to_file`'s own docstring.
     """
+    # A bore the hollowed build cannot reproduce. A bare cube here would make
+    # this test VACUOUS: `bad.scad` degenerates to exactly a bare cube, so the
+    # two artifacts came out byte-identical and the assertion below held whether
+    # the guard ran before the rename or after it -- round-3 review of PR #306
+    # caught it standing over the very bug it was written for.
     good = tmp_path / "good.scad"
-    good.write_text("cube([40,30,6], center=true);\n")
+    good.write_text(
+        "difference() {\n  cube([40,30,6], center=true);\n"
+        "  cylinder(d=8, h=20, center=true, $fn=64);\n}\n"
+    )
     bad = tmp_path / "bad.scad"
     bad.write_text("difference() {\n  cube([40,30,6], center=true);\n  bore_hole(d=8);\n}\n")
     spec = tmp_path / "spec.py"
@@ -173,8 +181,18 @@ def test_measure_out_file_refuses_without_touching_the_destination(tmp_path: Pat
     before = dest.read_bytes()
     capsys.readouterr()
 
+    hollowed = tmp_path / "hollowed.stl"
+    assert main(["measure", f"{spec}:bad", "--out", str(hollowed)]) == 4
+    assert not hollowed.exists(), "the refusal wrote its artifact anyway"
+
     assert main(["measure", f"{spec}:bad", "--out", str(dest)]) == 4
-    assert dest.read_bytes() == before, "the refusal overwrote the caller's artifact"
+    after = dest.read_bytes()
+    assert after == before, "the refusal overwrote the caller's artifact"
+    # And the two are genuinely distinguishable, so the assertion above is not
+    # satisfied by the parts happening to render the same bytes.
+    ref = tmp_path / "ref.stl"
+    ref.write_bytes(before)
+    assert len(before) > 1000, "the good artifact must not degenerate to a bare cube"
 
 
 # --------------------------------------------------------------------------

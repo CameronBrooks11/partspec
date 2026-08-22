@@ -1448,6 +1448,36 @@ def test_the_unresolved_markers_match_both_engine_spellings():
     for line in observed:
         assert openscad._unresolved_lines(line, openscad._UNRESOLVED_NAME_MARKERS), line
 
+    # Positive-only, a marker list of ("WARNING",) would satisfy every line
+    # above. These are ordinary engine chatter and a real diagnostic that is
+    # NOT a name failing to resolve; matching any of them would refuse correct
+    # parts, which is how `undefined operation` came off this list.
+    for benign in (
+        "WARNING: undefined operation (string + number) in file q.scad, line 2",
+        "WARNING: Can't open library 'nowhere/absent.scad'.",
+        'ECHO: "include file: none"',
+        "Geometries in cache: 2",
+        "WARNING: Unable to convert cube(size=[undef, 5, 5], ...) parameter to a number",
+    ):
+        assert not openscad._unresolved_lines(benign, openscad._UNRESOLVED_NAME_MARKERS), benign
+
+
+def test_the_empty_result_marker_matches_both_engines():
+    """`_EMPTY_RESULT` decides `produced_nothing`, which decides `p.empty()`.
+
+    Measured, not assumed, after the include marker turned out to have been
+    dead on 2026.08.01 since the snapshot leg was added: an intersection of two
+    disjoint cubes prints the same sentence on both binaries, byte for byte.
+    Pinned here because that is the fact the include marker lacked -- nothing
+    asserted it, so nothing noticed when it stopped being true.
+    """
+    for line in (
+        # 2021.01 and 2026.08.01 alike, from `intersection()` of two disjoint cubes
+        "Current top level object is empty.",
+        "WARNING: Current top level object is empty.",
+    ):
+        assert openscad._EMPTY_RESULT in line
+
 
 def test_a_missing_use_library_is_not_itself_an_unresolved_name():
     """`use <absent.scad>` alone removes no geometry, so it is not this guard's.

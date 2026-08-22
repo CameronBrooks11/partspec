@@ -441,11 +441,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part while printing it. Guarding on it errored that part at exit 4 while
   claiming a name had not resolved. It stays in the wider set used where the
   render already produced nothing, which is where its reasoning holds.
-  The false-positive bound is measured, not asserted: all 25 `.scad` files
-  tracked in this repo build with zero markers, and `is_undef()` — how a source
-  legitimately probes for a name it does not require — emits no warning, while
-  reading an undefined variable directly *does* warn and silently renders a
-  default cube. One behaviour change worth naming: `include <optional.scad>`
+  The false-positive bound is measured, not asserted, and measured on **both**
+  engines rather than one: of the 25 `.scad` files tracked in this repo, 25
+  build with no name marker on 2021.01 and 24 on 2026.08.01. The one exception
+  is a true positive — `tests/fixtures/imports_stl_data.scad` calls
+  `import_stl()`, a builtin the newer engine removed, so that fixture really
+  does lose its imported solid there and the guard really should say so.
+  Alongside: `is_undef()` — how a source legitimately probes for a name it does
+  not require — emits no warning, while reading an undefined variable directly
+  *does* warn and silently renders a default cube. One behaviour change worth naming: `include <optional.scad>`
   for a file that is deliberately absent now errors rather than rendering, and
   that is intended — the closure genuinely is partial.
 
