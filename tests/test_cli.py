@@ -133,9 +133,48 @@ def test_measure_refuses_a_part_the_engine_hollowed_out(tmp_path: Path, capsys):
     )
 
     assert main(["measure", f"{spec}:make"]) == 4
-    err = capsys.readouterr().err
-    assert "bore_hole" in err
-    assert "something other than what this source describes" in err
+    captured = capsys.readouterr()
+
+    # The JSON, not the console: SPEC-report's Scope requires the identity
+    # prefix plus error/hint on any failure after the target resolves, and an
+    # implementation printing to stderr alone would satisfy a stderr-only
+    # assertion while being machine-invisible -- the exact defect #47 fixed.
+    doc = json.loads(captured.out)
+    assert doc["part"]["id"] == "hollow"
+    assert "measurements" not in doc, "no quantity may be offered off a hollowed part"
+    assert "bore_hole" in doc["error"]
+    assert "something other than what this source describes" in doc["error"]
+    assert doc["hint"]
+    assert "bore_hole" in captured.err
+
+
+@needs_scad_tier
+def test_measure_out_file_refuses_without_touching_the_destination(tmp_path: Path, capsys):
+    """A refusal must leave `--out FILE` exactly as the caller left it.
+
+    Asked after the rename, the refusal replaced a good artifact with the
+    hollowed one and then declined to measure it -- a documented refusal that
+    destroys the destination, which is worse than the silence it replaced.
+    Round-2 review of PR #306; the rule is `_build_to_file`'s own docstring.
+    """
+    good = tmp_path / "good.scad"
+    good.write_text("cube([40,30,6], center=true);\n")
+    bad = tmp_path / "bad.scad"
+    bad.write_text("difference() {\n  cube([40,30,6], center=true);\n  bore_hole(d=8);\n}\n")
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def good():\n    return Part('good', openscad('good.scad'))\n\n\n"
+        "def bad():\n    return Part('bad', openscad('bad.scad'))\n"
+    )
+    dest = tmp_path / "dst" / "thing.stl"
+
+    assert main(["measure", f"{spec}:good", "--out", str(dest)]) == 0
+    before = dest.read_bytes()
+    capsys.readouterr()
+
+    assert main(["measure", f"{spec}:bad", "--out", str(dest)]) == 4
+    assert dest.read_bytes() == before, "the refusal overwrote the caller's artifact"
 
 
 # --------------------------------------------------------------------------

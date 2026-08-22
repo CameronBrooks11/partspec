@@ -858,9 +858,22 @@ _UNRESOLVED_NAME_MARKERS = (
 
 Separated from `_UNRESOLVED_MARKERS` because the two sets answer different
 questions and only one of them is safe to ask of a render that SUCCEEDED.
-Each of these says a name was looked up and not found, and OpenSCAD's response
-is to render that call's children not at all -- so on a successful build they
-are evidence the artifact is missing geometry the source asked for (#286).
+Each says a name was looked up and not found; what follows from that differs
+by kind. A module or include is direct -- OpenSCAD renders that call's children
+not at all, so geometry the source asked for is simply gone. A function or
+variable yields `undef` into an expression instead, which may or may not reach
+geometry: `echo(nofunc(3))` beside a correct cube is refused on this evidence
+even though the cube is right. That is deliberate. stderr cannot say whether
+the `undef` reached a dimension, the diagnosis (a name did not resolve) is true
+either way, and the remedy is the same -- while a value silently substituted
+into a dimension is the case that must not be waved through (#286).
+
+One success-path shape is knowingly given up by narrowing to these: an
+expression whose type error defaults a dimension -- `linear_extrude(undef + 1)`
+-- prints `undefined operation` alone and still passes. That is a type error
+rather than an unresolved name, and catching it wants a different marker
+(`Unable to convert`, which names the substitution directly) and its own
+issue.
 
 `undefined operation` is deliberately NOT here. It reports a type error in an
 expression, not a lookup that failed, and on the success path it fires on code

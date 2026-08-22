@@ -403,11 +403,16 @@ report the design as disproven.
 The distinction is carried in `BuildError.origin` (`"environment"` or `"model"`) and
 surfaced in the report as a field a consumer can branch on — not as prose in `detail`.
 
-A third case reaches `error` by neither route: the build **succeeded** and the artifact
-is not the part. OpenSCAD renders an unresolved call's children not at all, so a misspelt
-module or an include that did not open removes geometry and still exits `0` with a
-well-formed, watertight mesh (`FAILURE-MODES.md` §1). Every geometry check would then be
-measuring a different part than the contract describes, so none of them is evaluated:
+A third case reaches `error` by neither route: the build **succeeded** and a name the
+source asked for did not resolve, so whatever that name would have contributed is absent
+from the render. For a module or an include the mechanism is direct — OpenSCAD renders an
+unresolved call's children *not at all*, so a misspelt module or an include that did not
+open removes geometry and still exits `0` with a well-formed, watertight mesh
+(`FAILURE-MODES.md` §1). For an unresolved function or variable the expression yields
+`undef` instead, which may or may not reach geometry; partspec refuses either way, because
+stderr cannot say which, and a value silently substituted into a dimension is precisely
+the case it must not wave through. In neither case can the tool claim it measured the part
+the contract describes, so no geometry check is evaluated:
 `builds` and every geometry check are `skipped`, `verdict: "error"`, exit `4`, and `error`
 carries the engine's own diagnostic line. Parameter-phase checks are unaffected — they are
 arithmetic over the contract's inputs and need no engine.

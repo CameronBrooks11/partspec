@@ -1119,3 +1119,28 @@ def test_the_is_undef_idiom_is_not_an_unresolved_name(tmp_path: Path):
     report = run(p, out_dir=tmp_path)
     assert report.verdict is Verdict.PASS
     assert report.error is None
+
+
+@needs_scad_tier
+def test_a_declared_empty_part_is_not_laundered_by_an_unresolved_name(tmp_path: Path):
+    """#237's rule, on the branch #286 added.
+
+    `p.empty()` declares that the result is legitimately nothing. An unresolved
+    name must never satisfy it: "the intersection is genuinely null" and "the
+    geometry never existed to intersect" are opposite facts with one exit code.
+    The BuildError branch has enforced that since #237. This pins the other
+    side, where the render SUCCEEDS and the two paths are mutually exclusive by
+    construction -- the empty arm lives inside `isinstance(artifact, BuildError)`
+    and the #286 arm strictly after it, so neither can reach the other.
+    """
+    src = tmp_path / "probe.scad"
+    # Builds something, and lost a name doing it: `empty` is declared and false,
+    # but the evidence for "false" is not trustworthy either.
+    src.write_text("cube([40,30,6], center=true);\nnope_module();\n")
+    p = Part("probe", openscad(src))
+    p.empty()
+
+    report = run(p, out_dir=tmp_path)
+    assert report.verdict is Verdict.ERROR
+    assert _status(report, "empty") is not Status.PASS
+    assert report.error is not None and "nope_module" in report.error

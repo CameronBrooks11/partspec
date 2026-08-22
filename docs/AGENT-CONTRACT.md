@@ -122,9 +122,12 @@ Read the non-`pass` statuses in `checks[]`:
   call's children not at all, so a misspelt module or an include that did not open
   removed geometry the contract is about (`FAILURE-MODES.md` §1). **Do not touch the
   contract** — the fix is in the model source or on `OPENSCADPATH`. `error` quotes the
-  engine's own line, which names the file and the line number. Whether it is a typo or
-  a library absent from this machine is what partspec cannot tell, which is why the
-  origin is `null` rather than a guess.
+  engine's own line verbatim: for an unresolved module, function or variable that line
+  names the file and the line number, and for an include that did not open it names the
+  include and nothing else — `Can't open include file 'BOSL2/std.scad'.` — so start from
+  the include path, not from a location. Whether it is a typo or a library absent from
+  this machine is what partspec cannot tell, which is why the origin is `null` rather
+  than a guess.
 - **Otherwise** → the contract itself raised (the report says "the contract is wrong,
   not the part"), or the report is still the placeholder ("run did not complete") —
   whose most common cause is deterministic, not transient: **the contract failed to
