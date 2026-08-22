@@ -425,7 +425,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AGENT-CONTRACT.md` §2.3 gains the branch that routes it — without which an
   agent read `build_origin: null` as "the contract raised" and was sent to
   repair a contract that was fine.
-  Only the four markers that name a **name** are read on the success path.
+  **The engines word these warnings differently, and one of the markers had
+  been dead on half the CI matrix since the snapshot leg was added.** A missing
+  include is `Can't open include file` on 2021.01 and `Can't **find** include
+  file` on 2026.08.01; only the first was listed. Measured by running the same
+  source under each pinned binary, after the snapshot leg failed on exactly the
+  two include cases. So on the newer engine a source whose include did not open,
+  with no other unresolved name, reported `pass` — and did so on `main` too,
+  including on the empty-result path this marker list was written for. Both
+  spellings are now listed and both are pinned against the matcher directly, in
+  a test that needs no engine and so cannot be skipped into silence.
+  Only the markers that name a **name** are read on the success path.
   `undefined operation` is deliberately excluded: it reports a type error, and
   `echo("holes: " + holes)` — `+` where `str()` was meant — renders a perfect
   part while printing it. Guarding on it errored that part at exit 4 while

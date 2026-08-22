@@ -839,12 +839,22 @@ def _camera(bbox: tuple[tuple[float, ...], tuple[float, ...]], rot: tuple[float,
 _EMPTY_RESULT = "Current top level object is empty"
 
 _UNRESOLVED_NAME_MARKERS = (
+    # BOTH spellings, because the engines disagree and matching one is F13 in
+    # miniature. Measured by running the same missing-include source under each
+    # binary the CI matrix pins:
+    #   2021.01     WARNING: Can't open include file 'nowhere/absent.scad'.
+    #   2026.08.01  WARNING: Can't find include file 'nowhere/absent.scad'. ...
+    # Only the first was listed until PR #306, so on the newer engine this
+    # marker had been dead since the day the snapshot leg was added -- silently,
+    # because nothing asserted it there. `test_openscad_engine.py` now pins both
+    # strings against the matcher directly, which needs no engine to run.
     "Can't open include file",
+    "Can't find include file",
     "Ignoring unknown module",
     "Ignoring unknown function",
     "Ignoring unknown variable",
 )
-"""The four that name a NAME the engine could not resolve.
+"""The diagnostics that name a NAME the engine could not resolve.
 
 Separated from `_UNRESOLVED_MARKERS` because the two sets answer different
 questions and only one of them is safe to ask of a render that SUCCEEDED.
