@@ -190,7 +190,7 @@ class Unknown(Exception):
     """A node the evaluator does not model; carries the node kind."""
 
 
-def _require_closed(faces: list) -> None:
+def _require_closed(points: list, faces: list) -> None:
     """Refuse a polyhedron whose surface does not bound a volume.
 
     The sum below is the divergence theorem over triangle fans, and it is a
@@ -201,17 +201,43 @@ def _require_closed(faces: list) -> None:
     that would at least have looked wrong. `planes_of` refuses the same node;
     this is `volume_of` catching up (#289).
 
-    Exact, not heuristic, and needs nothing but the face list: on a closed
-    coherently-oriented surface every directed edge appears exactly once and
-    its reverse exactly once. A missing face leaves edges unpaired; a face
-    wound the wrong way traverses an edge twice in the same direction. Both
-    are caught, and a correct mesh costs one pass over the faces.
+    On a closed, coherently-oriented surface every directed edge appears
+    exactly once and its reverse exactly once. A missing face leaves edges
+    unpaired; a face wound the wrong way traverses an edge twice in the same
+    direction. Both are caught, in one pass over the faces.
+
+    **Edges are keyed by COORDINATE, not by index**, because the engine welds
+    coincident vertices and the author need not share indices to share a
+    vertex. Keying on the index refused a cube written as a triangle soup --
+    per-face vertices, which is what every STL/OBJ-to-`polyhedron()`
+    conversion emits -- reporting all 24 of its edges as belonging to one face
+    while OpenSCAD rendered a watertight 1000 mm3 solid and the code this
+    precondition guards had measured it correctly (review of PR #312). The
+    same rule is sound in `tests/test_region.py`'s `_assert_closed_and_outward`
+    only because that runs on partspec's own canonical triangulation, where one
+    index is one vertex by construction; user input carries no such invariant.
+
+    Welding is on exact equality. Two vertices a float apart are treated as
+    distinct and the surface is refused rather than measured -- the safe
+    direction, since the alternative is a number computed over a surface whose
+    closure was assumed.
     """
+    canonical: dict[tuple[float, ...], int] = {}
+    weld: list[int] = []
+    for point in points:
+        try:
+            key = tuple(float(c) for c in point)
+        except (TypeError, ValueError):
+            raise Unknown("polyhedron") from None
+        weld.append(canonical.setdefault(key, len(canonical)))
+
     edges: dict[tuple[int, int], int] = {}
     for face in faces:
         if not isinstance(face, list) or len(face) < 3:
             continue
-        idx = [int(v) for v in face]
+        idx = [weld[int(v)] for v in face]
+        # `strict=True` is required by B905 rather than decorative -- the two
+        # sequences are the same length by construction, so it can never fire.
         for a, b in zip(idx, idx[1:] + idx[:1], strict=True):
             edges[(a, b)] = edges.get((a, b), 0) + 1
 
@@ -284,7 +310,7 @@ def volume_of(node: Node, matrix=_IDENTITY) -> float:
         faces = node.kwargs.get("faces", node.kwargs.get("triangles"))
         if not isinstance(points, list) or not isinstance(faces, list):
             raise Unknown(node.kind)
-        _require_closed(faces)
+        _require_closed(points, faces)
         total = 0.0
         for face in faces:
             if not isinstance(face, list) or len(face) < 3:
