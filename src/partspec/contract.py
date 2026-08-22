@@ -550,11 +550,19 @@ class Part:
     def empty(self, *, id: str | None = None) -> Part:
         """The part is expected to build to NOTHING, and that is the passing result.
 
-        For a **clearance probe** — `intersection() { A; B; }` declared as its
-        own part — emptiness is the claim: the two parts share no space. Without
-        this, a null result is a build failure and the claim can only be written
-        as a bound on a measurement that was never taken, so the good answer was
-        the one outcome the tool could not grade (#237).
+        For an **interference probe** — `intersection() { A; B; }` declared as
+        its own part — emptiness is the claim, and the claim is exactly this:
+        **no positive-volume interference**. Not "the parts do not touch", and
+        not "there is clearance". On a kernel that discards a zero-thickness
+        result -- OpenSCAD's manifold backend and the OCCT tier both do --
+        touching and clear are the same signal, so this cannot mean more than
+        it says (#270, SPEC-contract §4.12). To assert a clearance, intersect
+        against a part grown by it: a violation then has volume, no
+        zero-thickness result is produced, and every kernel agrees.
+
+        Without this check a null result is a build failure and the claim can
+        only be written as a bound on a measurement that was never taken, so
+        the good answer was the one outcome the tool could not grade (#237).
 
         Declaring it changes nothing for any other contract. A part that does not
         declare `empty` and builds to nothing still fails, exactly as before —
@@ -605,14 +613,17 @@ class Part:
         would be its own dishonesty (`SPEC-backend.md` §7). That makes it the
         measure for a part that is legitimately not a solid.
 
-        The case worth naming is a **clearance probe**: `intersection() { A; B; }`
-        built as its own part. Its three outcomes separate on area and volume
-        together — interpenetrating gives a volume, resting-on gives area with no
-        volume, and not-touching does not build at all (#237). Measured on
-        2021.01: two boxes meeting on a face export four triangles that are
-        watertight, so `volume` reads exactly `0.0`; an annular contact exports a
-        mesh with 94 non-manifold edges, so `volume` refuses and `area` still
-        answers (#238).
+        The case worth naming is an **interference probe**: `intersection() { A;
+        B; }` built as its own part. Interpenetrating gives a volume; no
+        interference gives nothing, which `empty` grades (#237). Between them
+        sits resting-on-a-face, which gives area with no volume — **and only on
+        a kernel that keeps a zero-thickness result.** OpenSCAD's CGAL backend
+        does; its manifold default and the OCCT tier discard it, so that middle
+        outcome is not available there and `empty` passes for a touching pair
+        (#270, §4.12). Measured on 2021.01: two boxes meeting on a face export
+        four triangles that are watertight, so `volume` reads exactly `0.0`; an
+        annular contact exports a mesh with 94 non-manifold edges, so `volume`
+        refuses and `area` still answers (#238).
 
         **On such a part the number is TWICE the contact patch.** The sheet has
         two sides and both are exported: a 10 x 10 mm face reads `200.0`. Nothing

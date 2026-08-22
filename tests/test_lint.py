@@ -612,7 +612,7 @@ def test_an_unmodelled_node_is_an_entry_never_an_absence(tmp_path: Path, capsys)
     entry = json.loads(capsys.readouterr().out)["files"][0]
     unsupported = {u["rule"]: u["reason"] for u in entry["unsupported"]}
     # The two rules that EVALUATE the tree, not `set(TIER2_RULES)`:
-    # `csg-clearance-probe` reads shape only, so an unmodelled node costs it
+    # `csg-interference-probe` reads shape only, so an unmodelled node costs it
     # nothing and it correctly still answers.
     assert set(unsupported) == {"csg-difference-order", "csg-coincident-face"}
     assert "hull" in unsupported["csg-difference-order"]
@@ -976,7 +976,7 @@ def test_the_open_box_fixture_refuses_through_a_real_export(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------
-# csg-clearance-probe: the bare probe is valid, and narrower than it reads (#270)
+# csg-interference-probe: the bare probe is valid, and narrower than it reads (#270)
 # --------------------------------------------------------------------------
 
 
@@ -1017,9 +1017,9 @@ def test_csg_clearance_probe_fires_only_on_a_two_part_intersection(
     scad.write_text(source)
     findings, unsupported = lint_scad_tier2(scad, OPENSCAD)
 
-    hits = [f for f in findings if f.rule == "csg-clearance-probe"]
+    hits = [f for f in findings if f.rule == "csg-interference-probe"]
     assert bool(hits) is flagged
-    assert "csg-clearance-probe" not in {u["rule"] for u in unsupported}
+    assert "csg-interference-probe" not in {u["rule"] for u in unsupported}
     if flagged:
         assert "no positive-volume interference" in hits[0].message
         assert "grown by it" in hits[0].message
@@ -1046,7 +1046,7 @@ def test_csg_clearance_probe_reads_shape_and_needs_no_kernel_verdict(tmp_path: P
     )
     for scad in (overlapping, touching):
         findings, _ = lint_scad_tier2(scad, OPENSCAD)
-        assert [f for f in findings if f.rule == "csg-clearance-probe"], scad.name
+        assert [f for f in findings if f.rule == "csg-interference-probe"], scad.name
 
 
 def test_every_declared_rule_has_a_description():
@@ -1054,3 +1054,43 @@ def test_every_declared_rule_has_a_description():
     a finding a reader cannot look up."""
     emitted = set(TIER2_RULES)
     assert emitted <= set(RULES), f"undescribed: {sorted(emitted - set(RULES))}"
+
+
+@needs_openscad
+def test_no_shipped_model_trips_the_interference_probe_rule():
+    """The "0 match" claim in `LINT.md` and the CHANGELOG, pinned.
+
+    The rule fires on a shape that is NOT unique to probes -- a lens blank, a
+    chamfer by rotated cube, two perpendicular extrusions and a
+    trimmed-to-envelope lattice all match, which `LINT.md` owns as known noise.
+    That makes it worth knowing mechanically that nothing this repo ships is in
+    that set, rather than asserting it in prose three times and finding out
+    when someone adds an exemplar built as an intersection.
+
+    Counts only files whose export can be read: a `.scad` carrying string
+    content is refused whole before any rule runs, so it is not evidence either
+    way and must not be counted as a pass.
+    """
+    root = Path(__file__).resolve().parent.parent
+    if not (root / ".git").exists():
+        pytest.skip("asks what this checkout TRACKS; an unpacked sdist has no git")
+
+    tracked = [
+        root / line
+        for line in subprocess.run(
+            ["git", "ls-files", "*.scad"], cwd=root, capture_output=True, text=True, check=True
+        ).stdout.split()
+    ]
+    assert tracked, "the repo ships .scad files; finding none means the query is wrong"
+
+    read, flagged = 0, []
+    for scad in tracked:
+        findings, unsupported = lint_scad_tier2(scad, OPENSCAD)
+        if any(u["rule"] == "csg-interference-probe" for u in unsupported):
+            continue  # refused whole; no evidence either way
+        read += 1
+        if any(f.rule == "csg-interference-probe" for f in findings):
+            flagged.append(scad.relative_to(root).as_posix())
+
+    assert not flagged, f"shipped models now trip the rule: {flagged}"
+    assert read >= 20, f"only {read} of {len(tracked)} exports could be read — too few to claim"

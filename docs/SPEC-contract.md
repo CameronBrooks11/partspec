@@ -859,13 +859,14 @@ kernels partspec drives (#270):
 
 | kernel | parts **touching** on a face | parts **clear** |
 |---|---|---|
-| OpenSCAD 2021.01 / `--backend cgal` | a sheet — `empty` fails, `area` measurable | nothing — `empty` passes |
-| OpenSCAD 2026.08.01 default (manifold) | **nothing** — `empty` passes | nothing — `empty` passes |
-| build123d / OCCT | **nothing** — `empty` passes | nothing — `empty` passes |
+| CGAL — 2021.01 (its only kernel), or 2026.08.01 `--backend cgal` | a sheet — `empty` fails, `area` measurable | nothing — `empty` passes |
+| manifold — 2026.08.01's default | **nothing** — `empty` passes | nothing — `empty` passes |
+| OCCT — build123d / CadQuery | **nothing** — `empty` passes | nothing — `empty` passes |
 
 Two of the three discard it; CGAL is the outlier. There is no warning and no flag to key
 on — `produced_nothing` is set either way — so this is a property of the geometry
-question, not a gap in the implementation.
+question, not a gap in the implementation. (2021.01 does not accept `--backend`; the flag
+names the kernel only on builds that have more than one.)
 
 **To assert a clearance, state the number and let a violation have volume.** Intersect
 against a part grown by the clearance rather than against the part itself:
@@ -878,7 +879,7 @@ intersection() { a(); grown_b(0.5); }        // "is there 0.5 mm of clearance" �
 Declared with `empty` the second says *no part of `b`, plus 0.5 mm, meets `a`*. No
 zero-thickness result is ever produced, so **every kernel agrees**, and the bound is a
 number in the contract where a reviewer can see it. `partspec lint` flags the bare form
-advisorily (`csg-clearance-probe`, `LINT.md`) — the bare claim is valid, it is simply
+advisorily (`csg-interference-probe`, `LINT.md`) — the bare claim is valid, it is simply
 narrower than it reads.
 
 partspec does **not** select a backend to make this check answerable. Which kernel ran is

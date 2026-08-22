@@ -149,9 +149,10 @@ class BuildError:
     """The engine completed and the result was EMPTY, rather than the engine
     failing to run.
 
-    A null intersection is the motivating case: two parts that share no space
-    render nothing, which is a real answer and, for a clearance probe, the
-    passing one. Distinguished here rather than in the runner because the
+    A null intersection is the motivating case: two parts with no
+    positive-volume interference render nothing, which is a real answer and,
+    for an interference probe, the passing one (SPEC-contract §4.12).
+    Distinguished here rather than in the runner because the
     evidence is an engine-specific string, and engines own their own strings.
     A contract can declare that outcome with `p.empty()` (SPEC-contract 4.12);
     without such a declaration this changes nothing and the failure is a

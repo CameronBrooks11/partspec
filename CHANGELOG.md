@@ -9,17 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-
-- **`csg-clearance-probe`, an advisory lint rule** (#270). Fires when a file's
-  entire top level is a single `intersection()` of exactly two children, which
-  is what an interference probe is and what a real part essentially never is —
-  measured against every `.scad` tracked in this repo, **0 of 25** match. A
-  module-wrapped probe matches too, since the export folds the calls to two
-  `group` children; a `difference()`, a second top-level node, or a third child
-  does not.
-  It reads the `.csg` tree **before any boolean runs**, so it answers the same
-  on every kernel — which is the point, the kernels being exactly what disagree
-  about the result. It consults no engine verdict and needs none.
+- **`csg-interference-probe`, an advisory lint rule** (#270). Fires when a
+  file's entire top level is a single `intersection()` of exactly two children.
+  A probe whose two parts are module calls matches too, since the export folds
+  the calls to two `group` children; a `difference()`, a second top-level node,
+  or a third child does not.
+  **The shape is not unique to probes, and the rule says so rather than
+  pretending otherwise.** `intersection()` of two solids is also how a part gets
+  built: a lens blank, a chamfer by rotated cube, two perpendicular extrusions,
+  a lattice trimmed to its envelope — all four fire, measured, and none is a
+  probe. The discriminator is the contract's `empty()` and `partspec lint` never
+  sees a contract, so the finding is phrased conditionally and the noise is
+  owned in `LINT.md` beside `csg-coincident-face`'s. Nothing this repo ships
+  trips it — 0 of the 21 tracked `.scad` files whose export can be read, the
+  other 4 being refused whole for string content — and a test now pins that
+  rather than three documents asserting it.
+  It reads the `.csg` tree **before any boolean runs**, so the predicate answers
+  the same on every kernel — which is the point, the kernels being exactly what
+  disagree about the result. It consults no engine verdict and needs none.
 
 - **`p.build_input("cadquery-ocp")` — an author may force byte identity for a
   named distribution** (#215, epic #229, stage 4 of #190). Identity is decided
@@ -301,7 +308,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-
 - **`empty()` means no positive-volume interference** — not "the parts do not
   touch", and not "there is clearance" (#270, epic #305). The check is
   unreleased, so this is its introduced meaning rather than a change to one.
@@ -318,7 +324,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   intersect against a part grown by the clearance rather than against the part
   itself. No zero-thickness result is ever produced, so every kernel agrees and
   the bound sits in the contract where a reviewer can see it. `SPEC-contract.md`
-  §4.12 carries the meaning, the kernel table and the pattern.
+  §4.12 carries the meaning, the kernel table and the pattern, and
+  `skills/contract-authoring/SKILL.md` — the surface an authoring agent reads
+  first — stops teaching the retired three-outcome model, whose middle row was
+  CGAL-only and whose last row said the case was "not yet expressible" three
+  releases after `p.empty()` shipped (#281).
   **partspec does not select a backend to make this answerable.** Pinning
   `--backend cgal` for `empty` probes was considered and refused: it addresses
   only OpenSCAD, leaving the OCCT tier answering differently — the tier
