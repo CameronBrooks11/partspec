@@ -113,7 +113,9 @@ Read the non-`pass` statuses in `checks[]`:
 
 - **`build_origin: "environment"`** → the machine, not the part: missing engine or
   package (named in `hint`), absent source file, or a blown build budget — `error` names
-  the budget; a legitimately slow model gets `--timeout` raised *deliberately*.
+  the budget; a legitimately slow model gets `--timeout` raised *deliberately*. **Unless
+  `error` says a variable list is INCOMPLETE** — that shape carries the same origin and
+  is the next bullet, and it is the one case here where the source may be at fault.
 - **`error` says a variable list is INCOMPLETE** (`build_origin: "environment"`) → an
   `include` did not open, so partspec could not finish reading which names `-D` can bind
   and will not judge your parameter either way. `error` names the file. **This is the one

@@ -1486,6 +1486,7 @@ class Closure:
     """Resolved members, entry file included, in sorted order."""
 
     unresolved: tuple[str, ...] = ()
+    """`include`/`use` targets that could not be found on any search path."""
 
     unresolved_includes: tuple[str, ...] = ()
     """The subset of `unresolved` reached by `include`, not by `use`.
@@ -1501,8 +1502,15 @@ class Closure:
     actionable-and-wrong remedy: an unresolved `use` was told its variable list
     was short "so a variable declared there would be missing from it", and a
     reader who created that file to satisfy the hint reached `verdict: pass` on
-    a `-D` the engine had dropped (review of PR #310)."""
-    """`include`/`use` targets that could not be found on any search path."""
+    a `-D` the engine had dropped (review of PR #310).
+
+    Include-*reachability*, not "an include seen anywhere in the walk": `use`
+    stops the chain transitively, measured on the engine. See `include_closure`.
+
+    **Not** the report/diff token spelled `unresolved_includes`
+    (`runner.py`, `diff.py`), which is emitted from `unresolved` and covers
+    `use` too. Same words, wider meaning; wiring one to the other would
+    silently narrow the report."""
 
     reads_external_data: bool = False
     """True if `import()` or `surface()` appears anywhere in the closure.
