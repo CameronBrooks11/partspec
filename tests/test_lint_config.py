@@ -315,3 +315,30 @@ def test_arg_is_declined_and_the_comment_does_not_quantify_it():
     assert not re.search(r"ARG.{0,80}\b\d+\b", paragraphs[0], re.S), (
         "the ARG rationale must not carry a hand-maintained count"
     )
+
+
+def test_no_test_shells_out_to_a_hardcoded_engine_name():
+    """A test that runs `openscad` by name tests whichever engine PATH holds.
+
+    `PARTSPEC_OPENSCAD` is how the CI matrix's snapshot leg selects its
+    binary, and that leg installs no apt package at all -- so a literal
+    `"openscad"` in a subprocess call is a `FileNotFoundError` there while
+    passing locally, where the apt binary is on `PATH` regardless of the
+    variable. Worse than the failure: on any machine that has both, the test
+    silently exercises the wrong engine and a two-engine run proves one thing
+    twice. Both happened in PR #312.
+
+    `support.OPENSCAD` resolves through `openscad.find_executable()`, which
+    honours the variable. Use it.
+    """
+    # Assembled rather than written out, so this file is not its own offender.
+    engine = "openscad"
+    needles = (f'subprocess.run(["{engine}"', f"subprocess.run(['{engine}'")
+    offenders: list[str] = []
+    for path in sorted(Path(__file__).parent.glob("test_*.py")):
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if line.strip().startswith("#"):
+                continue
+            if any(needle in line for needle in needles):
+                offenders.append(f"{path.name}:{number}")
+    assert not offenders, f"use support.OPENSCAD, not the literal name: {', '.join(offenders)}"

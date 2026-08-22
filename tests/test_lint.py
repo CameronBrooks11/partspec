@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from support import needs_openscad
+from support import OPENSCAD, needs_openscad
 
 from partspec import csg
 from partspec.cli import main
@@ -937,7 +937,11 @@ def test_volume_of_measures_a_polyhedron_written_as_a_triangle_soup(tmp_path: Pa
         + "]\n);\n"
     )
     out = tmp_path / "soup.csg"
-    subprocess.run(["openscad", "-o", str(out), str(src)], capture_output=True, check=True)
+    # `OPENSCAD`, not the literal: `PARTSPEC_OPENSCAD` is how the CI snapshot
+    # leg selects its engine, and that leg installs no apt binary at all, so a
+    # hardcoded name is a FileNotFoundError there and a different engine here.
+    assert OPENSCAD is not None  # guaranteed by @needs_openscad
+    subprocess.run([OPENSCAD, "-o", str(out), str(src)], capture_output=True, check=True)
 
     node = csg.parse_csg(out.read_text())[0]
     assert node.kind == "polyhedron"
@@ -955,7 +959,11 @@ def test_the_open_box_fixture_refuses_through_a_real_export(tmp_path: Path):
     src = tmp_path / "open_box.scad"
     src.write_text((FIXTURES / "open_box.scad").read_text())
     out = tmp_path / "open_box.csg"
-    subprocess.run(["openscad", "-o", str(out), str(src)], capture_output=True, check=True)
+    # `OPENSCAD`, not the literal: `PARTSPEC_OPENSCAD` is how the CI snapshot
+    # leg selects its engine, and that leg installs no apt binary at all, so a
+    # hardcoded name is a FileNotFoundError there and a different engine here.
+    assert OPENSCAD is not None  # guaranteed by @needs_openscad
+    subprocess.run([OPENSCAD, "-o", str(out), str(src)], capture_output=True, check=True)
 
     node = csg.parse_csg(out.read_text())[0]
     with pytest.raises(csg.CsgError) as exc:
