@@ -331,8 +331,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overlap depth of ~6e-7 mm (constant, though the volume lost at it scales with
   the face: 1.5e-7 mm3 across 0.5 mm, 2.2e-3 mm3 across 60 mm), CGAL below a
   ~1.9e-6 mm feature cross-section — though never for thinness alone — and
-  manifold below ~2.4e-7 mm of either near the origin, rising with the
-  feature's coordinate and saturating near CGAL's. Sub-physical
+  manifold below ~2.4e-7 mm of either near the origin and rising with distance
+  from it — how far it rises is measured inconsistently and tracked as #315. Sub-physical
   for real parts, and kernel constants rather than defects, but it is the one
   direction where a pass is weaker than it reads — so `empty` is now specified
   as "no positive-volume interference **the kernel can represent**", the same
@@ -347,7 +347,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and narrower than "separated".
   **To assert a clearance, state the number and let a violation have volume**:
   intersect against a part grown by the clearance rather than against the part
-  itself. No zero-thickness result is ever produced, so every kernel agrees and
+  itself. A violation with any margin encloses volume rather than a sheet, so every kernel agrees and
   the bound sits in the contract where a reviewer can see it. `SPEC-contract.md`
   §4.12 carries the meaning, the kernel table and the pattern, and
   `skills/contract-authoring/SKILL.md` — the surface an authoring agent reads
