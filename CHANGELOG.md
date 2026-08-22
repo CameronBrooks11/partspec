@@ -394,28 +394,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A parameter is no longer refused on a list of variables partspec could
-  not finish reading** (#287, epic #305). `unbound_parameters` answers from
-  the files partspec resolved, and the refusal's own sentence says the name
-  matches nothing "in `<file>` **or its includes**" — a claim it cannot make
-  when one of those includes never opened. Measured: a model whose
+- **A parameter refusal no longer claims to have read includes it could not
+  open** (#287, epic #305). `unbound_parameters` answers from
+  `top_level_variables`, which reads the files partspec *resolved*, and the
+  refusal's sentence said the name matched nothing "in `<file>` **or its
+  includes**" — about includes that never opened. Measured: a model whose
   `include <missing_lib.scad>` fails, given `lib_x`/`lib_y`, was refused with
-  `FAIL builds`, exit 1, while the engine built the part cleanly at 20×10×3
-  with both `-D` values reaching the geometry. So the sentence was false, the
-  verdict blamed the contract, and the real fault — an include that did not
-  open — went unmentioned though the report carried it.
-  A cold agent believing that deletes a correct declaration. Issue #9's own
-  acceptance box required the opposite: a parameter that cannot be resolved
-  statically "degrades to a recorded warning rather than a false error".
-  The refusal is now asked only when the closure is complete. It is gated on
-  `unresolved` rather than the whole of `partial`, because only that arm
-  shortens the variable list — `reads_external_data` hides no declaration, and
-  gating on `partial` would suppress a refusal that is still sound.
-  **The two fixes compose**: this one stops the wrong answer and #286 supplies
-  the right one, naming the include. And a library only the *engine* can find
-  — on `OPENSCADPATH`, invisible to partspec's own search path — now resolves
-  there, binds its parameters and passes, where before it was a hard error
-  about a parameter that was genuinely declared.
+  `FAIL builds` at exit 1, blaming the contract, while the engine built the
+  part cleanly at 20×10×3 with both `-D` values reaching the geometry. A cold
+  agent believing that deletes a correct declaration, and the real fault — an
+  include that did not open — went unmentioned though the report carried it.
+  The refusal now names what it could not read, says the list is therefore
+  short, and carries `origin: "environment"`: an include that will not open is
+  not a statement about the part, so the remedy is to make it resolvable
+  rather than to edit the contract. `verdict: "error"`, exit 4, `builds` not
+  emitted failing.
+  **Withholding the refusal instead was tried and rejected**, and the reason
+  is worth recording: `Closure.unresolved` holds `use` targets as well as
+  `include` ones, and a `use`d file contributes no top-level variable at all —
+  so an unresolved `use` suppressed a refusal that was never in doubt, and
+  because `Can't open library` is deliberately not one of #286's markers,
+  nothing downstream spoke either. A transposed `bore_diamter=20` then reached
+  `verdict: "pass"` at exit 0 on both engines against geometry 8 wide, with
+  `params` asserting the value the geometry never saw. Trading a loud false
+  error for a silent false pass is the one trade this tool must not make.
 
 - **A build that silently lost geometry no longer reports `pass`** (#286, epic
   #305). OpenSCAD renders an unresolved call's children *not at all* and still

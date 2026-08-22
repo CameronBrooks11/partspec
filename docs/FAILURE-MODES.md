@@ -130,14 +130,11 @@ quietly-wrong part shows you.
   not built — the same shape as entries 1 and 2: **the tool chain is unanimous and
   wrong**.
 - **Guards.** A `-D` matching no top-level variable fails the build, naming the variable
-  and listing the ones that exist — **when partspec read every include**. Where one did
-  not open, the list of top-level variables is short by whatever that file declares, so
-  the refusal is withheld rather than made on evidence the tool does not have (#287): a
-  name the unread file declares would otherwise be reported as matching nothing, which is
-  a false error and no better than the false pass this entry is about. The render then
-  proceeds and #286 names the unread include instead — the fault that is actually
-  present. A library only the engine can find (`OPENSCADPATH`) resolves there, binds its
-  parameters, and passes.
+  and listing the ones that exist. Where an include did not open, the refusal still
+  fires — withholding it traded this false error for a *silent false pass* — but it says
+  the list is incomplete and names the file it could not read, and the fault is
+  `environment` rather than the contract's, because an include that will not open says
+  nothing about the part (#287).
 
 ## 6. Shared claims that assert the first implementation you looked at **[corpus]**
 

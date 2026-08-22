@@ -507,27 +507,40 @@ def render(
             # report then listed bore_diamter=8 under `params`, so the artifact
             # positively asserted a value the geometry never saw.
             #
-            # Asked only when the closure is COMPLETE. `unbound_parameters`
-            # answers from the files partspec resolved, so an include that did
-            # not open leaves the list short -- and the refusal's own sentence
-            # says "or its includes", about includes it never read. A name
-            # declared inside the unread file is then reported as matching
-            # nothing, which is a false error: the mirror image of a false
-            # pass, and the thing the docstring one function down calls "its
-            # own kind of dishonesty". The engine does not agree either; the
-            # `-D` values reach the geometry (#287).
+            # The refusal STANDS when partspec could not read an include -- it
+            # is the sentence that changes, not the answer. Skipping it instead
+            # was tried in review of #310 and traded a loud false error for a
+            # silent false pass: an unresolved `use` suppressed the refusal
+            # although a `use`d file contributes no top-level variable at all,
+            # and `Can't open library` is deliberately not a #286 marker, so a
+            # genuinely misspelt `-D` reached `verdict: pass` at exit 0 on both
+            # engines. That is the one trade this tool must never make.
             #
-            # `unresolved`, not `partial`. Only that arm shortens the variable
-            # list; `reads_external_data` hides no declaration, so gating on
-            # the whole of `partial` would suppress a refusal that is still
-            # sound. And when a name really is missing, the render proceeds and
-            # #286's post-render guard names the include instead -- the fault
-            # that is actually there.
-            unbound = [] if closure.unresolved else unbound_parameters(source.path, source.params)
+            # What #287 actually reports is the SENTENCE: "match no top-level
+            # variable in <file> or its includes" is a claim about includes
+            # that were never opened. So the incomplete case says what it read,
+            # what it could not, and that the list is therefore short --
+            # `origin="environment"`, because an include that will not open is
+            # not a statement about the part, and the remedy is to make it
+            # resolvable rather than to edit the contract.
+            unbound = unbound_parameters(source.path, source.params)
             if unbound:
+                named = ", ".join(unbound)
                 known = ", ".join(sorted(top_level_variables(source.path))) or "none"
+                if closure.unresolved:
+                    could_not = ", ".join(closure.unresolved)
+                    return BuildError(
+                        f"parameter(s) {named} match no top-level variable partspec could "
+                        f"read in {source.path.name}, and that list is INCOMPLETE: "
+                        f"{could_not} could not be opened, so a variable declared there "
+                        f"would be missing from it",
+                        hint=f"variables read so far: {known}. Make {could_not} resolvable "
+                        f"— then partspec can say whether the parameter binds; until it "
+                        f"opens, neither the name nor the contract can be judged",
+                        origin="environment",
+                    )
                 return BuildError(
-                    f"parameter(s) {', '.join(unbound)} match no top-level variable in "
+                    f"parameter(s) {named} match no top-level variable in "
                     f"{source.path.name} or its includes, so -D would be silently dropped",
                     hint=f"top-level variables: {known}",
                 )

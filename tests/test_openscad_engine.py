@@ -1502,39 +1502,56 @@ def test_a_missing_use_library_is_not_itself_an_unresolved_name():
         assert not openscad._unresolved_lines(line, openscad._UNRESOLVED_NAME_MARKERS)
 
 
-@needs_openscad
-def test_a_parameter_is_not_refused_when_partspec_could_not_read_an_include(
-    tmp_path: Path, monkeypatch
-):
-    """The list of top-level variables is only as complete as the closure.
+def test_a_parameter_refusal_says_when_its_variable_list_is_incomplete(tmp_path: Path):
+    """The list is only as complete as the closure, and the sentence must say so.
 
     `unbound_parameters` answers from `top_level_variables`, which reads the
-    files partspec resolved. When an include did not open, a name the contract
-    passes may be declared inside the file that was never read -- so refusing
-    on that list asserts something the tool has not established, in a sentence
-    that says "or its includes" about includes it did not see (#287).
+    files partspec resolved. The refusal claimed the name matched nothing "in
+    <file> **or its includes**" -- a claim about includes it never opened, and
+    one the engine contradicts, since the `-D` does reach the geometry (#287).
 
-    The divergence is real rather than simulated, the way #263's is:
-    `OPENSCADPATH` is set so the ENGINE resolves `lib.scad`, and `library_path`
-    is emptied so partspec does not. `lib_x` is genuinely declared and the
-    `-D` genuinely binds; only partspec is blind to it.
+    The refusal itself stands. Skipping it was tried and traded a loud false
+    error for a silent false pass (review of PR #310). What changes is that the
+    sentence names what could not be read and says the list is short, and that
+    the fault is `environment`: an include that will not open says nothing
+    about the part, and the remedy is to make it resolvable.
     """
-    libs = tmp_path / "libs"
-    libs.mkdir()
-    (libs / "lib.scad").write_text("lib_x = 5;\n")
-    model = tmp_path / "model"
-    model.mkdir()
-    source = _scad(model, "m.scad", "include <lib.scad>\ncube([lib_x, 10, 10]);\n")
-
-    monkeypatch.setenv("OPENSCADPATH", str(libs))
-    monkeypatch.setattr(openscad, "library_path", lambda: [])
-    closure = openscad.include_closure(source)
-    assert closure.unresolved == ("lib.scad",), closure
-    assert openscad.unbound_parameters(source, {"lib_x": 20.0}) == ["lib_x"], (
-        "the premise: partspec's own list does not contain it"
+    entry = _scad(
+        tmp_path,
+        "part.scad",
+        "include <missing_lib.scad>\nplate_z = 3;\ncube([lib_x, 10, plate_z]);\n",
+    )
+    result = openscad.render(
+        OpenSCADSource(path=entry, params={"lib_x": 20.0, "plate_z": 3.0}), tmp_path / "out"
     )
 
-    result = openscad.render(OpenSCADSource(path=source, params={"lib_x": 20.0}), tmp_path / "out")
-    assert not isinstance(result, BuildError), result
-    lo, hi = openscad._stl_bbox(result)
-    assert hi[0] - lo[0] == pytest.approx(20.0), "the -D reached the geometry"
+    assert isinstance(result, BuildError), result
+    assert result.origin == "environment", "an unopenable include is not the part's fault"
+    assert "missing_lib.scad" in result.message
+    assert "INCOMPLETE" in result.message
+    assert "or its includes" not in result.message, "the claim it could not make"
+    assert "plate_z" in (result.hint or ""), "what it did read"
+
+
+@needs_openscad
+def test_an_unresolved_use_does_not_excuse_a_parameter_that_binds_nothing(tmp_path: Path):
+    """A `use`d file contributes no top-level variable, so an unresolved `use`
+    shortens nothing and cannot excuse anything.
+
+    This is the hole an earlier draft of #287 opened. `Closure.unresolved`
+    holds `include` and `use` alike, so gating the refusal on it let a genuinely
+    transposed `-D` through -- and `Can't open library` is deliberately absent
+    from `_UNRESOLVED_NAME_MARKERS`, so #286's post-render guard stayed silent
+    too. Measured on both engines before the fix: `verdict: pass`, exit 0, with
+    `params` asserting `bore_diamter=20.0` against geometry 8 wide.
+    """
+    entry = _scad(
+        tmp_path,
+        "part.scad",
+        "use <helpers/absent.scad>\nbore_diameter = 8;\ncube([bore_diameter, 10, 10]);\n",
+    )
+    result = openscad.render(
+        OpenSCADSource(path=entry, params={"bore_diamter": 20.0}), tmp_path / "out"
+    )
+    assert isinstance(result, BuildError), "a dropped -D must never render as a pass"
+    assert "bore_diamter" in result.message

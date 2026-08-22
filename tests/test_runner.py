@@ -1157,9 +1157,10 @@ def test_an_unread_include_is_named_rather_than_the_contract_blamed(tmp_path: Pa
     A cold agent believing it deletes a correct declaration, while the real
     fault goes unmentioned.
 
-    Now the build proceeds and #286's guard answers instead, naming the
-    include. The two fixes compose: this one stops the wrong answer, that one
-    supplies the right one.
+    The refusal stands -- skipping it traded a loud false error for a silent
+    false pass (review of PR #310) -- but it now names the include it could not
+    open and does not claim to have read "its includes", and the fault is
+    `environment` rather than the contract's.
     """
     src = tmp_path / "inc.scad"
     src.write_text("include <missing_lib.scad>\nplate_z = 3;\ncube([lib_x, lib_y, plate_z]);\n")
@@ -1170,5 +1171,6 @@ def test_an_unread_include_is_named_rather_than_the_contract_blamed(tmp_path: Pa
 
     assert report.error is not None
     assert "missing_lib.scad" in report.error
-    assert "match no top-level variable" not in (report.error or "")
-    assert _status(report, "builds") is not Status.FAIL, "the source compiled"
+    assert "or its includes" not in report.error, "the claim partspec cannot make"
+    assert report.build_origin == "environment"
+    assert _status(report, "builds") is not Status.FAIL, "not a statement about the part"
