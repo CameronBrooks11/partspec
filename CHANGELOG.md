@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`csg-interference-probe`, an advisory lint rule** (#270). Fires when a
+- **`csg-two-part-intersection`, an advisory lint rule** (#270). Fires when a
   file's entire top level is a single `intersection()` of exactly two children.
   A probe whose two parts are module calls matches too, since the export folds
   the calls to two `group` children; a `difference()`, a second top-level node,
@@ -21,9 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   probe. The discriminator is the contract's `empty()` and `partspec lint` never
   sees a contract, so the finding is phrased conditionally and the noise is
   owned in `LINT.md` beside `csg-coincident-face`'s. Nothing this repo ships
-  trips it — 0 of the 21 tracked `.scad` files whose export can be read, the
-  other 4 being refused whole for string content — and a test now pins that
-  rather than three documents asserting it.
+  trips it — 0 of the tracked `.scad` files whose export can be read (21 of 25
+  on 2021.01, 22 of 25 on 2026.08.01; the rest are refused whole for string
+  content) — and a test now pins that rather than three documents asserting it.
   It reads the `.csg` tree **before any boolean runs**, so the predicate answers
   the same on every kernel — which is the point, the kernels being exactly what
   disagree about the result. It consults no engine verdict and needs none.
@@ -311,11 +311,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`empty()` means no positive-volume interference** — not "the parts do not
   touch", and not "there is clearance" (#270, epic #305). The check is
   unreleased, so this is its introduced meaning rather than a change to one.
-  Measured on all three kernels partspec drives: OpenSCAD 2021.01 / CGAL keeps
-  a zero-thickness contact patch and `empty` fails on it, while OpenSCAD's
-  manifold backend **and** the OCCT tier both discard it, so touching and clear
-  are one signal there — `produced_nothing` is set either way, with no warning
-  and no flag to key on. Two of the three discard it; CGAL is the outlier.
+  Measured on all three kernels partspec drives: OpenSCAD's CGAL backend keeps
+  a zero-thickness contact patch and `empty` fails on it; the OCCT tier always
+  discards it; and **manifold is arrangement-dependent** — a face lying strictly
+  inside another keeps the sheet on the x-plane and discards it on y and z, so
+  neither outcome can be relied on there. `produced_nothing` is set or not with
+  nothing to say which case produced it. CGAL is the predictable one, not the
+  correct one.
+  The sharp end of that: **`empty` can also FAIL on a part whose interference is
+  exactly zero.** On an arrangement manifold keeps, a touching pair builds
+  geometry so `empty` fails, while `volume(max=0.0)` on the identical part
+  passes. It is not fixable by wording — the check adjudicates on whether the
+  engine produced anything, which coincides with the meaning only where the
+  kernel refuses to represent a contact — and it is one more reason to prefer
+  the grown-part pattern, which never puts a kernel in that position.
   So the ambiguity is a property of the question, not a gap to close, and the
   fix is to say what the check does claim. A passing `empty` says the
   intersection encloses no volume. That is true, useful, and narrower than

@@ -54,8 +54,11 @@ something you can claim about. Two outcomes land the same way on every kernel:
 
 A third outcome exists on **one** kernel only. Parts resting on a face give a
 zero-thickness sheet, which `p.area(...)` measures — but only OpenSCAD's CGAL backend
-keeps that sheet. Manifold (current OpenSCAD's default) and the OCCT tier discard it, so
-there *touching* and *clear* are the same signal and `empty()` passes for either. **Do
+keeps that sheet reliably. The OCCT tier never does. Manifold (current OpenSCAD's
+default) is arrangement-dependent: measured, it keeps the sheet for a face lying strictly
+inside another on the x-plane and discards it on y and z. So there *touching* and *clear*
+are usually the same signal and `empty()` passes for either — and on the arrangements it
+keeps, `empty()` **fails** for a touching pair whose interference is exactly zero. **Do
 not build a contract on the middle row unless you pin the kernel yourself.**
 
 **`empty()` means no positive-volume interference — not "these parts do not touch", and
@@ -68,16 +71,17 @@ intersection() { a(); b(); }              // "is there interference"
 intersection() { a(); grown_b(0.5); }     // "is there 0.5 mm of clearance"
 ```
 
-Declared with `empty()`, the second says *no part of `b`, plus 0.5 mm, meets `a`* — no
-zero-thickness result is ever produced, so every kernel agrees and the bound sits in the
+Declared with `empty()`, the second says *no part of `b`, plus 0.5 mm, meets `a`* — a
+violation with any margin encloses volume rather than a sheet, so every kernel agrees and the bound sits in the
 contract where a reviewer can see it. `partspec lint` flags the bare form advisorily
-(`csg-interference-probe`); the bare claim is valid, just narrower than it reads (#270).
+(`csg-two-part-intersection`); the bare claim is valid, just narrower than it reads (#270).
 
 `volume` is gated on a closed surface and a contact sheet is often not one: an annular
 contact measured on 2021.01 exports 94 non-manifold edges, so the check reports `n/a`
 and the run is `incomplete`. That refusal is right — integrating volume over an open
 surface is meaningless — and `area` is ungated for the mirror reason, so it answers
-where `volume` cannot. Declare `area` alone and the resting-on case passes cleanly.
+where `volume` cannot. Declare `area` alone and the resting-on case passes cleanly — on a kernel that keeps the
+sheet.
 
 **The number is twice the contact patch.** Both sides of the sheet are exported, so a
 10 x 10 mm face reads `200.0`, not `100.0`. Write the bound against the measured value or

@@ -156,19 +156,21 @@ exists to name — the message describes the geometry instead.
   nothing; checking face overlap is a heavier geometry problem deliberately not
   taken on here.
 
-### `csg-interference-probe`
+### `csg-two-part-intersection`
 
 - **Predicate:** the file's entire top level is a single `intersection()` of exactly two
   children. A probe whose two parts are *module calls* matches too, because the export
   folds `rail(); cover();` into two `group` children; a `difference()`, a second
   top-level node, or a third child does not. Of the `.scad` files tracked in this repo,
-  **0 match** — of the 21 whose export can be read at all, the other 4 being refused
-  whole for string content before any rule runs.
+  **0 match** — counted over those whose export can be read at all, which is 21 of 25 on
+  2021.01 and 22 of 25 on 2026.08.01, the rest being refused whole for string content
+  before any rule runs.
 - **Rationale:** declared with `p.empty()`, that shape proves **no positive-volume
   interference**, which is not the same as proving the parts are separated. A
-  zero-thickness contact collapses to empty on OpenSCAD's manifold backend and on the
-  OCCT tier, so touching and clear are one signal there — unless the contract itself
-  pins a kernel that keeps the sheet, which is the author's call and stays theirs
+  zero-thickness contact collapses to empty on the OCCT tier always, and on OpenSCAD's
+  manifold backend for most arrangements though not all, so touching and clear are one
+  signal there — unless the contract itself pins a kernel that keeps the sheet, which is
+  the author's call and stays theirs
   (`SPEC-contract.md` §4.12, #270). The claim is valid and the finding is not a defect:
   it is narrower than it reads, and the remedy is to say the clearance you mean —
   intersect against a part grown by it, so a violation has volume on every kernel.

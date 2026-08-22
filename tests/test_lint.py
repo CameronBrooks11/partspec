@@ -612,7 +612,7 @@ def test_an_unmodelled_node_is_an_entry_never_an_absence(tmp_path: Path, capsys)
     entry = json.loads(capsys.readouterr().out)["files"][0]
     unsupported = {u["rule"]: u["reason"] for u in entry["unsupported"]}
     # The two rules that EVALUATE the tree, not `set(TIER2_RULES)`:
-    # `csg-interference-probe` reads shape only, so an unmodelled node costs it
+    # `csg-two-part-intersection` reads shape only, so an unmodelled node costs it
     # nothing and it correctly still answers.
     assert set(unsupported) == {"csg-difference-order", "csg-coincident-face"}
     assert "hull" in unsupported["csg-difference-order"]
@@ -976,7 +976,7 @@ def test_the_open_box_fixture_refuses_through_a_real_export(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------
-# csg-interference-probe: the bare probe is valid, and narrower than it reads (#270)
+# csg-two-part-intersection: the bare probe is valid, and narrower than it reads (#270)
 # --------------------------------------------------------------------------
 
 
@@ -1010,23 +1010,23 @@ def test_the_open_box_fixture_refuses_through_a_real_export(tmp_path: Path):
     ],
     ids=["bare", "module-wrapped", "difference", "two-top-level", "three-children"],
 )
-def test_csg_clearance_probe_fires_only_on_a_two_part_intersection(
+def test_the_two_part_intersection_rule_fires_only_on_that_shape(
     tmp_path: Path, source: str, flagged: bool
 ):
     scad = tmp_path / "probe.scad"
     scad.write_text(source)
     findings, unsupported = lint_scad_tier2(scad, OPENSCAD)
 
-    hits = [f for f in findings if f.rule == "csg-interference-probe"]
+    hits = [f for f in findings if f.rule == "csg-two-part-intersection"]
     assert bool(hits) is flagged
-    assert "csg-interference-probe" not in {u["rule"] for u in unsupported}
+    assert "csg-two-part-intersection" not in {u["rule"] for u in unsupported}
     if flagged:
         assert "no positive-volume interference" in hits[0].message
         assert "grown by it" in hits[0].message
 
 
 @needs_openscad
-def test_csg_clearance_probe_reads_shape_and_needs_no_kernel_verdict(tmp_path: Path):
+def test_the_two_part_intersection_rule_needs_no_kernel_verdict(tmp_path: Path):
     """The `.csg` export is the tree BEFORE any boolean runs.
 
     That is why this rule answers identically on every kernel, which is the
@@ -1046,7 +1046,7 @@ def test_csg_clearance_probe_reads_shape_and_needs_no_kernel_verdict(tmp_path: P
     )
     for scad in (overlapping, touching):
         findings, _ = lint_scad_tier2(scad, OPENSCAD)
-        assert [f for f in findings if f.rule == "csg-interference-probe"], scad.name
+        assert [f for f in findings if f.rule == "csg-two-part-intersection"], scad.name
 
 
 def test_every_declared_rule_has_a_description():
@@ -1057,7 +1057,7 @@ def test_every_declared_rule_has_a_description():
 
 
 @needs_openscad
-def test_no_shipped_model_trips_the_interference_probe_rule():
+def test_no_shipped_model_trips_the_two_part_intersection_rule():
     """The "0 match" claim in `LINT.md` and the CHANGELOG, pinned.
 
     The rule fires on a shape that is NOT unique to probes -- a lens blank, a
@@ -1086,10 +1086,10 @@ def test_no_shipped_model_trips_the_interference_probe_rule():
     read, flagged = 0, []
     for scad in tracked:
         findings, unsupported = lint_scad_tier2(scad, OPENSCAD)
-        if any(u["rule"] == "csg-interference-probe" for u in unsupported):
+        if any(u["rule"] == "csg-two-part-intersection" for u in unsupported):
             continue  # refused whole; no evidence either way
         read += 1
-        if any(f.rule == "csg-interference-probe" for f in findings):
+        if any(f.rule == "csg-two-part-intersection" for f in findings):
             flagged.append(scad.relative_to(root).as_posix())
 
     assert not flagged, f"shipped models now trip the rule: {flagged}"

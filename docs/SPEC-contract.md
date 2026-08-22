@@ -831,7 +831,7 @@ visible in an exit code. On OpenSCAD 2021.01 a genuinely null intersection and a
 whose geometry never existed are **identical downstream**: both exit 1 with
 `Current top level object is empty.` and write no STL. A misspelt module name, or an
 include that did not open, yields nothing to intersect — so without a guard, one typo
-would make every clearance probe in a contract pass, and the more broken the source the
+would make every interference probe in a contract pass, and the more broken the source the
 greener the run.
 
 The only evidence separating them is the engine's own diagnostics above that line —
@@ -845,7 +845,7 @@ A Python model has no equivalent hazard: an unresolved name raises, it does not 
 render empty. Its null results all set the same flag, so the check reads the same on
 either tier — a null shape, an empty CadQuery stack, **and an empty `Compound` with no
 underlying handle**, which is what build123d returns for `a & b` on two disjoint solids
-and so the one a clearance probe on that tier actually produces. That third one did not
+and so the one a interference probe on that tier actually produces. That third one did not
 set the flag until #271, which meant `empty` could not pass on the OCCT tier for any
 input at all while this paragraph said it read the same on both.
 
@@ -860,13 +860,33 @@ kernels partspec drives (#270):
 | kernel | parts **touching** on a face | parts **clear** |
 |---|---|---|
 | CGAL — 2021.01 (its only kernel), or 2026.08.01 `--backend cgal` | a sheet — `empty` fails, `area` measurable | nothing — `empty` passes |
-| manifold — 2026.08.01's default | **nothing** — `empty` passes | nothing — `empty` passes |
+| manifold — 2026.08.01's default | **usually nothing** — `empty` passes; sometimes a sheet, and then it fails | nothing — `empty` passes |
 | OCCT — build123d / CadQuery | **nothing** — `empty` passes | nothing — `empty` passes |
 
-Two of the three discard it; CGAL is the outlier. There is no warning and no flag to key
-on — `produced_nothing` is set either way — so this is a property of the geometry
-question, not a gap in the implementation. (2021.01 does not accept `--backend`; the flag
-names the kernel only on builds that have more than one.)
+CGAL is the predictable one. OCCT discards it always. And **manifold's handling is
+arrangement-dependent rather than categorical: measured, a small face lying strictly inside a
+larger one keeps the sheet on the x-plane and discards it on y and z, and two
+exactly-coincident faces discard it. Neither outcome can be relied on there** — the
+same two solids, moved to a different face, answer differently. There is no warning and
+no flag to key on: `produced_nothing` is set or not, with nothing to say which case
+produced it. (2021.01 does not accept `--backend`; the flag names the kernel only on
+builds that have more than one.)
+
+**So `empty` can also FAIL on a part that satisfies its own meaning**, and this is the
+sharp end of the same fact. On an arrangement where manifold keeps the sheet, a touching
+pair builds geometry, so `empty` fails — while `volume(max=0.0)` on that identical part
+passes, because the volume really is exactly `0.0`. Measured on 2026.08.01's default:
+
+```
+volume(max=0.0)  ->  ok volume    PASS
+empty()          ->  FAIL empty — declared empty, but the part built geometry
+```
+
+That is a false failure against the meaning above, and it is not fixable by wording: the
+check adjudicates on whether the engine produced anything, which coincides with "no
+positive-volume interference" only where the kernel refuses to represent a contact. It is
+one more reason to prefer the grown-part pattern below, which never puts a kernel in that
+position.
 
 **To assert a clearance, state the number and let a violation have volume.** Intersect
 against a part grown by the clearance rather than against the part itself:
@@ -876,10 +896,11 @@ intersection() { a(); b(); }                 // "is there interference" — this
 intersection() { a(); grown_b(0.5); }        // "is there 0.5 mm of clearance" — a solid when violated
 ```
 
-Declared with `empty` the second says *no part of `b`, plus 0.5 mm, meets `a`*. No
-zero-thickness result is ever produced, so **every kernel agrees**, and the bound is a
+Declared with `empty` the second says *no part of `b`, plus 0.5 mm, meets `a`*. A
+violation with any margin encloses volume rather than a sheet — only exact equality
+between the gap and the declared clearance is degenerate — so **every kernel agrees**, and the bound is a
 number in the contract where a reviewer can see it. `partspec lint` flags the bare form
-advisorily (`csg-interference-probe`, `LINT.md`) — the bare claim is valid, it is simply
+advisorily (`csg-two-part-intersection`, `LINT.md`) — the bare claim is valid, it is simply
 narrower than it reads.
 
 partspec does **not** select a backend to make this check answerable. Which kernel ran is

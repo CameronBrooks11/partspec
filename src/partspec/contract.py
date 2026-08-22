@@ -556,7 +556,10 @@ class Part:
         not "there is clearance". On a kernel that discards a zero-thickness
         result -- OpenSCAD's manifold backend and the OCCT tier both do --
         touching and clear are the same signal, so this cannot mean more than
-        it says (#270, SPEC-contract §4.12). To assert a clearance, intersect
+        it says (#270, SPEC-contract §4.12). The converse bites too: on an
+        arrangement where a kernel DOES keep the sheet, a touching pair builds
+        geometry and this check FAILS though the interference is exactly zero.
+        To assert a clearance, intersect
         against a part grown by it: a violation then has volume, no
         zero-thickness result is produced, and every kernel agrees.
 
@@ -618,8 +621,8 @@ class Part:
         interference gives nothing, which `empty` grades (#237). Between them
         sits resting-on-a-face, which gives area with no volume — **and only on
         a kernel that keeps a zero-thickness result.** OpenSCAD's CGAL backend
-        does; its manifold default and the OCCT tier discard it, so that middle
-        outcome is not available there and `empty` passes for a touching pair
+        does; the OCCT tier never does; manifold is arrangement-dependent and
+        usually does not. So that middle outcome cannot be relied on off CGAL
         (#270, §4.12). Measured on 2021.01: two boxes meeting on a face export
         four triangles that are watertight, so `volume` reads exactly `0.0`; an
         annular contact exports a mesh with 94 non-manifold edges, so `volume`

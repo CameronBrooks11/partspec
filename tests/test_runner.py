@@ -650,7 +650,7 @@ _CLEARANCE_PROBE = (
 
 @needs_openscad
 def test_a_declared_empty_part_passes_and_never_reaches_a_measurement(tmp_path: Path):
-    """The clearance probe's good answer, which had no way to be stated (#237).
+    """The interference probe's good answer, which had no way to be stated (#237).
 
     Two parts sharing no space render nothing. That is a real result and, for a
     probe, the passing one — but an empty build is a hard failure before any
@@ -744,7 +744,7 @@ def test_an_empty_result_caused_by_an_unresolved_name_cannot_satisfy_it(tmp_path
     STL. Measured — the only difference is the WARNING lines above it.
 
     Without the guard this is the failure that matters: a misspelt module makes
-    every clearance probe pass, and the greener the run the more broken the
+    every interference probe pass, and the greener the run the more broken the
     contract. The detail names the line, because "declared empty, and it was"
     would be true and useless.
     """
@@ -767,7 +767,7 @@ def test_an_empty_result_caused_by_an_unresolved_name_cannot_satisfy_it(tmp_path
 def test_a_part_that_builds_geometry_fails_its_declared_empty(tmp_path: Path):
     """The other direction: the parts DO share space, so the claim is disproven.
 
-    This is the outcome a clearance probe is written to catch, and it must read
+    This is the outcome a interference probe is written to catch, and it must read
     as a failed claim rather than as a passing build with nothing said about it.
     """
     scad = tmp_path / "overlap.scad"

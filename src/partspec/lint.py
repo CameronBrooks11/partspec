@@ -51,10 +51,10 @@ RULES = {
     "py-function-size": f"a function body over {FUNCTION_LINE_LIMIT} lines",
     "csg-difference-order": "a difference() whose first child is not the largest",
     "csg-coincident-face": "a subtrahend sharing a face plane with its minuend",
-    "csg-interference-probe": "a two-part intersection, whose empty() proves less than it reads",
+    "csg-two-part-intersection": "a whole file that is one intersection of two parts",
 }
 
-TIER2_RULES = ("csg-difference-order", "csg-coincident-face", "csg-interference-probe")
+TIER2_RULES = ("csg-difference-order", "csg-coincident-face", "csg-two-part-intersection")
 """Geometry-dependent rules over the engine's constant-folded `.csg` export
 (#118). They MAY require the engine and MUST report `unsupported` — never
 silent absence — when it is missing (the audit's honesty shape). Findings
@@ -609,15 +609,16 @@ def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], 
     if len(nodes) == 1 and nodes[0].kind == "intersection" and len(nodes[0].children) == 2:
         findings.append(
             Finding(
-                rule="csg-interference-probe",
+                rule="csg-two-part-intersection",
                 file=str(path),
                 line=0,
                 message=(
                     "the whole file is an intersection of two parts — declared with "
                     "empty() this proves no positive-volume interference, which is NOT "
                     "the same as proving the parts are separated: a zero-thickness "
-                    "contact collapses to empty on OpenSCAD's manifold backend and on "
-                    "the OCCT tier, so touching and clear are one signal unless the "
+                    "contact collapses to empty on the OCCT tier always, and on "
+                    "OpenSCAD's manifold backend for most arrangements though not "
+                    "all, so touching and clear are usually one signal unless the "
                     "contract pins a kernel that keeps the sheet. To assert a numeric "
                     "clearance, intersect against a part grown by it — a violation "
                     "then has volume on every kernel (SPEC-contract.md 4.12). If this "
