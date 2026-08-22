@@ -220,12 +220,20 @@ def _require_closed(points: list, faces: list) -> None:
     Welding is on exact equality, and that is right rather than merely safe:
     OpenSCAD's `.csg` writer prints coordinates at six significant digits, so
     sub-precision noise has already been welded upstream by the exporter. Both
-    engines export `0.1 + 0.2` and `0.3` as the same literal `0.3`, and a
-    corner displaced by 1e-5 at scale 10 still exports as `10`. A tolerance
+    pinned engines export `0.1 + 0.2` and `0.3` as the same literal `0.3`, and
+    a corner displaced by 1e-5 at scale 10 still exports as `10`. A tolerance
     here would be strictly worse -- it would weld what the export kept apart,
-    which at 1e-3 is the case OpenSCAD itself reports as a leak. Measured on
-    both pinned engines, with zero disagreements between what the exporter
-    welds and what this accepts (review of PR #312).
+    which at 1e-3 is the case whose exported mesh is not watertight (no engine
+    warns; it is visible only by measuring).
+
+    The boundary, stated rather than denied: welding to the exporter's
+    precision is not the same as agreeing with the renderer. Measured on both
+    pinned engines, a soup cube with one face's corners displaced by 1e-5 at
+    scale 10 exports every x as the literal `10` -- so this accepts it and
+    measures 1000.0 -- while the STL each engine writes from the same source
+    is NOT watertight. The volume is right and no finding is affected, but
+    "the exporter already welded it" is a statement about the `.csg` text, not
+    a promise that the mesh is sound (review of PR #312).
     """
     canonical: dict[tuple[float, ...], int] = {}
     weld: list[int] = []
