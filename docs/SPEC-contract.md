@@ -876,7 +876,8 @@ for thinness alone, only for cross-section. And **manifold's floor moves**: meas
 half a float32 ULP at the feature's own coordinate — 2.4e-7 mm at the origin, 9.5e-7 mm
 15 mm out — so a part modelled far from the origin has a coarser floor than one modelled
 at it. One measurement has CGAL's rising the same way beyond ~100 mm; another has it
-constant. Every figure in the table above is therefore for a part near the origin.
+constant. **Both OpenSCAD figures above are therefore for a part near the origin**; OCCT's
+is not — measured, it does not move with the coordinate out to 1e6 mm.
 
 **How far it rises is not settled, for either OpenSCAD kernel.** Two independent
 measurements of this repo disagree above ~100 mm: one has the half-ULP relation continuing
