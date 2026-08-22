@@ -410,7 +410,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than to edit the contract. `verdict: "error"`, exit 4, `builds` not
   emitted failing.
   **Withholding the refusal instead was tried and rejected**, and the reason
-  is worth recording: `Closure.unresolved` holds `use` targets as well as
+  is worth recording: `Closure.unresolved` held `use` targets as well as
   `include` ones, and a `use`d file contributes no top-level variable at all —
   so an unresolved `use` suppressed a refusal that was never in doubt, and
   because `Can't open library` is deliberately not one of #286's markers,
@@ -418,6 +418,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `verdict: "pass"` at exit 0 on both engines against geometry 8 wide, with
   `params` asserting the value the geometry never saw. Trading a loud false
   error for a silent false pass is the one trade this tool must not make.
+  `Closure` therefore gains **`unresolved_includes`**, and only that arm takes
+  the new sentence. For every other question the two are the same fact —
+  neither file was read — but for the variable list they differ absolutely:
+  `include` splices top-level assignments into the entry and `use` imports only
+  modules and functions. Saying otherwise was not merely imprecise, it was
+  actionable and wrong: an unresolved `use` was told a variable declared in the
+  unread file "would be missing from" its list, and a reader who created that
+  file to satisfy the hint reached `verdict: "pass"` on a `-D` the engine had
+  dropped. An unresolved `use` now keeps the ordinary refusal, which is exit 1
+  and substantively true.
+  `AGENT-CONTRACT.md` §2.3 gains the branch. It is the one exit-4 shape where a
+  model edit may be the fix — the include path can be misspelt in the source as
+  easily as the library can be absent from the machine, and partspec cannot
+  tell those apart — which the exit-code table's "editing the model on exit 4
+  is noise" would otherwise send an agent straight past.
 
 - **A build that silently lost geometry no longer reports `pass`** (#286, epic
   #305). OpenSCAD renders an unresolved call's children *not at all* and still

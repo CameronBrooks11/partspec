@@ -527,8 +527,8 @@ def render(
             if unbound:
                 named = ", ".join(unbound)
                 known = ", ".join(sorted(top_level_variables(source.path))) or "none"
-                if closure.unresolved:
-                    could_not = ", ".join(closure.unresolved)
+                if closure.unresolved_includes:
+                    could_not = ", ".join(closure.unresolved_includes)
                     return BuildError(
                         f"parameter(s) {named} match no top-level variable partspec could "
                         f"read in {source.path.name}, and that list is INCOMPLETE: "
@@ -1327,7 +1327,7 @@ def _first_error_line(stderr: str) -> str | None:
 # The include closure — what a report's provenance actually has to cover
 # --------------------------------------------------------------------------
 
-_INCLUDE_RE = re.compile(r"\b(?:include|use)\s*<([^>\n]*)>")
+_INCLUDE_RE = re.compile(r"\b(include|use)\s*<([^>\n]*)>")
 
 _EXTERNAL_DATA_RE = re.compile(
     # Modules and functions whose NAME is the claim that a file is read.
@@ -1486,6 +1486,22 @@ class Closure:
     """Resolved members, entry file included, in sorted order."""
 
     unresolved: tuple[str, ...] = ()
+
+    unresolved_includes: tuple[str, ...] = ()
+    """The subset of `unresolved` reached by `include`, not by `use`.
+
+    The two are one regex and one set everywhere else, and for every other
+    question that is right -- neither was read, so neither's contents are
+    known. For the *variable list* they differ absolutely: `include` splices a
+    file's top-level assignments into the entry and `use` imports only its
+    modules and functions, so an unresolved `use` cannot shorten the list of
+    names `-D` can bind by even one.
+
+    Distinguished because saying otherwise is a false sentence with an
+    actionable-and-wrong remedy: an unresolved `use` was told its variable list
+    was short "so a variable declared there would be missing from it", and a
+    reader who created that file to satisfy the hint reached `verdict: pass` on
+    a `-D` the engine had dropped (review of PR #310)."""
     """`include`/`use` targets that could not be found on any search path."""
 
     reads_external_data: bool = False
@@ -1636,6 +1652,7 @@ def include_closure(entry: Path) -> Closure:
     entry = entry.resolve()
     seen: set[Path] = {entry}
     unresolved: set[str] = set()
+    unresolved_includes: set[str] = set()
     external = False
     queue: deque[Path] = deque([entry])
     search = library_path()
@@ -1648,7 +1665,7 @@ def include_closure(entry: Path) -> Closure:
             continue
         if _EXTERNAL_DATA_RE.search(text):
             external = True
-        for raw in _INCLUDE_RE.findall(text):
+        for keyword, raw in _INCLUDE_RE.findall(text):
             ref = raw.strip()
             if not ref:
                 continue
@@ -1657,6 +1674,8 @@ def include_closure(entry: Path) -> Closure:
             )
             if found is None:
                 unresolved.add(ref)
+                if keyword == "include":
+                    unresolved_includes.add(ref)
             elif (resolved := found.resolve()) not in seen:
                 seen.add(resolved)
                 queue.append(resolved)
@@ -1664,6 +1683,7 @@ def include_closure(entry: Path) -> Closure:
     return Closure(
         files=tuple(sorted(seen)),
         unresolved=tuple(sorted(unresolved)),
+        unresolved_includes=tuple(sorted(unresolved_includes)),
         reads_external_data=external,
     )
 

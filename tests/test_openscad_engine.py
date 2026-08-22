@@ -1502,6 +1502,7 @@ def test_a_missing_use_library_is_not_itself_an_unresolved_name():
         assert not openscad._unresolved_lines(line, openscad._UNRESOLVED_NAME_MARKERS)
 
 
+@needs_openscad
 def test_a_parameter_refusal_says_when_its_variable_list_is_incomplete(tmp_path: Path):
     """The list is only as complete as the closure, and the sentence must say so.
 
@@ -1555,3 +1556,9 @@ def test_an_unresolved_use_does_not_excuse_a_parameter_that_binds_nothing(tmp_pa
     )
     assert isinstance(result, BuildError), "a dropped -D must never render as a pass"
     assert "bore_diamter" in result.message
+    # And with the ORDINARY sentence, which is substantively true here: a `use`d
+    # file contributes no top-level variable, so the list is not short and
+    # nothing about it is incomplete. Claiming otherwise sent a reader to create
+    # the missing file, after which the transposed `-D` reached `verdict: pass`.
+    assert "INCOMPLETE" not in result.message
+    assert result.origin == "model"
