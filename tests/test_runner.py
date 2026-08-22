@@ -963,3 +963,104 @@ def test_a_declaration_the_build_met_is_recorded_and_does_not_error(tmp_path: Pa
     assert closure["declared"] == ["build123d"], "recorded as the author spelled it"
     assert closure["imports"]["build123d"]["identity"] == "content"
     assert closure["imports"]["build123d"]["declared"] is True
+
+
+# --------------------------------------------------------------------------
+# names the engine could not resolve, on a build that SUCCEEDED (#286)
+# --------------------------------------------------------------------------
+#
+# OpenSCAD renders an unresolved call's children not at all and still exits 0
+# with a well-formed mesh. The geometry measured is then not the geometry the
+# source describes, so no geometry check can be honestly evaluated -- and until
+# #286 every one of them reported PASS, because stderr was read only on the
+# failure path. `docs/FAILURE-MODES.md` §1 is this exact shape.
+
+
+def _unresolved_part(tmp_path: Path, body: str, name: str = "probe") -> Part:
+    """A model that builds, but whose stderr names something unresolved."""
+    src = tmp_path / f"{name}.scad"
+    src.write_text(body)
+    p = Part(name, openscad(src))
+    p.envelope(max=(40, 30, 6))
+    p.watertight()
+    p.solid_count(1)
+    return p
+
+
+@needs_scad_tier
+def test_an_unknown_module_on_a_successful_build_is_not_a_pass(tmp_path: Path):
+    # No missing include: the name is simply not defined. The engine drops the
+    # difference()'s second child, exports a bare cube, and exits 0.
+    p = _unresolved_part(
+        tmp_path,
+        "difference() {\n  cube([40,30,6], center=true);\n  bore_hole(d=8);\n}\n",
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.exit_code == 4
+    assert _status(report, "builds") is Status.SKIPPED
+    assert _status(report, "watertight") is Status.SKIPPED
+    assert report.error is not None
+    assert "bore_hole" in report.error
+
+
+@needs_scad_tier
+def test_an_unresolved_include_on_a_successful_build_is_not_a_pass(tmp_path: Path):
+    p = _unresolved_part(
+        tmp_path,
+        "include <nowhere/absent.scad>\n"
+        "difference() {\n  cube([40,30,6], center=true);\n  bore_hole(d=8);\n}\n",
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.exit_code == 4
+    assert report.error is not None
+    assert "absent.scad" in report.error
+
+
+@needs_scad_tier
+def test_the_fault_is_not_a_statement_about_the_part(tmp_path: Path):
+    # `builds` must not be emitted FAILING: the source compiled. Whose fault the
+    # unresolved name is -- a misspelt module, or a library absent from this
+    # machine -- partspec cannot tell, so it claims neither. SPEC-report §6.1.
+    p = _unresolved_part(tmp_path, "cube([40,30,6], center=true);\nnope_module();\n")
+    report = run(p, out_dir=tmp_path)
+
+    assert _status(report, "builds") is not Status.FAIL
+    assert report.build_origin is None
+    assert all(c.status is not Status.PASS for c in report.checks if c.phase == "geometry")
+
+
+@needs_scad_tier
+def test_a_parameter_check_still_answers_when_a_name_did_not_resolve(tmp_path: Path):
+    # Arithmetic over the contract's own inputs needs no engine, so it is still
+    # honest and is still reported. Only the geometry is unmeasurable.
+    src = tmp_path / "probe.scad"
+    src.write_text("wall = 2.0;\ncube([40,30,6], center=true);\nnope_module();\n")
+    p = Part("probe", openscad(src, wall=2.0))
+    p.requires("wall > 0")
+    p.watertight()
+
+    report = run(p, out_dir=tmp_path)
+    assert _status(report, "wall_gt_0") is Status.PASS
+    assert report.verdict is Verdict.ERROR
+
+
+@needs_scad_tier
+def test_the_is_undef_idiom_is_not_an_unresolved_name(tmp_path: Path):
+    # The false-positive bound, measured rather than assumed: `is_undef()` is
+    # how an OpenSCAD source legitimately probes for a name it does not require,
+    # and it emits no warning. Reading an undefined variable DIRECTLY does warn
+    # -- and silently renders a default cube -- which is why that one is caught.
+    src = tmp_path / "probe.scad"
+    src.write_text("w = is_undef(nope) ? 40 : nope;\ncube([w, 30, 6], center=true);\n")
+    p = Part("probe", openscad(src))
+    p.envelope(max=(40, 30, 6))
+    p.watertight()
+    p.solid_count(1)
+
+    report = run(p, out_dir=tmp_path)
+    assert report.verdict is Verdict.PASS
+    assert report.error is None

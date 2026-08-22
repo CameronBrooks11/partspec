@@ -276,7 +276,7 @@ def _captured_render_timeout(tmp_path: Path, monkeypatch, argv_tail: list[str]) 
 
     seen: dict[str, object] = {}
 
-    def fake_render(source, out_dir, *, timeout_s=None, deps_out=None):
+    def fake_render(source, out_dir, *, timeout_s=None, deps_out=None, unresolved_out=None):
         seen["timeout_s"] = timeout_s
         return BuildError("stub render", origin="environment")
 

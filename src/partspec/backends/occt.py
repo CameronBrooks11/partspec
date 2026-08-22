@@ -400,8 +400,16 @@ class OcctBackend:
         *,
         timeout_s: float | None = None,
         deps_out: list[Any] | None = None,
+        unresolved_out: list[str] | None = None,
     ) -> Any | BuildError:
         """Build the part. `out_dir` is unused — nothing is exported to measure.
+
+        `deps_out` and `unresolved_out` go unwritten for one reason each. There
+        is no depfile channel: a Python model's reads are not reported by any
+        engine. And there is nothing to write to `unresolved_out` because this
+        tier cannot half-render -- an unresolved name in Python is an exception
+        that reaches `pycad.build` as a `BuildError`, never a mesh that is
+        quietly missing a feature (#286).
 
         The mesh tier has to round-trip through a file because OpenSCAD is a
         separate process. Here the shape is already in memory, and exporting it

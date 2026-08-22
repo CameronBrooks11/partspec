@@ -408,8 +408,19 @@ def render(
     *,
     timeout_s: float | None = DEFAULT_TIMEOUT_S,
     deps_out: list[RenderDeps] | None = None,
+    unresolved_out: list[str] | None = None,
 ) -> Path | BuildError:
     """Render to binary STL, returning the path or a BuildError.
+
+    `unresolved_out`, when given, receives the stderr lines naming something the
+    engine could not resolve **on a render that succeeded** (#286). OpenSCAD
+    renders an unresolved call's children not at all and still exits 0 with a
+    well-formed mesh, so the artifact alone cannot say that the geometry
+    measured is not the geometry the source describes -- and this return type
+    has no room to say it. Before #286 those lines were read only to build a
+    `BuildError`, which is to say only when the engine had already failed; the
+    success path discarded `proc.stderr` outright and every downstream check
+    reported PASS against a part the engine had quietly hollowed out.
 
     Binary STL specifically: lib3mf cannot read ASCII STL, and OpenSCAD 2021.01
     defaults to ASCII. Choosing the format explicitly means the export does not
@@ -657,6 +668,11 @@ def render(
                 )
                 if refusal is not None:
                     return refusal
+            # Read here, on the path that WORKED, and not only where a
+            # BuildError is built: an unresolved name does not have to fail the
+            # render to have changed the part.
+            if unresolved_out is not None:
+                unresolved_out.extend(_unresolved_lines(proc.stderr))
             staged.replace(stl)
             return stl
     except OSError as exc:

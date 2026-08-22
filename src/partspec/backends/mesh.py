@@ -87,9 +87,14 @@ class MeshBackend:
         *,
         timeout_s: float | None = None,
         deps_out: list[Any] | None = None,
+        unresolved_out: list[str] | None = None,
     ) -> Any | BuildError:
         result = openscad.render(
-            source, out_dir, timeout_s=effective_timeout(timeout_s), deps_out=deps_out
+            source,
+            out_dir,
+            timeout_s=effective_timeout(timeout_s),
+            deps_out=deps_out,
+            unresolved_out=unresolved_out,
         )
         if isinstance(result, BuildError):
             return result

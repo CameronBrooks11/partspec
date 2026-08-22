@@ -170,8 +170,13 @@ def _evaluate(
     report.engine = engine_block(part, backend)
 
     engine_deps: list[Any] = []
+    engine_unresolved: list[str] = []
     artifact = backend.build(
-        _engine_source(part), out_dir, timeout_s=timeout_s, deps_out=engine_deps
+        _engine_source(part),
+        out_dir,
+        timeout_s=timeout_s,
+        deps_out=engine_deps,
+        unresolved_out=engine_unresolved,
     )
     if isinstance(artifact, BuildError):
         report.hint = artifact.hint
@@ -251,6 +256,39 @@ def _evaluate(
             for spec in geometry_specs
             if spec.kind != "empty"
         )
+        report.checks = results
+        return
+
+    if engine_unresolved:
+        # The build SUCCEEDED and the artifact is well-formed -- and it is not
+        # the part. OpenSCAD renders an unresolved call's children not at all,
+        # so a misspelt module or an include that did not open silently removes
+        # geometry and still exits 0 (`docs/FAILURE-MODES.md` §1). Every
+        # geometry check downstream would then be measuring a different part
+        # than the contract describes, and before #286 every one of them
+        # reported PASS.
+        #
+        # Skipped rather than failed, and no `build_origin`: the source
+        # compiled, so `builds: fail` would be a statement about the design
+        # that partspec has not earned (SPEC-report §6.1). Whose fault the name
+        # is -- a typo in the source, or a library absent from this machine --
+        # is exactly what partspec cannot tell, so it claims neither and says
+        # what it does know: it did not measure the part it was given.
+        report.error = (
+            "the engine could not resolve a name and rendered without it, so the "
+            "geometry measured is not the geometry this source describes: "
+            f"{engine_unresolved[0]}"
+        )
+        if len(engine_unresolved) > 1:
+            report.error += f" (and {len(engine_unresolved) - 1} more)"
+        report.hint = (
+            "the engine exited 0 and wrote a mesh, so this is not a compile error — "
+            "either the source misspells the name, or whatever defines it is not on "
+            "OPENSCADPATH. Fix the name or install the library, then re-run"
+        )
+        reason = f"not evaluated: {report.error}"
+        results.append(_skipped(_builds_spec(), reason))
+        results.extend(_skipped(spec, reason) for spec in geometry_specs)
         report.checks = results
         return
 

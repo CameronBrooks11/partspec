@@ -394,6 +394,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A build that silently lost geometry no longer reports `pass`** (#286, epic
+  #305). OpenSCAD renders an unresolved call's children *not at all* and still
+  exits 0 with a clean, watertight, single-solid mesh, so a misspelt module or
+  an include that did not open removes the feature a contract is about and
+  every check downstream measures a part nobody described. partspec already
+  owned the evidence — `_UNRESOLVED_MARKERS` names the five diagnostics the
+  engine prints, measured on 2021.01 — and read it **only where the build had
+  already failed**; the path that succeeded discarded `proc.stderr` outright.
+  A declared bore could therefore go missing under four green checks at exit 0.
+  This is `FAILURE-MODES.md` §1 — the 35%-smaller gear with its teeth gone —
+  reproduced inside this repo with partspec green, and it is the one shape the
+  tool existed to catch and could not see.
+  Now the lines are read on the path that *worked*, and such a run is
+  `verdict: "error"`, exit 4, with `builds` and every geometry check `skipped`
+  and the engine's own diagnostic quoted in `error`.
+  **`builds` is not emitted failing and `build_origin` stays `null`**, which is
+  the load-bearing half: the source compiled, so a failing `builds` would be a
+  statement about the design partspec has not earned — and whether the name is
+  a typo or a library absent from this machine is precisely what it cannot
+  tell. It claims neither and says only what it knows. Parameter-phase checks
+  still answer: they are arithmetic over the contract's inputs and need no
+  engine. `SPEC-report.md` §6.1 gains the third route to `error`.
+  The false-positive bound was measured rather than assumed: all 25 `.scad`
+  files tracked in this repo build with zero markers, and `is_undef()` — how a
+  source legitimately probes for a name it does not require — emits no warning,
+  while reading an undefined variable directly *does* warn and silently renders
+  a default cube.
+
 - **A canonical view is no longer written over a heightmap the model reads**
   (#267, completing #263). `render --out .` against a model reading
   `renders/iso.png` through `surface()` had partspec write its own iso view

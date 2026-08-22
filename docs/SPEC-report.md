@@ -403,9 +403,24 @@ report the design as disproven.
 The distinction is carried in `BuildError.origin` (`"environment"` or `"model"`) and
 surfaced in the report as a field a consumer can branch on — not as prose in `detail`.
 
+A third case reaches `error` by neither route: the build **succeeded** and the artifact
+is not the part. OpenSCAD renders an unresolved call's children not at all, so a misspelt
+module or an include that did not open removes geometry and still exits `0` with a
+well-formed, watertight mesh (`FAILURE-MODES.md` §1). Every geometry check would then be
+measuring a different part than the contract describes, so none of them is evaluated:
+`builds` and every geometry check are `skipped`, `verdict: "error"`, exit `4`, and `error`
+carries the engine's own diagnostic line. Parameter-phase checks are unaffected — they are
+arithmetic over the contract's inputs and need no engine.
+
+Here `builds` MUST NOT be reported as `fail` and `build_origin` MUST remain `null`: the
+source compiled, so a failing `builds` would be a statement about the design that has not
+been earned, and whether the unresolved name is a typo in the source or a library absent
+from this machine is exactly what partspec cannot determine. It claims neither, and states
+only what it knows — that it did not measure the part it was given.
+
 | verdict | condition |
 |---|---|
-| `error` | the contract raised, or the build could not be *attempted* (see above) |
+| `error` | the contract raised, the build could not be *attempted*, or the engine could not resolve a name and rendered without it (see above) |
 | `empty` | zero checks were declared |
 | `fail` | ≥1 `fail` |
 | `incomplete` | no `fail`, but ≥1 `approximate` / `unsupported` / `skipped` |
