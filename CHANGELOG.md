@@ -394,6 +394,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A parameter refusal no longer claims to have read includes it could not
+  open** (#287, epic #305). `unbound_parameters` answers from
+  `top_level_variables`, which reads the files partspec *resolved*, and the
+  refusal's sentence said the name matched nothing "in `<file>` **or its
+  includes**" — about includes that never opened. Measured: a model whose
+  `include <missing_lib.scad>` fails, given `lib_x`/`lib_y`, was refused with
+  `FAIL builds` at exit 1, blaming the contract, while the engine built the
+  part cleanly at 20×10×3 with both `-D` values reaching the geometry. A cold
+  agent believing that deletes a correct declaration, and the real fault — an
+  include that did not open — went unmentioned though the report carried it.
+  The refusal now names what it could not read, says the list is therefore
+  short, and carries `origin: "environment"`: an include that will not open is
+  not a statement about the part, so the remedy is to make it resolvable
+  rather than to edit the contract. `verdict: "error"`, exit 4, `builds` not
+  emitted failing.
+  **Withholding the refusal instead was tried and rejected**, and the reason
+  is worth recording: `Closure.unresolved` held `use` targets as well as
+  `include` ones, and a `use`d file contributes no top-level variable at all —
+  so an unresolved `use` suppressed a refusal that was never in doubt, and
+  because `Can't open library` is deliberately not one of #286's markers,
+  nothing downstream spoke either. A transposed `bore_diamter=20` then reached
+  `verdict: "pass"` at exit 0 on both engines against geometry 8 wide, with
+  `params` asserting the value the geometry never saw. Trading a loud false
+  error for a silent false pass is the one trade this tool must not make.
+  `Closure` therefore gains **`unresolved_includes`**, and only that arm takes
+  the new sentence. It is include-*reachability*, not "an include seen anywhere
+  in the walk", and the difference was measured rather than reasoned: with
+  `entry → use → include` of a file declaring `X`, the engine prints
+  `Ignoring unknown variable 'X'` where including that file directly renders
+  it. `use` stops the chain transitively, so an unresolved include found behind
+  one cannot have narrowed a list it could never have widened — the same false
+  sentence, one level deeper. For every other question the two are the same fact —
+  neither file was read — but for the variable list they differ absolutely:
+  `include` splices top-level assignments into the entry and `use` imports only
+  modules and functions. Saying otherwise was not merely imprecise, it was
+  actionable and wrong: an unresolved `use` was told a variable declared in the
+  unread file "would be missing from" its list, and a reader who created that
+  file to satisfy the hint reached `verdict: "pass"` on a `-D` the engine had
+  dropped. An unresolved `use` now keeps the ordinary refusal, which is exit 1
+  and substantively true.
+  `AGENT-CONTRACT.md` §2.3 gains the branch. It is the one exit-4 shape where a
+  model edit may be the fix — the include path can be misspelt in the source as
+  easily as the library can be absent from the machine, and partspec cannot
+  tell those apart — which the exit-code table's "editing the model on exit 4
+  is noise" would otherwise send an agent straight past.
+
 - **A build that silently lost geometry no longer reports `pass`** (#286, epic
   #305). OpenSCAD renders an unresolved call's children *not at all* and still
   exits 0 with a clean, watertight, single-solid mesh, so a misspelt module or

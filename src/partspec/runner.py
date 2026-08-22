@@ -1805,6 +1805,12 @@ def _closure(source: Any, deps: Any = None) -> dict[str, Any] | None:
         # field exists to prevent.
         unseen.append("external_data_reads")
     if closure.unresolved:
+        # `closure.unresolved`, deliberately, not `closure.unresolved_includes`
+        # -- the token is a closed-vocabulary name in the REPORT (SPEC-report
+        # §8) and covers `use` as well, which is what `diff` glosses it as. The
+        # narrower field answers a different question (whether the entry's
+        # top-level variable list got shorter) and shares only its spelling;
+        # wiring this to it would silently narrow the report.
         unseen.append("unresolved_includes")
 
     out: dict[str, Any] = {

@@ -1500,3 +1500,154 @@ def test_a_missing_use_library_is_not_itself_an_unresolved_name():
         "WARNING: Can't open library 'nowhere/absent.scad'. in file u.scad, line 1",
     ):
         assert not openscad._unresolved_lines(line, openscad._UNRESOLVED_NAME_MARKERS)
+
+
+@needs_openscad
+def test_a_parameter_refusal_says_when_its_variable_list_is_incomplete(tmp_path: Path):
+    """The list is only as complete as the closure, and the sentence must say so.
+
+    `unbound_parameters` answers from `top_level_variables`, which reads the
+    files partspec resolved. The refusal claimed the name matched nothing "in
+    <file> **or its includes**" -- a claim about includes it never opened, and
+    one the engine contradicts, since the `-D` does reach the geometry (#287).
+
+    The refusal itself stands. Skipping it was tried and traded a loud false
+    error for a silent false pass (review of PR #310). What changes is that the
+    sentence names what could not be read and says the list is short, and that
+    the fault is `environment`: an include that will not open says nothing
+    about the part, and the remedy is to make it resolvable.
+    """
+    entry = _scad(
+        tmp_path,
+        "part.scad",
+        "include <missing_lib.scad>\nplate_z = 3;\ncube([lib_x, 10, plate_z]);\n",
+    )
+    result = openscad.render(
+        OpenSCADSource(path=entry, params={"lib_x": 20.0, "plate_z": 3.0}), tmp_path / "out"
+    )
+
+    assert isinstance(result, BuildError), result
+    assert result.origin == "environment", "an unopenable include is not the part's fault"
+    assert "missing_lib.scad" in result.message
+    assert "INCOMPLETE" in result.message
+    assert "or its includes" not in result.message, "the claim it could not make"
+    assert "plate_z" in (result.hint or ""), "what it did read"
+
+
+@needs_openscad
+def test_an_unresolved_use_does_not_excuse_a_parameter_that_binds_nothing(tmp_path: Path):
+    """A `use`d file contributes no top-level variable, so an unresolved `use`
+    shortens nothing and cannot excuse anything.
+
+    This is the hole an earlier draft of #287 opened. `Closure.unresolved`
+    holds `include` and `use` alike, so gating the refusal on it let a genuinely
+    transposed `-D` through -- and `Can't open library` is deliberately absent
+    from `_UNRESOLVED_NAME_MARKERS`, so #286's post-render guard stayed silent
+    too. Measured on both engines before the fix: `verdict: pass`, exit 0, with
+    `params` asserting `bore_diamter=20.0` against geometry 8 wide.
+    """
+    entry = _scad(
+        tmp_path,
+        "part.scad",
+        "use <helpers/absent.scad>\nbore_diameter = 8;\ncube([bore_diameter, 10, 10]);\n",
+    )
+    result = openscad.render(
+        OpenSCADSource(path=entry, params={"bore_diamter": 20.0}), tmp_path / "out"
+    )
+    assert isinstance(result, BuildError), "a dropped -D must never render as a pass"
+    assert "bore_diamter" in result.message
+    # And with the ORDINARY sentence, which is substantively true here: a `use`d
+    # file contributes no top-level variable, so the list is not short and
+    # nothing about it is incomplete. Claiming otherwise sent a reader to create
+    # the missing file, after which the transposed `-D` reached `verdict: pass`.
+    assert "INCOMPLETE" not in result.message
+    assert result.origin == "model"
+
+
+def test_only_an_unbroken_include_chain_shortens_the_variable_list(tmp_path: Path):
+    """`use` stops the chain, and it stops it transitively.
+
+    Measured on the engine rather than reasoned from the manual: with
+    `entry -> use -> include` of a file declaring `X`, OpenSCAD prints
+    `Ignoring unknown variable 'X'` at the entry, where including that file
+    directly renders `X`. So a file behind a `use` can never widen the entry's
+    top-level variable list, and an unresolved `include` found inside one
+    cannot have narrowed it.
+
+    Without this, `unresolved_includes` was "every unresolved include seen
+    anywhere in the walk", which claims a shortened list for a file that could
+    not have contributed to it -- the same false sentence #287 exists to
+    remove, one level deeper (review of PR #310).
+    """
+    (tmp_path / "behind_use.scad").write_text("include <gone_a.scad>\nmodule m() { cube(1); }\n")
+    (tmp_path / "mid.scad").write_text("include <gone_b.scad>\n")
+
+    # Reached only through a `use`: its unresolved include is invisible to the
+    # entry's variable list, so it must not be named as shortening it.
+    through_use = _scad(tmp_path, "e1.scad", "use <behind_use.scad>\ncube([1, 1, 1]);\n")
+    c1 = openscad.include_closure(through_use)
+    assert c1.unresolved == ("gone_a.scad",), "still unresolved for every other question"
+    assert c1.unresolved_includes == ()
+
+    # An unbroken include chain does reach the entry, at any depth.
+    through_include = _scad(tmp_path, "e2.scad", "include <mid.scad>\ncube([1, 1, 1]);\n")
+    c2 = openscad.include_closure(through_include)
+    assert c2.unresolved_includes == ("gone_b.scad",)
+
+    # A file both `use`d and `include`d is spliced: the include wins.
+    both = _scad(tmp_path, "e3.scad", "use <mid.scad>\ninclude <mid.scad>\ncube([1, 1, 1]);\n")
+    assert openscad.include_closure(both).unresolved_includes == ("gone_b.scad",)
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"a.scad": "include <a.scad>\ncube(1);\n"},
+        {"a.scad": "include <b.scad>\ncube(1);\n", "b.scad": "include <a.scad>\n"},
+        {
+            "a.scad": "use <b.scad>\ninclude <c.scad>\ncube(1);\n",
+            "b.scad": "include <c.scad>\n",
+            "c.scad": "use <a.scad>\ninclude <gone.scad>\n",
+        },
+        {
+            "a.scad": "include <b.scad>\nuse <c.scad>\n",
+            "b.scad": "include <d.scad>\n",
+            "c.scad": "include <d.scad>\n",
+            "d.scad": "include <gone.scad>\n",
+        },
+        # The re-queue INSIDE a cycle: `b` is reached both ways and `c` closes
+        # the loop back to `a`. Without this case the other four never visit a
+        # file twice, so none of them exercises the branch the bound guards --
+        # they would catch its removal by hanging on the ordinary path, which
+        # is a weaker thing than covering it.
+        {
+            "a.scad": "use <b.scad>\ninclude <b.scad>\ninclude <c.scad>\ncube(1);\n",
+            "b.scad": "include <gone.scad>\n",
+            "c.scad": "include <a.scad>\n",
+        },
+    ],
+    ids=["self", "mutual", "use-include-cycle", "diamond", "requeue-in-cycle"],
+)
+def test_the_closure_walk_terminates_on_a_cycle(tmp_path: Path, files: dict[str, str]):
+    """Cycles are legal in OpenSCAD, and the walk now visits some files twice.
+
+    Tracking include-reachability means a file reached first through a `use`
+    and later through an `include` is re-queued, so `seen` alone is no longer
+    what bounds the walk -- a file is queued at most twice and never again once
+    spliced. These are the shapes that would expose a bound that does not hold.
+
+    A regression here HANGS rather than fails. The CI jobs carry
+    `timeout-minutes`, so it ends as a job timeout rather than running forever,
+    but nothing prints the cause -- which is why the shapes are enumerated here
+    instead of trusted to the ordinary tests.
+
+    Only `requeue-in-cycle` visits a file twice; the other four cover cycles
+    that terminate on `seen` alone and pass against the pre-#287 walker too.
+    Both properties are wanted, and saying which case carries which is the
+    point -- an earlier draft of this docstring claimed all of them exercised
+    the re-queue, which was measurably false (round-4 review of PR #310).
+    """
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    closure = openscad.include_closure(tmp_path / "a.scad")
+    assert len(closure.files) == len(files)

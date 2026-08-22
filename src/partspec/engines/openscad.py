@@ -506,11 +506,41 @@ def render(
             # one transposition -- rendered the file's own default, and the
             # report then listed bore_diamter=8 under `params`, so the artifact
             # positively asserted a value the geometry never saw.
+            #
+            # The refusal STANDS when partspec could not read an include -- it
+            # is the sentence that changes, not the answer. Skipping it instead
+            # was tried in review of #310 and traded a loud false error for a
+            # silent false pass: an unresolved `use` suppressed the refusal
+            # although a `use`d file contributes no top-level variable at all,
+            # and `Can't open library` is deliberately not a #286 marker, so a
+            # genuinely misspelt `-D` reached `verdict: pass` at exit 0 on both
+            # engines. That is the one trade this tool must never make.
+            #
+            # What #287 actually reports is the SENTENCE: "match no top-level
+            # variable in <file> or its includes" is a claim about includes
+            # that were never opened. So the incomplete case says what it read,
+            # what it could not, and that the list is therefore short --
+            # `origin="environment"`, because an include that will not open is
+            # not a statement about the part, and the remedy is to make it
+            # resolvable rather than to edit the contract.
             unbound = unbound_parameters(source.path, source.params)
             if unbound:
+                named = ", ".join(unbound)
                 known = ", ".join(sorted(top_level_variables(source.path))) or "none"
+                if closure.unresolved_includes:
+                    could_not = ", ".join(closure.unresolved_includes)
+                    return BuildError(
+                        f"parameter(s) {named} match no top-level variable partspec could "
+                        f"read in {source.path.name}, and that list is INCOMPLETE: "
+                        f"{could_not} could not be opened, so a variable declared there "
+                        f"would be missing from it",
+                        hint=f"variables read so far: {known}. Make {could_not} resolvable "
+                        f"— then partspec can say whether the parameter binds; until it "
+                        f"opens, neither the name nor the contract can be judged",
+                        origin="environment",
+                    )
                 return BuildError(
-                    f"parameter(s) {', '.join(unbound)} match no top-level variable in "
+                    f"parameter(s) {named} match no top-level variable in "
                     f"{source.path.name} or its includes, so -D would be silently dropped",
                     hint=f"top-level variables: {known}",
                 )
@@ -1297,7 +1327,7 @@ def _first_error_line(stderr: str) -> str | None:
 # The include closure — what a report's provenance actually has to cover
 # --------------------------------------------------------------------------
 
-_INCLUDE_RE = re.compile(r"\b(?:include|use)\s*<([^>\n]*)>")
+_INCLUDE_RE = re.compile(r"\b(include|use)\s*<([^>\n]*)>")
 
 _EXTERNAL_DATA_RE = re.compile(
     # Modules and functions whose NAME is the claim that a file is read.
@@ -1458,6 +1488,30 @@ class Closure:
     unresolved: tuple[str, ...] = ()
     """`include`/`use` targets that could not be found on any search path."""
 
+    unresolved_includes: tuple[str, ...] = ()
+    """The subset of `unresolved` reached by `include`, not by `use`.
+
+    The two are one regex and one set everywhere else, and for every other
+    question that is right -- neither was read, so neither's contents are
+    known. For the *variable list* they differ absolutely: `include` splices a
+    file's top-level assignments into the entry and `use` imports only its
+    modules and functions, so an unresolved `use` cannot shorten the list of
+    names `-D` can bind by even one.
+
+    Distinguished because saying otherwise is a false sentence with an
+    actionable-and-wrong remedy: an unresolved `use` was told its variable list
+    was short "so a variable declared there would be missing from it", and a
+    reader who created that file to satisfy the hint reached `verdict: pass` on
+    a `-D` the engine had dropped (review of PR #310).
+
+    Include-*reachability*, not "an include seen anywhere in the walk": `use`
+    stops the chain transitively, measured on the engine. See `include_closure`.
+
+    **Not** the report/diff token spelled `unresolved_includes`
+    (`runner.py`, `diff.py`), which is emitted from `unresolved` and covers
+    `use` too. Same words, wider meaning; wiring one to the other would
+    silently narrow the report."""
+
     reads_external_data: bool = False
     """True if `import()` or `surface()` appears anywhere in the closure.
 
@@ -1606,34 +1660,58 @@ def include_closure(entry: Path) -> Closure:
     entry = entry.resolve()
     seen: set[Path] = {entry}
     unresolved: set[str] = set()
+    unresolved_includes: set[str] = set()
     external = False
-    queue: deque[Path] = deque([entry])
+    # The flag is whether this file's top-level assignments reach the ENTRY's
+    # top level, which needs an unbroken chain of `include`. Measured rather
+    # than reasoned: with `entry` -> use -> include of a file declaring `X`,
+    # the engine prints `Ignoring unknown variable 'X'`, where including that
+    # file directly renders it. So `use` stops the chain even transitively, and
+    # a set of "includes seen anywhere in the walk" would claim the entry's
+    # variable list was shortened by a file that could never have widened it.
+    spliced: set[Path] = {entry}
+    queue: deque[tuple[Path, bool]] = deque([(entry, True)])
     search = library_path()
 
     while queue:
-        current = queue.popleft()
+        current, reaches_entry = queue.popleft()
         try:
             text = _strip_noise(current.read_text(encoding="utf-8", errors="replace"))
         except OSError:
             continue
         if _EXTERNAL_DATA_RE.search(text):
             external = True
-        for raw in _INCLUDE_RE.findall(text):
+        for keyword, raw in _INCLUDE_RE.findall(text):
             ref = raw.strip()
             if not ref:
                 continue
+            spliced_here = reaches_entry and keyword == "include"
             found = next(
                 (c for c in ((b / ref) for b in (current.parent, *search)) if c.is_file()), None
             )
             if found is None:
                 unresolved.add(ref)
-            elif (resolved := found.resolve()) not in seen:
+                if spliced_here:
+                    unresolved_includes.add(ref)
+                continue
+            resolved = found.resolve()
+            if resolved not in seen:
                 seen.add(resolved)
-                queue.append(resolved)
+                if spliced_here:
+                    spliced.add(resolved)
+                queue.append((resolved, spliced_here))
+            elif spliced_here and resolved not in spliced:
+                # Reached first through a `use` and now through an `include`:
+                # the second visit is what makes its own includes splice, and
+                # `seen` alone would have swallowed it. Bounded -- a file is
+                # queued at most twice, and never again once spliced.
+                spliced.add(resolved)
+                queue.append((resolved, True))
 
     return Closure(
         files=tuple(sorted(seen)),
         unresolved=tuple(sorted(unresolved)),
+        unresolved_includes=tuple(sorted(unresolved_includes)),
         reads_external_data=external,
     )
 
