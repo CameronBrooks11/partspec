@@ -672,7 +672,7 @@ def render(
             # BuildError is built: an unresolved name does not have to fail the
             # render to have changed the part.
             if unresolved_out is not None:
-                unresolved_out.extend(_unresolved_lines(proc.stderr))
+                unresolved_out.extend(_unresolved_lines(proc.stderr, _UNRESOLVED_NAME_MARKERS))
             staged.replace(stl)
             return stl
     except OSError as exc:
@@ -838,11 +838,34 @@ def _camera(bbox: tuple[tuple[float, ...], tuple[float, ...]], rot: tuple[float,
 
 _EMPTY_RESULT = "Current top level object is empty"
 
-_UNRESOLVED_MARKERS = (
+_UNRESOLVED_NAME_MARKERS = (
     "Can't open include file",
     "Ignoring unknown module",
     "Ignoring unknown function",
     "Ignoring unknown variable",
+)
+"""The four that name a NAME the engine could not resolve.
+
+Separated from `_UNRESOLVED_MARKERS` because the two sets answer different
+questions and only one of them is safe to ask of a render that SUCCEEDED.
+Each of these says a name was looked up and not found, and OpenSCAD's response
+is to render that call's children not at all -- so on a successful build they
+are evidence the artifact is missing geometry the source asked for (#286).
+
+`undefined operation` is deliberately NOT here. It reports a type error in an
+expression, not a lookup that failed, and on the success path it fires on code
+whose geometry is completely correct: `echo("holes: " + holes)` -- `+` where
+`str()` was meant, and among the most common things in a real .scad -- renders
+a perfect part and prints exactly that line. Guarding on it errored that part
+at exit 4 while telling the reader a name had not resolved and to check
+`OPENSCADPATH`, which was false in every clause. Caught in review of PR #306.
+
+It remains in `_UNRESOLVED_MARKERS` below, where the question is narrower and
+the docstring's reasoning holds: there, the render already produced NOTHING,
+and `vector * string` is real evidence that a null result is not genuine."""
+
+_UNRESOLVED_MARKERS = (
+    *_UNRESOLVED_NAME_MARKERS,
     "undefined operation",
 )
 """What OpenSCAD says when a name did not resolve — measured on 2021.01, not
@@ -862,13 +885,17 @@ exit code for either; if a future engine version gains one, prefer it and keep
 this as the fallback."""
 
 
-def _unresolved_lines(stderr: str) -> tuple[str, ...]:
-    """The stderr lines naming something the engine could not resolve."""
-    return tuple(
-        line.strip()
-        for line in stderr.splitlines()
-        if any(marker in line for marker in _UNRESOLVED_MARKERS)
-    )
+def _unresolved_lines(
+    stderr: str, markers: tuple[str, ...] = _UNRESOLVED_MARKERS
+) -> tuple[str, ...]:
+    """The stderr lines naming something the engine could not resolve.
+
+    `markers` defaults to the wide set, which is right where the render already
+    produced nothing. A caller asking about a render that SUCCEEDED must pass
+    `_UNRESOLVED_NAME_MARKERS` -- see its docstring for the one that does not
+    survive the move.
+    """
+    return tuple(line.strip() for line in stderr.splitlines() if any(m in line for m in markers))
 
 
 def _display_failure(returncode: int, stderr: str) -> bool:

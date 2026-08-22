@@ -438,7 +438,7 @@ it does not know what to assert.
 | `1` | `fail` | something asserted was disproven |
 | `2` | `incomplete` | nothing disproven, **not everything proven** |
 | `3` | `empty` | no checks declared |
-| `4` | `error` | the contract raised, or the environment prevented a build |
+| `4` | `error` | the contract raised, the environment prevented a build, or the engine could not resolve a name and rendered without it |
 | `64` | — | usage error: unresolvable target, bad arguments (`EX_USAGE`) |
 | `130` | — | user interrupt (SIGINT convention); the operator's own abort, never a verdict |
 

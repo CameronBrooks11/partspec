@@ -399,28 +399,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exits 0 with a clean, watertight, single-solid mesh, so a misspelt module or
   an include that did not open removes the feature a contract is about and
   every check downstream measures a part nobody described. partspec already
-  owned the evidence — `_UNRESOLVED_MARKERS` names the five diagnostics the
-  engine prints, measured on 2021.01 — and read it **only where the build had
-  already failed**; the path that succeeded discarded `proc.stderr` outright.
-  A declared bore could therefore go missing under four green checks at exit 0.
+  owned the evidence — `_UNRESOLVED_MARKERS` names the diagnostics the engine
+  prints, measured on 2021.01 — and read it **only where the build had already
+  failed**; the path that succeeded discarded `proc.stderr` outright. A
+  declared bore could therefore go missing under four green checks at exit 0.
   This is `FAILURE-MODES.md` §1 — the 35%-smaller gear with its teeth gone —
   reproduced inside this repo with partspec green, and it is the one shape the
   tool existed to catch and could not see.
-  Now the lines are read on the path that *worked*, and such a run is
+  `check` now reads those lines on the path that *worked*: such a run is
   `verdict: "error"`, exit 4, with `builds` and every geometry check `skipped`
-  and the engine's own diagnostic quoted in `error`.
+  and the engine's own diagnostic quoted in `error`. **`measure` refuses on the
+  same evidence**, because it is where numbers become claims — an author
+  reading `volume: 7200.0 exact` off a hollowed part writes it into a contract
+  that passes forever after. `render` is **not** yet guarded and still writes
+  views of the wrong part; it needs a way to say "partspec cannot attribute
+  this fault", which `BuildError.origin` has no spelling for, and is tracked
+  separately.
   **`builds` is not emitted failing and `build_origin` stays `null`**, which is
   the load-bearing half: the source compiled, so a failing `builds` would be a
   statement about the design partspec has not earned — and whether the name is
   a typo or a library absent from this machine is precisely what it cannot
   tell. It claims neither and says only what it knows. Parameter-phase checks
   still answer: they are arithmetic over the contract's inputs and need no
-  engine. `SPEC-report.md` §6.1 gains the third route to `error`.
-  The false-positive bound was measured rather than assumed: all 25 `.scad`
-  files tracked in this repo build with zero markers, and `is_undef()` — how a
-  source legitimately probes for a name it does not require — emits no warning,
-  while reading an undefined variable directly *does* warn and silently renders
-  a default cube.
+  engine. `SPEC-report.md` §6.1 and §6.2 gain the third route to `error`, and
+  `AGENT-CONTRACT.md` §2.3 gains the branch that routes it — without which an
+  agent read `build_origin: null` as "the contract raised" and was sent to
+  repair a contract that was fine.
+  Only the four markers that name a **name** are read on the success path.
+  `undefined operation` is deliberately excluded: it reports a type error, and
+  `echo("holes: " + holes)` — `+` where `str()` was meant — renders a perfect
+  part while printing it. Guarding on it errored that part at exit 4 while
+  claiming a name had not resolved. It stays in the wider set used where the
+  render already produced nothing, which is where its reasoning holds.
+  The false-positive bound is measured, not asserted: all 25 `.scad` files
+  tracked in this repo build with zero markers, and `is_undef()` — how a source
+  legitimately probes for a name it does not require — emits no warning, while
+  reading an undefined variable directly *does* warn and silently renders a
+  default cube. One behaviour change worth naming: `include <optional.scad>`
+  for a file that is deliberately absent now errors rather than rendering, and
+  that is intended — the closure genuinely is partial.
 
 - **A canonical view is no longer written over a heightmap the model reads**
   (#267, completing #263). `render --out .` against a model reading

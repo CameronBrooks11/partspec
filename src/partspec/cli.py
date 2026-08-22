@@ -440,6 +440,7 @@ def _build_to_file(
     *,
     closure: Any | None = None,
     refusal_out: list[BuildError] | None = None,
+    unresolved_out: list[str] | None = None,
 ) -> Any | BuildError:
     """Build so the artifact lands at exactly `dest`, and only if it exists.
 
@@ -494,7 +495,13 @@ def _build_to_file(
         with tempfile.TemporaryDirectory(
             dir=dest.parent, prefix=".partspec-build-", ignore_cleanup_errors=True
         ) as scratch:
-            built = backend.build(source, Path(scratch), timeout_s=timeout_s, deps_out=deps_out)
+            built = backend.build(
+                source,
+                Path(scratch),
+                timeout_s=timeout_s,
+                deps_out=deps_out,
+                unresolved_out=unresolved_out,
+            )
             if isinstance(built, BuildError):
                 return built
             if closure is not None and closure.partial:
@@ -1156,6 +1163,7 @@ def _measure_resolved(
     try:
         backend = _backend_for(part.source.engine)
         engine_deps: list[Any] = []
+        engine_unresolved: list[str] = []
     except ContractError as exc:
         print(f"partspec: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -1238,6 +1246,7 @@ def _measure_resolved(
             engine_deps,
             closure=closure,
             refusal_out=dest_refusal,
+            unresolved_out=engine_unresolved,
         )
         if dest_refusal:
             _measure_failure(part, target, backend, dest_refusal[0].message, dest_refusal[0].hint)
@@ -1245,7 +1254,13 @@ def _measure_resolved(
         written_to = dest
     else:
         out = _out_dir(args.target, Path(args.out) if args.out is not None else None)
-        artifact = backend.build(source, out, timeout_s=timeout_s, deps_out=engine_deps)
+        artifact = backend.build(
+            source,
+            out,
+            timeout_s=timeout_s,
+            deps_out=engine_deps,
+            unresolved_out=engine_unresolved,
+        )
         # The name inside the directory is partspec's, not the caller's, which
         # is the whole of #225: the caller chose `out` and cannot know the rest
         # without re-deriving a rule this tool owns and has already changed once
@@ -1259,6 +1274,25 @@ def _measure_resolved(
         )
     if isinstance(artifact, BuildError):
         _measure_failure(part, target, backend, artifact.message, artifact.hint)
+        return exit_code(Verdict.ERROR)
+    if engine_unresolved:
+        # `measure` is the surface an author turns into a contract, so a number
+        # taken off a part the engine hollowed out does not merely mislead this
+        # run -- it gets written down as a claim and passes forever after. The
+        # build succeeded and the quantities are real; they are measurements of
+        # something other than the source. `measure` promises every quantity
+        # the backend can HONESTLY produce, and these do not qualify (#286).
+        _measure_failure(
+            part,
+            target,
+            backend,
+            "the engine could not resolve a name and rendered without it, so these "
+            "would be measurements of something other than what this source describes: "
+            f"{engine_unresolved[0]}",
+            "the engine exited 0 and wrote a mesh, so this is not a compile error — "
+            "either the source misspells the name, or whatever defines it is not on "
+            "OPENSCADPATH. Fix the name or install the library, then re-run",
+        )
         return exit_code(Verdict.ERROR)
 
     measurements: dict[str, object] = {}

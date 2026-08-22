@@ -113,6 +113,31 @@ def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
     assert "verdict" not in doc and "checks" not in doc
 
 
+@needs_scad_tier
+def test_measure_refuses_a_part_the_engine_hollowed_out(tmp_path: Path, capsys):
+    """`measure` is where numbers become claims, so a wrong one outlives the run.
+
+    Exit 0 on a broken part is correct for this verb (see above) -- it asks no
+    question. This is not that. The engine dropped a call it could not resolve
+    and exported a mesh of something the source does not describe, so the
+    quantities are real measurements of the wrong object. An author reading
+    `volume: 7200.0 exact` off a hollowed part writes it into a contract that
+    then passes forever (#286).
+    """
+    src = tmp_path / "hollow.scad"
+    src.write_text("difference() {\n  cube([40,30,6], center=true);\n  bore_hole(d=8);\n}\n")
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('hollow', openscad('hollow.scad'))\n"
+    )
+
+    assert main(["measure", f"{spec}:make"]) == 4
+    err = capsys.readouterr().err
+    assert "bore_hole" in err
+    assert "something other than what this source describes" in err
+
+
 # --------------------------------------------------------------------------
 # measure --out (#187): the flag means what a reader passes
 # --------------------------------------------------------------------------

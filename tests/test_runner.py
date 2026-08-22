@@ -1049,6 +1049,61 @@ def test_a_parameter_check_still_answers_when_a_name_did_not_resolve(tmp_path: P
 
 
 @needs_scad_tier
+@pytest.mark.parametrize(
+    ("body", "named"),
+    [
+        # One per marker in `_UNRESOLVED_NAME_MARKERS`, so an implementation
+        # that guards on a subset cannot pass this file. Each of these BUILDS:
+        # the engine drops the unresolved call and exports a well-formed mesh.
+        ("cube([40,30,6], center=true);\nnope_module();\n", "nope_module"),
+        ("include <nowhere/absent.scad>\ncube([40,30,6], center=true);\n", "absent.scad"),
+        ("echo(nofunc(3));\ncube([40,30,6], center=true);\n", "nofunc"),
+        (
+            "cube([40,30,6], center=true);\ntranslate([nope,0,0]) cube([1,1,1]);\n",
+            "nope",
+        ),
+    ],
+    ids=["module", "include", "function", "variable"],
+)
+def test_every_unresolved_name_marker_is_read_on_the_success_path(
+    tmp_path: Path, body: str, named: str
+):
+    report = run(_unresolved_part(tmp_path, body), out_dir=tmp_path)
+    assert report.verdict is Verdict.ERROR
+    assert report.error is not None
+    assert named in report.error
+
+
+@needs_scad_tier
+def test_an_undefined_operation_on_a_successful_build_is_not_an_unresolved_name(
+    tmp_path: Path,
+):
+    """A type error in an expression is not a name that failed to resolve.
+
+    `echo("holes: " + holes)` -- `+` where `str()` was meant, and among the most
+    common things in a real .scad -- prints `undefined operation` and renders a
+    completely correct part. Guarding on that marker (it is in the wider
+    `_UNRESOLVED_MARKERS`, for the empty-result path) errored this part at exit
+    4 while telling the reader a name had not resolved and to check
+    `OPENSCADPATH`, which was false in every clause. Caught reviewing PR #306.
+    """
+    src = tmp_path / "probe.scad"
+    src.write_text(
+        'holes = 4;\necho("holes: " + holes);\n'
+        "difference() {\n  cube([40,30,6], center=true);\n"
+        "  cylinder(d=8, h=20, center=true, $fn=64);\n}\n"
+    )
+    p = Part("probe", openscad(src))
+    p.watertight()
+    p.solid_count(1)
+    p.genus(1)  # the bore is really there -- this is not a hollowed part
+
+    report = run(p, out_dir=tmp_path)
+    assert report.verdict is Verdict.PASS
+    assert report.error is None
+
+
+@needs_scad_tier
 def test_the_is_undef_idiom_is_not_an_unresolved_name(tmp_path: Path):
     # The false-positive bound, measured rather than assumed: `is_undef()` is
     # how an OpenSCAD source legitimately probes for a name it does not require,
