@@ -7,9 +7,14 @@ exit 0 says the lint ran, the findings are data in the JSON payload, and 64 is r
 for inputs that cannot be linted at all. The payload (schema 2) is per-file
 blocks — `{file, digest, findings[, unsupported]}` — so a clean file is a visible entry with the
 sha256 of the bytes that were linted, not an absence; duplicate arguments are deduped
-(#120). **Tier 1** runs without an engine installed; **tier 2** (the two `csg-*` rules)
+(#120). **Tier 1** runs without an engine installed; **tier 2** (the three `csg-*` rules)
 reads OpenSCAD's constant-folded `.csg` export and refuses by name when the binary is
 absent.
+
+`counts` carries `{files, findings, unsupported}`. **`unsupported` is the one that says
+whether the run was whole**: a `findings: 0` with `unsupported: 3` is not a clean file, it
+is a file three rules never looked at. Counted per (file, rule), the same unit
+`unsupported[]` holds, so the tally and the blocks cannot disagree.
 
 Each rule states its exact predicate — a lint whose rules are vibes teaches nothing —
 plus the rationale and a real example. The rule registry in `src/partspec/lint.py` and
@@ -17,9 +22,16 @@ this document are held together by test (`tests/test_lint.py`).
 
 Lint is for **model sources**. Pointing it at a contract flags check *limits* as if
 they were model constants — advice aimed at the wrong file. An agent loop should read
-each file block's `findings[]` before the first render and treat each as an optional aimed edit, never
+each file block's `findings[]` **and its `unsupported[]`** before the first render, and
+treat each finding as an optional aimed edit, never
 as a failure to clear (exit 0 with findings is not AGENT-CONTRACT's exit-0 row: that
 map governs `check`).
+
+Reading `findings[]` alone is the blind loop this document used to prescribe (#288): the
+rules that did not run are exactly the ones whose silence would otherwise read as a pass,
+and with no engine installed that is every tier-2 rule on every file. Both surfaces now
+carry them — `unsupported[]` per file in the payload, and one line per distinct cause on
+stderr naming the rules and how many files it took down.
 
 ## `scad-unused-top-level`
 

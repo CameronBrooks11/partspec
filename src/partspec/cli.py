@@ -1474,6 +1474,13 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     scad_engine = find_executable()
     files = []
     courtesy: list[str] = []
+    # Grouped by REASON rather than one line per entry. With no engine every
+    # `.scad` refuses every tier-2 rule for the same cause, so per-entry lines
+    # would put three identical sentences per file on the console -- 75 of them
+    # over this repo's 25 sources -- and a courtesy stream nobody reads is the
+    # same silence it exists to break. One line per distinct cause names the
+    # rules and how many files it took down (#288).
+    refused: dict[str, tuple[list[str], set[str]]] = {}
     try:
         for source in unique:
             findings = lint_path(source)
@@ -1493,6 +1500,12 @@ def _cmd_lint(args: argparse.Namespace) -> int:
                     # Refusals are entries, never absences (#118): a rule
                     # that could not run must not read as a clean bill.
                     entry["unsupported"] = unsupported
+                    for u in unsupported:
+                        refused.setdefault(u["reason"], ([], set()))
+                        seen_files, rules = refused[u["reason"]]
+                        if str(source) not in seen_files:
+                            seen_files.append(str(source))
+                        rules.add(u["rule"])
             courtesy.extend(f"  {f.rule}  {f.file}:{f.line}  {f.message}" for f in findings)
             files.append(entry)
     except LintError as exc:
@@ -1500,15 +1513,27 @@ def _cmd_lint(args: argparse.Namespace) -> int:
         return EXIT_USAGE
 
     total = sum(len(f["findings"]) for f in files)
+    # Counted per (file, rule), matching what `unsupported[]` holds, so the
+    # tally and the blocks cannot disagree. Additive key: a consumer reading
+    # `findings` alone is unaffected, and `LINT_SCHEMA_VERSION` does not move
+    # -- the same rule `--out`'s `written` followed (#225).
+    unsupported_total = sum(len(f.get("unsupported", ())) for f in files)
     payload = {
         "schema_version": LINT_SCHEMA_VERSION,
         "tool": {"name": "partspec-lint", "version": tool_version()},
         "files": files,
-        "counts": {"files": len(files), "findings": total},
+        "counts": {
+            "files": len(files),
+            "findings": total,
+            "unsupported": unsupported_total,
+        },
     }
     print(json.dumps(payload, indent=2, allow_nan=False))
     for line in courtesy:
         print(line, file=sys.stderr)
+    for reason, (where, rules) in refused.items():
+        scope = where[0] if len(where) == 1 else f"{len(where)} files"
+        print(f"  {', '.join(sorted(rules))}  {scope}  not run: {reason}", file=sys.stderr)
     return 0
 
 

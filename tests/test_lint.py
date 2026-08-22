@@ -321,7 +321,9 @@ def test_the_lint_verb_is_advisory_and_machine_readable(tmp_path: Path, capsys):
     payload = json.loads(captured.out)
     assert payload["schema_version"] == LINT_SCHEMA_VERSION
     assert payload["tool"]["name"] == "partspec-lint"
-    assert payload["counts"] == {"files": 1, "findings": 3}
+    # Exact, so a new key has to be looked at rather than slipping through —
+    # which is how `unsupported` got here (#288).
+    assert payload["counts"] == {"files": 1, "findings": 3, "unsupported": 0}
     (entry,) = payload["files"]
     assert entry["digest"].startswith("sha256:"), "identity per file (#120)"
     for finding in entry["findings"]:
@@ -339,7 +341,7 @@ def test_duplicate_arguments_are_one_file_and_a_clean_file_is_visible(tmp_path: 
     clean.write_text("a = 3;\ncube([a, a, a]);\n")
     assert main(["lint", str(dirty), str(dirty), str(clean)]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["counts"] == {"files": 2, "findings": 3}
+    assert payload["counts"] == {"files": 2, "findings": 3, "unsupported": 0}
     by_name = {Path(e["file"]).name: e for e in payload["files"]}
     assert by_name["clean.scad"]["findings"] == []
     assert by_name["clean.scad"]["digest"].startswith("sha256:")
@@ -1094,3 +1096,77 @@ def test_no_shipped_model_trips_the_two_part_intersection_rule():
 
     assert not flagged, f"shipped models now trip the rule: {flagged}"
     assert read >= 20, f"only {read} of {len(tracked)} exports could be read — too few to claim"
+
+
+# --------------------------------------------------------------------------
+# the courtesy stream carries refusals too (#288)
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_the_console_names_the_rules_that_did_not_run(tmp_path: Path, capsys):
+    """#118 says a rule that could not run must not read as a clean bill.
+
+    It was true of the payload and false of the console: `unsupported[]` was
+    written per file while the stderr courtesy stream was built from
+    `findings` alone, so a source whose `.csg` export fails showed three
+    tier-1 findings and no hint that every tier-2 rule had been skipped.
+    """
+    scad = tmp_path / "broken.scad"
+    scad.write_text("module thing(){ cube([10, 10, 10) }\n")
+
+    assert main(["lint", str(scad)]) == 0
+    captured = capsys.readouterr()
+
+    doc = json.loads(captured.out)
+    assert {u["rule"] for u in doc["files"][0]["unsupported"]} == set(TIER2_RULES)
+    assert doc["counts"]["unsupported"] == len(TIER2_RULES)
+
+    refusal = [ln for ln in captured.err.splitlines() if "not run:" in ln]
+    assert len(refusal) == 1, "one line per distinct cause, not one per entry"
+    for rule in TIER2_RULES:
+        assert rule in refusal[0]
+    assert "broken.scad" in refusal[0], "a single file is named, not counted"
+    assert "Can't parse file" in refusal[0], "the reason travels with it"
+
+
+@needs_openscad
+def test_one_cause_across_many_files_is_one_line(tmp_path: Path, capsys):
+    """Grouped by reason, because the common case is one cause everywhere.
+
+    With no engine installed every `.scad` refuses every tier-2 rule for the
+    same reason. One line per entry would put three identical sentences per
+    file on the console; over this repo's own sources that is 75 lines saying
+    one thing, and a courtesy stream nobody reads is the silence it exists to
+    break.
+    """
+    for i in range(3):
+        (tmp_path / f"m{i}.scad").write_text("module thing(){ cube([10, 10, 10) }\n")
+
+    assert main(["lint", *(str(tmp_path / f"m{i}.scad") for i in range(3))]) == 0
+    captured = capsys.readouterr()
+
+    # Three files, one cause each, and each cause names its own file — so
+    # three lines here, not nine.
+    refusals = [ln for ln in captured.err.splitlines() if "not run:" in ln]
+    assert len(refusals) == 3
+    assert json.loads(captured.out)["counts"]["unsupported"] == 3 * len(TIER2_RULES)
+
+
+def test_a_clean_tier1_run_with_refusals_is_not_a_clean_bill(tmp_path: Path, capsys):
+    """`findings: 0` with `unsupported: 3` is not a clean file.
+
+    This is the shape the counts block exists to make visible: a consumer
+    branching on `findings` alone reads a file three rules never looked at as
+    a pass.
+    """
+    scad = tmp_path / "quiet.scad"
+    # No magic numbers, no unused top-level: tier 1 has nothing to say.
+    scad.write_text("side = 10;\ncube([side, side, side]);\n")
+
+    assert main(["lint", str(scad)]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    entry = doc["files"][0]
+    if entry.get("unsupported"):
+        assert doc["counts"]["findings"] == 0
+        assert doc["counts"]["unsupported"] > 0, "the tally is what distinguishes it"
