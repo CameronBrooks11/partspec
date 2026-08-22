@@ -1579,7 +1579,6 @@ def test_only_an_unbroken_include_chain_shortens_the_variable_list(tmp_path: Pat
     not have contributed to it -- the same false sentence #287 exists to
     remove, one level deeper (review of PR #310).
     """
-    (tmp_path / "vars.scad").write_text("X = 5;\n")
     (tmp_path / "behind_use.scad").write_text("include <gone_a.scad>\nmodule m() { cube(1); }\n")
     (tmp_path / "mid.scad").write_text("include <gone_b.scad>\n")
 
@@ -1616,8 +1615,18 @@ def test_only_an_unbroken_include_chain_shortens_the_variable_list(tmp_path: Pat
             "c.scad": "include <d.scad>\n",
             "d.scad": "include <gone.scad>\n",
         },
+        # The re-queue INSIDE a cycle: `b` is reached both ways and `c` closes
+        # the loop back to `a`. Without this case the other four never visit a
+        # file twice, so none of them exercises the branch the bound guards --
+        # they would catch its removal by hanging on the ordinary path, which
+        # is a weaker thing than covering it.
+        {
+            "a.scad": "use <b.scad>\ninclude <b.scad>\ninclude <c.scad>\ncube(1);\n",
+            "b.scad": "include <gone.scad>\n",
+            "c.scad": "include <a.scad>\n",
+        },
     ],
-    ids=["self", "mutual", "use-include-cycle", "diamond"],
+    ids=["self", "mutual", "use-include-cycle", "diamond", "requeue-in-cycle"],
 )
 def test_the_closure_walk_terminates_on_a_cycle(tmp_path: Path, files: dict[str, str]):
     """Cycles are legal in OpenSCAD, and the walk now visits some files twice.
@@ -1625,8 +1634,18 @@ def test_the_closure_walk_terminates_on_a_cycle(tmp_path: Path, files: dict[str,
     Tracking include-reachability means a file reached first through a `use`
     and later through an `include` is re-queued, so `seen` alone is no longer
     what bounds the walk -- a file is queued at most twice and never again once
-    spliced. These are the shapes that would expose a bound that does not hold;
-    a regression here hangs rather than fails, which is why they are pinned.
+    spliced. These are the shapes that would expose a bound that does not hold.
+
+    A regression here HANGS rather than fails. The CI jobs carry
+    `timeout-minutes`, so it ends as a job timeout rather than running forever,
+    but nothing prints the cause -- which is why the shapes are enumerated here
+    instead of trusted to the ordinary tests.
+
+    Only `requeue-in-cycle` visits a file twice; the other four cover cycles
+    that terminate on `seen` alone and pass against the pre-#287 walker too.
+    Both properties are wanted, and saying which case carries which is the
+    point -- an earlier draft of this docstring claimed all of them exercised
+    the re-queue, which was measurably false (round-4 review of PR #310).
     """
     for name, text in files.items():
         (tmp_path / name).write_text(text)
