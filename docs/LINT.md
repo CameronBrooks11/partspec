@@ -159,10 +159,15 @@ exists to name — the message describes the geometry instead.
 ### `csg-difference-order`
 
 - **Predicate:** a `difference()` whose first child's analytic volume is smaller than
-  a later child's. Volumes are exact for cubes, polyhedra, and ideal
+  a later child's. Volumes are exact for cubes, **closed** polyhedra, and ideal
   cylinders/spheres, scaled by `|det M|`; union/group volumes are the **sum** of
   children — an upper bound when children overlap — so the verdict is
   upper-bound-vs-upper-bound and the finding says so.
+  A `polyhedron()` whose faces do not bound a volume — an unpaired edge, or one
+  traversed twice the same way — is **refused, not estimated** (#289): the
+  divergence sum returns a number for any surface, and a number computed over a
+  surface that encloses nothing is a finding invented out of nothing. The rule
+  goes to `unsupported` with the edge named.
 - **Rationale:** skills/openscad-authoring rule 2 — the first child is the material;
   the wrong order is a different part, sometimes an empty one.
 - **Real example:** the skill's rule-2-before block fires; its after-form is clean.

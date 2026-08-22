@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from support import needs_openscad
 
+from partspec import csg
 from partspec.cli import main
 from partspec.lint import (
     FUNCTION_LINE_LIMIT,
@@ -786,3 +787,66 @@ def test_a_string_hidden_in_dropped_geometry_still_refuses(tmp_path: Path, capsy
     unsupported = entry.get("unsupported", [])
     assert {u["rule"] for u in unsupported} == {"csg-difference-order", "csg-coincident-face"}
     assert all("refused whole" in u["reason"] or "unreadable" in u["reason"] for u in unsupported)
+
+
+# --------------------------------------------------------------------------
+# volume_of must refuse a surface that encloses nothing (#289)
+# --------------------------------------------------------------------------
+
+_OPEN_BOX_FACES = [
+    [0, 1, 2, 3],  # the missing lid is the point: five faces where a solid needs six
+    [4, 5, 1, 0],
+    [5, 6, 2, 1],
+    [6, 7, 3, 2],
+    [7, 4, 0, 3],
+]
+_BOX_POINTS = [
+    [0, 0, 0],
+    [10, 0, 0],
+    [10, 10, 0],
+    [0, 10, 0],
+    [0, 0, 10],
+    [10, 0, 10],
+    [10, 10, 10],
+    [0, 10, 10],
+]
+
+
+def _polyhedron(points: list, faces: list) -> csg.Node:
+    return csg.Node(kind="polyhedron", kwargs={"points": points, "faces": faces})
+
+
+def test_volume_of_refuses_a_polyhedron_that_encloses_nothing():
+    """`tests/fixtures/open_box.scad` states the requirement in its own header:
+
+        Every measurement library will still hand you a volume for this -- 500
+        rather than 1000, computed over a surface that does not enclose
+        anything -- which is the case partspec must REFUSE rather than answer.
+
+    It was answering. A signed-tetrahedron sum has no watertightness
+    precondition, so five faces of a cube returned a number, `abs()` hid the
+    sign, and `csg-difference-order` reported a finding computed from it.
+    `planes_of` refuses the same node honestly; this is `volume_of` catching up.
+    """
+    with pytest.raises(csg.CsgError) as exc:
+        csg.volume_of(_polyhedron(_BOX_POINTS, _OPEN_BOX_FACES))
+    assert "not closed" in str(exc.value)
+
+
+def test_volume_of_still_answers_for_a_closed_polyhedron():
+    """The refusal must be the unsound surface, not the node kind: `LINT.md`
+    says volumes are exact for polyhedra, and for a closed one they are."""
+    closed = [*_OPEN_BOX_FACES, [7, 6, 5, 4]]  # the lid, wound to match
+    assert csg.volume_of(_polyhedron(_BOX_POINTS, closed)) == pytest.approx(1000.0)
+
+
+def test_volume_of_refuses_a_polyhedron_wound_inconsistently():
+    """Closed is not enough: the divergence sum needs consistent orientation.
+
+    Flipping one face leaves every edge paired but two of them traversed the
+    same way twice, so the surface is no longer coherently oriented and the
+    signed sum stops meaning a volume.
+    """
+    flipped = [*_OPEN_BOX_FACES, [4, 5, 6, 7]]  # the lid, reversed
+    with pytest.raises(csg.CsgError):
+        csg.volume_of(_polyhedron(_BOX_POINTS, flipped))

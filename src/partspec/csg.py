@@ -190,6 +190,46 @@ class Unknown(Exception):
     """A node the evaluator does not model; carries the node kind."""
 
 
+def _require_closed(faces: list) -> None:
+    """Refuse a polyhedron whose surface does not bound a volume.
+
+    The sum below is the divergence theorem over triangle fans, and it is a
+    *volume* only for a surface that is closed and coherently oriented. Given
+    five faces of a cube it happily returns a number anyway, which
+    `tests/fixtures/open_box.scad` names in its own header as the case
+    partspec must refuse rather than answer -- and `abs()` then hides the sign
+    that would at least have looked wrong. `planes_of` refuses the same node;
+    this is `volume_of` catching up (#289).
+
+    Exact, not heuristic, and needs nothing but the face list: on a closed
+    coherently-oriented surface every directed edge appears exactly once and
+    its reverse exactly once. A missing face leaves edges unpaired; a face
+    wound the wrong way traverses an edge twice in the same direction. Both
+    are caught, and a correct mesh costs one pass over the faces.
+    """
+    edges: dict[tuple[int, int], int] = {}
+    for face in faces:
+        if not isinstance(face, list) or len(face) < 3:
+            continue
+        idx = [int(v) for v in face]
+        for a, b in zip(idx, idx[1:] + idx[:1], strict=True):
+            edges[(a, b)] = edges.get((a, b), 0) + 1
+
+    doubled = sorted(e for e, n in edges.items() if n != 1)
+    if doubled:
+        raise CsgError(
+            f"polyhedron() traverses {len(doubled)} edge(s) more than once in the same "
+            f"direction (first: {doubled[0]}), so its faces are not coherently wound and "
+            f"the signed sum is not a volume"
+        )
+    unpaired = sorted(e for e in edges if (e[1], e[0]) not in edges)
+    if unpaired:
+        raise CsgError(
+            f"polyhedron() is not closed: {len(unpaired)} edge(s) belong to one face only "
+            f"(first: {unpaired[0]}), so the surface encloses no volume to measure"
+        )
+
+
 def volume_of(node: Node, matrix=_IDENTITY) -> float:
     """Analytic volume of the subtree, scaled by |det| of the accumulated
     transform. Union/group volumes are the SUM of children — an upper bound
@@ -244,6 +284,7 @@ def volume_of(node: Node, matrix=_IDENTITY) -> float:
         faces = node.kwargs.get("faces", node.kwargs.get("triangles"))
         if not isinstance(points, list) or not isinstance(faces, list):
             raise Unknown(node.kind)
+        _require_closed(faces)
         total = 0.0
         for face in faces:
             if not isinstance(face, list) or len(face) < 3:

@@ -394,6 +394,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`partspec lint` no longer computes a volume for a surface that encloses
+  nothing** (#289, epic #305). `csg.volume_of`'s `polyhedron()` branch is a
+  signed-tetrahedron sum with no watertightness precondition, and `abs()` hid
+  the sign that would have looked wrong. `tests/fixtures/open_box.scad` names
+  this case in its own header — "every measurement library will still hand you
+  a volume for this … which is the case partspec must **refuse** rather than
+  answer" — and partspec was answering: exporting that fixture and reading it
+  back gave **666.67** for five faces of a cube. `planes_of` refuses the same
+  node honestly; this is `volume_of` catching up.
+  Measured end to end before the fix: an open polyhedron differenced against a
+  smaller cube produced a `csg-difference-order` finding whose order was
+  correct, computed from a volume that does not exist. A wrong lint finding is
+  the same fault as a wrong check, one advisory step removed.
+  The precondition is exact rather than heuristic and needs only the face list:
+  on a closed, coherently-oriented surface every directed edge appears exactly
+  once and its reverse exactly once. A missing face leaves edges unpaired; a
+  face wound the wrong way traverses one twice in the same direction. Both are
+  refused, the offending edge is named, and the rule goes to `unsupported`
+  rather than silently producing nothing — so the reason survives into the
+  report. A closed polyhedron still measures exactly, which `LINT.md` promises
+  and which is now what it says.
+
 - **A parameter refusal no longer claims to have read includes it could not
   open** (#287, epic #305). `unbound_parameters` answers from
   `top_level_variables`, which reads the files partspec *resolved*, and the
