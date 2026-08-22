@@ -394,6 +394,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A parameter is no longer refused on a list of variables partspec could
+  not finish reading** (#287, epic #305). `unbound_parameters` answers from
+  the files partspec resolved, and the refusal's own sentence says the name
+  matches nothing "in `<file>` **or its includes**" — a claim it cannot make
+  when one of those includes never opened. Measured: a model whose
+  `include <missing_lib.scad>` fails, given `lib_x`/`lib_y`, was refused with
+  `FAIL builds`, exit 1, while the engine built the part cleanly at 20×10×3
+  with both `-D` values reaching the geometry. So the sentence was false, the
+  verdict blamed the contract, and the real fault — an include that did not
+  open — went unmentioned though the report carried it.
+  A cold agent believing that deletes a correct declaration. Issue #9's own
+  acceptance box required the opposite: a parameter that cannot be resolved
+  statically "degrades to a recorded warning rather than a false error".
+  The refusal is now asked only when the closure is complete. It is gated on
+  `unresolved` rather than the whole of `partial`, because only that arm
+  shortens the variable list — `reads_external_data` hides no declaration, and
+  gating on `partial` would suppress a refusal that is still sound.
+  **The two fixes compose**: this one stops the wrong answer and #286 supplies
+  the right one, naming the include. And a library only the *engine* can find
+  — on `OPENSCADPATH`, invisible to partspec's own search path — now resolves
+  there, binds its parameters and passes, where before it was a hard error
+  about a parameter that was genuinely declared.
+
 - **A build that silently lost geometry no longer reports `pass`** (#286, epic
   #305). OpenSCAD renders an unresolved call's children *not at all* and still
   exits 0 with a clean, watertight, single-solid mesh, so a misspelt module or

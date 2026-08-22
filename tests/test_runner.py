@@ -1144,3 +1144,31 @@ def test_a_declared_empty_part_is_not_laundered_by_an_unresolved_name(tmp_path: 
     assert report.verdict is Verdict.ERROR
     assert _status(report, "empty") is not Status.PASS
     assert report.error is not None and "nope_module" in report.error
+
+
+@needs_scad_tier
+def test_an_unread_include_is_named_rather_than_the_contract_blamed(tmp_path: Path):
+    """A false error is the mirror image of a false pass (#287).
+
+    Refusing on `unbound_parameters` when an include did not open told the
+    author their contract named a parameter that does not exist -- a claim
+    partspec cannot make, since the file that would declare it was never read,
+    and one the engine contradicts: the `-D` values do reach the geometry.
+    A cold agent believing it deletes a correct declaration, while the real
+    fault goes unmentioned.
+
+    Now the build proceeds and #286's guard answers instead, naming the
+    include. The two fixes compose: this one stops the wrong answer, that one
+    supplies the right one.
+    """
+    src = tmp_path / "inc.scad"
+    src.write_text("include <missing_lib.scad>\nplate_z = 3;\ncube([lib_x, lib_y, plate_z]);\n")
+    p = Part("thing", openscad(src, lib_x=20.0, lib_y=10.0, plate_z=3.0))
+    p.watertight()
+
+    report = run(p, out_dir=tmp_path)
+
+    assert report.error is not None
+    assert "missing_lib.scad" in report.error
+    assert "match no top-level variable" not in (report.error or "")
+    assert _status(report, "builds") is not Status.FAIL, "the source compiled"

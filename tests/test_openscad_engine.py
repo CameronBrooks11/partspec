@@ -1500,3 +1500,41 @@ def test_a_missing_use_library_is_not_itself_an_unresolved_name():
         "WARNING: Can't open library 'nowhere/absent.scad'. in file u.scad, line 1",
     ):
         assert not openscad._unresolved_lines(line, openscad._UNRESOLVED_NAME_MARKERS)
+
+
+@needs_openscad
+def test_a_parameter_is_not_refused_when_partspec_could_not_read_an_include(
+    tmp_path: Path, monkeypatch
+):
+    """The list of top-level variables is only as complete as the closure.
+
+    `unbound_parameters` answers from `top_level_variables`, which reads the
+    files partspec resolved. When an include did not open, a name the contract
+    passes may be declared inside the file that was never read -- so refusing
+    on that list asserts something the tool has not established, in a sentence
+    that says "or its includes" about includes it did not see (#287).
+
+    The divergence is real rather than simulated, the way #263's is:
+    `OPENSCADPATH` is set so the ENGINE resolves `lib.scad`, and `library_path`
+    is emptied so partspec does not. `lib_x` is genuinely declared and the
+    `-D` genuinely binds; only partspec is blind to it.
+    """
+    libs = tmp_path / "libs"
+    libs.mkdir()
+    (libs / "lib.scad").write_text("lib_x = 5;\n")
+    model = tmp_path / "model"
+    model.mkdir()
+    source = _scad(model, "m.scad", "include <lib.scad>\ncube([lib_x, 10, 10]);\n")
+
+    monkeypatch.setenv("OPENSCADPATH", str(libs))
+    monkeypatch.setattr(openscad, "library_path", lambda: [])
+    closure = openscad.include_closure(source)
+    assert closure.unresolved == ("lib.scad",), closure
+    assert openscad.unbound_parameters(source, {"lib_x": 20.0}) == ["lib_x"], (
+        "the premise: partspec's own list does not contain it"
+    )
+
+    result = openscad.render(OpenSCADSource(path=source, params={"lib_x": 20.0}), tmp_path / "out")
+    assert not isinstance(result, BuildError), result
+    lo, hi = openscad._stl_bbox(result)
+    assert hi[0] - lo[0] == pytest.approx(20.0), "the -D reached the geometry"

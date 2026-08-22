@@ -506,7 +506,24 @@ def render(
             # one transposition -- rendered the file's own default, and the
             # report then listed bore_diamter=8 under `params`, so the artifact
             # positively asserted a value the geometry never saw.
-            unbound = unbound_parameters(source.path, source.params)
+            #
+            # Asked only when the closure is COMPLETE. `unbound_parameters`
+            # answers from the files partspec resolved, so an include that did
+            # not open leaves the list short -- and the refusal's own sentence
+            # says "or its includes", about includes it never read. A name
+            # declared inside the unread file is then reported as matching
+            # nothing, which is a false error: the mirror image of a false
+            # pass, and the thing the docstring one function down calls "its
+            # own kind of dishonesty". The engine does not agree either; the
+            # `-D` values reach the geometry (#287).
+            #
+            # `unresolved`, not `partial`. Only that arm shortens the variable
+            # list; `reads_external_data` hides no declaration, so gating on
+            # the whole of `partial` would suppress a refusal that is still
+            # sound. And when a name really is missing, the render proceeds and
+            # #286's post-render guard names the include instead -- the fault
+            # that is actually there.
+            unbound = [] if closure.unresolved else unbound_parameters(source.path, source.params)
             if unbound:
                 known = ", ".join(sorted(top_level_variables(source.path))) or "none"
                 return BuildError(
