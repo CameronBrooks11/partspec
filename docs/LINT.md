@@ -156,6 +156,25 @@ exists to name — the message describes the geometry instead.
   nothing; checking face overlap is a heavier geometry problem deliberately not
   taken on here.
 
+### `csg-clearance-probe`
+
+- **Predicate:** the file's entire top level is a single `intersection()` of exactly two
+  children. That is what an interference probe *is* — a part whose whole geometry is
+  "these two, overlapped" — and a real part is essentially never only that. A
+  module-wrapped probe matches too, because the export folds `rail(); cover();` into two
+  `group` children; a `difference()`, or any second top-level node, does not. Measured
+  against every `.scad` tracked in this repo: **0 of 25** match.
+- **Rationale:** declared with `p.empty()`, that shape proves **no positive-volume
+  interference**, which is not the same as proving the parts are separated. A
+  zero-thickness contact collapses to empty on OpenSCAD's manifold backend and on the
+  OCCT tier, so touching and clear are one signal there (`SPEC-contract.md` §4.12, #270).
+  The claim is valid and the finding is not a defect — it is narrower than it reads, and
+  the remedy is to say the clearance you mean: intersect against a part grown by it, so a
+  violation has volume on every kernel.
+- **Reads the tree before any boolean runs**, so it answers the same on every kernel —
+  which matters here, because the kernels are precisely what disagree about the result.
+  It consults no engine verdict and needs none.
+
 ### `csg-difference-order`
 
 - **Predicate:** a `difference()` whose first child's analytic volume is smaller than

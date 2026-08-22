@@ -809,13 +809,17 @@ measurand stated above.
 result. Both tiers. It has no backend primitive and takes no bound — like `builds`, it is
 adjudicated from the build itself, which is why neither appears in `GEOMETRY_KINDS`.
 
-**Why the vocabulary needs it.** A clearance probe — `intersection() { A; B; }` declared
-as its own part — has three outcomes, and until this check only the *bad* one could be
-graded. Interpenetrating parts give a closed solid and `volume` grades it. Parts resting
-on a face give a zero-thickness sheet, which `area` measures (§4.2). Parts that share no
-space give nothing at all, and an empty build is a hard failure before any claim is
+**Why the vocabulary needs it.** An interference probe — `intersection() { A; B; }`
+declared as its own part — could until this check grade only the *bad* outcome.
+Interpenetrating parts give a closed solid and `volume` grades it. Parts that do not
+interfere give nothing at all, and an empty build is a hard failure before any claim is
 evaluated — so `volume(max=0)` was **skipped rather than satisfied**, and the good answer
 was the one the tool could not state.
+
+A third outcome exists on **one** kernel only: parts resting on a face give a
+zero-thickness sheet, which `area` measures (§4.2). CGAL keeps that sheet; OpenSCAD's
+manifold backend and the OCCT tier both discard it (#270). It is therefore not part of
+this check's vocabulary — see the meaning below.
 
 **Opt-in, and nothing else moves.** A part that does not declare `empty` and builds to
 nothing still fails exactly as before. For an ordinary part contract a null render is a
@@ -845,19 +849,48 @@ and so the one a clearance probe on that tier actually produces. That third one 
 set the flag until #271, which meant `empty` could not pass on the OCCT tier for any
 input at all while this paragraph said it read the same on both.
 
-**What a null result cannot tell you**, on any kernel that declines to represent a
-zero-thickness one: whether the two parts are clear of each other or merely touching.
-Both build to nothing on build123d and on OpenSCAD's manifold backend, so `empty` passes
-for either — the sheet §4.2 measures survives only where the kernel keeps it. Open as
-#270; until it is settled, a clearance probe's *pass* means "no shared volume" and not
-"no contact".
+**What `empty` means, exactly: no positive-volume interference.** Not "the parts do not
+touch", and not "there is clearance". A passing `empty` says the intersection of the two
+parts encloses no volume — nothing more, and that is a true and useful claim.
+
+It cannot mean more, because on a kernel that declines to represent a zero-thickness
+result there is nothing left to distinguish contact from clearance. Measured on all three
+kernels partspec drives (#270):
+
+| kernel | parts **touching** on a face | parts **clear** |
+|---|---|---|
+| OpenSCAD 2021.01 / `--backend cgal` | a sheet — `empty` fails, `area` measurable | nothing — `empty` passes |
+| OpenSCAD 2026.08.01 default (manifold) | **nothing** — `empty` passes | nothing — `empty` passes |
+| build123d / OCCT | **nothing** — `empty` passes | nothing — `empty` passes |
+
+Two of the three discard it; CGAL is the outlier. There is no warning and no flag to key
+on — `produced_nothing` is set either way — so this is a property of the geometry
+question, not a gap in the implementation.
+
+**To assert a clearance, state the number and let a violation have volume.** Intersect
+against a part grown by the clearance rather than against the part itself:
+
+```openscad
+intersection() { a(); b(); }                 // "is there interference" — this check
+intersection() { a(); grown_b(0.5); }        // "is there 0.5 mm of clearance" — a solid when violated
+```
+
+Declared with `empty` the second says *no part of `b`, plus 0.5 mm, meets `a`*. No
+zero-thickness result is ever produced, so **every kernel agrees**, and the bound is a
+number in the contract where a reviewer can see it. `partspec lint` flags the bare form
+advisorily (`csg-clearance-probe`, `LINT.md`) — the bare claim is valid, it is simply
+narrower than it reads.
+
+partspec does **not** select a backend to make this check answerable. Which kernel ran is
+recorded, never chosen — F13's rule, and the reason the two options that would have had
+partspec pin `--backend cgal` were refused.
 
 **The claim is exclusive by nature, not by rule.** An empty part has no mesh, so every
 other geometry check on it is skipped and the run reports `incomplete` (§3.1) rather than
 a pass bought by silence. Declare `empty` alone on a probe.
 
-Related: #237, and #236 for the case a probe is a workaround *for* — declaring
-part-versus-part interference directly is an assemblies question (D19).
+Related: #237; #270 for the decision above; and #236 for the case a probe is a workaround
+*for* — declaring part-versus-part interference directly is an assemblies question (D19).
 
 ---
 

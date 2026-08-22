@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+
+- **`csg-clearance-probe`, an advisory lint rule** (#270). Fires when a file's
+  entire top level is a single `intersection()` of exactly two children, which
+  is what an interference probe is and what a real part essentially never is —
+  measured against every `.scad` tracked in this repo, **0 of 25** match. A
+  module-wrapped probe matches too, since the export folds the calls to two
+  `group` children; a `difference()`, a second top-level node, or a third child
+  does not.
+  It reads the `.csg` tree **before any boolean runs**, so it answers the same
+  on every kernel — which is the point, the kernels being exactly what disagree
+  about the result. It consults no engine verdict and needs none.
+
 - **`p.build_input("cadquery-ocp")` — an author may force byte identity for a
   named distribution** (#215, epic #229, stage 4 of #190). Identity is decided
   automatically in two tiers, and `metadata` — what almost everything gets —
@@ -288,6 +300,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deficit of material, not a breach.
 
 ### Changed
+
+
+- **`empty()` means no positive-volume interference** — not "the parts do not
+  touch", and not "there is clearance" (#270, epic #305). The check is
+  unreleased, so this is its introduced meaning rather than a change to one.
+  Measured on all three kernels partspec drives: OpenSCAD 2021.01 / CGAL keeps
+  a zero-thickness contact patch and `empty` fails on it, while OpenSCAD's
+  manifold backend **and** the OCCT tier both discard it, so touching and clear
+  are one signal there — `produced_nothing` is set either way, with no warning
+  and no flag to key on. Two of the three discard it; CGAL is the outlier.
+  So the ambiguity is a property of the question, not a gap to close, and the
+  fix is to say what the check does claim. A passing `empty` says the
+  intersection encloses no volume. That is true, useful, and narrower than
+  "separated".
+  **To assert a clearance, state the number and let a violation have volume**:
+  intersect against a part grown by the clearance rather than against the part
+  itself. No zero-thickness result is ever produced, so every kernel agrees and
+  the bound sits in the contract where a reviewer can see it. `SPEC-contract.md`
+  §4.12 carries the meaning, the kernel table and the pattern.
+  **partspec does not select a backend to make this answerable.** Pinning
+  `--backend cgal` for `empty` probes was considered and refused: it addresses
+  only OpenSCAD, leaving the OCCT tier answering differently — the tier
+  divergence §4.12 promises not to have — and it would have partspec choosing a
+  geometry kernel, which F13 says is part of the part. Which kernel ran is
+  recorded, never chosen.
+  The bare form is **not** refused; it is a valid weaker claim. `partspec lint`
+  flags it advisorily instead — see below.
 
 - **`source_closure` attributes imports to the target whose model reaches
   them** (#216, epic #229). `imports` is read from `sys.modules`, which is

@@ -24,7 +24,9 @@ from partspec.lint import (
     MAGIC_EXEMPT,
     MODULE_LINE_LIMIT,
     RULES,
+    TIER2_RULES,
     lint_path,
+    lint_scad_tier2,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -609,6 +611,9 @@ def test_an_unmodelled_node_is_an_entry_never_an_absence(tmp_path: Path, capsys)
     assert main(["lint", str(scad)]) == 0
     entry = json.loads(capsys.readouterr().out)["files"][0]
     unsupported = {u["rule"]: u["reason"] for u in entry["unsupported"]}
+    # The two rules that EVALUATE the tree, not `set(TIER2_RULES)`:
+    # `csg-clearance-probe` reads shape only, so an unmodelled node costs it
+    # nothing and it correctly still answers.
     assert set(unsupported) == {"csg-difference-order", "csg-coincident-face"}
     assert "hull" in unsupported["csg-difference-order"]
 
@@ -624,10 +629,9 @@ def test_a_missing_engine_is_an_entry_never_an_absence(tmp_path: Path, capsys, m
     assert main(["lint", str(scad)]) == 0
     entry = json.loads(capsys.readouterr().out)["files"][0]
     assert len(entry["findings"]) == 3, "tier 1 is engine-free and still ran"
-    assert {u["rule"] for u in entry["unsupported"]} == {
-        "csg-difference-order",
-        "csg-coincident-face",
-    }
+    assert {u["rule"] for u in entry["unsupported"]} == set(TIER2_RULES), (
+        "no tier-2 rule may be silently absent"
+    )
     assert all("openscad is not installed" in u["reason"] for u in entry["unsupported"])
 
 
@@ -787,7 +791,7 @@ def test_a_string_hidden_in_dropped_geometry_still_refuses(tmp_path: Path, capsy
     entry = json.loads(capsys.readouterr().out)["files"][0]
     assert not any(f["rule"].startswith("csg-") for f in entry["findings"])
     unsupported = entry.get("unsupported", [])
-    assert {u["rule"] for u in unsupported} == {"csg-difference-order", "csg-coincident-face"}
+    assert {u["rule"] for u in unsupported} == set(TIER2_RULES)
     assert all("refused whole" in u["reason"] or "unreadable" in u["reason"] for u in unsupported)
 
 
@@ -969,3 +973,84 @@ def test_the_open_box_fixture_refuses_through_a_real_export(tmp_path: Path):
     with pytest.raises(csg.CsgError) as exc:
         csg.volume_of(node)
     assert "not closed" in str(exc.value)
+
+
+# --------------------------------------------------------------------------
+# csg-clearance-probe: the bare probe is valid, and narrower than it reads (#270)
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+@pytest.mark.parametrize(
+    ("source", "flagged"),
+    [
+        ("intersection() {\n cube([40,12,8]);\n translate([2,1,8]) cube([16,10,3]);\n}\n", True),
+        # Module-wrapped: the export folds the calls to two `group` children,
+        # so the shape is the same one and must be recognised as such.
+        (
+            "module rail() { cube([40,12,8]); }\n"
+            "module cover() { translate([2,1,8]) cube([16,10,3]); }\n"
+            "intersection() { rail(); cover(); }\n",
+            True,
+        ),
+        # A difference is a part, not a probe.
+        ("difference() {\n cube([40,12,8]);\n translate([2,1,2]) cube([16,10,3]);\n}\n", False),
+        # A second top-level node means the file is a part that happens to
+        # intersect, not a probe whose whole geometry is the overlap.
+        (
+            "intersection() { cube([40,12,8]); translate([2,1,4]) cube([16,10,3]); }\n"
+            "cube([1,1,1]);\n",
+            False,
+        ),
+        # Three children is a different question and not this shape.
+        (
+            "intersection() {\n cube([40,12,8]);\n cube([9,9,9]);\n cube([5,5,5]);\n}\n",
+            False,
+        ),
+    ],
+    ids=["bare", "module-wrapped", "difference", "two-top-level", "three-children"],
+)
+def test_csg_clearance_probe_fires_only_on_a_two_part_intersection(
+    tmp_path: Path, source: str, flagged: bool
+):
+    scad = tmp_path / "probe.scad"
+    scad.write_text(source)
+    findings, unsupported = lint_scad_tier2(scad, OPENSCAD)
+
+    hits = [f for f in findings if f.rule == "csg-clearance-probe"]
+    assert bool(hits) is flagged
+    assert "csg-clearance-probe" not in {u["rule"] for u in unsupported}
+    if flagged:
+        assert "no positive-volume interference" in hits[0].message
+        assert "grown by it" in hits[0].message
+
+
+@needs_openscad
+def test_csg_clearance_probe_reads_shape_and_needs_no_kernel_verdict(tmp_path: Path):
+    """The `.csg` export is the tree BEFORE any boolean runs.
+
+    That is why this rule answers identically on every kernel, which is the
+    whole point: the kernels are exactly what disagree about whether a
+    zero-thickness contact survives (#270). Two parts that genuinely share
+    volume and two that merely touch are the same shape here, and both are
+    flagged, because the finding is about what the CONTRACT can claim from the
+    shape, not about what the engine returned.
+    """
+    overlapping = tmp_path / "over.scad"
+    overlapping.write_text(
+        "intersection() { cube([10,10,10]); translate([5,0,0]) cube([10,10,10]); }\n"
+    )
+    touching = tmp_path / "touch.scad"
+    touching.write_text(
+        "intersection() { cube([10,10,10]); translate([10,0,0]) cube([10,10,10]); }\n"
+    )
+    for scad in (overlapping, touching):
+        findings, _ = lint_scad_tier2(scad, OPENSCAD)
+        assert [f for f in findings if f.rule == "csg-clearance-probe"], scad.name
+
+
+def test_every_declared_rule_has_a_description():
+    """`RULES` is the published vocabulary; a rule emitted but undescribed is
+    a finding a reader cannot look up."""
+    emitted = set(TIER2_RULES)
+    assert emitted <= set(RULES), f"undescribed: {sorted(emitted - set(RULES))}"

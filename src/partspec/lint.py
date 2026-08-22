@@ -51,9 +51,10 @@ RULES = {
     "py-function-size": f"a function body over {FUNCTION_LINE_LIMIT} lines",
     "csg-difference-order": "a difference() whose first child is not the largest",
     "csg-coincident-face": "a subtrahend sharing a face plane with its minuend",
+    "csg-clearance-probe": "a two-part intersection probe, whose empty() proves less than it reads",
 }
 
-TIER2_RULES = ("csg-difference-order", "csg-coincident-face")
+TIER2_RULES = ("csg-difference-order", "csg-coincident-face", "csg-clearance-probe")
 """Geometry-dependent rules over the engine's constant-folded `.csg` export
 (#118). They MAY require the engine and MUST report `unsupported` — never
 silent absence — when it is missing (the audit's honesty shape). Findings
@@ -586,6 +587,36 @@ def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], 
                     else f"the tree could not be evaluated: {exc}"
                 )
                 unsupported.append({"rule": "csg-coincident-face", "reason": reason})
+
+    # Shape only, and only the whole file: exactly one top-level node, an
+    # `intersection` of exactly two children. That is what an interference
+    # probe IS -- a part whose entire geometry is "these two, overlapped" --
+    # and a real part is essentially never just that. Module-wrapped probes
+    # match too, because the export folds `rail(); cover();` to two `group`
+    # children. A `difference`, or any second top-level node, does not.
+    #
+    # No engine result is consulted and none is needed: the `.csg` export is
+    # the tree BEFORE any boolean runs, so this reads the same on every
+    # kernel -- which is the point, since the kernels are exactly what
+    # disagree about the answer (#270).
+    if len(nodes) == 1 and nodes[0].kind == "intersection" and len(nodes[0].children) == 2:
+        findings.append(
+            Finding(
+                rule="csg-clearance-probe",
+                file=str(path),
+                line=0,
+                message=(
+                    "the whole file is an intersection of two parts — declared with "
+                    "empty() this proves no positive-volume interference, which is NOT "
+                    "the same as proving the parts are separated: a zero-thickness "
+                    "contact collapses to empty on OpenSCAD's manifold backend and on "
+                    "the OCCT tier, so touching and clear are one signal there. To "
+                    "assert a numeric clearance, intersect against a part grown by it "
+                    "— a violation then has volume on every kernel "
+                    "(SPEC-contract.md 4.12)"
+                ),
+            )
+        )
 
     try:
         walk(nodes, csg._IDENTITY)
