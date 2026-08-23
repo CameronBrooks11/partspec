@@ -1802,14 +1802,29 @@ def test_the_note_rides_beside_the_moved_inputs_clause_rather_than_over_it():
 def test_a_tightened_claim_that_breaks_a_check_is_distinguished_from_a_worse_part():
     """The mirror case, and the same ambiguity: `1 regressed` alone cannot
     tell a part that got worse from a contract that got stricter. One is a
-    defect and the other is the author doing their job."""
+    defect and the other is the author doing their job.
+
+    Mixed as well as alone. Review round 3: a mutant confined to the
+    `regressed` bucket survived all 1179, because no test anywhere put more
+    than one entry in it — the same shape as round 2's finding, on the half of
+    the rule the round-2 fix did not reach."""
     old, new = _doc(), _doc()
-    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 3.5}
-    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["status"] = "fail"
+    tightened = next(c for c in new["checks"] if c["id"] == "wall_gt_2")
+    tightened["limit"] = {"min": 3.5}
+    tightened["status"] = "fail"
     new["verdict"] = "fail"
 
     assert summary_of(_diff(old, new), new).splitlines()[0] == (
         "different: p — 1 regressed (1 with the claim changed)"
+    )
+
+    # And a second regression beside it whose claim held: the part got worse.
+    worse = next(c for c in new["checks"] if c["id"] == "envelope")
+    worse["status"] = "fail"
+    worse["measurement"]["value"] = [31.0, 20.0, 10.0]
+
+    assert summary_of(_diff(old, new), new).splitlines()[0] == (
+        "different: p — 2 regressed (1 with the claim changed)"
     )
 
 

@@ -223,13 +223,16 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   `fixed` count says how many of its entries also moved the claim. The count itself stays
   the bucket's true total; the qualifier breaks it down. Neither `limit_changed` (where the
   claim moving is the bucket) nor `drifted` (which cannot carry one) takes the qualifier.
-  This rule reaches a *moved claim* and no further. The severity order above puts **every**
-  other status below `fail`, so a check leaving `fail` for `approximate`, `unsupported` or
-  `skipped` — one that stopped being answerable rather than one that was answered better —
-  is bucketed `fixed` too. Where nothing but the status moved there is no claim to qualify,
-  and the headline reports it as a repair. That is #325, and unfixed: stated here so the
-  bound of this rule is read from the spec rather than inferred from the reason given for
-  it.
+  This rule reaches a *moved claim* and no further, and the gap that leaves is stated here
+  rather than left to be inferred from the reason given for the rule. `pass` is the only
+  status in the severity order that means the check was answered and held, so **every**
+  transition into `approximate`, `unsupported` or `skipped` from a status ranked above it
+  is bucketed `fixed` — a check that stopped being answerable, filed as one that was
+  answered better, and not only when it left `fail`. The qualifier keys on the claim and on
+  nothing else, so where the claim did not move it does not fire and the headline reports
+  the transition as a repair. Such an entry is not otherwise empty: a check that stops being
+  evaluated usually loses its measurement with it, so the `value` delta is generally
+  present and is not what the qualifier reads. That is #325, and unfixed.
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
