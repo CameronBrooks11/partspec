@@ -255,8 +255,10 @@ export PARTSPEC_OPENSCAD=$PWD/squashfs-root/AppRun
 Extracted rather than run in place because mounting it needs `libfuse2`, and outside your
 repo because that `squashfs-root/` contains a whole Python stdlib that every linter you
 run will then walk. Snapshots are pruned on a rolling window, so pick a date currently
-listed at <https://files.openscad.org/snapshots/> rather than the one above.
-`.github/workflows/ci.yml` does exactly this to pin the second engine leg.
+listed at <https://files.openscad.org/snapshots/> rather than the one above — that
+address is also named in the hint partspec prints on this fault, and a test holds the two
+together, so keep it spelled that way here. `.github/workflows/ci.yml` follows this same
+procedure to pin the second engine leg (at its own pinned date, not the one above).
 
 **Installing both Python engines with plain `pip`** needs one extra step:
 

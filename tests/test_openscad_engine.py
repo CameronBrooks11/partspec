@@ -1702,18 +1702,25 @@ def test_every_hint_on_the_engine_faults_names_only_remedies_the_readme_carries(
     and no package name, and which grep finds nowhere else in this tree.
 
     What is enforced, exactly: the **named** remedies -- backticked commands
-    and URLs -- must each appear in the README, and at least one must be a
-    runnable command or an address rather than a bare word. Prose is NOT
-    checked and cannot be, so this test cannot make a hint useful. Its honest
-    limit, measured rather than asserted: "install it via workstation-configs,
-    or `sudo apt install openscad`" PASSES, because the named remedy is real
-    and documented and the junk rides alongside it. What it does catch is a
-    hint whose remedies are all junk, all undocumented, or all bare words.
+    and URLs -- must each appear in the README; at least one must be a runnable
+    command or an address rather than a bare word; and a not-found hint must
+    name the escape hatch. Prose is NOT checked and cannot be, so this test
+    cannot make a hint useful. Its limit, quoting a string that was run:
 
-    Two earlier drafts of this docstring overstated it. The first claimed to
-    check "every command and address the hint names", which is wider than the
-    code -- prose is invisible to it. The second replaced that with an example
-    that the fix had already made fail. Both were written before being run.
+        install it via workstation-configs, or `sudo apt install openscad`
+        — or set PARTSPEC_OPENSCAD to an existing binary        <- PASSES
+
+    because the named remedy is real and documented and the junk rides
+    alongside it. What the coupling does catch is a named remedy the docs do
+    not carry, or one that carried once and has gone stale.
+
+    Three earlier drafts of this docstring overstated it, which is why the
+    example above is quoted rather than paraphrased. The first claimed to
+    check "every command and address the hint names" -- wider than the code,
+    since prose is invisible to it. The second gave an example the fix had
+    already made fail. The third dropped the escape-hatch clause from a string
+    that had been run with it, leaving an example that fails on an assertion
+    this paragraph did not mention. All three were written before being run.
 
     The coupling is one-directional on purpose: the hint is the side that must
     not invent remedies, so the hint is the constrained side. It catches both
