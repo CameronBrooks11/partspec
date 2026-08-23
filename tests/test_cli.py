@@ -7,6 +7,7 @@ something a consumer would break on.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -1950,3 +1951,41 @@ def test_render_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     assert "not found" in doc["error"]
     assert "hint" in doc
     assert "not found" in captured.err, "the console courtesy line survives"
+
+
+def test_every_out_default_the_help_states_is_the_one_the_code_computes(tmp_path: Path):
+    """#277: three verbs default beside the CONTRACT, and none of them said so.
+
+    `--out` absent means `<contract dir>/outputs/<part-slug>`, which is
+    anchored to the contract file rather than to the working directory -- so
+    the same command run from two places writes to one place, and running it
+    from somewhere unrelated creates an `outputs/` inside a project the caller
+    may not have meant to touch. That rule lived only in `_out_dir`;
+    `check --help` and `measure --help` described the DIR layout without ever
+    naming the default, `render --out` carried no help text at all, and
+    SPEC-report declared the whole question out of scope.
+
+    Documenting it is only half a fix, because prose drifts. This pins the two
+    together: the path the help advertises has to be the path the code builds.
+    """
+    contract = tmp_path / "widget.py"
+    contract.write_text("")
+
+    assert cli._out_dir(f"{contract}:thing", None) == tmp_path / "outputs" / "widget-thing"
+    assert cli._out_dir(str(contract), None) == tmp_path / "outputs" / "widget"
+    # An explicit --out is taken as given, from any working directory.
+    assert cli._out_dir(f"{contract}:thing", Path("elsewhere")) == Path("elsewhere")
+
+    parser = cli.build_parser()
+    subparsers = next(
+        action.choices
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    for verb in ("check", "measure", "render"):
+        out_action = next(a for a in subparsers[verb]._actions if "--out" in a.option_strings)
+        assert out_action.help, f"{verb} --out carries no help at all"
+        assert "outputs/<part-slug>" in out_action.help, (
+            f"{verb} --out does not name its default; a caller who omits it has no way "
+            f"to learn where the artifact went short of reading _out_dir"
+        )

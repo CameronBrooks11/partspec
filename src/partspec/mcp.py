@@ -149,6 +149,10 @@ def build_server() -> MCPServer:
         """Build a part and check it against its contract.
 
         `target` is `<module-path>[:<factory>]`, e.g. `specs/bracket.py:bracket`.
+        `out` is the report directory; omit it and the report lands in
+        `<contract dir>/outputs/<part-slug>`, beside the contract rather than
+        in the working directory. Either way `report_path` in the result says
+        where it went.
         Returns the report the CLI writes, its path, and the exit code:
         0 pass, 1 fail, 2 incomplete (unproven, not failing), 3 empty
         (the contract asserts nothing), 4 error (partspec or the environment
@@ -173,7 +177,10 @@ def build_server() -> MCPServer:
         """Write the canonical views (iso, front, top, right) as PNGs.
 
         Deterministically framed from the bounding box, so two runs of the
-        same geometry are comparable. `section` ("xy"|"xz"|"yz", optionally
+        same geometry are comparable. `out` is the directory for `render.json`
+        and the view PNGs; omit it and they land in
+        `<contract dir>/outputs/<part-slug>`, beside the contract rather than
+        in the working directory. `section` ("xy"|"xz"|"yz", optionally
         ":offset" in mm, default the bounding-box centre) adds a cut view —
         internal features made visible, cut faces in a distinct colour.
         Returns the render payload: the part's identity, the engine block,
@@ -189,7 +196,10 @@ def build_server() -> MCPServer:
         """Compare two runs' renders of one part visually.
 
         `old`/`new` are render.json / report.json paths (or the directories
-        holding them, i.e. a previous render's --out). Returns the vdiff
+        holding them, i.e. a previous render's `out`). `out` here is the
+        directory for the per-view diff images, defaulting to `<new>/vdiff` --
+        it is relative to the run being compared, not to the contract, because
+        the inputs are artifacts rather than a target. Returns the vdiff
         document: per-view changed-pixel fractions with diff images, the
         bbox delta (pure scale is invisible to framed pixels — the bbox is
         the witness), and a scalar `magnitude`. Exit 0 identical, 1

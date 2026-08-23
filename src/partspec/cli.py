@@ -114,7 +114,9 @@ def build_parser() -> argparse.ArgumentParser:
         # built paths against the single-target shape had them move underneath
         # on adding a second target.
         help="report directory: DIR/report.json for one target, "
-        "DIR/<part-slug>/report.json for several",
+        "DIR/<part-slug>/report.json for several "
+        "(default: <contract dir>/outputs/<part-slug>, beside the contract "
+        "rather than in the working directory)",
     )
     check.add_argument("--quiet", action="store_true", help="suppress the human summary")
     check.add_argument(
@@ -178,8 +180,10 @@ def build_parser() -> argparse.ArgumentParser:
         "reads external data, or has includes partspec could not resolve). A "
         "file is refused when nothing would be written to it (the OCCT tier "
         "builds in memory) or when that same closure is partial, because an "
-        "import()ed .stl is an input, not an output. The measurements "
-        "themselves go to stdout — this verb emits no report file",
+        "import()ed .stl is an input, not an output. Default: the artifact "
+        "lands in <contract dir>/outputs/<part-slug>/, beside the contract "
+        "rather than in the working directory. The measurements themselves go "
+        "to stdout — this verb emits no report file",
     )
     measure.add_argument(
         "--timeout",
@@ -195,7 +199,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="write the canonical views (iso, front, top, right) as PNGs — no verdict",
     )
     render.add_argument("target", help="<module-path>[:<factory>]")
-    render.add_argument("--out", type=Path, default=None)
+    render.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        # The only --out in this parser that carried no help at all, which is
+        # the one place the #187 mistake -- passing a filename and getting a
+        # directory of that name -- had no text standing in front of it.
+        help="directory for render.json and the view PNGs "
+        "(default: <contract dir>/outputs/<part-slug>)",
+    )
     render.add_argument(
         "--section",
         default=None,
