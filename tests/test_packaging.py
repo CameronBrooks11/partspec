@@ -451,9 +451,11 @@ def test_the_sdist_ships_nothing_at_the_top_level_that_is_not_on_the_list(
         "LICENSE",
         "CHANGELOG.md",
         "AGENTS.md",
-        # The trust boundary, which a consumer needs BEFORE running the tool on
-        # a contract someone handed them (#278). Shipping it in the sdist is
-        # the point: PyPI is where a reader has least context.
+        # The trust boundary (#278). Not in the wheel -- a `pip install` user
+        # meets it through README, which PyPI renders as the description. It is
+        # here because the sdist is the complete-source distribution and a
+        # downstream packager redistributing partspec should carry the policy
+        # with it.
         "SECURITY.md",
         "src/",
         # What the suite needs in order to pass from an unpacked sdist, which

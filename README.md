@@ -36,10 +36,16 @@ and installing both Python engines under plain `pip` needs one extra step —
 
 ### A contract is code
 
-`check`, `measure` and `render` **import and execute** the module you name, and the
-OpenSCAD and Python model files it reaches. That is not an implementation detail to be
-sandboxed away later: executing the contract is how partspec learns what you claimed, and
-executing the model is the build. There is no sandbox, and none is planned.
+`check`, `measure` and `render` **import and execute** the module you name, and then the
+model it points at: a Python model is `exec()`'d in this process, and a `.scad` is handed
+to the `openscad` binary, which evaluates it and everything it `include`s. `lint` is
+narrower but not outside this — its tier-1 rules only parse, while the three `csg-*`
+tier-2 rules export the file through the same binary, so linting an untrusted `.scad`
+runs it too. Only `diff` and `vdiff` execute nothing; they parse JSON and compare images.
+
+That is not an implementation detail to be sandboxed away later: executing the contract is
+how partspec learns what you claimed, and executing the model is the build. There is no
+sandbox, and none is planned.
 
 Import-scope code runs before partspec validates anything, so it runs even on a contract
 the tool then rejects:
@@ -55,13 +61,14 @@ partspec: the contract raised TypeError: Part.__init__() got an unexpected keywo
 $ echo $?
 4
 $ ls
-EVIDENCE.txt  handed_to_me.py
+EVIDENCE.txt  handed_to_me.py  outputs
 ```
 
 So treat a contract exactly as you would treat any other Python you were handed: read it
 before you run it. This matters most where partspec is most useful — an agent pointed at
 "the contract in this repo", or the MCP server, where the caller sees a tool list and
-nothing else.
+nothing else. [SECURITY.md](https://github.com/CameronBrooks11/partspec/blob/main/SECURITY.md)
+states the boundary in full and says how to report something that crosses it.
 
 ## What runs today
 
