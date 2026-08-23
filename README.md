@@ -36,9 +36,9 @@ and installing both Python engines under plain `pip` needs one extra step —
 
 ## What runs today
 
-`check`, `measure` and `render` work across all three engines (with `--section` cuts on both
-tiers); `diff` compares the reports and `vdiff` the renders they produce. The
-vocabulary covers real mechanical intent:
+`check`, `measure` and `render` work across all three engines, with `--section` cuts on both
+tiers; `diff` compares two reports and `vdiff` two runs' renders. The vocabulary covers real
+mechanical intent:
 keep-out/keep-in regions, `hole_diameter`, `bolt_circle`, `fillet_radius`, `draft_angle`,
 `self_intersection_free`, `step_roundtrip` and `min_wall` on the OCCT tier — the last of which
 answers with a guaranteed interval and says `approximate` rather than guess when a limit falls
@@ -193,6 +193,7 @@ from partspec import Part, openscad
 PLATE = (40.0, 30.0, 6.0)
 BORE_D = 8.0
 WALL_MIN = 2.0
+
 
 def spacer() -> Part:
     p = Part("example-spacer", openscad(
