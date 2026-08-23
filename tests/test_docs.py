@@ -1036,16 +1036,17 @@ def test_the_docs_index_routes_to_every_document_beside_it():
     """#279: `docs/` is the URL both PyPI and `partspec --help` advertise.
 
     Without an index GitHub renders that as a bare listing of ten filenames
-    over five thousand lines, where the cheapest and most load-bearing read --
-    AGENT-CONTRACT.md at 260 lines -- is indistinguishable from SPEC-contract's
-    1313. The index is only worth having if it stays complete, and the failure
-    it prevents already happened once: AGENT-CONTRACT.md, LINT.md and
-    FAILURE-MODES.md were all added on 2026-08-08, and only FAILURE-MODES was
-    added to README's Documentation list. The other two stayed reachable --
-    AGENT-CONTRACT.md from two places in README's prose, LINT.md from one -- so
-    nothing was unreachable; what was missing was any enumeration a reader could
-    use to find out what exists. That is the gap an index closes and a link in
-    a paragraph does not.
+    over five thousand lines, where AGENT-CONTRACT.md -- 260 lines, and the
+    one to start with -- is indistinguishable from SPEC-contract's 1313.
+
+    The index is only worth having if it stays complete, and the failure it
+    prevents already happened once: AGENT-CONTRACT.md, LINT.md and
+    FAILURE-MODES.md were all added on 2026-08-08, and only FAILURE-MODES
+    was added to README's Documentation list. The other two stayed reachable
+    -- AGENT-CONTRACT.md from two places in README's prose, LINT.md from one
+    -- so nothing was unreachable; what was missing was any enumeration a
+    reader could use to find out what exists. That is the gap an index
+    closes and a link in a paragraph does not.
 
     Both directions. A document the index does not route to is invisible at the
     entry point; a route to a target that does not exist is a dead link at it.
@@ -1055,8 +1056,12 @@ def test_the_docs_index_routes_to_every_document_beside_it():
     router is for.
 
     Fenced links do not count. GitHub renders them as literal text, so a
-    document mentioned only inside a code block reaches nobody -- and the first
-    version of this test read the raw bytes and passed exactly that.
+    document mentioned only inside a fenced block reaches nobody -- and the
+    first version of this test read the raw bytes and passed exactly that.
+    Fenced specifically: a four-space indented block is also a code block and
+    is NOT stripped here, so a link buried in one still counts. Every code
+    block in these docs is fenced, so that hole is unreached rather than
+    closed.
     """
     index = DOCS / "README.md"
     assert index.is_file(), "docs/ has no index; both advertised URLs land on a bare listing"

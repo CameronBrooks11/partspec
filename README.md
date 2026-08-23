@@ -368,7 +368,8 @@ documents are normative and were written before the implementation:
 - [`docs/LINT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/LINT.md) — the advisory source rules and their tiers.
 - [`docs/FAILURE-MODES.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/FAILURE-MODES.md) — the observed CAD-as-code failure catalogue: what wrong parts look like when they're green.
 - [`docs/DECISIONS.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md) — every design decision, with its reasoning.
-- [`docs/PLAN.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/PLAN.md) — what v0 is and how it gets built.
+- [`docs/PLAN.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/PLAN.md) — **historical**: how v0 was built and what was
+  known then, not what the tool does now.
 - [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) — what is deliberately not here yet, and why.
 
 ## Prior art
