@@ -44,10 +44,12 @@ _STDERR_TAIL = 4000
 
 _INSTRUCTIONS = """\
 partspec verifies CAD-as-code parts against engineering intent declared in a
-Python contract. Every verb here imports and executes the contract module it
-is given, and the model it points at -- a Python model in-process, a `.scad`
-through the `openscad` binary. Do not point them at a contract you would not
-run as a script. Only the verdict `pass` is green. `incomplete` means checks
+Python contract. `check`, `measure` and `render` import and execute the
+contract module they are given, and the model it points at -- a Python model
+directly, a `.scad` through the `openscad` binary, which also evaluates
+everything it includes. Do not point them at a contract you would not run as a
+script. `vdiff` takes no contract and executes nothing. Only the verdict
+`pass` is green. `incomplete` means checks
 could not be evaluated — unproven, not failing. `empty` means the contract
 asserts nothing. `error` means the tool or environment failed and says nothing
 about the part. Never weaken a contract to make it pass: a green report on a

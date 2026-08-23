@@ -972,18 +972,50 @@ def test_the_readme_trust_transcript_is_what_actually_happens(tmp_path: Path):
     # The point of the section: it ran before the contract was rejected.
     assert (tmp_path / "EVIDENCE.txt").read_text() == "import-scope code ran\n"
 
-    # Every diagnostic line the transcript quotes, taken FROM the transcript --
+    # EVERY line the transcript shows as output, taken FROM the transcript --
     # hardcoding them here would only check this file against itself, which is
-    # how a misquote survives. Absolute paths in the traceback are elided in
-    # the README, so only the lines it shows whole are compared.
-    quoted = [
-        line
-        for line in body.splitlines()
-        if line.startswith("partspec:") or line.startswith("  the ")
-    ]
-    assert quoted, "the transcript no longer quotes any diagnostic line"
+    # how a misquote survives. The one exemption is the elision marker: the
+    # traceback's middle carries absolute paths that cannot be reproduced.
+    #
+    # A first version filtered to lines starting `partspec:` or `  the `, and
+    # its comment claimed to check every quoted line. It did not: a bogus
+    # traceback header, an invented `warning:` line, and deleting the traceback
+    # outright all passed.
+    def is_elision(line: str) -> bool:
+        """Any marker that visibly says something was cut, not one spelling."""
+        stripped = line.strip()
+        return stripped.startswith("...") or "elided" in stripped
+
+    shown = body.split("$ echo $?")[0].splitlines()
+    quoted = [line for line in shown[1:] if line and not is_elision(line)]
+    assert quoted, "the transcript no longer quotes any output"
     for line in quoted:
         assert line in proc.stderr, f"the README quotes {line!r}; the run does not print it"
+
+    # Eliding is fine; eliding silently is not. Deleting the traceback and its
+    # marker leaves a transcript that reads as the whole of what was printed,
+    # and every remaining line still checks out -- so completeness needs its
+    # own assertion rather than falling out of the per-line one.
+    printed = [line for line in proc.stderr.splitlines() if line.strip()]
+    if len(quoted) < len(printed):
+        assert any(is_elision(line) for line in shown), (
+            f"the transcript shows {len(quoted)} of {len(printed)} printed lines "
+            f"without marking the cut"
+        )
+
+    # And the command it shows is the command that was run. Recorded as
+    # `partspec check <file>:widget`, invoked as `python -m partspec check
+    # <abs>:widget`, so the verb and the target's tail are what can be compared
+    # -- but they are what the section rests on.
+    invocation = shown[0]
+    assert invocation.startswith("$ partspec "), (
+        f"transcript no longer opens on a command: {invocation!r}"
+    )
+    verb, target = invocation.removeprefix("$ partspec ").split()
+    assert verb == "check", f"the transcript shows `{verb}`; the test runs `check`"
+    assert target == f"{contract.name}:widget", (
+        f"the transcript checks {target!r}; the test checks {contract.name}:widget"
+    )
 
     shown_listing = re.search(r"\$ ls\n([^\n]+)\n?\Z", body)
     assert shown_listing is not None, "the transcript no longer ends with a listing"

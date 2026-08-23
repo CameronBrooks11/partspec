@@ -31,7 +31,8 @@ run it, the same as any other source.
 
 `requires` expressions are the one restricted surface, and only in a narrow
 sense: they are evaluated against the declared params with no imports, attribute
-access, indexing or calls (`SPEC-contract.md` §5.1). That is a *legibility*
+access or calls (`SPEC-contract.md` §5.1; the implementation rejects indexing
+too). That is a *legibility*
 boundary, not a security one — it exists so the tool can print an expression's
 operands. The contract around it is unrestricted Python.
 
@@ -50,7 +51,7 @@ arbitrary code" is documented behaviour rather than a vulnerability. What is in
 scope is anything that runs code the user did **not** point the tool at, or that
 misreports what was read. For example: a path in a report or lint payload that
 gets evaluated rather than parsed; the MCP server acting on something the caller
-never named; or a closure that reports `reads_external_data: false` for a render
-that did read external data — an `include` partspec could not resolve on its own
-search path may resolve on the engine's, and the file behind it may hold an
-`import()` partspec never saw.
+never named; or a closure that does not flag external reads for a render that did
+make them — an `include` partspec could not resolve on its own search path may
+resolve on the engine's, and the file behind it may hold an `import()` partspec
+never saw, so the absence of that flag is not a promise.
