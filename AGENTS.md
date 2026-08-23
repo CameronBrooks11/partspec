@@ -112,7 +112,7 @@ src/partspec/
   refs/           # cited reference tables + fragments (iso15, nema17) — SPEC-contract 10/11
   expectation.py  # the claims pin: --pin/--expect, weakening caught with no baseline (#31)
   expr.py         # restricted-AST evaluation for `requires`, with operand capture
-  lint.py         # tier-1 advisory source lint, engine-free (docs/LINT.md, #26)
+  lint.py         # advisory source lint: tier 1 engine-free, tier 2 over the .csg (docs/LINT.md, #26, #118)
   target.py       # <module>[:<factory>] resolution
   install.py      # phrases install hints for the interpreter reading them (uv venvs have no pip)
   runner.py       # phase orchestration: parameters -> build -> geometry -> report

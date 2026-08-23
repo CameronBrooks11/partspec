@@ -482,8 +482,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every tier-2 rule for the same reason, so one line per entry would put
   three identical sentences per file on the console — 75 of them over this
   repo's own sources — and a courtesy stream nobody reads is the silence it
-  exists to break. One line per distinct cause names the rules and either the
-  file or how many files it took down.
+  exists to break. One line per distinct cause names the rules and the files,
+  the latter bounded at two names plus a count the way `diff` bounds its own
+  name lists — a bare count says something was skipped and leaves no way to
+  find out which, which is live on this repo: four of its own sources refuse
+  for string content even with an engine present.
   `counts` gains **`unsupported`**, counted per (file, rule) so the tally and
   the blocks cannot disagree. It is the field that says whether the run was
   whole: `findings: 0` with `unsupported: 3` is not a clean file, it is a file

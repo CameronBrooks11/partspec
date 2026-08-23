@@ -1447,7 +1447,12 @@ def _measure_resolved(
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
-    """Tier-1 source lint (#26): engine-free, advisory, machine-readable.
+    """Source lint (#26, #118): advisory, machine-readable, never a verdict.
+
+    Tier 1 is engine-free; tier 2 reads the engine's `.csg` export and
+    reports `unsupported` by name when it cannot run. Both surfaces carry
+    that -- the payload per file, and the courtesy stream one line per
+    distinct cause (#288).
 
     Exit 0 says the lint RAN; the findings are data in the payload — an
     advisory that failed the process would be a verdict the source never
@@ -1479,7 +1484,8 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     # would put three identical sentences per file on the console -- 75 of them
     # over this repo's 25 sources -- and a courtesy stream nobody reads is the
     # same silence it exists to break. One line per distinct cause names the
-    # rules and how many files it took down (#288).
+    # rules and the files, the latter bounded the way `diff` bounds its own
+    # name lists (#288).
     refused: dict[str, tuple[list[str], set[str]]] = {}
     try:
         for source in unique:
@@ -1532,8 +1538,12 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     for line in courtesy:
         print(line, file=sys.stderr)
     for reason, (where, rules) in refused.items():
-        scope = where[0] if len(where) == 1 else f"{len(where)} files"
-        print(f"  {', '.join(sorted(rules))}  {scope}  not run: {reason}", file=sys.stderr)
+        # Names the files, bounded — `diff`'s `_bounded` rule (SPEC-diff §2),
+        # because a bare count tells a reader something was skipped and gives
+        # them no way to find out which. Live on this repo: with an engine
+        # present, four of its own sources refuse for string content.
+        shown = ", ".join(where[:2]) + (f", +{len(where) - 2} more" if len(where) > 2 else "")
+        print(f"  {', '.join(sorted(rules))}  {shown}  not run: {reason}", file=sys.stderr)
     return 0
 
 

@@ -31,7 +31,9 @@ Reading `findings[]` alone is the blind loop this document used to prescribe (#2
 rules that did not run are exactly the ones whose silence would otherwise read as a pass,
 and with no engine installed that is every tier-2 rule on every file. Both surfaces now
 carry them — `unsupported[]` per file in the payload, and one line per distinct cause on
-stderr naming the rules and how many files it took down.
+stderr naming the rules and the files, the latter bounded at two names plus a count the
+way `diff` bounds its own name lists (`SPEC-diff.md` §2). A bare count would say something
+was skipped and leave no way to find out which.
 
 ## `scad-unused-top-level`
 
