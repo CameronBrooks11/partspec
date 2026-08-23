@@ -69,6 +69,7 @@ scripts/          # helper scripts invoked by just recipes
 docs/             # the specs and decision log — normative, not background reading
   AGENT-CONTRACT.md   # how to DRIVE partspec: artifact, exit codes, the two disagreements
   SPEC-contract.md    # how to AUTHOR a contract: the check vocabulary and its grammar
+  FAILURE-MODES.md    # the observed ways a build passes while the part is wrong
 ```
 
 ## Commands
