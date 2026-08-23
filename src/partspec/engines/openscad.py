@@ -278,7 +278,7 @@ def _output_over_an_input(
     be asking about.
 
     Each clause is load-bearing in the direction of NOT over-refusing. Without
-    (1) the second run of any such model against the default `outputs/<slug>`
+    (1) the second run of any such model against the default `outputs/<part-slug>`
     finds run 1's own artifact there and is refused — the ordinary path,
     broken. Without (2) a first run into the source directory is refused over a
     file that does not exist. Without (3) any model rendering twice into its

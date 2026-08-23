@@ -88,24 +88,22 @@ def _timeout_s(explicit: float | None) -> float:
 # `assert "outputs/<part-slug>" in help` passed a mutation that inverted the
 # sentence around it into the exact error #277 exists to prevent.
 #
-# This does NOT reach everywhere the default is written. Other statements of it
-# live in the MCP docstrings (a docstring cannot interpolate and still be one,
-# and it is the only text an MCP caller ever sees), in `SPEC-report.md`, in
-# `AGENT-CONTRACT.md`, and in comments -- none pinned to anything.
+# It does not reach everywhere the default is written -- the MCP docstrings,
+# both specs and other prose still spell it out, none of them pinned to
+# anything. `grep -rn "outputs/"` finds them.
 #
-# No number here on purpose. Three drafts of this comment gave a count and all
-# three were wrong: first "nothing to keep in step", then "the MCP pair", then
-# "five", each missing copies the next reviewer found by grepping. A count is
-# a claim that goes stale the moment someone writes the sentence again, which
-# is the same failure the constant exists to fix. `grep -rn "outputs/"` is the
-# answer that stays true.
+# No enumeration here on purpose. Four drafts of this comment tried to say
+# which copies existed -- "nothing to keep in step", then "the MCP pair", then
+# "five", then a list of categories -- and every one was short, each missing a
+# copy the next reviewer found with that grep. A description of the other
+# copies is itself a copy, and goes stale the same way.
 #
-# `tests/test_cli.py` pins this constant to the directory `_out_dir` actually
-# builds; setting it to "the current working directory" passed the entire
-# suite before that pin existed. Note what the pin does and does not do: it
-# forbids a second telling of the anchor inside these helps, because the text
-# must match exactly, but nothing stops a future edit appending a sentence
-# that contradicts it.
+# What `tests/test_cli.py` pins is this constant's own text, against the
+# directory `_out_dir` actually builds: setting it to "the current working
+# directory" passed the entire suite before that pin existed, and inverting
+# its anchor clause is caught now. It reaches nothing else. Nothing stops a
+# help appending a sentence that restates the anchor, or one that contradicts
+# it -- both were tried, both stayed green.
 OUT_DEFAULT_DOC = (
     "<contract dir>/outputs/<part-slug>, beside the contract rather than in the working directory"
 )
