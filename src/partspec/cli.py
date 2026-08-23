@@ -1537,16 +1537,17 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     print(json.dumps(payload, indent=2, allow_nan=False))
     for line in courtesy:
         print(line, file=sys.stderr)
-    for reason, (where, rules) in refused.items():
-        # Names the files, bounded — `diff`'s `_bounded` rule (SPEC-diff.md 1),
-        # because a bare count tells a reader something was skipped and gives
-        # them no way to find out which. Live on this repo: with an engine
-        # present, four of its own sources refuse for string content.
-        from .diff import _SUMMARY_NAME_LIMIT
+    # Names the files, bounded — `diff`'s `_bounded` rule (SPEC-diff.md 1),
+    # because a bare count tells a reader something was skipped and gives them
+    # no way to find out which. Live on this repo: with an engine present, four
+    # of its own sources refuse for string content.
+    #
+    # `diff`'s constant, imported rather than repeated: LINT.md and the
+    # CHANGELOG both say this line follows `diff`'s rule, and a second copy of
+    # the number would let that go false silently.
+    from .diff import _SUMMARY_NAME_LIMIT
 
-        # `diff`'s constant, imported rather than repeated: LINT.md and the
-        # CHANGELOG both say this line follows `diff`'s rule, and a second
-        # copy of the number would let that go false silently.
+    for reason, (where, rules) in refused.items():
         shown = ", ".join(where[:_SUMMARY_NAME_LIMIT]) + (
             f", +{len(where) - _SUMMARY_NAME_LIMIT} more"
             if len(where) > _SUMMARY_NAME_LIMIT
