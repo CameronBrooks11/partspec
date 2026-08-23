@@ -1688,3 +1688,35 @@ def test_a_1e_5_mm_pin_still_resolves_at_ten_metres(tmp_path: Path, coord: float
         f"a 1e-5 mm interference vanished at coordinate {coord} — the floor coarsened "
         f"with distance, which #315 measured that it does not: {result}"
     )
+
+
+def test_the_not_found_hint_resolves_from_a_machine_that_is_not_the_maintainers(
+    tmp_path, monkeypatch
+):
+    """#276: the likeliest first-run failure named a repo a stranger cannot reach.
+
+    Both call sites answered `openscad not found on PATH` with "install the
+    stable package, or the nightly AppImage via workstation-configs" -- the
+    maintainer's provisioning repo, which appears in no README, carries no URL
+    and no package name, and which grep finds nowhere else in this tree. The
+    property under test is not the wording. It is that a reader who has only
+    what partspec shipped can act on the answer: a command to run, or an
+    address to go to.
+    """
+    monkeypatch.setattr(openscad, "find_executable", lambda: None)
+
+    results = [
+        openscad.render(openscad.OpenSCADSource(path=tmp_path / "m.scad", params={}), tmp_path),
+        openscad.render_section_stl(
+            tmp_path / "m.stl", "xy", 0.0, ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), tmp_path
+        ),
+    ]
+
+    for result in results:
+        assert isinstance(result, BuildError)
+        assert result.origin == "environment"
+        hint = result.hint or ""
+        assert "://" in hint, f"hint offers no address a stranger can reach: {hint!r}"
+        assert openscad.ENV_EXECUTABLE in hint, (
+            f"hint omits the escape hatch for an engine already on disk: {hint!r}"
+        )

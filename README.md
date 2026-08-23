@@ -207,9 +207,26 @@ uv run partspec check examples/spacer/spec.py:spacer
 Engines are optional extras — `mesh`, `occt`, `cadquery` — so `uv sync --extra mesh` is
 enough for OpenSCAD-only work. The `mcp` extra adds `partspec-mcp`, a stdio MCP server
 exposing `check`, `measure`, `render` and `vdiff` as stateless tools: each call runs the CLI in a
-fresh subprocess and returns its artifact, per the boundary in [D18](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md). The `openscad` binary itself is a system dependency;
-`PARTSPEC_OPENSCAD` pins which one is used, and the version is recorded in every report
-because it changes the artifact.
+fresh subprocess and returns its artifact, per the boundary in [D18](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md).
+
+### The OpenSCAD binary
+
+`partspec[mesh]` installs the Python side. The `openscad` binary itself is a system
+dependency and is not on the wheel's dependency list — install it separately:
+
+```sh
+sudo apt install openscad          # Debian/Ubuntu
+brew install openscad              # macOS
+# or a build from https://openscad.org/downloads.html
+```
+
+`PARTSPEC_OPENSCAD` pins which binary is used, and the version is recorded in every report
+because it changes the artifact — the same model can build a different part on a different
+OpenSCAD, so the engine is part of the answer rather than a detail of how it was obtained.
+
+`render` additionally needs a display on **2021.01**, which has no EGL offscreen path: run
+it under `xvfb-run -a`, or use a 2022+ build. `check` and `measure` do not — they export
+STL, which needs no GL context.
 
 **Installing both Python engines with plain `pip`** needs one extra step:
 
