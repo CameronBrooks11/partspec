@@ -1822,6 +1822,55 @@ def test_the_qualifier_counts_the_moved_claims_and_not_the_bucket():
         "different: p — 2 fixed (2 with the claim changed)"
     )
 
+    # 4. Each count reads its own bucket. Every block above puts every entry
+    #    in one bucket, so nothing observed the domain — a mutant counting the
+    #    claim-moved entries across all the status buckets, or across the
+    #    whole diff, passed all 1179 (review round 5). §3 makes the scope
+    #    normative twice ("how many of *its* entries", "*within* a status
+    #    bucket") and neither sentence was executed.
+    #
+    #    A tightened bound that breaks a check, a genuine repair beside it,
+    #    and a claim moved under a status that held. The qualifier belongs to
+    #    the first and to nothing else.
+    old, new = _doc(), _doc()
+    repaired = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    repaired["status"] = "fail"
+    repaired["measurement"]["value"] = 1.4
+    old["verdict"] = "fail"
+    broken = next(c for c in new["checks"] if c["id"] == "envelope")
+    broken["status"] = "fail"
+    broken["limit"] = {"max": [29, 20, 10]}
+    next(c for c in new["checks"] if c["id"] == "fits")["expr"] = "a + b <= 2 * c"
+
+    doc = _diff(old, new)
+    assert [(c["id"], c["change"], "claim" in c) for c in doc["checks"]] == [
+        ("wall_gt_2", "fixed", False),
+        ("fits", "limit_changed", True),
+        ("envelope", "regressed", True),
+    ]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 regressed (1 with the claim changed); 1 fixed; 1 limit_changed"
+    )
+
+    # 5. The whole claim, not the bound. Every block above moves `limit`, so a
+    #    mutant counting only entries whose `limit` moved passed the suite —
+    #    and §3 calls a stripped citation "the quiet half of the weakening
+    #    move": same number, authority now the author's say-so. A status that
+    #    flips under it must qualify exactly as a loosened bound does.
+    old, new = _doc(), _doc()
+    cited = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    cited["status"] = "fail"
+    cited["source"] = {"standard": "iso15", "subject": "608", "field": "bore"}
+    old["verdict"] = "fail"
+
+    doc = _diff(old, new)
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert entry["change"] == "fixed"
+    assert list(entry["claim"]["new"]) == ["source"]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed)"
+    )
+
 
 def test_the_note_rides_beside_the_moved_inputs_clause_rather_than_over_it():
     """Both clauses land on one line and the first draft of this fix bound its
