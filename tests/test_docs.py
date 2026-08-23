@@ -989,17 +989,25 @@ def test_the_readme_trust_transcript_is_what_actually_happens(tmp_path: Path):
     shown = body.split("$ echo $?")[0].splitlines()
     quoted = [line for line in shown[1:] if line and not is_elision(line)]
     assert quoted, "the transcript no longer quotes any output"
+
+    # Membership among the printed LINES, not a substring of the whole blob.
+    # `in proc.stderr` accepted any fragment of any line, so a hand-wrapped
+    # copy of the diagnostic passed -- and that line is 99 characters against
+    # this repo's 100-column wrap, so the next word added to the message
+    # invites exactly that wrap. Hand-transcription drift is the only thing
+    # this test exists to catch.
+    printed = proc.stderr.splitlines()
     for line in quoted:
-        assert line in proc.stderr, f"the README quotes {line!r}; the run does not print it"
+        assert line in printed, f"the README quotes {line!r}; the run does not print it"
 
     # Eliding is fine; eliding silently is not. Deleting the traceback and its
     # marker leaves a transcript that reads as the whole of what was printed,
     # and every remaining line still checks out -- so completeness needs its
     # own assertion rather than falling out of the per-line one.
-    printed = [line for line in proc.stderr.splitlines() if line.strip()]
-    if len(quoted) < len(printed):
+    if len(quoted) < len([line for line in printed if line.strip()]):
         assert any(is_elision(line) for line in shown), (
-            f"the transcript shows {len(quoted)} of {len(printed)} printed lines "
+            f"the transcript shows {len(quoted)} of "
+            f"{len([x for x in printed if x.strip()])} printed lines "
             f"without marking the cut"
         )
 
