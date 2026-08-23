@@ -318,11 +318,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without defining it, and **`render --out` carried no help at all** — the only
   `--out` in the parser without any, and the one flag where the #187 mistake
   (pass a filename, get a directory of that name) had no text in front of it.
-  The three verbs are documented separately because they differ: `check` writes
-  `report.json`, `render` writes `render.json` plus `renders/`, and `measure`
-  writes `<source stem>.stl` **only on a tier that builds a file** — the OCCT
-  tier creates nothing there, which a first draft of this text got wrong by
-  measuring the OpenSCAD example and generalising. `vdiff` is anchored to the
+  The three verbs are documented separately because they differ, though not
+  where a first draft of this entry said: on the mesh tier all three write
+  `<source stem>.stl` into that directory, and what distinguishes `measure` is
+  that it writes *only* the artifact and no report, `check` adding
+  `report.json` and `render` adding `render.json` plus `renders/`. The artifact
+  appears **only on a tier that builds a file** — the OCCT tier, which covers
+  both build123d and CadQuery, builds in memory and creates nothing there, not
+  even the directory. An earlier draft of the `measure --out` help said
+  otherwise, having measured the OpenSCAD example and generalised from it. `vdiff` is anchored to the
   run being compared rather than to a contract, defaulting to `vdiff` beside
   `new`: inside it when `new` is a directory, in its parent when `new` is a
   file. The three MCP docstrings gain a sentence each, that boundary showing a

@@ -79,6 +79,7 @@ rather than to any contract.
 Under an explicit `--out`, `check` with several targets writes
 `DIR/<part-slug>/report.json` rather than `DIR/report.json`, one directory being unable
 to hold N reports at one deterministic name.
+
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
 **Backing:** `DECISIONS.md` D5, D10, D13; [`notes/survey/04-kernel-capability.md`][survey-capability].
 

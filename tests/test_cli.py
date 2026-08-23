@@ -1975,15 +1975,29 @@ def test_the_out_default_is_anchored_to_the_contract_and_every_out_says_so(tmp_p
     search reports a string is present, which is not a claim anyone wanted to
     make. Proven, not assumed: with `assert "outputs/<part-slug>" in help` in
     place, inverting all three sentences to "in the working directory rather
-    than beside the contract" -- #277's exact error -- still passed. The help
-    strings are now interpolated from one `OUT_DEFAULT_DOC`, so there is no
-    second copy to hold in step and nothing left for such a test to check.
+    than beside the contract" -- #277's exact error -- still passed.
+
+    Interpolating the three helps from one `OUT_DEFAULT_DOC` removes the drift
+    between them but not the drift from behaviour: a second draft claimed there
+    was "nothing left to check", and setting that constant to "the current
+    working directory" passed the whole suite. So the constant is pinned to the
+    directory `_out_dir` actually builds, which is the one place the rule is
+    decided. What stays unpinned, and is not pretended otherwise: the two MCP
+    docstrings spell the default as literal prose, a docstring being unable to
+    interpolate and stay one.
     """
     contract = tmp_path / "widget.py"
     contract.write_text("")
 
-    assert cli._out_dir(f"{contract}:thing", None) == tmp_path / "outputs" / "widget-thing"
+    built = cli._out_dir(f"{contract}:thing", None)
+    assert built == tmp_path / "outputs" / "widget-thing"
     assert cli._out_dir(str(contract), None) == tmp_path / "outputs" / "widget"
+
+    # The advertised spelling, derived from the path the code built rather than
+    # retyped: `<contract dir>` is the contract's own directory, and the middle
+    # component is whatever `_out_dir` puts there.
+    assert built.parent.parent == contract.parent
+    assert f"<contract dir>/{built.parent.name}/<part-slug>" == cli.OUT_DEFAULT_DOC
     # An explicit --out is taken as given, from any working directory.
     assert cli._out_dir(f"{contract}:thing", Path("elsewhere")) == Path("elsewhere")
 

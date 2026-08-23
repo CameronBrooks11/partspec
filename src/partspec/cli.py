@@ -81,13 +81,20 @@ def _timeout_s(explicit: float | None) -> float:
         raise _TimeoutUsage(f"{ENV_TIMEOUT} is unusable: {exc}") from None
 
 
-# One spelling of the `--out` default, interpolated into every --help that has
-# one. The alternative -- documenting it three times and adding a test that the
-# phrase appears -- is forbidden by AGENTS.md and rightly: a substring search
-# reports that a string is present, which is not a claim anyone wanted to make.
+# One spelling of the `--out` default for the three CLI helps that share it,
+# because documenting it three times and adding a test that the phrase appears
+# is forbidden by AGENTS.md and rightly: a substring search reports that a
+# string is present, which is not a claim anyone wanted to make, and
 # `assert "outputs/<part-slug>" in help` passed a mutation that inverted the
-# sentence around it into the exact error #277 exists to prevent. A projection
-# of one constant cannot drift; there is nothing to keep in step.
+# sentence around it into the exact error #277 exists to prevent.
+#
+# This does NOT reach everywhere the default is written. The two MCP docstrings
+# carry it as literal prose -- a docstring cannot interpolate and still be one,
+# and it is the only text an MCP caller ever sees. So the copies are three, not
+# one, and `tests/test_cli.py` pins this constant to the directory `_out_dir`
+# actually builds rather than to itself: an earlier draft of this comment
+# claimed there was "nothing to keep in step", and setting the constant to
+# "the current working directory" passed the entire suite.
 OUT_DEFAULT_DOC = "<contract dir>/outputs/<part-slug>"
 
 
@@ -217,7 +224,8 @@ def build_parser() -> argparse.ArgumentParser:
         # The only --out in this parser that carried no help at all, which is
         # the one place the #187 mistake -- passing a filename and getting a
         # directory of that name -- had no text standing in front of it.
-        help=f"directory for render.json and the view PNGs (default: {OUT_DEFAULT_DOC})",
+        help="directory for render.json and the view PNGs, plus the build "
+        f"artifact on a tier that writes one (default: {OUT_DEFAULT_DOC})",
     )
     render.add_argument(
         "--section",
@@ -251,7 +259,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         type=Path,
         default=None,
-        help="directory for the per-view diff images (default: <new>/vdiff)",
+        help="directory for the per-view diff images (default: `vdiff` beside "
+        "NEW — inside it when NEW is a directory, in its parent when NEW is a "
+        "file; relative to the run compared, not to any contract)",
     )
 
     diff = sub.add_parser(

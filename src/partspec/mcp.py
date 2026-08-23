@@ -202,8 +202,7 @@ def build_server() -> MCPServer:
         is a file. That is relative to the run being compared and not to a
         contract, because the inputs are artifacts rather than a target, and
         every `image` path in the result is absolute either way. Returns the
-        vdiff
-        document: per-view changed-pixel fractions with diff images, the
+        vdiff document: per-view changed-pixel fractions with diff images, the
         bbox delta (pure scale is invisible to framed pixels — the bbox is
         the witness), and a scalar `magnitude`. Exit 0 identical, 1
         different, 2 indeterminate — a pair it cannot honestly compare
