@@ -1651,3 +1651,33 @@ def test_the_closure_walk_terminates_on_a_cycle(tmp_path: Path, files: dict[str,
         (tmp_path / name).write_text(text)
     closure = openscad.include_closure(tmp_path / "a.scad")
     assert len(closure.files) == len(files)
+
+
+@needs_openscad
+@pytest.mark.parametrize("coord", [5.0, 10000.0], ids=["origin", "ten-metres"])
+def test_the_boolean_floor_does_not_coarsen_with_distance(tmp_path: Path, coord: float):
+    """A 1e-5 mm feature survives a boolean at the origin and at ten metres.
+
+    The load-bearing half of #315's law, and the half two earlier measurements
+    got wrong in opposite directions. If manifold's floor tracked half a
+    float32 ULP all the way out it would be ~4.9e-4 mm at ten metres and this
+    feature would vanish there; it does not, because the floor meets a ceiling
+    of 2**-19 mm at coordinate 32 and stops. CGAL sits at that ceiling
+    everywhere, so 1e-5 clears it at both positions on either backend.
+
+    Two renders per engine, no bisection: bisections misled both measurements
+    that produced #315, and the claim that matters is a single inequality.
+    """
+    src = tmp_path / "pin.scad"
+    src.write_text(
+        f"intersection() {{\n"
+        f"  translate([0,{coord - 5:.17g},0]) cube([10,10,10]);\n"
+        f"  translate([5,{coord:.17g},9]) cube([1e-5,1e-5,2]);\n"
+        f"}}\n"
+    )
+    result = openscad.render(OpenSCADSource(path=src), tmp_path / "out")
+
+    assert not isinstance(result, BuildError), (
+        f"a 1e-5 mm interference vanished at coordinate {coord} — the floor coarsened "
+        f"with distance, which #315 measured that it does not: {result}"
+    )

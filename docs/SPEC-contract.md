@@ -868,28 +868,33 @@ penetration:
 | kernel | trips on | floor | result |
 |---|---|---|---|
 | OCCT — build123d / CadQuery | overlap depth | ≈5.97e-7 mm, constant | empty compound; `empty` passes |
-| CGAL — OpenSCAD 2021.01 | a feature's cross-section | ≈1.9e-6 mm near the origin; further out, disputed (#315) | nothing exported; `empty` passes |
-| manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ≈2.4e-7 mm near the origin, and **not constant** — it rises with the feature's distance from it | nothing exported; `empty` passes |
+| CGAL — OpenSCAD 2021.01 | a feature's cross-section | 2⁻¹⁹ mm ≈ 1.9e-6, at every coordinate | nothing exported; `empty` passes |
+| manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | `min(½·ULP32(coord), 2⁻¹⁹ mm)` — 2.4e-7 at the origin, rising to the cap by coordinate 32 | nothing exported; `empty` passes |
 
 CGAL is the exception in one direction: bisected to 1e-13 mm it never discards a sheet
-for thinness alone, only for cross-section. And **manifold's floor moves**: measured at
-half a float32 ULP at the feature's own coordinate — 2.4e-7 mm at the origin, 9.5e-7 mm
-15 mm out — so a part modelled far from the origin has a coarser floor than one modelled
-at it. One measurement has CGAL's rising the same way beyond ~100 mm; another has it
-constant. **Both OpenSCAD figures above are therefore for a part near the origin**; OCCT's
-is not — measured, it does not move with the coordinate out to 1e6 mm.
+for thinness alone, only for cross-section.
 
-**How far it rises is not settled, for either OpenSCAD kernel.** Two independent
-measurements of this repo disagree above ~100 mm: one has the half-ULP relation continuing
-to ~4.9e-4 mm at ten metres, the other has it flattening near 1.9e-6 mm. Tracked rather
-than resolved here (#315). **Do not rely on these figures for a part modelled far from the
-origin** — which is the actionable half, and is true under either measurement.
+**manifold's floor moves with the coordinate, and then stops.** Measured at nine positions
+(#315): it is half a float32 ULP at the feature's own coordinate — 2.4e-7 mm at the origin,
+9.5e-7 mm 15 mm out — until coordinate 32, where it meets a ceiling of 2⁻¹⁹ mm and does not
+rise again. At ten metres it is still 2⁻¹⁹.
 
-OCCT's floor is a declared kernel constant and does not vary with the face — but the
-*volume* lost at it does: 1.5e-7 mm3 across a 0.5 mm face, 2.2e-3 mm3 across a 60 mm one.
-For OCCT, and for parts modelled near the origin, these are sub-physical. They are the
-direction in which a pass is weaker than it reads, so they are stated rather than
-implied.
+**That ceiling is CGAL's floor everywhere**, including at the origin where manifold's is
+eight times finer. Two independent kernels stopping at exactly the same power of two puts
+it *above* the kernel — a quantisation both boolean paths inherit — rather than in either
+of them. Stated as a bound and not a mechanism, because the mechanism is not measured
+here: **no OpenSCAD boolean, on either backend, resolves an interference finer than
+2⁻¹⁹ mm ≈ 1.9 nm**, and manifold is additionally limited by float32 coordinate resolution
+below that.
+
+OCCT's floor is a declared kernel constant and does not vary with the face or the
+coordinate (measured out to 1e6 mm) — but the *volume* lost at it does vary with the face:
+1.5e-7 mm3 across a 0.5 mm one, 2.2e-3 mm3 across a 60 mm one.
+
+All three floors are sub-physical for real parts, **wherever the part is modelled** — the
+OpenSCAD pair are capped rather than coarser far from the origin, which is the opposite of
+what an earlier draft of this paragraph warned. They are still the direction in which a
+pass is weaker than it reads, so they are stated rather than implied.
 
 **And a zero-thickness contact is represented by some kernels and not others**, which is
 the other half of the same bit:

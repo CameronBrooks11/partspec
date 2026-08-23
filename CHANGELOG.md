@@ -331,8 +331,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overlap depth of ~6e-7 mm (constant, though the volume lost at it scales with
   the face: 1.5e-7 mm3 across 0.5 mm, 2.2e-3 mm3 across 60 mm), CGAL below a
   ~1.9e-6 mm feature cross-section — though never for thinness alone — and
-  manifold below ~2.4e-7 mm of either near the origin and rising with distance
-  from it — how far it rises is measured inconsistently and tracked as #315.
+  and no OpenSCAD boolean finer than 2⁻¹⁹ mm ≈ 1.9 nm on either backend.
+  manifold's floor is `min(½·ULP32(coordinate), 2⁻¹⁹ mm)` — finer than the
+  ceiling near the origin, meeting it by coordinate 32 and never rising again;
+  CGAL sits at the ceiling everywhere, including where manifold is eight times
+  finer. Two kernels stopping at the same power of two puts that ceiling above
+  the kernel rather than in either (#315, measured at nine coordinates after
+  two earlier measurements disagreed by each sampling one side of the
+  crossover).
   Sub-physical
   for real parts, and kernel constants rather than defects, but it is the one
   direction where a pass is weaker than it reads — so `empty` is now specified
