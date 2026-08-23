@@ -18,6 +18,7 @@ include closure, the invocation, and how a failure is reported.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -1690,33 +1691,52 @@ def test_a_1e_5_mm_pin_still_resolves_at_ten_metres(tmp_path: Path, coord: float
     )
 
 
-def test_the_not_found_hint_resolves_from_a_machine_that_is_not_the_maintainers(
-    tmp_path, monkeypatch
-):
+def test_the_not_found_hint_only_names_remedies_the_docs_also_carry(tmp_path: Path, monkeypatch):
     """#276: the likeliest first-run failure named a repo a stranger cannot reach.
 
     Both call sites answered `openscad not found on PATH` with "install the
     stable package, or the nightly AppImage via workstation-configs" -- the
     maintainer's provisioning repo, which appears in no README, carries no URL
-    and no package name, and which grep finds nowhere else in this tree. The
-    property under test is not the wording. It is that a reader who has only
-    what partspec shipped can act on the answer: a command to run, or an
-    address to go to.
+    and no package name, and which grep finds nowhere else in this tree.
+
+    The property is a coupling, not a spelling. Every command and address the
+    hint names must also appear in the README, so a remedy cannot be invented
+    at the point of failure and cannot drift out from under the documentation
+    that explains it -- which is both how #276 happened and how its first fix
+    went stale before merging. That first fix said `brew install openscad`;
+    Homebrew disables that cask on 2026-09-01, after which the tool's one
+    answer to its likeliest failure would have installed nothing. A weaker
+    assertion (does the hint contain a URL?) passes for
+    "install it via https://github.com/<user>/workstation-configs", which is
+    the reported defect with a link on it.
     """
     monkeypatch.setattr(openscad, "find_executable", lambda: None)
 
     results = [
-        openscad.render(openscad.OpenSCADSource(path=tmp_path / "m.scad", params={}), tmp_path),
+        openscad.render(OpenSCADSource(path=tmp_path / "m.scad", params={}), tmp_path),
         openscad.render_section_stl(
             tmp_path / "m.stl", "xy", 0.0, ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), tmp_path
         ),
     ]
 
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+
     for result in results:
         assert isinstance(result, BuildError)
         assert result.origin == "environment"
         hint = result.hint or ""
-        assert "://" in hint, f"hint offers no address a stranger can reach: {hint!r}"
+
+        named = re.findall(r"`([^`]+)`", hint) + re.findall(r"https?://\S+?(?=[\s,]|$)", hint)
+        assert named, f"hint names no remedy at all: {hint!r}"
         assert openscad.ENV_EXECUTABLE in hint, (
             f"hint omits the escape hatch for an engine already on disk: {hint!r}"
         )
+        for remedy in named:
+            # Not a substring test: `brew install openscad` is a prefix of
+            # `brew install openscad@snapshot`, so a plain `in` accepts the
+            # deprecated cask on the strength of the documented one. The
+            # remedy has to end where the README's does.
+            assert re.search(re.escape(remedy) + r"(?![\w@.\-/])", readme), (
+                f"the hint offers {remedy!r}, which the README does not document -- "
+                f"a reader who hits this has nowhere to go to check it"
+            )

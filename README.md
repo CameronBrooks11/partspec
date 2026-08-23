@@ -215,18 +215,47 @@ fresh subprocess and returns its artifact, per the boundary in [D18](https://git
 dependency and is not on the wheel's dependency list — install it separately:
 
 ```sh
-sudo apt install openscad          # Debian/Ubuntu
-brew install openscad              # macOS
+sudo apt install openscad             # Debian/Ubuntu — 2021.01
+brew install openscad@snapshot        # macOS — a current snapshot
 # or a build from https://openscad.org/downloads.html
 ```
+
+`openscad@snapshot` rather than the bare `openscad` cask: that one is deprecated and
+Homebrew disables it on 2026-09-01, after which it installs nothing.
 
 `PARTSPEC_OPENSCAD` pins which binary is used, and the version is recorded in every report
 because it changes the artifact — the same model can build a different part on a different
 OpenSCAD, so the engine is part of the answer rather than a detail of how it was obtained.
 
-`render` additionally needs a display on **2021.01**, which has no EGL offscreen path: run
-it under `xvfb-run -a`, or use a 2022+ build. `check` and `measure` do not — they export
-STL, which needs no GL context.
+### Headless
+
+**2021.01 cannot write a PNG without a display** — it has no EGL offscreen path, so it
+segfaults leaving a 0-byte file, which partspec reports as an environment fault rather
+than a verdict on your part. This affects `render`, and `check --render`; plain `check`
+and `measure` are unaffected, because they export STL and that needs no GL context.
+
+Either run those under `xvfb-run -a`, or use a build with EGL offscreen support. Note what
+the second option means in practice: **2021.01 is the newest OpenSCAD release there has
+ever been**, so a newer build means a development snapshot, and the AppImage takes three
+steps rather than one —
+
+```sh
+# It links a graphics stack it does not bundle, and will not answer --version without it.
+sudo apt install -y libegl1 libgl1 libopengl0 libgbm1 libwayland-client0 \
+                    libfontconfig1 libharfbuzz0b libgmp10
+
+cd /somewhere/outside/your/repo   # --appimage-extract writes squashfs-root/ into the CWD
+curl -fsSL -o openscad.AppImage \
+  https://files.openscad.org/snapshots/OpenSCAD-2026.08.19-x86_64.AppImage
+chmod +x openscad.AppImage && ./openscad.AppImage --appimage-extract >/dev/null
+export PARTSPEC_OPENSCAD=$PWD/squashfs-root/AppRun
+```
+
+Extracted rather than run in place because mounting it needs `libfuse2`, and outside your
+repo because that `squashfs-root/` contains a whole Python stdlib that every linter you
+run will then walk. Snapshots are pruned on a rolling window, so pick a date currently
+listed at <https://files.openscad.org/snapshots/> rather than the one above.
+`.github/workflows/ci.yml` does exactly this to pin the second engine leg.
 
 **Installing both Python engines with plain `pip`** needs one extra step:
 

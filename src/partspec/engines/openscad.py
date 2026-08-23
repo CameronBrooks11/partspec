@@ -103,9 +103,19 @@ ENV_EXECUTABLE = "PARTSPEC_OPENSCAD"
 # One constant because there were two copies of the string and they are read on
 # the same fault. `install_hint()` is no help here: it picks between pip and uv
 # for a Python package, and this is a system binary.
+#
+# `openscad@snapshot` and not the bare `openscad` cask: the latter is already
+# deprecated (`fails_gatekeeper_check`) and Homebrew disables it on 2026-09-01,
+# after which the command errors and installs nothing. It is also an Intel-only
+# dmg wanting Rosetta, and it `conflicts_with` the snapshot cask -- so the bare
+# form would send a mac reader to a dead end and then block the way out of it.
+# openscad.org/downloads.html recommends the snapshot cask for the same reason.
+# A test ties every command named here to one the README also documents, which
+# is the drift that produced this bug in the first place.
 NOT_FOUND_HINT = (
-    "install it — `apt install openscad`, `brew install openscad`, or a build from "
-    "https://openscad.org/downloads.html — or set PARTSPEC_OPENSCAD to an existing binary"
+    "install it — `sudo apt install openscad`, `brew install openscad@snapshot`, or a "
+    "build from https://openscad.org/downloads.html — or set PARTSPEC_OPENSCAD to an "
+    "existing binary"
 )
 
 
