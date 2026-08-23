@@ -355,12 +355,17 @@ counting through and counting across disagree, makes it refuse. An unnecessary
 
 The specs are normative and were written before the implementation:
 
+- [`docs/README.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/README.md) — which document answers which question, if you
+  want the index rather than the list.
+- [`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md) — how to drive the tool: read the
+  report, not the console, and what each exit code obliges you to do.
 - [`docs/SPEC-report.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-report.md) — the report schema and exit codes. This is
   the actual contract; the CLI verbs are not.
 - [`docs/SPEC-contract.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-contract.md) — the Python contract API and check
   vocabulary.
 - [`docs/SPEC-backend.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-backend.md) — the geometry backend protocol.
 - [`docs/SPEC-diff.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-diff.md) — the semantic report comparator.
+- [`docs/LINT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/LINT.md) — the advisory source rules and their tiers.
 - [`docs/FAILURE-MODES.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/FAILURE-MODES.md) — the observed CAD-as-code failure catalogue: what wrong parts look like when they're green.
 - [`docs/DECISIONS.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md) — every design decision, with its reasoning.
 - [`docs/PLAN.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/PLAN.md) — what v0 is and how it gets built.

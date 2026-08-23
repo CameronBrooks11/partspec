@@ -1030,3 +1030,38 @@ def test_the_readme_trust_transcript_is_what_actually_happens(tmp_path: Path):
     assert sorted(shown_listing.group(1).split()) == sorted(p.name for p in tmp_path.iterdir()), (
         "the README's listing is not what the run leaves behind"
     )
+
+
+def test_the_docs_index_routes_to_every_document_beside_it():
+    """#279: `docs/` is the URL both PyPI and `partspec --help` advertise.
+
+    Without an index GitHub renders that as a bare listing of ten filenames
+    over five thousand lines, where the cheapest and most load-bearing read --
+    AGENT-CONTRACT.md at 260 lines -- is indistinguishable from SPEC-contract's
+    1313. The index is only worth having if it stays complete, and the failure
+    it prevents already happened once: AGENT-CONTRACT.md, LINT.md and
+    FAILURE-MODES.md were all added on 2026-08-08, and only FAILURE-MODES was
+    added to README's Documentation list. The other two stayed reachable --
+    AGENT-CONTRACT.md from two places in README's prose, LINT.md from one -- so
+    nothing was unreachable; what was missing was any enumeration a reader could
+    use to find out what exists. That is the gap an index closes and a link in
+    a paragraph does not.
+
+    Both directions. A document the index does not route to is invisible at
+    the entry point; a route to a document that is not there is a dead link at
+    it. Neither is a claim about what the index SAYS -- only about which files
+    it reaches, which is what a router is for.
+    """
+    index = DOCS / "README.md"
+    assert index.is_file(), "docs/ has no index; both advertised URLs land on a bare listing"
+
+    linked = {m.group(1) for m in re.finditer(r"\]\((?!https?://|#)([^)]+)\)", index.read_text())}
+    present = {p.name for p in DOCS.glob("*.md")} - {"README.md"}
+
+    assert present - linked == set(), (
+        f"docs/README.md routes to nothing for: {sorted(present - linked)} — "
+        f"a reader landing on the advertised URL cannot tell they exist"
+    )
+    assert linked - present == set(), (
+        f"docs/README.md links documents that are not there: {sorted(linked - present)}"
+    )
