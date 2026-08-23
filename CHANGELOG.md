@@ -329,12 +329,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passes. And in the other direction **every kernel has a floor** beneath which
   a *real* interference is discarded and `empty` passes — measured, OCCT at an
   overlap depth of ~6e-7 mm (constant, though the volume lost at it scales with
-  the face: 1.5e-7 mm3 across 0.5 mm, 2.2e-3 mm3 across 60 mm), CGAL below a
-  ~1.9e-6 mm feature cross-section — though never for thinness alone — and
-  manifold below ~2.4e-7 mm of either near the origin and rising with distance
-  from it — how far it rises is measured inconsistently and tracked as #315.
-  Sub-physical
-  for real parts, and kernel constants rather than defects, but it is the one
+  the face: 1.5e-7 mm3 across 0.5 mm, 2.2e-3 mm3 across 60 mm), and on
+  OpenSCAD ~1.9e-6 mm (CGAL) and ~2.4e-7 mm near the origin (manifold) for one
+  specific probe — an axis-aligned square-section pin.
+  **Those OpenSCAD figures do not generalise, and #315 is the record of finding
+  that out.** The floor is a property of the arrangement rather than of the
+  kernel — rotation moves it, making the interference a body-to-body overlap
+  moves it by orders, and whether it coarsens with distance is
+  construction-dependent (manifold's square-pin floor by 8× out to ten metres,
+  its rotated-pin floor not at all; CGAL's in no construction tried).
+  **Four successive drafts of this entry each published a bound the next
+  measurement falsified** — a formula fitted to nine same-shaped samples; a
+  body-overlap figure measured on an overlap thin on one axis and written
+  about the case thin on two; a ~1.9e-6 mm plateau a triangular pin exceeds;
+  and a range a sphere exceeds. Three came from bisections over ranges whose
+  monotonicity had never been checked — and the function is not monotone, so
+  "the floor" is not always a well-defined number. **No bound is quoted now.**
+  Every floor anyone measured was sub-physical by many orders, and that
+  conclusion never depended on which was largest.
+  Sub-physical for real parts either way, and it is the one
   direction where a pass is weaker than it reads — so `empty` is now specified
   as "no positive-volume interference **the kernel can represent**", the same
   discipline §4.11 applies to `min_wall`. It is not fixable by wording — the

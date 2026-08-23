@@ -868,28 +868,64 @@ penetration:
 | kernel | trips on | floor | result |
 |---|---|---|---|
 | OCCT — build123d / CadQuery | overlap depth | ≈5.97e-7 mm, constant | empty compound; `empty` passes |
-| CGAL — OpenSCAD 2021.01 | a feature's cross-section | ≈1.9e-6 mm near the origin; further out, disputed (#315) | nothing exported; `empty` passes |
-| manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ≈2.4e-7 mm near the origin, and **not constant** — it rises with the feature's distance from it | nothing exported; `empty` passes |
+| CGAL — OpenSCAD 2021.01 | a feature's cross-section | ~1.9e-6 mm for the probe below | nothing exported; `empty` passes |
+| manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ~2.4e-7 mm near the origin for the probe below, coarsening with its coordinate | nothing exported; `empty` passes |
 
-CGAL is the exception in one direction: bisected to 1e-13 mm it never discards a sheet
-for thinness alone, only for cross-section. And **manifold's floor moves**: measured at
-half a float32 ULP at the feature's own coordinate — 2.4e-7 mm at the origin, 9.5e-7 mm
-15 mm out — so a part modelled far from the origin has a coarser floor than one modelled
-at it. One measurement has CGAL's rising the same way beyond ~100 mm; another has it
-constant. **Both OpenSCAD figures above are therefore for a part near the origin**; OCCT's
-is not — measured, it does not move with the coordinate out to 1e6 mm.
+**The OpenSCAD figures are for one probe, and nothing more should be read into them.**
+That row was measured with an axis-aligned square-section pin, its own dimension being the
+feature, at positive coordinates — a shape chosen because it is easy to sweep, not because
+it is representative. Three unstated parameters of it (pin length, penetration depth, the
+other body's size) were varied over six combinations and did not move the floor, so a
+reader can rebuild it and get those numbers.
 
-**How far it rises is not settled, for either OpenSCAD kernel.** Two independent
-measurements of this repo disagree above ~100 mm: one has the half-ULP relation continuing
-to ~4.9e-4 mm at ten metres, the other has it flattening near 1.9e-6 mm. Tracked rather
-than resolved here (#315). **Do not rely on these figures for a part modelled far from the
-origin** — which is the actionable half, and is true under either measurement.
+**Everything else about this floor is uncharacterised, and this document no longer tries to
+characterise it.** What is established is qualitative and enough:
 
-OCCT's floor is a declared kernel constant and does not vary with the face — but the
-*volume* lost at it does: 1.5e-7 mm3 across a 0.5 mm face, 2.2e-3 mm3 across a 60 mm one.
-For OCCT, and for parts modelled near the origin, these are sub-physical. They are the
-direction in which a pass is weaker than it reads, so they are stated rather than
-implied.
+- The floor is a property of the **arrangement**, not of the kernel. Rotating that pin by
+  45° moves it. Making the interference an overlap between two blocks, rather than a body's
+  own dimension, moves it by orders. The two backends differ from each other, and differ by
+  shape in different directions.
+- **Whether it coarsens with distance from the origin is itself construction-dependent.**
+  manifold's square-pin floor coarsens 8× from coordinate 5 to 10 000; its rotated-pin floor
+  does not move at all over that range (it does move further out). CGAL's did not coarsen in any construction tried — that is the one
+  claim here that survived every attempt to break it.
+- Every floor anyone has measured on this question has been **sub-physical for a real part**,
+  by many orders. That conclusion has never depended on which of them is the largest.
+
+**Four successive drafts of this passage each published a bound that the next measurement
+falsified** — a formula fitted to nine same-shaped samples; a body-overlap figure measured
+on an overlap thin on one axis and written about the case thin on two; a plateau a
+triangular pin exceeds; and a range a sphere exceeds. Three came from bisections over
+ranges whose monotonicity had never been checked, and the underlying function is not
+monotone: a scan finds islands where a thinner feature survives and a thicker one does not,
+so "the floor" is not always a well-defined number to begin with.
+
+That is why this section states no bound, and it is the part worth carrying elsewhere: **a
+claim fitted to a convenient sweep reads exactly like a measured one**, including to the
+person who fitted it — four times in a row, each time while correcting the previous one.
+
+The actionable half does not depend on any of the numbers: **a sufficiently thin
+interference is discarded on every kernel, and `empty` passes on it.** What "sufficiently
+thin" means depends on the geometry, so a contract that needs a guarantee should assert a
+clearance with the grown-part pattern below rather than lean on a floor.
+
+Two earlier drafts of this section overreached, and the second did it while retracting the
+first. One stated a formula, `min(½·ULP32(coord), 2⁻¹⁹ mm)`, and the claim that no OpenSCAD
+boolean resolves finer than 2⁻¹⁹ mm — both fitted to nine samples sharing one construction,
+one sign and one cross-section. Its replacement then said a body-to-body overlap resolves
+"on both backends down to at least 1e-9 mm", measured on an overlap thin on *one* axis and
+written about the pin-in-a-hole case, which is thin on two and is lost on manifold at ten
+metres. Recorded because the shape of the mistake is the useful part: a claim fitted to a
+convenient sample reads exactly like a measured one, including to the person who fitted it.
+
+OCCT's floor is a declared kernel constant and does not vary with the face or the
+coordinate (measured out to 1e6 mm) — but the *volume* lost at it does vary with the face:
+1.5e-7 mm3 across a 0.5 mm one, 2.2e-3 mm3 across a 60 mm one.
+
+An earlier draft warned against relying on these floors *far from the origin*, on the
+reasoning that they coarsen with distance; that reasoning was backwards for CGAL and only
+sometimes true for manifold. They remain the direction in which a pass is weaker than it
+reads, so they are stated rather than implied.
 
 **And a zero-thickness contact is represented by some kernels and not others**, which is
 the other half of the same bit:

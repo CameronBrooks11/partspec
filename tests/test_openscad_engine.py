@@ -1651,3 +1651,40 @@ def test_the_closure_walk_terminates_on_a_cycle(tmp_path: Path, files: dict[str,
         (tmp_path / name).write_text(text)
     closure = openscad.include_closure(tmp_path / "a.scad")
     assert len(closure.files) == len(files)
+
+
+@needs_openscad
+@pytest.mark.parametrize("coord", [5.0, 10000.0], ids=["origin", "ten-metres"])
+def test_a_1e_5_mm_pin_still_resolves_at_ten_metres(tmp_path: Path, coord: float):
+    """A 1e-5 mm square-section pin resolves at the origin and at ten metres.
+
+    Named for exactly what it asserts. The floor DOES coarsen with distance for
+    some constructions -- manifold's for this pin by 8x (§4.12) -- so "does not
+    coarsen", which this test was first called, is false. What survives is
+    narrower: an earlier draft warned against relying on these floors far from
+    the origin because they grow without bound, and if manifold's tracked half
+    a float32 ULP all the way out it would be ~4.9e-4 mm at ten metres and this
+    feature would vanish there. It does not.
+
+    That is all this asserts. It does NOT establish a floor value or a law --
+    #315's formula was fitted to one probe shape at positive coordinates and is
+    false outside it, which is why §4.12 now states the figures as an existence
+    proof rather than a bound. Scoped deliberately: an inequality that holds is
+    worth more than a law that does not.
+
+    Two renders per engine, no bisection -- bisections misled both measurements
+    that produced #315.
+    """
+    src = tmp_path / "pin.scad"
+    src.write_text(
+        f"intersection() {{\n"
+        f"  translate([0,{coord - 5:.17g},0]) cube([10,10,10]);\n"
+        f"  translate([5,{coord:.17g},9]) cube([1e-5,1e-5,2]);\n"
+        f"}}\n"
+    )
+    result = openscad.render(OpenSCADSource(path=src), tmp_path / "out")
+
+    assert not isinstance(result, BuildError), (
+        f"a 1e-5 mm interference vanished at coordinate {coord} — the floor coarsened "
+        f"with distance, which #315 measured that it does not: {result}"
+    )
