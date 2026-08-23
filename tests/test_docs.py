@@ -1030,3 +1030,62 @@ def test_the_readme_trust_transcript_is_what_actually_happens(tmp_path: Path):
     assert sorted(shown_listing.group(1).split()) == sorted(p.name for p in tmp_path.iterdir()), (
         "the README's listing is not what the run leaves behind"
     )
+
+
+def test_the_docs_index_routes_to_every_document_beside_it():
+    """#279: `docs/` is the URL both PyPI and `partspec --help` advertise.
+
+    Without an index GitHub renders that as a bare listing of ten filenames
+    over five thousand lines, where AGENT-CONTRACT.md -- 260 lines, and the
+    one to start with -- is indistinguishable from SPEC-contract's 1313.
+
+    The index is only worth having if it stays complete, and the failure it
+    prevents already happened once: AGENT-CONTRACT.md, LINT.md and
+    FAILURE-MODES.md were all added on 2026-08-08, and only FAILURE-MODES
+    was added to README's Documentation list. The other two stayed reachable
+    -- AGENT-CONTRACT.md from two places in README's prose, LINT.md from one
+    -- so nothing was unreachable; what was missing was any enumeration a
+    reader could use to find out what exists. That is the gap an index
+    closes and a link in a paragraph does not.
+
+    Both directions. A document the index does not route to is invisible at the
+    entry point; a route to a target that does not exist is a dead link at it.
+    Neither is a claim about what the index SAYS: the label is never compared
+    to the target, so an index sending every reader to the wrong file would
+    satisfy this. What it checks is which files are reachable, which is what a
+    router is for.
+
+    Fenced links do not count. GitHub renders them as literal text, so a
+    document mentioned only inside a fenced block reaches nobody -- and the
+    first version of this test read the raw bytes and passed exactly that.
+    Fenced specifically: a four-space indented block is also a code block and
+    is NOT stripped here, so a link buried in one still counts. Every code
+    block in these docs is fenced, so that hole is unreached rather than
+    closed.
+    """
+    index = DOCS / "README.md"
+    assert index.is_file(), "docs/ has no index; both advertised URLs land on a bare listing"
+
+    text = re.sub(r"```.*?```", "", index.read_text(), flags=re.S)
+
+    targets = set()
+    for match in re.finditer(r"\]\((?!https?://|#)([^)]+)\)", text):
+        # `./LINT.md`, `LINT.md#tiers` and `LINT.md "title"` are all ordinary
+        # Markdown that GitHub resolves. The first version rejected all three,
+        # which forbade the index from deep-linking -- the thing a router most
+        # wants to do.
+        target = match.group(1).split()[0].split("#")[0].removeprefix("./")
+        if target:
+            targets.add(target)
+
+    present = {p.name for p in DOCS.glob("*.md")} - {"README.md"}
+    missing = present - targets
+    assert missing == set(), (
+        f"docs/README.md routes to nothing for: {sorted(missing)} — "
+        f"a reader landing on the advertised URL cannot tell they exist"
+    )
+
+    # Links out of docs/ are allowed and resolved against the tree, so the index
+    # can point at what it recommends rather than naming it in backticks.
+    dead = sorted(t for t in targets if not (index.parent / t).exists())
+    assert dead == [], f"docs/README.md links targets that are not there: {dead}"
