@@ -231,13 +231,14 @@ OpenSCAD, so the engine is part of the answer rather than a detail of how it was
 
 **2021.01 cannot write a PNG without a display** — it has no EGL offscreen path, so it
 segfaults leaving a 0-byte file, which partspec reports as an environment fault rather
-than a verdict on your part. This affects `render`, and `check --render`; plain `check`
-and `measure` are unaffected, because they export STL and that needs no GL context.
+than a verdict on your part. This affects `render` and `check --render`; plain `check` and
+`measure` are unaffected, because they export STL and that needs no GL context.
 
 Either run those under `xvfb-run -a`, or use a build with EGL offscreen support. Note what
 the second option means in practice: **2021.01 is the newest OpenSCAD release there has
-ever been**, so a newer build means a development snapshot, and the AppImage takes three
-steps rather than one —
+ever been**, so a build with EGL offscreen is a development snapshot. On macOS the
+`openscad@snapshot` cask above already is one. On Linux the AppImage needs more than a
+download —
 
 ```sh
 # It links a graphics stack it does not bundle, and will not answer --version without it.

@@ -112,6 +112,15 @@ ENV_EXECUTABLE = "PARTSPEC_OPENSCAD"
 # openscad.org/downloads.html recommends the snapshot cask for the same reason.
 # A test ties every command named here to one the README also documents, which
 # is the drift that produced this bug in the first place.
+# Said "use a 2022+ build with EGL offscreen" until #276's review, which is a
+# remedy naming no way to obtain it: 2021.01 is the newest OpenSCAD RELEASE
+# there has ever been, so anything with EGL offscreen is a development
+# snapshot. The README carries the procedure; this says which thing to go get.
+NO_DISPLAY_HINT = (
+    "run under `xvfb-run -a`, or use a development snapshot — 2021.01 has no EGL "
+    "offscreen path and is the newest release there is"
+)
+
 NOT_FOUND_HINT = (
     "install it — `sudo apt install openscad`, `brew install openscad@snapshot`, or a "
     "build from https://openscad.org/downloads.html — or set PARTSPEC_OPENSCAD to an "
@@ -1121,7 +1130,7 @@ def render_views(
                         return BuildError(
                             "this OpenSCAD cannot render PNG without a display",
                             origin="environment",
-                            hint="run under `xvfb-run -a`, or use a 2022+ build with EGL offscreen",
+                            hint=NO_DISPLAY_HINT,
                             stderr=proc.stderr,
                         )
                     if proc.returncode != 0:
