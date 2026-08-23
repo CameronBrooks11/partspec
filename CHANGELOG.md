@@ -470,6 +470,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`partspec lint`'s console now names the rules that did not run** (#288,
+  epic #305). `unsupported[]` was written per file while the stderr courtesy
+  stream was built from `findings` alone, so a source whose `.csg` export
+  fails printed three tier-1 findings and no hint that every tier-2 rule had
+  been skipped — and with no engine installed, that is every tier-2 rule on
+  every file, which nothing downstream ever corrects. #118's rule is that a
+  rule which could not run must not read as a clean bill; that held for the
+  payload and not for the console.
+  Grouped **by cause, not per entry**: with no engine every `.scad` refuses
+  every tier-2 rule for the same reason, so one line per entry would put
+  three identical sentences per file on the console — 75 of them over this
+  repo's own sources — and a courtesy stream nobody reads is the silence it
+  exists to break. One line per distinct cause names the rules and the files,
+  the latter bounded at two names plus a count the way `diff` bounds its own
+  name lists — a bare count says something was skipped and leaves no way to
+  find out which, which is live on this repo: four of its own sources refuse
+  for string content even with an engine present.
+  `counts` gains **`unsupported`**, counted per (file, rule) so the tally and
+  the blocks cannot disagree. It is the field that says whether the run was
+  whole: `findings: 0` with `unsupported: 3` is not a clean file, it is a file
+  three rules never looked at. Additive, so `LINT_SCHEMA_VERSION` does not
+  move — the rule `--out`'s `written` followed (#225).
+  `LINT.md` prescribed the blind loop: "read each file block's `findings[]`
+  before the first render", never naming `unsupported[]`. It now names both.
+  Its scope paragraph also still said tier 2 was "the two `csg-*` rules" —
+  the same stale count found on the README one PR earlier.
+
 - **`partspec lint` no longer computes a volume for a surface that encloses
   nothing** (#289, epic #305). `csg.volume_of`'s `polyhedron()` branch is a
   signed-tetrahedron sum with no watertightness precondition.

@@ -1447,7 +1447,12 @@ def _measure_resolved(
 
 
 def _cmd_lint(args: argparse.Namespace) -> int:
-    """Tier-1 source lint (#26): engine-free, advisory, machine-readable.
+    """Source lint (#26, #118): advisory, machine-readable, never a verdict.
+
+    Tier 1 is engine-free; tier 2 reads the engine's `.csg` export and
+    reports `unsupported` by name when it cannot run. Both surfaces carry
+    that -- the payload per file, and the courtesy stream one line per
+    distinct cause (#288).
 
     Exit 0 says the lint RAN; the findings are data in the payload — an
     advisory that failed the process would be a verdict the source never
@@ -1474,6 +1479,14 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     scad_engine = find_executable()
     files = []
     courtesy: list[str] = []
+    # Grouped by REASON rather than one line per entry. With no engine every
+    # `.scad` refuses every tier-2 rule for the same cause, so per-entry lines
+    # would put three identical sentences per file on the console -- 75 of them
+    # over this repo's 25 sources -- and a courtesy stream nobody reads is the
+    # same silence it exists to break. One line per distinct cause names the
+    # rules and the files, the latter bounded the way `diff` bounds its own
+    # name lists (#288).
+    refused: dict[str, tuple[list[str], set[str]]] = {}
     try:
         for source in unique:
             findings = lint_path(source)
@@ -1493,6 +1506,12 @@ def _cmd_lint(args: argparse.Namespace) -> int:
                     # Refusals are entries, never absences (#118): a rule
                     # that could not run must not read as a clean bill.
                     entry["unsupported"] = unsupported
+                    for u in unsupported:
+                        refused.setdefault(u["reason"], ([], set()))
+                        seen_files, rules = refused[u["reason"]]
+                        if str(source) not in seen_files:
+                            seen_files.append(str(source))
+                        rules.add(u["rule"])
             courtesy.extend(f"  {f.rule}  {f.file}:{f.line}  {f.message}" for f in findings)
             files.append(entry)
     except LintError as exc:
@@ -1500,15 +1519,41 @@ def _cmd_lint(args: argparse.Namespace) -> int:
         return EXIT_USAGE
 
     total = sum(len(f["findings"]) for f in files)
+    # Counted per (file, rule), matching what `unsupported[]` holds, so the
+    # tally and the blocks cannot disagree. Additive key: a consumer reading
+    # `findings` alone is unaffected, and `LINT_SCHEMA_VERSION` does not move
+    # -- the same rule `--out`'s `written` followed (#225).
+    unsupported_total = sum(len(f.get("unsupported", ())) for f in files)
     payload = {
         "schema_version": LINT_SCHEMA_VERSION,
         "tool": {"name": "partspec-lint", "version": tool_version()},
         "files": files,
-        "counts": {"files": len(files), "findings": total},
+        "counts": {
+            "files": len(files),
+            "findings": total,
+            "unsupported": unsupported_total,
+        },
     }
     print(json.dumps(payload, indent=2, allow_nan=False))
     for line in courtesy:
         print(line, file=sys.stderr)
+    # Names the files, bounded — `diff`'s `_bounded` rule (SPEC-diff.md 1),
+    # because a bare count tells a reader something was skipped and gives them
+    # no way to find out which. Live on this repo: with an engine present, four
+    # of its own sources refuse for string content.
+    #
+    # `diff`'s constant, imported rather than repeated: LINT.md and the
+    # CHANGELOG both say this line follows `diff`'s rule, and a second copy of
+    # the number would let that go false silently.
+    from .diff import _SUMMARY_NAME_LIMIT
+
+    for reason, (where, rules) in refused.items():
+        shown = ", ".join(where[:_SUMMARY_NAME_LIMIT]) + (
+            f", +{len(where) - _SUMMARY_NAME_LIMIT} more"
+            if len(where) > _SUMMARY_NAME_LIMIT
+            else ""
+        )
+        print(f"  {', '.join(sorted(rules))}  {shown}  not run: {reason}", file=sys.stderr)
     return 0
 
 

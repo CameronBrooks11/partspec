@@ -1,4 +1,4 @@
-"""partspec lint, tier 1 (#26): engine-free, advisory, exact predicates.
+"""`partspec lint`: tier 1 engine-free (#26) and tier 2 over the `.csg` (#118).
 
 The rules' documentation (docs/LINT.md) states each predicate precisely; these
 tests hold the implementation to the document and the document to the
@@ -321,7 +321,15 @@ def test_the_lint_verb_is_advisory_and_machine_readable(tmp_path: Path, capsys):
     payload = json.loads(captured.out)
     assert payload["schema_version"] == LINT_SCHEMA_VERSION
     assert payload["tool"]["name"] == "partspec-lint"
-    assert payload["counts"] == {"files": 1, "findings": 3}
+    # The KEY SET is exact, so a new key still has to be looked at rather than
+    # slipping through — which is how `unsupported` got here. The VALUES are
+    # asserted individually, because `unsupported` depends on whether this
+    # machine has an engine, and pinning it made the suite fail wherever one is
+    # absent — against `justfile`'s "an absent engine is a decision, not a
+    # failure" and pyproject's ZERO FAILURES claim for an sdist run (#288).
+    assert set(payload["counts"]) == {"files", "findings", "unsupported"}
+    assert payload["counts"]["files"] == 1
+    assert payload["counts"]["findings"] == 3
     (entry,) = payload["files"]
     assert entry["digest"].startswith("sha256:"), "identity per file (#120)"
     for finding in entry["findings"]:
@@ -339,7 +347,9 @@ def test_duplicate_arguments_are_one_file_and_a_clean_file_is_visible(tmp_path: 
     clean.write_text("a = 3;\ncube([a, a, a]);\n")
     assert main(["lint", str(dirty), str(dirty), str(clean)]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["counts"] == {"files": 2, "findings": 3}
+    assert set(payload["counts"]) == {"files", "findings", "unsupported"}
+    assert payload["counts"]["files"] == 2
+    assert payload["counts"]["findings"] == 3
     by_name = {Path(e["file"]).name: e for e in payload["files"]}
     assert by_name["clean.scad"]["findings"] == []
     assert by_name["clean.scad"]["digest"].startswith("sha256:")
@@ -818,6 +828,18 @@ _BOX_POINTS = [
 ]
 
 
+def _refusal_parts(line: str) -> tuple[list[str], str, str]:
+    """Split a `not run:` courtesy line into (rules, scope, reason).
+
+    The fields are two-space separated and the reason may itself contain a
+    path, so a substring search over the whole line pins nothing about which
+    field carried the match.
+    """
+    head, _, reason = line.partition("  not run: ")
+    rules, _, scope = head.strip().partition("  ")
+    return sorted(r.strip() for r in rules.split(",")), scope.strip(), reason
+
+
 def _polyhedron(points: list, faces: list) -> csg.Node:
     return csg.Node(kind="polyhedron", kwargs={"points": points, "faces": faces})
 
@@ -1094,3 +1116,147 @@ def test_no_shipped_model_trips_the_two_part_intersection_rule():
 
     assert not flagged, f"shipped models now trip the rule: {flagged}"
     assert read >= 20, f"only {read} of {len(tracked)} exports could be read — too few to claim"
+
+
+# --------------------------------------------------------------------------
+# the courtesy stream carries refusals too (#288)
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_the_console_names_the_rules_that_did_not_run(tmp_path: Path, capsys):
+    """#118 says a rule that could not run must not read as a clean bill.
+
+    It was true of the payload and false of the console: `unsupported[]` was
+    written per file while the stderr courtesy stream was built from
+    `findings` alone, so a source whose `.csg` export fails showed three
+    tier-1 findings and no hint that every tier-2 rule had been skipped.
+    """
+    scad = tmp_path / "broken.scad"
+    scad.write_text("module thing(){ cube([10, 10, 10) }\n")
+
+    assert main(["lint", str(scad)]) == 0
+    captured = capsys.readouterr()
+
+    doc = json.loads(captured.out)
+    assert {u["rule"] for u in doc["files"][0]["unsupported"]} == set(TIER2_RULES)
+    assert doc["counts"]["unsupported"] == len(TIER2_RULES)
+
+    refusal = [ln for ln in captured.err.splitlines() if "not run:" in ln]
+    assert len(refusal) == 1, "one line per distinct cause, not one per entry"
+
+    # Split the SCOPE out rather than searching the whole line: the parse
+    # failure's reason embeds the file's absolute path, so `"broken.scad" in
+    # line` is satisfied by the reason and pins nothing about the scope field
+    # (review of PR #316).
+    rules, scope, _ = _refusal_parts(refusal[0])
+    assert rules == sorted(TIER2_RULES)
+    assert scope == str(scad), "a single file is named by path, not counted"
+    assert "Can't parse file" in refusal[0], "the reason travels with it"
+
+
+def test_one_cause_across_many_files_is_one_line(tmp_path: Path, capsys, monkeypatch):
+    """Grouped by reason, because the common case is one cause everywhere.
+
+    An absent engine refuses every tier-2 rule on every file for the SAME
+    reason, and that is the case the grouping exists for: one line per entry
+    would print three identical sentences per file — 75 over this repo's own
+    sources — and a courtesy stream nobody reads is the silence it exists to
+    break.
+
+    Engine forced absent rather than relying on the machine, because an
+    earlier version of this test used three unparseable files, whose parse
+    errors each embed their own path and so are three DISTINCT reasons. It
+    asserted three lines and never exercised the collapse it was named for
+    (review of PR #316).
+    """
+    from partspec.engines import openscad as openscad_mod
+
+    monkeypatch.setattr(openscad_mod, "find_executable", lambda: None)
+    names = [tmp_path / f"m{i}.scad" for i in range(3)]
+    for scad in names:
+        scad.write_text("cube([60, 40, 4]);\n")
+
+    assert main(["lint", *(str(n) for n in names)]) == 0
+    captured = capsys.readouterr()
+
+    refusals = [ln for ln in captured.err.splitlines() if "not run:" in ln]
+    assert len(refusals) == 1, "one cause, one line — not one per file or per entry"
+
+    rules, scope, reason = _refusal_parts(refusals[0])
+    assert rules == sorted(TIER2_RULES)
+    # The joined string, not just the set: without `sorted()` the order is
+    # hash-seed dependent and `_refusal_parts` would sort it away.
+    assert ", ".join(sorted(TIER2_RULES)) in refusals[0]
+    # Bounded like `diff`'s name lists: the first two named, the rest counted.
+    # Both halves matter — a bare count leaves a reader unable to find out
+    # which files were skipped.
+    assert str(names[0]) in scope and str(names[1]) in scope
+    assert "+1 more" in scope
+    assert "openscad is not installed" in reason
+    assert json.loads(captured.out)["counts"]["unsupported"] == 3 * len(TIER2_RULES)
+
+
+@needs_openscad
+def test_two_causes_stay_two_lines(tmp_path: Path, capsys):
+    """Grouping must not merge causes — a reason is false for the wrong file.
+
+    The round-1 version of the many-files test used three unparseable sources
+    and asserted three lines. It never exercised the collapse it was named
+    for, which is why it was replaced — but it DID pin the inverse, that one
+    line means one distinct cause, and the replacement lost that. A mutant
+    that prints every cause on a single line under the first reason then
+    survived the whole suite, putting a reason on the console for a file it
+    does not apply to (review of PR #316).
+
+    Two files, two genuinely different reasons: one cannot be parsed, the
+    other parses and is refused whole for string content the `.csg` format
+    does not escape.
+    """
+    broken = tmp_path / "broken.scad"
+    broken.write_text("module thing(){ cube([10, 10, 10) }\n")
+    stringy = tmp_path / "stringy.scad"
+    stringy.write_text('cube([60, 40, 4]);\ntext("hello");\n')
+
+    assert main(["lint", str(broken), str(stringy)]) == 0
+    err = capsys.readouterr().err
+
+    refusals = [ln for ln in err.splitlines() if "not run:" in ln]
+    assert len(refusals) == 2, "two causes, two lines — never merged under one reason"
+
+    by_scope = {}
+    for line in refusals:
+        _, scope, reason = _refusal_parts(line)
+        by_scope[scope] = reason
+    assert set(by_scope) == {str(broken), str(stringy)}, "each cause names its own file"
+    assert "Can't parse file" in by_scope[str(broken)]
+    assert "string content" in by_scope[str(stringy)]
+
+
+def test_a_clean_tier1_run_with_refusals_is_not_a_clean_bill(tmp_path: Path, capsys, monkeypatch):
+    """`findings: 0` with `unsupported: 3` is not a clean file.
+
+    This is the shape the counts block exists to make visible: a consumer
+    branching on `findings` alone reads a file three rules never looked at as
+    a pass.
+
+    Engine forced absent. An earlier version guarded the assertions behind
+    `if entry.get("unsupported")`, which is empty whenever an engine IS
+    present — so on every CI job that runs this file, the test asserted
+    nothing at all (review of PR #316).
+    """
+    from partspec.engines import openscad as openscad_mod
+
+    monkeypatch.setattr(openscad_mod, "find_executable", lambda: None)
+    scad = tmp_path / "quiet.scad"
+    # No magic numbers, no unused top-level: tier 1 has nothing to say.
+    scad.write_text("side = 10;\ncube([side, side, side]);\n")
+
+    assert main(["lint", str(scad)]) == 0
+    doc = json.loads(capsys.readouterr().out)
+
+    assert doc["counts"]["findings"] == 0, "tier 1 is genuinely clean here"
+    assert doc["counts"]["unsupported"] == len(TIER2_RULES), (
+        "and the tally is the only thing that says the run was not whole"
+    )
+    assert doc["files"][0]["unsupported"], "the blocks agree with the tally"
