@@ -50,7 +50,11 @@ target — while that part's own report says whatever the part deserved, `pass` 
 Every evaluated `check` run leaves a report at the deterministic path (a placeholder
 saying the run died is written before anything happens, then overwritten by the real
 report; a usage refusal — exit 64 — may leave the placeholder, or nothing when the
-invocation's shape was refused outright). The exit code plus two fields — `verdict` and
+invocation's shape was refused outright). That path is
+`<contract dir>/outputs/<part-slug>/report.json` unless `--out` says otherwise —
+anchored to the contract file, not to the working directory, so the same command run
+from anywhere writes to the same place. `<part-slug>` is the module stem, plus
+`-<factory>` when a factory is named. The exit code plus two fields — `verdict` and
 `error` — decide the action, with **two** exceptions, both of which exit 4 while the
 report says something else:
 

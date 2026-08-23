@@ -7,6 +7,7 @@ something a consumer would break on.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -1950,3 +1951,88 @@ def test_render_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     assert "not found" in doc["error"]
     assert "hint" in doc
     assert "not found" in captured.err, "the console courtesy line survives"
+
+
+def test_the_out_default_is_anchored_to_the_contract_and_every_out_says_so(tmp_path: Path):
+    """#277: three verbs default beside the CONTRACT, and none of them said so.
+
+    `--out` absent means `<contract dir>/outputs/<part-slug>`, anchored to the
+    contract file rather than to the working directory -- so the same command
+    run from two places writes to one place, and running it from somewhere
+    unrelated creates an `outputs/` inside a project the caller may not have
+    meant to touch. That rule lived only in `_out_dir`; `check --help` and
+    `measure --help` described the DIR layout without ever naming the default,
+    `render --out` carried no help text at all, and SPEC-report declared the
+    whole question out of scope.
+
+    Two claims, both executable. The path is what `_out_dir` builds -- the only
+    place the rule is decided. And every `--out` in the parser carries help,
+    which is the structural fact `render` violated, not a statement about what
+    that help says.
+
+    Deliberately NOT asserted: that the help text contains the default. An
+    earlier draft did exactly that, and AGENTS.md forbids it -- a substring
+    search reports a string is present, which is not a claim anyone wanted to
+    make. Proven, not assumed: with `assert "outputs/<part-slug>" in help` in
+    place, inverting all three sentences to "in the working directory rather
+    than beside the contract" -- #277's exact error -- still passed.
+
+    Interpolating the three helps from one `OUT_DEFAULT_DOC` removes the drift
+    between them but not the drift from behaviour: a second draft claimed there
+    was "nothing left to check", and setting that constant to "the current
+    working directory" passed the whole suite. So the constant is pinned here:
+    its middle component is derived from the directory `_out_dir` builds, and
+    its "beside the contract" claim is cross-checked against
+    `built.parent.parent` by a separate assertion -- that clause is retyped in
+    the expected string below, not computed from anything.
+
+    A third draft then named the two MCP docstrings as the whole of what stayed
+    unpinned. Also wrong: each help interpolated the constant into a sentence
+    restating the same fact in its own words, and mutating only that sentence
+    to "in the working directory rather than beside the contract" -- #277's
+    exact error, rendered into a self-contradicting help string -- passed all
+    1170 tests. That clause now lives inside the constant, where an exact-match
+    pin reaches it.
+
+    What that buys is narrower than three drafts of this paragraph claimed, and
+    was measured rather than reasoned about: the pin reads the constant and
+    nothing else. Appending a second telling of the anchor to a help passes,
+    and so does appending a sentence that contradicts it -- both tried, both
+    green across all 1170. The helps are asserted non-empty and no more.
+
+    Every other statement of the default -- the MCP docstrings, both docs,
+    other prose, this docstring -- is unpinned. No list of them here: four
+    drafts gave one and each was short by a copy the next reviewer found with
+    `grep -rn "outputs/"`, which is the answer that does not go stale.
+    """
+    contract = tmp_path / "widget.py"
+    contract.write_text("")
+
+    built = cli._out_dir(f"{contract}:thing", None)
+    assert built == tmp_path / "outputs" / "widget-thing"
+    assert cli._out_dir(str(contract), None) == tmp_path / "outputs" / "widget"
+
+    # The advertised spelling, derived from the path the code built rather than
+    # retyped: `<contract dir>` is the contract's own directory, and the middle
+    # component is whatever `_out_dir` puts there.
+    assert built.parent.parent == contract.parent
+    assert (
+        f"<contract dir>/{built.parent.name}/<part-slug>, beside the contract rather "
+        f"than in the working directory"
+    ) == cli.OUT_DEFAULT_DOC
+    # An explicit --out is taken as given, from any working directory.
+    assert cli._out_dir(f"{contract}:thing", Path("elsewhere")) == Path("elsewhere")
+
+    parser = cli.build_parser()
+    subparsers = next(
+        action.choices
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    for verb, subparser in subparsers.items():
+        for action in subparser._actions:
+            if "--out" in action.option_strings:
+                assert action.help, (
+                    f"{verb} --out carries no help at all; a caller who omits it has no "
+                    f"way to learn where the artifact went short of reading _out_dir"
+                )

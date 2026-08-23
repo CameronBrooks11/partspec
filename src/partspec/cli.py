@@ -81,6 +81,34 @@ def _timeout_s(explicit: float | None) -> float:
         raise _TimeoutUsage(f"{ENV_TIMEOUT} is unusable: {exc}") from None
 
 
+# One spelling of the `--out` default for the three CLI helps that share it,
+# because documenting it three times and adding a test that the phrase appears
+# is forbidden by AGENTS.md and rightly: a substring search reports that a
+# string is present, which is not a claim anyone wanted to make, and
+# `assert "outputs/<part-slug>" in help` passed a mutation that inverted the
+# sentence around it into the exact error #277 exists to prevent.
+#
+# It does not reach everywhere the default is written -- the MCP docstrings,
+# both docs and other prose still spell it out, none of them pinned to
+# anything. `grep -rn "outputs/"` finds them.
+#
+# No enumeration here on purpose. Four drafts of this comment tried to say
+# which copies existed -- "nothing to keep in step", then "the MCP pair", then
+# "five", then a list of categories -- and every one was short, each missing a
+# copy the next reviewer found with that grep. A description of the other
+# copies is itself a copy, and goes stale the same way.
+#
+# What `tests/test_cli.py` pins is this constant's own text, against the
+# directory `_out_dir` actually builds: setting it to "the current working
+# directory" passed the entire suite before that pin existed, and inverting
+# its anchor clause is caught now. It reaches nothing else. Nothing stops a
+# help appending a sentence that restates the anchor, or one that contradicts
+# it -- both were tried, both stayed green.
+OUT_DEFAULT_DOC = (
+    "<contract dir>/outputs/<part-slug>, beside the contract rather than in the working directory"
+)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="partspec",
@@ -114,7 +142,9 @@ def build_parser() -> argparse.ArgumentParser:
         # built paths against the single-target shape had them move underneath
         # on adding a second target.
         help="report directory: DIR/report.json for one target, "
-        "DIR/<part-slug>/report.json for several",
+        "DIR/<part-slug>/report.json for several "
+        f"(default: {OUT_DEFAULT_DOC}). On a tier that builds a file the "
+        "artifact lands here too, beside the report",
     )
     check.add_argument("--quiet", action="store_true", help="suppress the human summary")
     check.add_argument(
@@ -178,8 +208,12 @@ def build_parser() -> argparse.ArgumentParser:
         "reads external data, or has includes partspec could not resolve). A "
         "file is refused when nothing would be written to it (the OCCT tier "
         "builds in memory) or when that same closure is partial, because an "
-        "import()ed .stl is an input, not an output. The measurements "
-        "themselves go to stdout — this verb emits no report file",
+        "import()ed .stl is an input, not an output. Omitted, PATH defaults to "
+        f"{OUT_DEFAULT_DOC} — on a tier that builds a file at all. The OCCT "
+        "tier builds in memory, so it writes nothing there and creates not "
+        "even the directory, `measure` having no report to put in it. The "
+        "measurements themselves go to stdout — this verb emits no report "
+        "file",
     )
     measure.add_argument(
         "--timeout",
@@ -195,7 +229,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="write the canonical views (iso, front, top, right) as PNGs — no verdict",
     )
     render.add_argument("target", help="<module-path>[:<factory>]")
-    render.add_argument("--out", type=Path, default=None)
+    render.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        # The only --out in this parser that carried no help at all, which is
+        # the one place the #187 mistake -- passing a filename and getting a
+        # directory of that name -- had no text standing in front of it.
+        help="directory for render.json and the view PNGs, plus the build "
+        f"artifact on a tier that writes one (default: {OUT_DEFAULT_DOC})",
+    )
     render.add_argument(
         "--section",
         default=None,
@@ -228,7 +271,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         type=Path,
         default=None,
-        help="directory for the per-view diff images (default: <new>/vdiff)",
+        help="directory for the per-view diff images (default: `vdiff` beside "
+        "`new` — inside it when `new` is a directory, in its parent when `new` is a "
+        "file; relative to the run compared, not to any contract)",
     )
 
     diff = sub.add_parser(

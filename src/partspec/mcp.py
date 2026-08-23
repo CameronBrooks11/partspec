@@ -62,9 +62,10 @@ def _run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _check(target: str, out: str | None, render: bool = False) -> dict[str, Any]:
-    # Private import, deliberately: the report's location is the CLI's rule
-    # (`<contract dir>/outputs/<slug>` unless --out), and duplicating the rule
-    # here would let the two drift apart silently. `Target.parse` is total, so
+    # Private import, deliberately: the report's location is the CLI's rule and
+    # duplicating it here would let the two drift apart silently. This comment
+    # spelled the rule out anyway, and had drifted -- a sentence about the
+    # danger of a second copy, being a second copy. `Target.parse` is total, so
     # this cannot raise — resolution failures happen in the subprocess, which
     # leaves its placeholder artifact behind for the read below.
     from .cli import _out_dir
@@ -149,6 +150,10 @@ def build_server() -> MCPServer:
         """Build a part and check it against its contract.
 
         `target` is `<module-path>[:<factory>]`, e.g. `specs/bracket.py:bracket`.
+        `out` is the report directory; omit it and the report lands in
+        `<contract dir>/outputs/<part-slug>`, beside the contract rather than
+        in the working directory. Either way `report_path` in the result says
+        where it went.
         Returns the report the CLI writes, its path, and the exit code:
         0 pass, 1 fail, 2 incomplete (unproven, not failing), 3 empty
         (the contract asserts nothing), 4 error (partspec or the environment
@@ -173,7 +178,10 @@ def build_server() -> MCPServer:
         """Write the canonical views (iso, front, top, right) as PNGs.
 
         Deterministically framed from the bounding box, so two runs of the
-        same geometry are comparable. `section` ("xy"|"xz"|"yz", optionally
+        same geometry are comparable. `out` is the directory for `render.json`
+        and the view PNGs; omit it and they land in
+        `<contract dir>/outputs/<part-slug>`, beside the contract rather than
+        in the working directory. `section` ("xy"|"xz"|"yz", optionally
         ":offset" in mm, default the bounding-box centre) adds a cut view —
         internal features made visible, cut faces in a distinct colour.
         Returns the render payload: the part's identity, the engine block,
@@ -189,8 +197,13 @@ def build_server() -> MCPServer:
         """Compare two runs' renders of one part visually.
 
         `old`/`new` are render.json / report.json paths (or the directories
-        holding them, i.e. a previous render's --out). Returns the vdiff
-        document: per-view changed-pixel fractions with diff images, the
+        holding them, i.e. a previous render's `out`). `out` here is the
+        directory for the per-view diff images; omitted, it is `vdiff` beside
+        `new` -- inside it when `new` is a directory, in its parent when `new`
+        is a file. That is relative to the run being compared and not to a
+        contract, because the inputs are artifacts rather than a target, and
+        every `image` path in the result is absolute either way. Returns the
+        vdiff document: per-view changed-pixel fractions with diff images, the
         bbox delta (pure scale is invisible to framed pixels — the bbox is
         the witness), and a scalar `magnitude`. Exit 0 identical, 1
         different, 2 indeterminate — a pair it cannot honestly compare

@@ -308,6 +308,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`--out` says where it writes when nobody tells it where to write** (#277,
+  epic #305). With the flag absent, every verb that takes one resolves to
+  `<contract dir>/outputs/<part-slug>` — beside the **contract**, not in the
+  working directory, so the same command run from two places writes to one
+  place. Nothing had said so: `check --help` and `measure --help` described the
+  DIR layout without naming the default, `SPEC-report.md` declared the question
+  "out of scope here", `AGENT-CONTRACT.md` called it "the deterministic path"
+  without defining it, and **`render --out` carried no help at all** — the only
+  `--out` in the parser without any, and the one flag where the #187 mistake
+  (pass a filename, get a directory of that name) had no text in front of it.
+  The three verbs are documented separately because they differ, though not
+  where a first draft of this entry said: on the mesh tier all three write
+  `<source stem>.stl` into that directory, and what distinguishes `measure` is
+  that it writes *only* the artifact and no report, `check` adding
+  `report.json` and `render` adding `render.json` plus `renders/`. The artifact
+  appears **only on a tier that builds a file** — the OCCT tier, which covers
+  both build123d and CadQuery, builds in memory and writes no artifact at all.
+  There `check` and `render` still create the directory for their report;
+  `measure`, having no report to put in it, creates not even that. Two earlier
+  drafts got this wrong, each in its own direction: the first generalised the
+  mesh tier's behaviour across every tier within `measure`, the second
+  generalised `measure`'s behaviour across every verb on the OCCT tier. `vdiff`
+  is anchored to the run being compared rather than to a contract, defaulting
+  to `vdiff` beside `new`: inside it when `new` is a directory, in its parent
+  when `new` is a file. The three MCP docstrings gain a sentence each, that
+  boundary showing a caller a tool list and nothing else. The help strings are
+  interpolated from one constant rather than repeated, so there is no second
+  copy to drift.
+
 - **`empty()` means no positive-volume interference** — not "the parts do not
   touch", and not "there is clearance" (#270, epic #305). The check is
   unreleased, so this is its introduced meaning rather than a change to one.
