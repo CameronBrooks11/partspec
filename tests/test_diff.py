@@ -1871,6 +1871,20 @@ def test_the_qualifier_counts_the_moved_claims_and_not_the_bucket():
         "different: p — 1 fixed (1 with the claim changed)"
     )
 
+    # 6. The bound moved and so did the part. Every qualified entry above
+    #    carries a claim and no value, so the one shape a reader is most
+    #    likely to meet — an author who loosened a bound while the geometry
+    #    was also changing — was nowhere in the suite. The qualifier reads
+    #    the claim whether or not a value rode along with it.
+    cited["measurement"]["value"] = 1.4
+
+    doc = _diff(old, new)
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert "claim" in entry and "value" in entry
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed)"
+    )
+
 
 def test_the_note_rides_beside_the_moved_inputs_clause_rather_than_over_it():
     """Both clauses land on one line and the first draft of this fix bound its

@@ -532,9 +532,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   worse from a contract the author deliberately tightened, and only one of
   those is a defect. `limit_changed` does not — the claim moving *is* that
   bucket — and a `drifted` entry cannot carry a claim at all.
-  §3 now binds the headline in the same sentence that binds the entry, so the
-  two surfaces are specified together rather than one inheriting the other's
-  reasoning by implication.
+  §3 now binds the headline in the bullet that binds the entry, immediately
+  after it and giving the same reason, so the two surfaces are specified
+  together rather than one inheriting the other's reasoning by implication.
 
 - **`partspec lint`'s console now names the rules that did not run** (#288,
   epic #305). `unsupported[]` was written per file while the stderr courtesy
