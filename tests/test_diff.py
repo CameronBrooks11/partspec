@@ -1703,6 +1703,91 @@ def test_weakening_that_flips_a_status_still_shows_the_moved_limit():
     assert entry["claim"]["new"] == {"limit": {"min": 0.001}}
 
 
+def _loosened() -> tuple[dict, dict]:
+    """The flagship weakening move: `wall_gt_2` fails, its floor drops to
+    0.001, and the same geometry now passes. Reproduced end to end against a
+    real `spacer.scad` before #293 was believed."""
+    old, new = _doc(), _doc()
+    next(c for c in old["checks"] if c["id"] == "wall_gt_2")["status"] = "fail"
+    old["verdict"] = "fail"
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 0.001}
+    return old, new
+
+
+def test_a_status_flipped_by_a_moved_claim_says_so_on_the_headline_too():
+    """#293. §3's reason for making the claim delta ride the entry is that
+    "an entry saying only 'fixed' would report the attack as an improvement" —
+    and the stderr headline, which is the surface a human reads in a terminal
+    or a PR check, said exactly `1 fixed`. The artifact carried the delta the
+    whole time; nothing printed it."""
+    old, new = _loosened()
+    doc = _diff(old, new)
+
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed)"
+    )
+
+
+def test_a_genuine_fix_is_not_slurred_as_a_moved_claim():
+    """The note must fire on the weakening move and not on a repair. Same
+    floor, thicker wall: the part got better and the headline must say so
+    without a caveat, or the caveat means nothing where it matters."""
+    old, new = _doc(), _doc()
+    old_check = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    old_check["status"] = "fail"
+    old_check["measurement"]["value"] = 1.4
+    old["verdict"] = "fail"
+
+    summary = summary_of(_diff(old, new), new)
+    assert summary.splitlines()[0] == "different: p — 1 fixed"
+    assert "claim changed" not in summary
+
+
+def test_the_note_rides_beside_the_moved_inputs_clause_rather_than_over_it():
+    """Both clauses land on one line and the first draft of this fix bound its
+    count to the name the imports/packages clause already held, printing
+    `...changed)1` — the headline reporting its own arithmetic. Two facts, one
+    line, neither swallowing the other."""
+    old, new = _loosened()
+    old["environment"]["packages"] = {"trimesh": "5.0.0"}
+    new["environment"]["packages"] = {"trimesh": "5.1.0"}
+
+    assert summary_of(_diff(old, new), new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed); packages moved: trimesh 5.0.0 → 5.1.0"
+    )
+
+
+def test_a_tightened_claim_that_breaks_a_check_is_distinguished_from_a_worse_part():
+    """The mirror case, and the same ambiguity: `1 regressed` alone cannot
+    tell a part that got worse from a contract that got stricter. One is a
+    defect and the other is the author doing their job."""
+    old, new = _doc(), _doc()
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 3.5}
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["status"] = "fail"
+    new["verdict"] = "fail"
+
+    assert summary_of(_diff(old, new), new).splitlines()[0] == (
+        "different: p — 1 regressed (1 with the claim changed)"
+    )
+
+
+def test_the_note_is_not_repeated_where_it_would_be_tautological():
+    """`limit_changed` IS the claim moving, so the qualifier would restate the
+    bucket's own name; a `drifted` entry cannot carry a claim at all, because
+    `_check_entry` returns `limit_changed` before reaching that branch."""
+    old, new = _doc(), _doc()
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 0.001}
+    next(c for c in new["checks"] if c["id"] == "envelope")["measurement"]["value"] = [
+        29.0,
+        20.0,
+        10.0,
+    ]
+
+    doc = _diff(old, new)
+    assert {c["change"] for c in doc["checks"]} == {"limit_changed", "drifted"}
+    assert summary_of(doc, new).splitlines()[0] == "different: p — 1 drifted; 1 limit_changed"
+
+
 def test_a_verdict_only_tamper_is_a_difference():
     """Identical checks, tampered verdict: still different (review M1 — this
     clause was untested and a mutant deleting it survived)."""

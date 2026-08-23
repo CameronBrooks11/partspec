@@ -512,6 +512,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`partspec diff`'s headline now says when a status change moved the claim
+  with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry
+  to carry the claim delta because "an entry saying only 'fixed' would report
+  the attack as an improvement". The artifact discharged that; the stderr
+  headline counted entries per bucket and printed `1 fixed` — so loosening a
+  bound until a failing check passes, the flagship weakening move, reached the
+  console as good news. Reproduced end to end against a real build over
+  `examples/spacer`'s `spacer.scad`: one contract, its `envelope` bound edited
+  in place from `max=(40,30,4)` to `max=(40,30,8)`, the source unmoved
+  (`source.digest_changed: false`). The artifact carried
+  `status: fail→pass` beside `limit.max: [40,30,4]→[40,30,8]`; the headline
+  read `different: example-spacer — 1 fixed` and named neither.
+  The count keeps the bucket's true total and a qualifier breaks it down —
+  `1 fixed (1 with the claim changed)` — rather than splitting into two counts,
+  because `N fixed` is what §3 names and what a reader greps, and a split total
+  answers "how many were fixed?" with a number that is not the answer.
+  Both status buckets take it: `1 regressed` alone cannot tell a part that got
+  worse from a contract the author deliberately tightened, and only one of
+  those is a defect. `limit_changed` does not — the claim moving *is* that
+  bucket — and a `drifted` entry cannot carry a claim at all.
+  §3 now binds the headline in the same sentence that binds the entry, so the
+  two surfaces are specified together rather than one inheriting the other's
+  reasoning by implication.
+
 - **`partspec lint`'s console now names the rules that did not run** (#288,
   epic #305). `unsupported[]` was written per file while the stderr courtesy
   stream was built from `findings` alone, so a source whose `.csg` export
