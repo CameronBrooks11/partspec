@@ -1655,14 +1655,17 @@ def test_the_closure_walk_terminates_on_a_cycle(tmp_path: Path, files: dict[str,
 
 @needs_openscad
 @pytest.mark.parametrize("coord", [5.0, 10000.0], ids=["origin", "ten-metres"])
-def test_the_boolean_floor_does_not_coarsen_with_distance(tmp_path: Path, coord: float):
-    """A 1e-5 mm feature survives a boolean at the origin and at ten metres.
+def test_a_1e_5_mm_pin_still_resolves_at_ten_metres(tmp_path: Path, coord: float):
+    """A 1e-5 mm square-section pin resolves at the origin and at ten metres.
 
-    The one thing #315 settled that is worth a test: **the floor does not
-    coarsen with distance from the origin.** An earlier draft of §4.12 warned
-    that it did, and that warning was backwards. If manifold's floor tracked
-    half a float32 ULP all the way out it would be ~4.9e-4 mm at ten metres and
-    this feature would vanish there; it does not.
+    Named for exactly what it asserts. The floor DOES coarsen with distance for
+    some constructions -- manifold's for this pin by 8x, for a two-axis body
+    overlap by 283x (§4.12) -- so "does not coarsen", which this test was first
+    called, is false. What survives is that it plateaus: an earlier draft
+    warned against relying on these floors far from the origin because they
+    grow, and if manifold's tracked half a float32 ULP all the way out it would
+    be ~4.9e-4 mm at ten metres and this feature would vanish there. It does
+    not.
 
     That is all this asserts. It does NOT establish a floor value or a law --
     #315's formula was fitted to one probe shape at positive coordinates and is

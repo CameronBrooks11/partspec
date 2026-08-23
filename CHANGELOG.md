@@ -333,13 +333,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OpenSCAD ~1.9e-6 mm (CGAL) and ~2.4e-7 mm near the origin (manifold) for one
   specific probe — an axis-aligned square-section pin.
   **Those OpenSCAD figures do not generalise, and #315 is the record of finding
-  that out.** Rotate the pin 45°, make its section rectangular, or make the
-  interference a thin overlap between two macroscopic bodies rather than a
-  body's own dimension, and both backends resolve down to at least 1e-9 mm —
-  three orders finer. An earlier revision of this entry stated a formula and a
-  universal bound fitted to nine samples that shared one construction, one sign
-  and one shape; both were false outside it. The table is an existence proof,
-  not a bound.
+  that out.** Measured across three constructions, the floor spans five orders
+  on one backend: rotating the pin 45° moves manifold's from 2.4e-7 to 3.4e-7,
+  and making the interference a thin overlap between two blocks moves it to
+  2.5e-11 near the origin — while CGAL resolves that overlap below 1e-14.
+  Whether the floor coarsens with distance is construction-dependent too:
+  manifold's pin floor coarsens 8× out to ten metres and its overlap floor
+  283×, its rotated-pin floor not at all, and CGAL's not in any construction
+  measured. One bound survived everything tried: nothing measured had a floor
+  above ~1.9e-6 mm, which is what licenses calling these sub-physical.
+  Two revisions of this entry overreached, the second while retracting the
+  first — a formula and a universal 2⁻¹⁹ bound fitted to nine same-shaped
+  samples, then a "resolves down to at least 1e-9 mm on both backends"
+  measured on an overlap thin on one axis and written about the case that is
+  thin on two. The table is an existence proof, not a bound.
   Sub-physical for real parts either way, and it is the one
   direction where a pass is weaker than it reads — so `empty` is now specified
   as "no positive-volume interference **the kernel can represent**", the same

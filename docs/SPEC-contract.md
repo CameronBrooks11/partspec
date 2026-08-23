@@ -871,34 +871,51 @@ penetration:
 | CGAL — OpenSCAD 2021.01 | a feature's cross-section | ~1.9e-6 mm for the probe below | nothing exported; `empty` passes |
 | manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ~2.4e-7 mm near the origin for the probe below, coarsening with its coordinate | nothing exported; `empty` passes |
 
-**The OpenSCAD figures are for one probe, and do not generalise.** They were measured with
-an axis-aligned square-section pin, its own dimension being the feature, at positive
-coordinates from 5 to 10 000 (#315). Change the arrangement and the floor moves by orders:
-the same pin rotated 45°, or given a rectangular rather than square section, survives where
-the square one vanishes; and a *thin overlap between two macroscopic bodies* — the pin-in-a-
-hole case, where the interference is the difference between two faces rather than a body's
-own dimension — is resolved on both backends down to at least 1e-9 mm, three orders below
-the figures above.
+**The OpenSCAD figures are for one probe, and the floor moves by orders with the
+arrangement.** The row above was measured with an axis-aligned square-section pin, its own
+dimension being the feature, at positive coordinates. Three constructions, measured through
+partspec's own render path (#315):
 
-So the table gives an **existence proof, not a bound**: for this probe these are the floors,
-and for other arrangements the floor is elsewhere and has not been characterised. The
-actionable half does not depend on the number — **a sufficiently thin interference is
-discarded on every kernel, and `empty` passes on it**. What "sufficiently thin" means
-depends on the geometry, so a contract that needs a guarantee should assert a clearance
-with the grown-part pattern below rather than lean on this floor.
+| construction | coord | CGAL | manifold |
+|---|---|---|---|
+| square-section pin (the row above) | 5 | 1.91e-6 | 2.38e-7 |
+| square-section pin | 10 000 | 1.91e-6 | 1.91e-6 |
+| the same pin rotated 45° | 5 and 10 000 | 1.35e-6 | 3.37e-7 |
+| a thin overlap between two blocks, thin on two axes | 5 | <1e-14 | 2.50e-11 |
+| the same overlap | 10 000 | <1e-14 | 7.09e-9 |
 
-An earlier draft of this section stated a formula, `min(½·ULP32(coord), 2⁻¹⁹ mm)`, and the
-claim that no OpenSCAD boolean resolves finer than 2⁻¹⁹ mm. Both were fitted to nine samples
-that shared one construction, one sign and one cross-section shape, and both are false
-outside that sample — recorded here because the shape of the mistake matters more than the
-number: a law fitted to a convenient sweep reads exactly like a measured one.
+Five orders between the extremes on one backend. **Whether the floor coarsens with distance
+is itself construction-dependent**: manifold's pin floor coarsens 8× from coordinate 5 to
+10 000 and its two-axis overlap floor coarsens 283×, while its rotated-pin floor does not
+move at all, and CGAL's did not coarsen in any construction measured.
+
+So the row is an **existence proof, not a bound**: for that probe those are the floors, and
+elsewhere the floor is elsewhere. One bound did survive every construction and coordinate
+tried here — **nothing measured had a floor above ~1.9e-6 mm** — which is what licenses
+calling these sub-physical, and it is a plateau rather than an absence of coarsening.
+
+The actionable half does not depend on any of the numbers: **a sufficiently thin
+interference is discarded on every kernel, and `empty` passes on it.** What "sufficiently
+thin" means depends on the geometry, so a contract that needs a guarantee should assert a
+clearance with the grown-part pattern below rather than lean on a floor.
+
+Two earlier drafts of this section overreached, and the second did it while retracting the
+first. One stated a formula, `min(½·ULP32(coord), 2⁻¹⁹ mm)`, and the claim that no OpenSCAD
+boolean resolves finer than 2⁻¹⁹ mm — both fitted to nine samples sharing one construction,
+one sign and one cross-section. Its replacement then said a body-to-body overlap resolves
+"on both backends down to at least 1e-9 mm", measured on an overlap thin on *one* axis and
+written about the pin-in-a-hole case, which is thin on two and is lost on manifold at ten
+metres. Recorded because the shape of the mistake is the useful part: a claim fitted to a
+convenient sample reads exactly like a measured one, including to the person who fitted it.
 
 OCCT's floor is a declared kernel constant and does not vary with the face or the
 coordinate (measured out to 1e6 mm) — but the *volume* lost at it does vary with the face:
 1.5e-7 mm3 across a 0.5 mm one, 2.2e-3 mm3 across a 60 mm one.
 
-These are sub-physical for real parts, and no measurement found any of them coarsening
-with distance from the origin — the opposite of what a still earlier draft warned. They
+All the floors above are sub-physical for real parts. An earlier draft warned against
+relying on them *far from the origin*, on the reasoning that they coarsen with distance;
+that reasoning was backwards for CGAL, which did not coarsen in any construction measured,
+and incomplete for manifold, which coarsens for some constructions and plateaus. They
 remain the direction in which a pass is weaker than it reads, so they are stated rather
 than implied.
 
