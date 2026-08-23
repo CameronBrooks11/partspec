@@ -69,10 +69,16 @@ Where `--out` is **absent**, every verb that takes it resolves the destination t
 way: `<contract dir>/outputs/<part-slug>`, anchored to the contract file and not to the
 working directory, so the same command run from any directory writes to the same place.
 `<part-slug>` is the module stem, plus `-<factory>` when a factory is named. Two
-departures, both documented in `--help`: `check --out DIR` with several targets writes
-`DIR/<part-slug>/report.json`, one directory being unable to hold N reports at one
-deterministic name; and `vdiff` defaults to `<new>/vdiff`, relative to the run being
-compared rather than to a contract, because its inputs are artifacts and not a target.
+qualifications. `measure` names a build artifact rather than a directory of reports, so
+this is where the artifact lands **on a tier that writes one at all** — the OCCT tier
+builds in memory and creates nothing, as above (#204). And `vdiff` does not take a target:
+its inputs are artifacts, so it defaults to `vdiff` beside `new` — inside it when `new` is
+a directory, in its parent when `new` is a file — relative to the run being compared
+rather than to any contract.
+
+Under an explicit `--out`, `check` with several targets writes
+`DIR/<part-slug>/report.json` rather than `DIR/report.json`, one directory being unable
+to hold N reports at one deterministic name.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
 **Backing:** `DECISIONS.md` D5, D10, D13; [`notes/survey/04-kernel-capability.md`][survey-capability].
 

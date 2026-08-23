@@ -197,9 +197,12 @@ def build_server() -> MCPServer:
 
         `old`/`new` are render.json / report.json paths (or the directories
         holding them, i.e. a previous render's `out`). `out` here is the
-        directory for the per-view diff images, defaulting to `<new>/vdiff` --
-        it is relative to the run being compared, not to the contract, because
-        the inputs are artifacts rather than a target. Returns the vdiff
+        directory for the per-view diff images; omitted, it is `vdiff` beside
+        `new` -- inside it when `new` is a directory, in its parent when `new`
+        is a file. That is relative to the run being compared and not to a
+        contract, because the inputs are artifacts rather than a target, and
+        every `image` path in the result is absolute either way. Returns the
+        vdiff
         document: per-view changed-pixel fractions with diff images, the
         bbox delta (pure scale is invisible to framed pixels — the bbox is
         the witness), and a scalar `magnitude`. Exit 0 identical, 1

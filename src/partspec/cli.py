@@ -81,6 +81,16 @@ def _timeout_s(explicit: float | None) -> float:
         raise _TimeoutUsage(f"{ENV_TIMEOUT} is unusable: {exc}") from None
 
 
+# One spelling of the `--out` default, interpolated into every --help that has
+# one. The alternative -- documenting it three times and adding a test that the
+# phrase appears -- is forbidden by AGENTS.md and rightly: a substring search
+# reports that a string is present, which is not a claim anyone wanted to make.
+# `assert "outputs/<part-slug>" in help` passed a mutation that inverted the
+# sentence around it into the exact error #277 exists to prevent. A projection
+# of one constant cannot drift; there is nothing to keep in step.
+OUT_DEFAULT_DOC = "<contract dir>/outputs/<part-slug>"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="partspec",
@@ -115,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
         # on adding a second target.
         help="report directory: DIR/report.json for one target, "
         "DIR/<part-slug>/report.json for several "
-        "(default: <contract dir>/outputs/<part-slug>, beside the contract "
+        f"(default: {OUT_DEFAULT_DOC}, beside the contract "
         "rather than in the working directory)",
     )
     check.add_argument("--quiet", action="store_true", help="suppress the human summary")
@@ -180,10 +190,11 @@ def build_parser() -> argparse.ArgumentParser:
         "reads external data, or has includes partspec could not resolve). A "
         "file is refused when nothing would be written to it (the OCCT tier "
         "builds in memory) or when that same closure is partial, because an "
-        "import()ed .stl is an input, not an output. Default: the artifact "
-        "lands in <contract dir>/outputs/<part-slug>/, beside the contract "
-        "rather than in the working directory. The measurements themselves go "
-        "to stdout — this verb emits no report file",
+        "import()ed .stl is an input, not an output. Omitted, PATH defaults to "
+        f"{OUT_DEFAULT_DOC}/ — beside the contract rather than in the working "
+        "directory — on the tier that builds a file at all; the OCCT tier "
+        "writes nothing there and creates nothing. The measurements themselves "
+        "go to stdout — this verb emits no report file",
     )
     measure.add_argument(
         "--timeout",
@@ -206,8 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
         # The only --out in this parser that carried no help at all, which is
         # the one place the #187 mistake -- passing a filename and getting a
         # directory of that name -- had no text standing in front of it.
-        help="directory for render.json and the view PNGs "
-        "(default: <contract dir>/outputs/<part-slug>)",
+        help=f"directory for render.json and the view PNGs (default: {OUT_DEFAULT_DOC})",
     )
     render.add_argument(
         "--section",

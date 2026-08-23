@@ -1953,20 +1953,31 @@ def test_render_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     assert "not found" in captured.err, "the console courtesy line survives"
 
 
-def test_every_out_default_the_help_states_is_the_one_the_code_computes(tmp_path: Path):
+def test_the_out_default_is_anchored_to_the_contract_and_every_out_says_so(tmp_path: Path):
     """#277: three verbs default beside the CONTRACT, and none of them said so.
 
-    `--out` absent means `<contract dir>/outputs/<part-slug>`, which is
-    anchored to the contract file rather than to the working directory -- so
-    the same command run from two places writes to one place, and running it
-    from somewhere unrelated creates an `outputs/` inside a project the caller
-    may not have meant to touch. That rule lived only in `_out_dir`;
-    `check --help` and `measure --help` described the DIR layout without ever
-    naming the default, `render --out` carried no help text at all, and
-    SPEC-report declared the whole question out of scope.
+    `--out` absent means `<contract dir>/outputs/<part-slug>`, anchored to the
+    contract file rather than to the working directory -- so the same command
+    run from two places writes to one place, and running it from somewhere
+    unrelated creates an `outputs/` inside a project the caller may not have
+    meant to touch. That rule lived only in `_out_dir`; `check --help` and
+    `measure --help` described the DIR layout without ever naming the default,
+    `render --out` carried no help text at all, and SPEC-report declared the
+    whole question out of scope.
 
-    Documenting it is only half a fix, because prose drifts. This pins the two
-    together: the path the help advertises has to be the path the code builds.
+    Two claims, both executable. The path is what `_out_dir` builds -- the only
+    place the rule is decided. And every `--out` in the parser carries help,
+    which is the structural fact `render` violated, not a statement about what
+    that help says.
+
+    Deliberately NOT asserted: that the help text contains the default. An
+    earlier draft did exactly that, and AGENTS.md forbids it -- a substring
+    search reports a string is present, which is not a claim anyone wanted to
+    make. Proven, not assumed: with `assert "outputs/<part-slug>" in help` in
+    place, inverting all three sentences to "in the working directory rather
+    than beside the contract" -- #277's exact error -- still passed. The help
+    strings are now interpolated from one `OUT_DEFAULT_DOC`, so there is no
+    second copy to hold in step and nothing left for such a test to check.
     """
     contract = tmp_path / "widget.py"
     contract.write_text("")
@@ -1982,10 +1993,10 @@ def test_every_out_default_the_help_states_is_the_one_the_code_computes(tmp_path
         for action in parser._actions
         if isinstance(action, argparse._SubParsersAction)
     )
-    for verb in ("check", "measure", "render"):
-        out_action = next(a for a in subparsers[verb]._actions if "--out" in a.option_strings)
-        assert out_action.help, f"{verb} --out carries no help at all"
-        assert "outputs/<part-slug>" in out_action.help, (
-            f"{verb} --out does not name its default; a caller who omits it has no way "
-            f"to learn where the artifact went short of reading _out_dir"
-        )
+    for verb, subparser in subparsers.items():
+        for action in subparser._actions:
+            if "--out" in action.option_strings:
+                assert action.help, (
+                    f"{verb} --out carries no help at all; a caller who omits it has no "
+                    f"way to learn where the artifact went short of reading _out_dir"
+                )
