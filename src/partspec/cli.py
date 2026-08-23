@@ -89,7 +89,7 @@ def _timeout_s(explicit: float | None) -> float:
 # sentence around it into the exact error #277 exists to prevent.
 #
 # It does not reach everywhere the default is written -- the MCP docstrings,
-# both specs and other prose still spell it out, none of them pinned to
+# both docs and other prose still spell it out, none of them pinned to
 # anything. `grep -rn "outputs/"` finds them.
 #
 # No enumeration here on purpose. Four drafts of this comment tried to say

@@ -2000,7 +2000,7 @@ def test_the_out_default_is_anchored_to_the_contract_and_every_out_says_so(tmp_p
     and so does appending a sentence that contradicts it -- both tried, both
     green across all 1170. The helps are asserted non-empty and no more.
 
-    Every other statement of the default -- the MCP docstrings, both specs,
+    Every other statement of the default -- the MCP docstrings, both docs,
     other prose, this docstring -- is unpinned. No list of them here: four
     drafts gave one and each was short by a copy the next reviewer found with
     `grep -rn "outputs/"`, which is the answer that does not go stale.
