@@ -1703,6 +1703,249 @@ def test_weakening_that_flips_a_status_still_shows_the_moved_limit():
     assert entry["claim"]["new"] == {"limit": {"min": 0.001}}
 
 
+def _loosened() -> tuple[dict, dict]:
+    """The flagship weakening move: an unchanged 1.4 mm wall, its floor
+    dropped from 2.0 to 0.001, and a check that now passes.
+
+    The measurement is moved on *both* sides. Leaving `_doc`'s 2.9 under a
+    stamped `fail` would model a report that contradicts itself, and moving it
+    on one side only would put a `value` delta in the entry — the geometry
+    changing is the one thing this fixture must not say happened.
+
+    #293's own end-to-end reproduction was a live build of a different check
+    (an `envelope` bound over `examples/spacer`'s `spacer.scad`); this is the
+    same shape as a unit fixture, not a transcript of that run.
+    """
+    old, new = _doc(), _doc()
+    old_check = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    old_check["status"] = "fail"
+    old_check["measurement"]["value"] = 1.4
+    old["verdict"] = "fail"
+    new_check = next(c for c in new["checks"] if c["id"] == "wall_gt_2")
+    new_check["measurement"]["value"] = 1.4
+    new_check["limit"] = {"min": 0.001}
+    return old, new
+
+
+def test_a_status_flipped_by_a_moved_claim_says_so_on_the_headline_too():
+    """#293. §3's reason for making the claim delta ride the entry is that
+    "an entry saying only 'fixed' would report the attack as an improvement" —
+    and the stderr headline, which is the surface a human reads in a terminal
+    or a PR check, said exactly `1 fixed`. The artifact carried the delta the
+    whole time; nothing printed it."""
+    old, new = _loosened()
+    doc = _diff(old, new)
+
+    # The fixture says what it claims to say: the claim moved and the geometry
+    # did not, so the note is answering for the bound and nothing else.
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert entry["claim"]["old"] == {"limit": {"min": 2.0}}
+    assert "value" not in entry
+
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed)"
+    )
+
+
+def test_a_genuine_fix_is_not_slurred_as_a_moved_claim():
+    """The note must fire on the weakening move and not on a repair. Same
+    floor, thicker wall: the part got better and the headline must say so
+    without a caveat, or the caveat means nothing where it matters."""
+    old, new = _doc(), _doc()
+    old_check = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    old_check["status"] = "fail"
+    old_check["measurement"]["value"] = 1.4
+    old["verdict"] = "fail"
+
+    summary = summary_of(_diff(old, new), new)
+    assert summary.splitlines()[0] == "different: p — 1 fixed"
+    assert "claim changed" not in summary
+
+
+def test_the_qualifier_counts_the_moved_claims_and_not_the_bucket():
+    """One bucket, one weakening and one genuine repair. Every other test here
+    puts a single entry in the qualified bucket, where the two numbers cannot
+    be told apart — and a mutant printing the bucket total inside the
+    parentheses passed all 1178 (review round 2).
+
+    `2 fixed (2 with the claim changed)` accuses the repair of being the
+    attack, which is the same defect as #293 pointed the other way.
+
+    Three shapes, because one is not enough to pin a count (review round 4).
+    A qualified entry first is what `1` and `any()` and `entries[:1]` all
+    agree on; the number is only observable where it is neither 0 nor the
+    bucket total, and the position only where the qualified entry is not the
+    one a truncating read would find."""
+
+    def _fixed(doc):
+        return [(c["id"], "claim" in c) for c in doc["checks"] if c["change"] == "fixed"]
+
+    # 1. The weakening first, a genuine repair behind it.
+    old, new = _loosened()
+    envelope = next(c for c in old["checks"] if c["id"] == "envelope")
+    envelope["status"] = "fail"
+    envelope["measurement"]["value"] = [31.0, 20.0, 10.0]
+
+    doc = _diff(old, new)
+    assert _fixed(doc) == [("wall_gt_2", True), ("envelope", False)]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 2 fixed (1 with the claim changed)"
+    )
+
+    # 2. The same pair with the roles swapped, so the qualified entry is not
+    #    the first one. `entries[:1]` reads this as an unqualified `2 fixed` —
+    #    #293's own defect, restored, under a green suite.
+    old, new = _doc(), _doc()
+    wall_old = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    wall_old["status"] = "fail"
+    wall_old["measurement"]["value"] = 1.4
+    env_old = next(c for c in old["checks"] if c["id"] == "envelope")
+    env_old["status"] = "fail"
+    old["verdict"] = "fail"
+    next(c for c in new["checks"] if c["id"] == "envelope")["limit"] = {"max": [40, 30, 10]}
+
+    doc = _diff(old, new)
+    assert _fixed(doc) == [("wall_gt_2", False), ("envelope", True)]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 2 fixed (1 with the claim changed)"
+    )
+
+    # 3. Both claims moved. `any()` and a `min(n, 1)` clamp both under-report
+    #    here, filing one of two weakenings as a repair.
+    wall_new = next(c for c in new["checks"] if c["id"] == "wall_gt_2")
+    wall_new["measurement"]["value"] = 1.4
+    wall_new["limit"] = {"min": 0.001}
+
+    doc = _diff(old, new)
+    assert _fixed(doc) == [("wall_gt_2", True), ("envelope", True)]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 2 fixed (2 with the claim changed)"
+    )
+
+    # 4. Each count reads its own bucket. Every block above puts every entry
+    #    in one bucket, so nothing observed the domain — a mutant counting the
+    #    claim-moved entries across all the status buckets, or across the
+    #    whole diff, passed all 1179 (review round 5). §3 makes the scope
+    #    normative twice ("how many of *its* entries", "*within* a status
+    #    bucket") and neither sentence was executed.
+    #
+    #    A tightened bound that breaks a check, a genuine repair beside it,
+    #    and a claim moved under a status that held. The qualifier belongs to
+    #    the first and to nothing else.
+    old, new = _doc(), _doc()
+    repaired = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    repaired["status"] = "fail"
+    repaired["measurement"]["value"] = 1.4
+    old["verdict"] = "fail"
+    broken = next(c for c in new["checks"] if c["id"] == "envelope")
+    broken["status"] = "fail"
+    broken["limit"] = {"max": [29, 20, 10]}
+    next(c for c in new["checks"] if c["id"] == "fits")["expr"] = "a + b <= 2 * c"
+
+    doc = _diff(old, new)
+    assert [(c["id"], c["change"], "claim" in c) for c in doc["checks"]] == [
+        ("wall_gt_2", "fixed", False),
+        ("fits", "limit_changed", True),
+        ("envelope", "regressed", True),
+    ]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 regressed (1 with the claim changed); 1 fixed; 1 limit_changed"
+    )
+
+    # 5. The whole claim, not the bound. Every block above moves `limit`, so a
+    #    mutant counting only entries whose `limit` moved passed the suite —
+    #    and §3 calls a stripped citation "the quiet half of the weakening
+    #    move": same number, authority now the author's say-so. A status that
+    #    flips under it must qualify exactly as a loosened bound does.
+    old, new = _doc(), _doc()
+    cited = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    cited["status"] = "fail"
+    cited["source"] = {"standard": "iso15", "subject": "608", "field": "bore"}
+    old["verdict"] = "fail"
+
+    doc = _diff(old, new)
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert entry["change"] == "fixed"
+    assert list(entry["claim"]["new"]) == ["source"]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed)"
+    )
+
+    # 6. The bound moved and so did the part. Every qualified entry above
+    #    carries a claim and no value, so the one shape a reader is most
+    #    likely to meet — an author who loosened a bound while the geometry
+    #    was also changing — was nowhere in the suite. The qualifier reads
+    #    the claim whether or not a value rode along with it.
+    cited["measurement"]["value"] = 1.4
+
+    doc = _diff(old, new)
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert "claim" in entry and "value" in entry
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed)"
+    )
+
+
+def test_the_note_rides_beside_the_moved_inputs_clause_rather_than_over_it():
+    """Both clauses land on one line and the first draft of this fix bound its
+    count to the name the imports/packages clause already held, printing
+    `...changed)1` — the headline reporting its own arithmetic. Two facts, one
+    line, neither swallowing the other."""
+    old, new = _loosened()
+    old["environment"]["packages"] = {"trimesh": "5.0.0"}
+    new["environment"]["packages"] = {"trimesh": "5.1.0"}
+
+    assert summary_of(_diff(old, new), new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed); packages moved: trimesh 5.0.0 → 5.1.0"
+    )
+
+
+def test_a_tightened_claim_that_breaks_a_check_is_distinguished_from_a_worse_part():
+    """The mirror case, and the same ambiguity: `1 regressed` alone cannot
+    tell a part that got worse from a contract that got stricter. One is a
+    defect and the other is the author doing their job.
+
+    Mixed as well as alone. Review round 3: a mutant confined to the
+    `regressed` bucket survived all 1179, because no test anywhere put more
+    than one entry in it — the same shape as round 2's finding, on the half of
+    the rule the round-2 fix did not reach."""
+    old, new = _doc(), _doc()
+    tightened = next(c for c in new["checks"] if c["id"] == "wall_gt_2")
+    tightened["limit"] = {"min": 3.5}
+    tightened["status"] = "fail"
+    new["verdict"] = "fail"
+
+    assert summary_of(_diff(old, new), new).splitlines()[0] == (
+        "different: p — 1 regressed (1 with the claim changed)"
+    )
+
+    # And a second regression beside it whose claim held: the part got worse.
+    worse = next(c for c in new["checks"] if c["id"] == "envelope")
+    worse["status"] = "fail"
+    worse["measurement"]["value"] = [31.0, 20.0, 10.0]
+
+    assert summary_of(_diff(old, new), new).splitlines()[0] == (
+        "different: p — 2 regressed (1 with the claim changed)"
+    )
+
+
+def test_the_note_is_not_repeated_where_it_would_be_tautological():
+    """`limit_changed` IS the claim moving, so the qualifier would restate the
+    bucket's own name; a `drifted` entry cannot carry a claim at all, because
+    `_check_entry` returns `limit_changed` before reaching that branch."""
+    old, new = _doc(), _doc()
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 0.001}
+    next(c for c in new["checks"] if c["id"] == "envelope")["measurement"]["value"] = [
+        29.0,
+        20.0,
+        10.0,
+    ]
+
+    doc = _diff(old, new)
+    assert {c["change"] for c in doc["checks"]} == {"limit_changed", "drifted"}
+    assert summary_of(doc, new).splitlines()[0] == "different: p — 1 drifted; 1 limit_changed"
+
+
 def test_a_verdict_only_tamper_is_a_difference():
     """Identical checks, tampered verdict: still different (review M1 — this
     clause was untested and a mutant deleting it survived)."""

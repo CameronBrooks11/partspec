@@ -1404,9 +1404,29 @@ def summary_of(doc: dict[str, Any], new_report: dict[str, Any]) -> str:
         if contract["added"]:
             parts.append(f"{len(contract['added'])} added")
         for change in ("regressed", "fixed", "drifted", "limit_changed"):
-            n = sum(1 for c in doc["checks"] if c["change"] == change)
-            if n:
-                parts.append(f"{n} {change}")
+            entries = [c for c in doc["checks"] if c["change"] == change]
+            if not entries:
+                continue
+            # §3's reason for making the claim delta ride a status-change entry
+            # applies to this line too, and did not reach it: loosen a limit
+            # until a failing check passes and the headline said `1 fixed`,
+            # reporting the flagship weakening move as an improvement. The
+            # artifact carried the delta the whole time; the surface a human
+            # reads in a terminal or a PR check did not (#293).
+            #
+            # Only the status-change buckets take it. `limit_changed` IS the
+            # claim moving, so the note restates the bucket's own name; a
+            # `drifted` entry cannot carry a claim at all, `_check_entry`
+            # returning `limit_changed` before it reaches that branch.
+            with_claim = (
+                sum(1 for c in entries if "claim" in c) if change in ("regressed", "fixed") else 0
+            )
+            # The bucket keeps its true total and the qualifier breaks it down,
+            # rather than splitting into two counts: `N fixed` is what the spec
+            # names and what a reader greps, and a split total would answer
+            # "how many were fixed?" with a number that is not the answer.
+            note = f" ({with_claim} with the claim changed)" if with_claim else ""
+            parts.append(f"{len(entries)} {change}{note}")
         headline = f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}{moved}"
     # Above the coverage block, because it is the one line the reader can act
     # on: `check`'s own diagnostics put `hint:` directly under the fault for

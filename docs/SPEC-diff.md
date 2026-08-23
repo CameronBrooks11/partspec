@@ -1,9 +1,10 @@
 # SPEC — `partspec diff`
 
-**Status:** draft 3 · 2026-08-14 · §2 rule 3 keys on the class of a **named** gap rather
-than on the `partial` boolean, and the closure's `imports` map is compared (#190); draft 2
-put `kind` and `expr` in the claim fields and stated the digests as
-recorded-not-outcome-bearing
+**Status:** draft 4 · 2026-08-23 · §3 binds the §1 headline to the claim delta a
+status-change entry already carried, the console having reported a loosened limit as
+`1 fixed` (#293); draft 3 keyed §2 rule 3 on the class of a **named** gap rather than on
+the `partial` boolean and compared the closure's `imports` map (#190); draft 2 put `kind`
+and `expr` in the claim fields and stated the digests as recorded-not-outcome-bearing
 **Scope:** the semantic comparison of two reports of one part, its artifact, and its exit
 codes. Written before the implementation, like the other specs.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
@@ -217,7 +218,26 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   change is a difference. A status-change entry MUST also carry the claim and value deltas
   when those moved: loosening a limit until a failing check passes is the flagship
   weakening move, and an entry saying only "fixed" would report the attack as an
-  improvement.
+  improvement. The **§1 headline** MUST state the same fact, since the reason is a
+  statement about readers and the headline is the surface a human reads: a `regressed` or
+  `fixed` count says how many of its entries also moved the claim. The count itself stays
+  the bucket's true total; the qualifier breaks it down. Neither `limit_changed` (where the
+  claim moving is the bucket) nor `drifted` (which cannot carry one) takes the qualifier.
+  This rule reaches a *moved claim* and no further, and the gap that leaves is stated here
+  rather than left to be inferred from the reason given for the rule. `pass` is the only
+  status in the severity order that means the check was answered and held, so **every**
+  transition into `approximate`, `unsupported` or `skipped` from a status ranked above it
+  is bucketed `fixed` — a check that is not answered on the new side, filed as one that was
+  answered better. Not only when it left `fail`, and not always a check that *stopped* being
+  answerable: `unsupported` → `skipped` was not answered on either side. Within a status
+  bucket the qualifier reads the claim and nothing else, so where the claim did not move it
+  does not fire and the headline reports the transition as a repair. Such an entry is
+  usually not otherwise empty — a check that stops being evaluated normally loses its
+  measurement with it, and all four `skipped`/`unsupported` sites in the runner build the
+  result without one — so a `value` delta is generally present and is not what the qualifier
+  reads. Generally, not always: `fail` → `approximate` over an unchanged measurement, and
+  any transition between two unmeasured statuses, carry nothing but the status. That is
+  #325, and unfixed.
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
