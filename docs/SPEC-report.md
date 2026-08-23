@@ -56,14 +56,13 @@ landed (#225). `written` is a value rather than an inference from the key's pres
 precisely so both states fit one key, and `path` is required rather than derivable: for a
 *directory* destination the caller chose the directory and partspec chose the name inside
 it, so a consumer that had to re-derive `<source stem>.stl` would be reimplementing a rule
-this tool owns and has already changed once (#187). `check --out` writes
-`report.json` into that directory on every tier, so it needs none of the
-above. On any failure after the target resolves, both
-MUST emit a JSON object carrying that identity plus `error`/`hint` — `renders` empty
-rather than absent — so a consumer always learns which file and revision it was talking
-about. A target that never resolves has no identity to emit: those failures are stderr +
-exit code only (for `check`, the placeholder artifact covers that window; `measure` and
-`render` write no artifact).
+this tool owns and has already changed once (#187). `check --out` writes `report.json`
+into that directory on every tier, so it needs none of the above. On any failure after the
+target resolves, both MUST emit a JSON object carrying that identity plus `error`/`hint` —
+`renders` empty rather than absent — so a consumer always learns which file and revision
+it was talking about. A target that never resolves has no identity to emit: those failures
+are stderr + exit code only (for `check`, the placeholder artifact covers that window;
+`measure` and `render` write no artifact).
 
 Where `--out` is **absent**, every verb that takes it resolves the destination the same
 way: `<contract dir>/outputs/<part-slug>`, anchored to the contract file and not to the

@@ -88,14 +88,18 @@ def _timeout_s(explicit: float | None) -> float:
 # `assert "outputs/<part-slug>" in help` passed a mutation that inverted the
 # sentence around it into the exact error #277 exists to prevent.
 #
-# This does NOT reach everywhere the default is written. The two MCP docstrings
-# carry it as literal prose -- a docstring cannot interpolate and still be one,
-# and it is the only text an MCP caller ever sees. So the copies are three, not
-# one, and `tests/test_cli.py` pins this constant to the directory `_out_dir`
-# actually builds rather than to itself: an earlier draft of this comment
-# claimed there was "nothing to keep in step", and setting the constant to
-# "the current working directory" passed the entire suite.
-OUT_DEFAULT_DOC = "<contract dir>/outputs/<part-slug>"
+# This does NOT reach everywhere the default is written. Counted rather than
+# gestured at, five copies stay hand-typed: `mcp.py` twice -- a docstring
+# cannot interpolate and still be one, and it is the only text an MCP caller
+# ever sees -- plus `SPEC-report.md`, `AGENT-CONTRACT.md`, and the test's own
+# docstring. Two earlier drafts of this comment miscounted, first claiming
+# there was "nothing to keep in step" and then that the MCP pair was the whole
+# of it. `tests/test_cli.py` pins this constant to the directory `_out_dir`
+# actually builds; setting it to "the current working directory" passed the
+# entire suite before that pin existed.
+OUT_DEFAULT_DOC = (
+    "<contract dir>/outputs/<part-slug>, beside the contract rather than in the working directory"
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -132,8 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
         # on adding a second target.
         help="report directory: DIR/report.json for one target, "
         "DIR/<part-slug>/report.json for several "
-        f"(default: {OUT_DEFAULT_DOC}, beside the contract "
-        "rather than in the working directory)",
+        f"(default: {OUT_DEFAULT_DOC}). On a tier that builds a file the "
+        "artifact lands here too, beside the report",
     )
     check.add_argument("--quiet", action="store_true", help="suppress the human summary")
     check.add_argument(
@@ -198,10 +202,11 @@ def build_parser() -> argparse.ArgumentParser:
         "file is refused when nothing would be written to it (the OCCT tier "
         "builds in memory) or when that same closure is partial, because an "
         "import()ed .stl is an input, not an output. Omitted, PATH defaults to "
-        f"{OUT_DEFAULT_DOC}/ — beside the contract rather than in the working "
-        "directory — on the tier that builds a file at all; the OCCT tier "
-        "writes nothing there and creates nothing. The measurements themselves "
-        "go to stdout — this verb emits no report file",
+        f"{OUT_DEFAULT_DOC} — on a tier that builds a file at all. The OCCT "
+        "tier builds in memory, so it writes nothing there and creates not "
+        "even the directory, `measure` having no report to put in it. The "
+        "measurements themselves go to stdout — this verb emits no report "
+        "file",
     )
     measure.add_argument(
         "--timeout",
@@ -260,7 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="directory for the per-view diff images (default: `vdiff` beside "
-        "NEW — inside it when NEW is a directory, in its parent when NEW is a "
+        "`new` — inside it when `new` is a directory, in its parent when `new` is a "
         "file; relative to the run compared, not to any contract)",
     )
 

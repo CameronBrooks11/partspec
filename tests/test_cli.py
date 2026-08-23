@@ -1980,11 +1980,20 @@ def test_the_out_default_is_anchored_to_the_contract_and_every_out_says_so(tmp_p
     Interpolating the three helps from one `OUT_DEFAULT_DOC` removes the drift
     between them but not the drift from behaviour: a second draft claimed there
     was "nothing left to check", and setting that constant to "the current
-    working directory" passed the whole suite. So the constant is pinned to the
-    directory `_out_dir` actually builds, which is the one place the rule is
-    decided. What stays unpinned, and is not pretended otherwise: the two MCP
-    docstrings spell the default as literal prose, a docstring being unable to
-    interpolate and stay one.
+    working directory" passed the whole suite. So the constant is pinned here,
+    its middle component derived from the directory `_out_dir` builds and its
+    "beside the contract" claim from `built.parent.parent`.
+
+    A third draft then named the two MCP docstrings as the whole of what stayed
+    unpinned. Also wrong: each help interpolated the constant into a sentence
+    restating the same fact in its own words, and mutating only that sentence
+    to "in the working directory rather than beside the contract" -- #277's
+    exact error, rendered into a self-contradicting help string -- passed all
+    1170 tests. That clause now lives inside the constant, so there is no second
+    telling of it left to drift. What remains unpinned, counted rather than
+    gestured at: `mcp.py` twice, `SPEC-report.md`, `AGENT-CONTRACT.md`, and this
+    docstring. A docstring cannot interpolate and stay one, and prose in a spec
+    is prose.
     """
     contract = tmp_path / "widget.py"
     contract.write_text("")
@@ -1997,7 +2006,10 @@ def test_the_out_default_is_anchored_to_the_contract_and_every_out_says_so(tmp_p
     # retyped: `<contract dir>` is the contract's own directory, and the middle
     # component is whatever `_out_dir` puts there.
     assert built.parent.parent == contract.parent
-    assert f"<contract dir>/{built.parent.name}/<part-slug>" == cli.OUT_DEFAULT_DOC
+    assert (
+        f"<contract dir>/{built.parent.name}/<part-slug>, beside the contract rather "
+        f"than in the working directory"
+    ) == cli.OUT_DEFAULT_DOC
     # An explicit --out is taken as given, from any working directory.
     assert cli._out_dir(f"{contract}:thing", Path("elsewhere")) == Path("elsewhere")
 
