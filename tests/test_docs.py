@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -923,4 +925,108 @@ def test_the_agents_project_section_stays_an_orientation_not_an_archive():
         f"AGENTS.md '## Project' is {section} lines. Release history belongs in "
         f"CHANGELOG.md; this section says what partspec is, what property it "
         f"holds, and where to start reading"
+    )
+
+
+def test_the_readme_trust_transcript_is_what_actually_happens(tmp_path: Path):
+    """#278: the README's own demonstration, executed rather than transcribed.
+
+    The section exists to say that a contract is code and runs before anything
+    validates it, so the transcript under it is the whole argument. Two drafts
+    of it were written by hand and both were wrong -- the first dropped the
+    traceback and misquoted the diagnostic; the second listed the directory
+    afterwards as `EVIDENCE.txt  handed_to_me.py` and missed `outputs`, which
+    `check` creates for its placeholder report on exactly this failure path.
+
+    Nothing gated it, which is why it shipped twice. This runs the scenario and
+    holds the README to it: the side effect happened, the exit code is what is
+    printed, and the listing is the listing.
+    """
+    readme = README.read_text()
+    block = re.search(r"```console\n\$ ls\nhanded_to_me\.py\n(.*?)```", readme, re.S)
+    assert block is not None, "the README no longer shows the trust-boundary transcript"
+    body = block.group(1)
+
+    contract = tmp_path / "handed_to_me.py"
+    contract.write_text(
+        "from pathlib import Path\n"
+        "from partspec import Part\n\n"
+        'Path("EVIDENCE.txt").write_text("import-scope code ran\\n")\n\n'
+        "def widget() -> Part:\n"
+        '    return Part("widget", model="nope")\n'
+    )
+    proc = subprocess.run(
+        [sys.executable, "-m", "partspec", "check", f"{contract}:widget"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+
+    shown_exit = re.search(r"\$ echo \$\?\n(\d+)", body)
+    assert shown_exit is not None, "the transcript no longer shows its exit code"
+    assert proc.returncode == int(shown_exit.group(1)), (
+        f"the README shows exit {shown_exit.group(1)}, the run exits {proc.returncode}"
+    )
+
+    # The point of the section: it ran before the contract was rejected.
+    assert (tmp_path / "EVIDENCE.txt").read_text() == "import-scope code ran\n"
+
+    # EVERY line the transcript shows as output, taken FROM the transcript --
+    # hardcoding them here would only check this file against itself, which is
+    # how a misquote survives. The one exemption is the elision marker: the
+    # traceback's middle carries absolute paths that cannot be reproduced.
+    #
+    # A first version filtered to lines starting `partspec:` or `  the `, and
+    # its comment claimed to check every quoted line. It did not: a bogus
+    # traceback header, an invented `warning:` line, and deleting the traceback
+    # outright all passed.
+    def is_elision(line: str) -> bool:
+        """Any marker that visibly says something was cut, not one spelling."""
+        stripped = line.strip()
+        return stripped.startswith("...") or "elided" in stripped
+
+    shown = body.split("$ echo $?")[0].splitlines()
+    quoted = [line for line in shown[1:] if line and not is_elision(line)]
+    assert quoted, "the transcript no longer quotes any output"
+
+    # Membership among the printed LINES, not a substring of the whole blob.
+    # `in proc.stderr` accepted any fragment of any line, so a hand-wrapped
+    # copy of the diagnostic passed -- and that line is 99 characters against
+    # this repo's 100-column wrap, so the next word added to the message
+    # invites exactly that wrap. Hand-transcription drift is the only thing
+    # this test exists to catch.
+    printed = proc.stderr.splitlines()
+    for line in quoted:
+        assert line in printed, f"the README quotes {line!r}; the run does not print it"
+
+    # Eliding is fine; eliding silently is not. Deleting the traceback and its
+    # marker leaves a transcript that reads as the whole of what was printed,
+    # and every remaining line still checks out -- so completeness needs its
+    # own assertion rather than falling out of the per-line one.
+    if len(quoted) < len([line for line in printed if line.strip()]):
+        assert any(is_elision(line) for line in shown), (
+            f"the transcript shows {len(quoted)} of "
+            f"{len([x for x in printed if x.strip()])} printed lines "
+            f"without marking the cut"
+        )
+
+    # And the command it shows is the command that was run. Recorded as
+    # `partspec check <file>:widget`, invoked as `python -m partspec check
+    # <abs>:widget`, so the verb and the target's tail are what can be compared
+    # -- but they are what the section rests on.
+    invocation = shown[0]
+    assert invocation.startswith("$ partspec "), (
+        f"transcript no longer opens on a command: {invocation!r}"
+    )
+    verb, target = invocation.removeprefix("$ partspec ").split()
+    assert verb == "check", f"the transcript shows `{verb}`; the test runs `check`"
+    assert target == f"{contract.name}:widget", (
+        f"the transcript checks {target!r}; the test checks {contract.name}:widget"
+    )
+
+    shown_listing = re.search(r"\$ ls\n([^\n]+)\n?\Z", body)
+    assert shown_listing is not None, "the transcript no longer ends with a listing"
+    assert sorted(shown_listing.group(1).split()) == sorted(p.name for p in tmp_path.iterdir()), (
+        "the README's listing is not what the run leaves behind"
     )
