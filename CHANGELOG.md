@@ -327,13 +327,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both build123d and CadQuery, builds in memory and writes no artifact at all.
   There `check` and `render` still create the directory for their report;
   `measure`, having no report to put in it, creates not even that. Two earlier
-  drafts got this wrong in opposite directions, each generalising one verb's
-  behaviour to the whole tier. `vdiff` is anchored to the run being compared
-  rather than to a contract, defaulting to `vdiff` beside `new`: inside it when
-  `new` is a directory, in its parent when `new` is a file. The three MCP
-  docstrings gain a sentence each, that boundary showing a caller a tool list
-  and nothing else. The help strings are interpolated from one constant rather
-  than repeated, so there is no second copy to drift.
+  drafts got this wrong, each in its own direction: the first generalised the
+  mesh tier's behaviour across every tier within `measure`, the second
+  generalised `measure`'s behaviour across every verb on the OCCT tier. `vdiff`
+  is anchored to the run being compared rather than to a contract, defaulting
+  to `vdiff` beside `new`: inside it when `new` is a directory, in its parent
+  when `new` is a file. The three MCP docstrings gain a sentence each, that
+  boundary showing a caller a tool list and nothing else. The help strings are
+  interpolated from one constant rather than repeated, so there is no second
+  copy to drift.
 
 - **`empty()` means no positive-volume interference** — not "the parts do not
   touch", and not "there is clearance" (#270, epic #305). The check is

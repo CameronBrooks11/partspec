@@ -1980,20 +1980,26 @@ def test_the_out_default_is_anchored_to_the_contract_and_every_out_says_so(tmp_p
     Interpolating the three helps from one `OUT_DEFAULT_DOC` removes the drift
     between them but not the drift from behaviour: a second draft claimed there
     was "nothing left to check", and setting that constant to "the current
-    working directory" passed the whole suite. So the constant is pinned here,
-    its middle component derived from the directory `_out_dir` builds and its
-    "beside the contract" claim from `built.parent.parent`.
+    working directory" passed the whole suite. So the constant is pinned here:
+    its middle component is derived from the directory `_out_dir` builds, and
+    its "beside the contract" claim is cross-checked against
+    `built.parent.parent` by a separate assertion -- that clause is retyped in
+    the expected string below, not computed from anything.
 
     A third draft then named the two MCP docstrings as the whole of what stayed
     unpinned. Also wrong: each help interpolated the constant into a sentence
     restating the same fact in its own words, and mutating only that sentence
     to "in the working directory rather than beside the contract" -- #277's
     exact error, rendered into a self-contradicting help string -- passed all
-    1170 tests. That clause now lives inside the constant, so there is no second
-    telling of it left to drift. What remains unpinned, counted rather than
-    gestured at: `mcp.py` twice, `SPEC-report.md`, `AGENT-CONTRACT.md`, and this
-    docstring. A docstring cannot interpolate and stay one, and prose in a spec
-    is prose.
+    1170 tests. That clause now lives inside the constant, where an exact-match
+    pin reaches it.
+
+    What that buys is narrow and worth stating: no help may RESTATE the anchor,
+    since the text has to match. Nothing stops one appending a sentence that
+    contradicts it. Other unpinned statements of the default live in the MCP
+    docstrings, both specs, some comments, and this docstring. Three drafts
+    tried to give the number and all three were short; `grep -rn "outputs/"`
+    is the answer that does not go stale.
     """
     contract = tmp_path / "widget.py"
     contract.write_text("")

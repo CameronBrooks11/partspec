@@ -62,9 +62,11 @@ def _run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _check(target: str, out: str | None, render: bool = False) -> dict[str, Any]:
-    # Private import, deliberately: the report's location is the CLI's rule
-    # (`<contract dir>/outputs/<slug>` unless --out), and duplicating the rule
-    # here would let the two drift apart silently. `Target.parse` is total, so
+    # Private import, deliberately: the report's location is the CLI's rule and
+    # duplicating it here would let the two drift apart silently. This comment
+    # spelled the rule out anyway, and had drifted to `<slug>` where every other
+    # statement of it says `<part-slug>` -- a sentence about the danger of a
+    # second copy, being a second copy. `Target.parse` is total, so
     # this cannot raise — resolution failures happen in the subprocess, which
     # leaves its placeholder artifact behind for the read below.
     from .cli import _out_dir
