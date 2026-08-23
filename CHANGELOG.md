@@ -329,18 +329,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passes. And in the other direction **every kernel has a floor** beneath which
   a *real* interference is discarded and `empty` passes — measured, OCCT at an
   overlap depth of ~6e-7 mm (constant, though the volume lost at it scales with
-  the face: 1.5e-7 mm3 across 0.5 mm, 2.2e-3 mm3 across 60 mm), CGAL below a
-  ~1.9e-6 mm feature cross-section — though never for thinness alone — and
-  and no OpenSCAD boolean finer than 2⁻¹⁹ mm ≈ 1.9 nm on either backend.
-  manifold's floor is `min(½·ULP32(coordinate), 2⁻¹⁹ mm)` — finer than the
-  ceiling near the origin, meeting it by coordinate 32 and never rising again;
-  CGAL sits at the ceiling everywhere, including where manifold is eight times
-  finer. Two kernels stopping at the same power of two puts that ceiling above
-  the kernel rather than in either (#315, measured at nine coordinates after
-  two earlier measurements disagreed by each sampling one side of the
-  crossover).
-  Sub-physical
-  for real parts, and kernel constants rather than defects, but it is the one
+  the face: 1.5e-7 mm3 across 0.5 mm, 2.2e-3 mm3 across 60 mm), and on
+  OpenSCAD ~1.9e-6 mm (CGAL) and ~2.4e-7 mm near the origin (manifold) for one
+  specific probe — an axis-aligned square-section pin.
+  **Those OpenSCAD figures do not generalise, and #315 is the record of finding
+  that out.** Rotate the pin 45°, make its section rectangular, or make the
+  interference a thin overlap between two macroscopic bodies rather than a
+  body's own dimension, and both backends resolve down to at least 1e-9 mm —
+  three orders finer. An earlier revision of this entry stated a formula and a
+  universal bound fitted to nine samples that shared one construction, one sign
+  and one shape; both were false outside it. The table is an existence proof,
+  not a bound.
+  Sub-physical for real parts either way, and it is the one
   direction where a pass is weaker than it reads — so `empty` is now specified
   as "no positive-volume interference **the kernel can represent**", the same
   discipline §4.11 applies to `min_wall`. It is not fixable by wording — the

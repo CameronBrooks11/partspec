@@ -564,9 +564,13 @@ class Part:
         scale, its ordinary case -- a touching pair builds geometry and this
         check FAILS though the interference is exactly zero. And every kernel
         has a floor beneath which a REAL interference is discarded and this
-        check passes: measured on a 1 mm-deep penetration, OCCT below ~6e-7 mm
-        of overlap depth, CGAL below a ~1.9e-6 mm feature cross-section (though
-        never for thinness alone), manifold below ~2.4e-7 mm of either.
+        check passes. OCCT's is ~6e-7 mm of overlap depth, constant. OpenSCAD's
+        depends on the arrangement and has no characterised bound: for an
+        axis-aligned square-section pin it is ~1.9e-6 mm (CGAL) and ~2.4e-7 mm
+        near the origin (manifold), while a thin overlap between two
+        macroscopic bodies is resolved on both down to at least 1e-9 mm
+        (#315, §4.12). A contract needing a guarantee should assert a
+        clearance rather than lean on the floor.
 
         To assert a clearance, intersect against a part grown by it: a
         violation with any margin encloses volume rather than a sheet, and only
