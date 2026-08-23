@@ -871,28 +871,34 @@ penetration:
 | CGAL — OpenSCAD 2021.01 | a feature's cross-section | ~1.9e-6 mm for the probe below | nothing exported; `empty` passes |
 | manifold — OpenSCAD 2026.08.01 | a feature's cross-section **or** its thickness | ~2.4e-7 mm near the origin for the probe below, coarsening with its coordinate | nothing exported; `empty` passes |
 
-**The OpenSCAD figures are for one probe, and the floor moves by orders with the
-arrangement.** The row above was measured with an axis-aligned square-section pin, its own
-dimension being the feature, at positive coordinates. Three constructions, measured through
-partspec's own render path (#315):
+**The OpenSCAD figures are for one probe, and nothing more should be read into them.**
+That row was measured with an axis-aligned square-section pin, its own dimension being the
+feature, at positive coordinates — a shape chosen because it is easy to sweep, not because
+it is representative. Six unstated parameters of it (pin length, penetration depth, the
+other body's size) were varied and did not move the floor, so a reader can rebuild it and
+get those numbers.
 
-| construction | coord | CGAL | manifold |
-|---|---|---|---|
-| square-section pin (the row above) | 5 | 1.91e-6 | 2.38e-7 |
-| square-section pin | 10 000 | 1.91e-6 | 1.91e-6 |
-| the same pin rotated 45° | 5 and 10 000 | 1.35e-6 | 3.37e-7 |
-| a thin overlap between two blocks, thin on two axes | 5 | <1e-14 | 2.50e-11 |
-| the same overlap | 10 000 | <1e-14 | 7.09e-9 |
+**Everything else about the floor is uncharacterised, and attempts to characterise it here
+kept producing claims that did not survive.** Three measured facts are enough to show why
+no bound belongs in this document:
 
-Five orders between the extremes on one backend. **Whether the floor coarsens with distance
-is itself construction-dependent**: manifold's pin floor coarsens 8× from coordinate 5 to
-10 000 and its two-axis overlap floor coarsens 283×, while its rotated-pin floor does not
-move at all, and CGAL's did not coarsen in any construction measured.
+- Rotating that pin 45° moves manifold's floor from 2.4e-7 to 3.4e-7 mm and CGAL's from
+  1.9e-6 to 1.3e-6 — the rotated pin is *coarser* than the square one near the origin and
+  finer far from it, so even the direction is not stable.
+- Making the interference an overlap between two blocks rather than a body's own dimension
+  moves manifold's floor to around 1e-8 mm and CGAL's below 1e-14 — five orders.
+- Whether the floor coarsens with distance is itself construction-dependent: manifold's
+  square-pin floor coarsens 8× from coordinate 5 to 10 000, its rotated-pin floor not at
+  all. CGAL's did not coarsen in any construction tried.
 
-So the row is an **existence proof, not a bound**: for that probe those are the floors, and
-elsewhere the floor is elsewhere. One bound did survive every construction and coordinate
-tried here — **nothing measured had a floor above ~1.9e-6 mm** — which is what licenses
-calling these sub-physical, and it is a plateau rather than an absence of coarsening.
+Three successive drafts of this passage each published a bound that the next measurement
+falsified — a formula fitted to nine same-shaped samples; then a body-overlap figure
+measured on an overlap thin on one axis and written about the case thin on two; then a
+plateau of ~1.9e-6 mm, which a triangular-section pin exceeds. Two of the three were
+produced by bisection over a range whose monotonicity had not been checked. **The lesson is
+the deliverable here, not a number**: this floor is not a property of the kernel that can be
+quoted, it is a property of the arrangement, and a claim fitted to a convenient sweep reads
+exactly like a measured one.
 
 The actionable half does not depend on any of the numbers: **a sufficiently thin
 interference is discarded on every kernel, and `empty` passes on it.** What "sufficiently
@@ -912,12 +918,13 @@ OCCT's floor is a declared kernel constant and does not vary with the face or th
 coordinate (measured out to 1e6 mm) — but the *volume* lost at it does vary with the face:
 1.5e-7 mm3 across a 0.5 mm one, 2.2e-3 mm3 across a 60 mm one.
 
-All the floors above are sub-physical for real parts. An earlier draft warned against
-relying on them *far from the origin*, on the reasoning that they coarsen with distance;
-that reasoning was backwards for CGAL, which did not coarsen in any construction measured,
-and incomplete for manifold, which coarsens for some constructions and plateaus. They
-remain the direction in which a pass is weaker than it reads, so they are stated rather
-than implied.
+Every floor measured here — across a dozen shapes and coordinates out to 10⁶ mm — sat
+between roughly 1e-14 and 3e-6 mm, so all of them are sub-physical for a real part. That is
+the honest form of the reassurance: a range over what was tried, not a bound. An earlier
+draft warned against relying on these floors *far from the origin*, on the reasoning that
+they coarsen with distance; that reasoning was backwards for CGAL and only sometimes true
+for manifold. They remain the direction in which a pass is weaker than it reads, so they
+are stated rather than implied.
 
 **And a zero-thickness contact is represented by some kernels and not others**, which is
 the other half of the same bit:

@@ -1659,13 +1659,12 @@ def test_a_1e_5_mm_pin_still_resolves_at_ten_metres(tmp_path: Path, coord: float
     """A 1e-5 mm square-section pin resolves at the origin and at ten metres.
 
     Named for exactly what it asserts. The floor DOES coarsen with distance for
-    some constructions -- manifold's for this pin by 8x, for a two-axis body
-    overlap by 283x (§4.12) -- so "does not coarsen", which this test was first
-    called, is false. What survives is that it plateaus: an earlier draft
-    warned against relying on these floors far from the origin because they
-    grow, and if manifold's tracked half a float32 ULP all the way out it would
-    be ~4.9e-4 mm at ten metres and this feature would vanish there. It does
-    not.
+    some constructions -- manifold's for this pin by 8x (§4.12) -- so "does not
+    coarsen", which this test was first called, is false. What survives is
+    narrower: an earlier draft warned against relying on these floors far from
+    the origin because they grow without bound, and if manifold's tracked half
+    a float32 ULP all the way out it would be ~4.9e-4 mm at ten metres and this
+    feature would vanish there. It does not.
 
     That is all this asserts. It does NOT establish a floor value or a law --
     #315's formula was fitted to one probe shape at positive coordinates and is
