@@ -353,10 +353,10 @@ counting through and counting across disagree, makes it refuse. An unnecessary
 
 ## Documentation
 
-The specs are normative and were written before the implementation:
+Start at [`docs/README.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/README.md),
+which routes by what you are trying to do. The full set, of which the four `SPEC-*`
+documents are normative and were written before the implementation:
 
-- [`docs/README.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/README.md) — which document answers which question, if you
-  want the index rather than the list.
 - [`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md) — how to drive the tool: read the
   report, not the console, and what each exit code obliges you to do.
 - [`docs/SPEC-report.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/SPEC-report.md) — the report schema and exit codes. This is
