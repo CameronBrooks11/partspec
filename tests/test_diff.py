@@ -1762,6 +1762,29 @@ def test_a_genuine_fix_is_not_slurred_as_a_moved_claim():
     assert "claim changed" not in summary
 
 
+def test_the_qualifier_counts_the_moved_claims_and_not_the_bucket():
+    """One bucket, one weakening and one genuine repair. Every other test here
+    puts a single entry in the qualified bucket, where the two numbers cannot
+    be told apart — and a mutant printing the bucket total inside the
+    parentheses passed all 1178 (review round 2).
+
+    `2 fixed (2 with the claim changed)` accuses the repair of being the
+    attack, which is the same defect as #293 pointed the other way."""
+    old, new = _loosened()
+    envelope = next(c for c in old["checks"] if c["id"] == "envelope")
+    envelope["status"] = "fail"
+    envelope["measurement"]["value"] = [31.0, 20.0, 10.0]
+
+    doc = _diff(old, new)
+    assert [(c["id"], "claim" in c) for c in doc["checks"] if c["change"] == "fixed"] == [
+        ("wall_gt_2", True),
+        ("envelope", False),
+    ]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 2 fixed (1 with the claim changed)"
+    )
+
+
 def test_the_note_rides_beside_the_moved_inputs_clause_rather_than_over_it():
     """Both clauses land on one line and the first draft of this fix bound its
     count to the name the imports/packages clause already held, printing

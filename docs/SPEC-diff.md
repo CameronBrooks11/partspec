@@ -223,11 +223,13 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   `fixed` count says how many of its entries also moved the claim. The count itself stays
   the bucket's true total; the qualifier breaks it down. Neither `limit_changed` (where the
   claim moving is the bucket) nor `drifted` (which cannot carry one) takes the qualifier.
-  This rule reaches a *moved claim* and no further. A check that stopped being answerable
-  is also bucketed `fixed` — `skipped` and `unsupported` both sit below `fail` in the
-  severity order above — and carries no claim to qualify, so an unevaluated check still
-  reads on the headline as a repair. That is #325, and unfixed: stated here so the bound of
-  this rule is read from the spec rather than inferred from the reason given for it.
+  This rule reaches a *moved claim* and no further. The severity order above puts **every**
+  other status below `fail`, so a check leaving `fail` for `approximate`, `unsupported` or
+  `skipped` — one that stopped being answerable rather than one that was answered better —
+  is bucketed `fixed` too. Where nothing but the status moved there is no claim to qualify,
+  and the headline reports it as a repair. That is #325, and unfixed: stated here so the
+  bound of this rule is read from the spec rather than inferred from the reason given for
+  it.
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
