@@ -887,7 +887,7 @@ characterise it.** What is established is qualitative and enough:
   shape in different directions.
 - **Whether it coarsens with distance from the origin is itself construction-dependent.**
   manifold's square-pin floor coarsens 8× from coordinate 5 to 10 000; its rotated-pin floor
-  does not move at all. CGAL's did not coarsen in any construction tried — that is the one
+  does not move at all over that range (it does move further out). CGAL's did not coarsen in any construction tried — that is the one
   claim here that survived every attempt to break it.
 - Every floor anyone has measured on this question has been **sub-physical for a real part**,
   by many orders. That conclusion has never depended on which of them is the largest.
