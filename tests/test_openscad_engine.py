@@ -18,6 +18,7 @@ include closure, the invocation, and how a failure is reported.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -1688,3 +1689,88 @@ def test_a_1e_5_mm_pin_still_resolves_at_ten_metres(tmp_path: Path, coord: float
         f"a 1e-5 mm interference vanished at coordinate {coord} — the floor coarsened "
         f"with distance, which #315 measured that it does not: {result}"
     )
+
+
+def test_every_hint_on_the_engine_faults_names_only_remedies_the_readme_carries(
+    tmp_path: Path, monkeypatch
+):
+    """#276: the likeliest first-run failure named a repo a stranger cannot reach.
+
+    Both call sites answered `openscad not found on PATH` with "install the
+    stable package, or the nightly AppImage via workstation-configs" -- the
+    maintainer's provisioning repo, which appears in no README, carries no URL
+    and no package name, and which grep finds nowhere else in this tree.
+
+    What is enforced, exactly: the **named** remedies -- backticked commands
+    and URLs -- must each appear in the README; at least one must be a runnable
+    command or an address rather than a bare word; and a not-found hint must
+    name the escape hatch. Prose is NOT checked and cannot be, so this test
+    cannot make a hint useful. Its limit, quoting a string that was run:
+
+        install it via workstation-configs, or `sudo apt install openscad`
+        — or set PARTSPEC_OPENSCAD to an existing binary        <- PASSES
+
+    because the named remedy is real and documented and the junk rides
+    alongside it. What the coupling does catch is a named remedy the docs do
+    not carry, or one that carried once and has gone stale.
+
+    Three earlier drafts of this docstring overstated it, which is why the
+    example above is quoted rather than paraphrased. The first claimed to
+    check "every command and address the hint names" -- wider than the code,
+    since prose is invisible to it. The second gave an example the fix had
+    already made fail. The third dropped the escape-hatch clause from a string
+    that had been run with it, leaving an example that fails on an assertion
+    this paragraph did not mention. All three were written before being run.
+
+    The coupling is one-directional on purpose: the hint is the side that must
+    not invent remedies, so the hint is the constrained side. It catches both
+    ways a remedy goes bad -- named but undocumented (#276), and documented
+    once but since gone stale. The first fix for #276 said
+    `brew install openscad`; Homebrew disables that cask on 2026-09-01, after
+    which the tool's one answer to its likeliest failure would have installed
+    nothing.
+    """
+    monkeypatch.setattr(openscad, "find_executable", lambda: None)
+
+    results = [
+        openscad.render(OpenSCADSource(path=tmp_path / "m.scad", params={}), tmp_path),
+        openscad.render_section_stl(
+            tmp_path / "m.stl", "xy", 0.0, ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)), tmp_path
+        ),
+    ]
+    errors = [r for r in results if isinstance(r, BuildError)]
+    assert len(errors) == len(results), "a call site stopped returning a BuildError"
+    for error in errors:
+        assert error.origin == "environment"
+        assert openscad.ENV_EXECUTABLE in (error.hint or ""), (
+            f"a not-found hint omits the escape hatch for an engine already on disk: {error.hint!r}"
+        )
+
+    # The display fault rides along: it is the other hint on this engine, it
+    # named a "2022+ build" that has never existed as a release, and nothing
+    # was holding it to the docs either.
+    hints = [e.hint or "" for e in errors] + [openscad.NO_DISPLAY_HINT]
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text()
+
+    for hint in hints:
+        # Trailing punctuation is stripped rather than used as a terminator:
+        # ending a sentence with the URL should not fail the README, and the
+        # first version of this regex blamed the README for a full stop.
+        urls = [u.rstrip(".,;:)") for u in re.findall(r"https?://\S+", hint)]
+        commands = re.findall(r"`([^`]+)`", hint)
+        named = commands + urls
+        assert named, f"hint names no remedy at all: {hint!r}"
+        assert any(" " in c for c in commands) or urls, (
+            f"hint names no runnable command and no address, only bare words: {hint!r}"
+        )
+        for remedy in named:
+            # Not a substring test: `brew install openscad` is a prefix of
+            # `brew install openscad@snapshot`, so a plain `in` accepts the
+            # deprecated cask on the strength of the documented one. The
+            # remedy has to end where the README's does.
+            assert re.search(re.escape(remedy) + r"(?![\w@.\-/])", readme), (
+                f"src/partspec/engines/openscad.py offers the remedy {remedy!r}, which "
+                f"README.md does not document. Either the hint invented it, or the "
+                f"README moved and the hint was left behind -- check both before "
+                f"changing either."
+            )

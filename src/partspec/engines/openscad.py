@@ -93,6 +93,41 @@ def scad_literal(value: Any) -> str:
 
 ENV_EXECUTABLE = "PARTSPEC_OPENSCAD"
 
+# Said "use a 2022+ build with EGL offscreen" until #276's review: a remedy
+# naming no way to obtain it, since 2021.01 is the newest OpenSCAD RELEASE
+# there has ever been and anything with EGL offscreen is a development
+# snapshot. The address is in the hint and not just the README because the
+# coupling test can only hold it to what it names — the old wording passed
+# that test untouched, `2022+ build` being prose it never looked at.
+NO_DISPLAY_HINT = (
+    "run under `xvfb-run -a`, or use a development snapshot from "
+    "https://files.openscad.org/snapshots/ — 2021.01 has no EGL offscreen path and is "
+    "the newest release there is"
+)
+
+# The remedy for the likeliest first-run failure there is, so it has to resolve
+# from a stranger's machine. It named `workstation-configs` until #276 — the
+# maintainer's provisioning repo, which appears in no README, carries no URL,
+# and grep finds nowhere else in this tree. install.py states the standard it
+# was failing: naming a problem and handing over an answer that does nothing is
+# a quieter version of naming a problem and withholding the answer.
+#
+# One constant because there were two copies of the string and they are read on
+# the same fault. `install_hint()` is no help here: it picks between pip and uv
+# for a Python package, and this is a system binary.
+#
+# `openscad@snapshot` and not the bare `openscad` cask: the latter is already
+# deprecated (`fails_gatekeeper_check`) and Homebrew disables it on 2026-09-01,
+# after which the command errors and installs nothing. It is also an Intel-only
+# dmg wanting Rosetta, and it `conflicts_with` the snapshot cask -- so the bare
+# form would send a mac reader to a dead end and then block the way out of it.
+# openscad.org/downloads.html recommends the snapshot cask for the same reason.
+NOT_FOUND_HINT = (
+    "install it — `sudo apt install openscad`, `brew install openscad@snapshot`, or a "
+    "build from https://openscad.org/downloads.html — or set PARTSPEC_OPENSCAD to an "
+    "existing binary"
+)
+
 
 def find_executable() -> str | None:
     """Locate the openscad binary.
@@ -466,7 +501,7 @@ def render(
         return BuildError(
             "openscad not found on PATH",
             origin="environment",
-            hint="install the stable package, or the nightly AppImage via workstation-configs",
+            hint=NOT_FOUND_HINT,
         )
     if not source.path.is_file():
         return BuildError(f"source not found: {source.path}", origin="environment")
@@ -754,7 +789,7 @@ def render_section_stl(
         return BuildError(
             "openscad not found on PATH",
             origin="environment",
-            hint="install the stable package, or the nightly AppImage via workstation-configs",
+            hint=NOT_FOUND_HINT,
         )
     lo, hi = bbox
     pad = max(*(top - bottom for top, bottom in zip(hi, lo, strict=True)), 1.0)
@@ -1096,7 +1131,7 @@ def render_views(
                         return BuildError(
                             "this OpenSCAD cannot render PNG without a display",
                             origin="environment",
-                            hint="run under `xvfb-run -a`, or use a 2022+ build with EGL offscreen",
+                            hint=NO_DISPLAY_HINT,
                             stderr=proc.stderr,
                         )
                     if proc.returncode != 0:
