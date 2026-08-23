@@ -1185,6 +1185,9 @@ def test_one_cause_across_many_files_is_one_line(tmp_path: Path, capsys, monkeyp
 
     rules, scope, reason = _refusal_parts(refusals[0])
     assert rules == sorted(TIER2_RULES)
+    # The joined string, not just the set: without `sorted()` the order is
+    # hash-seed dependent and `_refusal_parts` would sort it away.
+    assert ", ".join(sorted(TIER2_RULES)) in refusals[0]
     # Bounded like `diff`'s name lists: the first two named, the rest counted.
     # Both halves matter — a bare count leaves a reader unable to find out
     # which files were skipped.
@@ -1192,6 +1195,42 @@ def test_one_cause_across_many_files_is_one_line(tmp_path: Path, capsys, monkeyp
     assert "+1 more" in scope
     assert "openscad is not installed" in reason
     assert json.loads(captured.out)["counts"]["unsupported"] == 3 * len(TIER2_RULES)
+
+
+@needs_openscad
+def test_two_causes_stay_two_lines(tmp_path: Path, capsys):
+    """Grouping must not merge causes — a reason is false for the wrong file.
+
+    The round-1 version of the many-files test used three unparseable sources
+    and asserted three lines. It never exercised the collapse it was named
+    for, which is why it was replaced — but it DID pin the inverse, that one
+    line means one distinct cause, and the replacement lost that. A mutant
+    that prints every cause on a single line under the first reason then
+    survived the whole suite, putting a reason on the console for a file it
+    does not apply to (review of PR #316).
+
+    Two files, two genuinely different reasons: one cannot be parsed, the
+    other parses and is refused whole for string content the `.csg` format
+    does not escape.
+    """
+    broken = tmp_path / "broken.scad"
+    broken.write_text("module thing(){ cube([10, 10, 10) }\n")
+    stringy = tmp_path / "stringy.scad"
+    stringy.write_text('cube([60, 40, 4]);\ntext("hello");\n')
+
+    assert main(["lint", str(broken), str(stringy)]) == 0
+    err = capsys.readouterr().err
+
+    refusals = [ln for ln in err.splitlines() if "not run:" in ln]
+    assert len(refusals) == 2, "two causes, two lines — never merged under one reason"
+
+    by_scope = {}
+    for line in refusals:
+        _, scope, reason = _refusal_parts(line)
+        by_scope[scope] = reason
+    assert set(by_scope) == {str(broken), str(stringy)}, "each cause names its own file"
+    assert "Can't parse file" in by_scope[str(broken)]
+    assert "string content" in by_scope[str(stringy)]
 
 
 def test_a_clean_tier1_run_with_refusals_is_not_a_clean_bill(tmp_path: Path, capsys, monkeypatch):

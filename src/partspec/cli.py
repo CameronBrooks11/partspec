@@ -1538,11 +1538,20 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     for line in courtesy:
         print(line, file=sys.stderr)
     for reason, (where, rules) in refused.items():
-        # Names the files, bounded — `diff`'s `_bounded` rule (SPEC-diff §2),
+        # Names the files, bounded — `diff`'s `_bounded` rule (SPEC-diff.md 1),
         # because a bare count tells a reader something was skipped and gives
         # them no way to find out which. Live on this repo: with an engine
         # present, four of its own sources refuse for string content.
-        shown = ", ".join(where[:2]) + (f", +{len(where) - 2} more" if len(where) > 2 else "")
+        from .diff import _SUMMARY_NAME_LIMIT
+
+        # `diff`'s constant, imported rather than repeated: LINT.md and the
+        # CHANGELOG both say this line follows `diff`'s rule, and a second
+        # copy of the number would let that go false silently.
+        shown = ", ".join(where[:_SUMMARY_NAME_LIMIT]) + (
+            f", +{len(where) - _SUMMARY_NAME_LIMIT} more"
+            if len(where) > _SUMMARY_NAME_LIMIT
+            else ""
+        )
         print(f"  {', '.join(sorted(rules))}  {shown}  not run: {reason}", file=sys.stderr)
     return 0
 

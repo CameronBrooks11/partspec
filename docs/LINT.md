@@ -1,6 +1,6 @@
 # partspec lint — the rules
 
-**Status:** v2 · 2026-08-09 · closes #26 (tier 1) and #118 (tier 2)
+**Status:** v2 · 2026-08-22 · closes #26 (tier 1) and #118 (tier 2) · `csg-two-part-intersection` added (#270); refusals reach the console (#288)
 **Scope:** `partspec lint <source>…` over `.scad` and `.py` model sources. Findings are
 **advisory and never a verdict on the part — it is about the source** (#26, verbatim):
 exit 0 says the lint ran, the findings are data in the JSON payload, and 64 is reserved
@@ -32,7 +32,7 @@ rules that did not run are exactly the ones whose silence would otherwise read a
 and with no engine installed that is every tier-2 rule on every file. Both surfaces now
 carry them — `unsupported[]` per file in the payload, and one line per distinct cause on
 stderr naming the rules and the files, the latter bounded at two names plus a count the
-way `diff` bounds its own name lists (`SPEC-diff.md` §2). A bare count would say something
+way `diff` bounds its own name lists (`SPEC-diff.md` §1). A bare count would say something
 was skipped and leave no way to find out which.
 
 ## `scad-unused-top-level`
