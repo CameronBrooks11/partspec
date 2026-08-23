@@ -893,3 +893,31 @@ def test_every_openscad_fence_in_the_docs_parses():
             assert proc.returncode == 0, (
                 f"{name}: fenced openscad did not export\n{proc.stderr}\n---\n{block}"
             )
+
+
+def test_the_agents_project_section_stays_an_orientation_not_an_archive():
+    """#280: release narrative accreted here because nothing evicted it.
+
+    Measured per tag, `## Project` went 35 lines at v0.7.0 to 89 at v0.7.6
+    while the file grew 97 -- so 56% of everything AGENTS.md gained in six
+    releases was reverse-chronological prose about those releases, each one
+    prepending a paragraph and demoting the last. The cost was not length. It
+    was that `docs/AGENT-CONTRACT.md`, the document telling an agent how to
+    drive this tool, was named exactly once in the whole file: a parenthetical
+    inside the v0.7.0 paragraph, reachable only by reading the archaeology.
+
+    The bound is deliberately loose. It is not a style rule about how much
+    orientation is right; it is the eviction rule the section never had, set
+    where the next unevicted release would trip it rather than where the
+    current text sits.
+    """
+    lines = (ROOT / "AGENTS.md").read_text().splitlines()
+    start = lines.index("## Project")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("## "))
+    section = end - start
+
+    assert section <= 45, (
+        f"AGENTS.md '## Project' is {section} lines. Release history belongs in "
+        f"CHANGELOG.md; this section says what partspec is, what property it "
+        f"holds, and where to start reading"
+    )
