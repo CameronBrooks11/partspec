@@ -7,6 +7,11 @@ Verify CAD-as-code parts against declared engineering intent.
 > exit codes. What changed in each release is in
 > [CHANGELOG.md](https://github.com/CameronBrooks11/partspec/blob/main/CHANGELOG.md).
 
+`partspec.run()` is internal: it is importable, it is not in `__all__`, and its signature may
+change without a major bump. The package is fully annotated and ships a `py.typed` marker, so a
+consumer type-checks against it rather than being handed `Any` — before v0.7.0 it shipped none,
+which gave downstream not weaker checking but silently none at all.
+
 ## Install
 
 ```sh
@@ -31,9 +36,9 @@ and installing both Python engines under plain `pip` needs one extra step —
 
 ## What runs today
 
-partspec runs end to end — `check`, `measure` and `render` across all three engines (with
-`--section` cuts on both tiers), `diff` on the reports and `vdiff` on the renders they produce
-— and is dogfooded on real parts. The vocabulary covers real mechanical intent:
+Every verb works across all three engines: `check`, `measure` and `render` (with `--section`
+cuts on both tiers), `diff` over the reports and `vdiff` over the renders they produce. The
+vocabulary covers real mechanical intent:
 keep-out/keep-in regions, `hole_diameter`, `bolt_circle`, `fillet_radius`, `draft_angle`,
 `self_intersection_free`, `step_roundtrip` and `min_wall` on the OCCT tier — the last of which
 answers with a guaranteed interval and says `approximate` rather than guess when a limit falls
@@ -51,10 +56,6 @@ what the guidance changes.
 [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md)
 records what is still withheld and why.
 
-`partspec.run()` is internal: it is importable, it is not in `__all__`, and its signature may
-change without a major bump. The package is fully annotated and ships a `py.typed` marker, so a
-consumer type-checks against it rather than being handed `Any` — before v0.7.0 it shipped none,
-which gave downstream not weaker checking but silently none at all.
 
 ## Engines
 

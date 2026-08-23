@@ -10,23 +10,23 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Six verbs: `check` gives the verdict, `measure` dumps every quantity without one, `render`
-writes the canonical views, `diff` compares two reports, `vdiff` compares two runs' images,
-and `lint` reads the source advisorily. Only `check` decides anything.
+Six verbs, three of which decide and exit on the outcome: `check` gives the part's
+verdict; `diff` compares two reports and `vdiff` two runs' images, both over
+`{identical: 0, different: 1, indeterminate: 2}` (SPEC-diff §2) — for them too, silence
+must never read as "no difference". The other three answer without deciding: `measure`
+dumps every quantity it can honestly produce, `render` writes the canonical views, and
+`lint` reads the source advisorily, exiting 0 whatever it finds because the findings are
+data about the source and not a verdict on the part.
 
 Status: pre-alpha; **v0.7.6 on PyPI** (2026-08-15, tag → trusted publishing via
-`release.yml`). What each release changed is in `CHANGELOG.md`, which is where that
-history belongs — this section used to carry it in reverse-chronological prose and had
-grown to a third of the file, every release prepending a paragraph and demoting the last
-with no rule for ever evicting one. `docs/POST-V0.md` records what is still withheld and
-why.
+`release.yml`). What each release changed is in `CHANGELOG.md`; `docs/POST-V0.md` records
+what is still withheld and why. Keep this section an orientation — a test bounds it, since
+release narrative accreted here for six releases with nothing to evict it.
 
 **Start here.** `docs/AGENT-CONTRACT.md` is how to drive the tool: which artifact to read,
 what each exit code obliges you to do, and the two cases where the exit and the report
-disagree on purpose. `docs/SPEC-contract.md` is how to author one. Before this section was
-cut, the only mention of `AGENT-CONTRACT.md` in this file was a parenthetical inside a
-release paragraph, which is a poor place to keep the document that tells an agent how to
-work.
+disagree on purpose. `docs/SPEC-contract.md` is how to author one.
+
 ## Stack
 
 - **Python ≥3.12**, `uv` for dependency management, `hatchling` build backend
