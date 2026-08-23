@@ -1704,13 +1704,26 @@ def test_weakening_that_flips_a_status_still_shows_the_moved_limit():
 
 
 def _loosened() -> tuple[dict, dict]:
-    """The flagship weakening move: `wall_gt_2` fails, its floor drops to
-    0.001, and the same geometry now passes. Reproduced end to end against a
-    real `spacer.scad` before #293 was believed."""
+    """The flagship weakening move: an unchanged 1.4 mm wall, its floor
+    dropped from 2.0 to 0.001, and a check that now passes.
+
+    The measurement is moved on *both* sides. Leaving `_doc`'s 2.9 under a
+    stamped `fail` would model a report that contradicts itself, and moving it
+    on one side only would put a `value` delta in the entry — the geometry
+    changing is the one thing this fixture must not say happened.
+
+    #293's own end-to-end reproduction was a live build of a different check
+    (an `envelope` bound over `examples/spacer`'s `spacer.scad`); this is the
+    same shape as a unit fixture, not a transcript of that run.
+    """
     old, new = _doc(), _doc()
-    next(c for c in old["checks"] if c["id"] == "wall_gt_2")["status"] = "fail"
+    old_check = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    old_check["status"] = "fail"
+    old_check["measurement"]["value"] = 1.4
     old["verdict"] = "fail"
-    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 0.001}
+    new_check = next(c for c in new["checks"] if c["id"] == "wall_gt_2")
+    new_check["measurement"]["value"] = 1.4
+    new_check["limit"] = {"min": 0.001}
     return old, new
 
 
@@ -1722,6 +1735,12 @@ def test_a_status_flipped_by_a_moved_claim_says_so_on_the_headline_too():
     whole time; nothing printed it."""
     old, new = _loosened()
     doc = _diff(old, new)
+
+    # The fixture says what it claims to say: the claim moved and the geometry
+    # did not, so the note is answering for the bound and nothing else.
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert entry["claim"]["old"] == {"limit": {"min": 2.0}}
+    assert "value" not in entry
 
     assert summary_of(doc, new).splitlines()[0] == (
         "different: p — 1 fixed (1 with the claim changed)"

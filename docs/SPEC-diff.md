@@ -218,12 +218,16 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   change is a difference. A status-change entry MUST also carry the claim and value deltas
   when those moved: loosening a limit until a failing check passes is the flagship
   weakening move, and an entry saying only "fixed" would report the attack as an
-  improvement. The **§1 headline** MUST state the same fact: a `regressed` or `fixed`
-  count says how many of its entries also moved the claim, since a reader who sees only
-  `1 fixed` in a terminal or a PR check has been told the attack succeeded and been shown
-  it as good news. The count itself stays the bucket's true total; the qualifier breaks it
-  down. Neither `limit_changed` (where the claim moving is the bucket) nor `drifted`
-  (which cannot carry one) takes the qualifier.
+  improvement. The **§1 headline** MUST state the same fact, since the reason is a
+  statement about readers and the headline is the surface a human reads: a `regressed` or
+  `fixed` count says how many of its entries also moved the claim. The count itself stays
+  the bucket's true total; the qualifier breaks it down. Neither `limit_changed` (where the
+  claim moving is the bucket) nor `drifted` (which cannot carry one) takes the qualifier.
+  This rule reaches a *moved claim* and no further. A check that stopped being answerable
+  is also bucketed `fixed` — `skipped` and `unsupported` both sit below `fail` in the
+  severity order above — and carries no claim to qualify, so an unevaluated check still
+  reads on the headline as a repair. That is #325, and unfixed: stated here so the bound of
+  this rule is read from the spec rather than inferred from the reason given for it.
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
