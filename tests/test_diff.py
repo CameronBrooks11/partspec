@@ -1769,19 +1769,57 @@ def test_the_qualifier_counts_the_moved_claims_and_not_the_bucket():
     parentheses passed all 1178 (review round 2).
 
     `2 fixed (2 with the claim changed)` accuses the repair of being the
-    attack, which is the same defect as #293 pointed the other way."""
+    attack, which is the same defect as #293 pointed the other way.
+
+    Three shapes, because one is not enough to pin a count (review round 4).
+    A qualified entry first is what `1` and `any()` and `entries[:1]` all
+    agree on; the number is only observable where it is neither 0 nor the
+    bucket total, and the position only where the qualified entry is not the
+    one a truncating read would find."""
+
+    def _fixed(doc):
+        return [(c["id"], "claim" in c) for c in doc["checks"] if c["change"] == "fixed"]
+
+    # 1. The weakening first, a genuine repair behind it.
     old, new = _loosened()
     envelope = next(c for c in old["checks"] if c["id"] == "envelope")
     envelope["status"] = "fail"
     envelope["measurement"]["value"] = [31.0, 20.0, 10.0]
 
     doc = _diff(old, new)
-    assert [(c["id"], "claim" in c) for c in doc["checks"] if c["change"] == "fixed"] == [
-        ("wall_gt_2", True),
-        ("envelope", False),
-    ]
+    assert _fixed(doc) == [("wall_gt_2", True), ("envelope", False)]
     assert summary_of(doc, new).splitlines()[0] == (
         "different: p — 2 fixed (1 with the claim changed)"
+    )
+
+    # 2. The same pair with the roles swapped, so the qualified entry is not
+    #    the first one. `entries[:1]` reads this as an unqualified `2 fixed` —
+    #    #293's own defect, restored, under a green suite.
+    old, new = _doc(), _doc()
+    wall_old = next(c for c in old["checks"] if c["id"] == "wall_gt_2")
+    wall_old["status"] = "fail"
+    wall_old["measurement"]["value"] = 1.4
+    env_old = next(c for c in old["checks"] if c["id"] == "envelope")
+    env_old["status"] = "fail"
+    old["verdict"] = "fail"
+    next(c for c in new["checks"] if c["id"] == "envelope")["limit"] = {"max": [40, 30, 10]}
+
+    doc = _diff(old, new)
+    assert _fixed(doc) == [("wall_gt_2", False), ("envelope", True)]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 2 fixed (1 with the claim changed)"
+    )
+
+    # 3. Both claims moved. `any()` and a `min(n, 1)` clamp both under-report
+    #    here, filing one of two weakenings as a repair.
+    wall_new = next(c for c in new["checks"] if c["id"] == "wall_gt_2")
+    wall_new["measurement"]["value"] = 1.4
+    wall_new["limit"] = {"min": 0.001}
+
+    doc = _diff(old, new)
+    assert _fixed(doc) == [("wall_gt_2", True), ("envelope", True)]
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 2 fixed (2 with the claim changed)"
     )
 
 

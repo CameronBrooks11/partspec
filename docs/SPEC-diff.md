@@ -227,12 +227,17 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   rather than left to be inferred from the reason given for the rule. `pass` is the only
   status in the severity order that means the check was answered and held, so **every**
   transition into `approximate`, `unsupported` or `skipped` from a status ranked above it
-  is bucketed `fixed` — a check that stopped being answerable, filed as one that was
-  answered better, and not only when it left `fail`. The qualifier keys on the claim and on
-  nothing else, so where the claim did not move it does not fire and the headline reports
-  the transition as a repair. Such an entry is not otherwise empty: a check that stops being
-  evaluated usually loses its measurement with it, so the `value` delta is generally
-  present and is not what the qualifier reads. That is #325, and unfixed.
+  is bucketed `fixed` — a check that is not answered on the new side, filed as one that was
+  answered better. Not only when it left `fail`, and not always a check that *stopped* being
+  answerable: `unsupported` → `skipped` was not answered on either side. Within a status
+  bucket the qualifier reads the claim and nothing else, so where the claim did not move it
+  does not fire and the headline reports the transition as a repair. Such an entry is
+  usually not otherwise empty — a check that stops being evaluated normally loses its
+  measurement with it, and all four `skipped`/`unsupported` sites in the runner build the
+  result without one — so a `value` delta is generally present and is not what the qualifier
+  reads. Generally, not always: `fail` → `approximate` over an unchanged measurement, and
+  any transition between two unmeasured statuses, carry nothing but the status. That is
+  #325, and unfixed.
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
