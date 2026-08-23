@@ -10,87 +10,22 @@ emits a JSON report. Its one distinguishing property, from which most of the des
 follows: **silence must never read as success** — a check the tool could not evaluate, or
 could not evaluate precisely enough to decide, never reports as a pass.
 
-Status: pre-alpha; **v0.7.6 released on PyPI** (2026-08-15, tag → trusted publishing via
-`release.yml`). 0.7.6 is a maintenance release with one behavioural change and a great deal
-of self-correction. `FAIL solid_count` was the entire diagnostic on a failing scalar check —
-the fact the reader already had, without the one they needed — while `report.json` held the
-measured value and the limit two feet away; it now reads `measured 1, limit equals=2`, from
-a generic renderer that `Limit`'s closed set of forms licenses, so every present and future
-scalar check gets it. `measure --out` says where the artifact landed on the tier that writes
-one. `render`'s section and view paths stopped deleting their own outputs before the engine
-reads them, closing the residue #223 filed against itself.
+Six verbs, three of which decide and exit on the outcome: `check` gives the part's
+verdict; `diff` compares two reports and `vdiff` two runs' images, both over
+`{identical: 0, different: 1, indeterminate: 2}` (SPEC-diff §2) — for them too, silence
+must never read as "no difference". The other three answer without deciding: `measure`
+dumps every quantity it can honestly produce, `render` writes the canonical views, and
+`lint` reads the source advisorily, exiting 0 whatever it finds because the findings are
+data about the source and not a verdict on the part.
 
-The rest is the project auditing its own claims, and the pattern is worth recording because
-it held every time: **each fix for an overclaim introduced a quieter overclaim one field
-over.** A correction about figures nobody can re-derive asserted that `57` matched no reading
-of the frozen fleet logs — it is arm A's non-control total, and the counter-example was
-printed in the issue being closed. The fix for that shipped a test that passed against its
-own parent. The fix for a two-notation number format created the same defect on the parameter
-path while claiming to have unified all three. A workflow comment was corrected to cite the
-test enforcing it, in the same commit that renamed the test. Every one was caught by an
-adversarial reviewer prompted to refute rather than to check, and none by the test suite —
-which is the argument for the ritual. 0.7.5 before it closes the comparator's engine-shaped hole, measured by a nine-agent
-adoption fleet: `diff` went indeterminate on 3/3 CadQuery replicates and 0/3 OpenSCAD ones,
-same command and same version, because an OpenSCAD library is source on disk while a Python
-one is an installed distribution and `source_closure.partial` was therefore unconditional.
-`source_closure` now carries `imports` (which distributions the model loaded, and whether
-their bytes were read or their installer taken at its word) and `unseen` (the gaps, from a
-closed vocabulary), and `diff` keys on whether a gap is *bounded* or *irreducible* rather
-than on a boolean — so a library that moved under unmoved claims is `identical` and names
-the library, while a gap a run could have closed still blocks the claim. `imports` is
-process-wide where `check` runs several targets in one process, and `preloaded` names what
-a report cannot claim as its own rather than letting `diff` assert it (#216 carries the
-real attribution). Also: `measure --out` no longer unlinks a destination that is a build
-input, and `diff` compares `environment.packages`, which `SPEC-report.md` said in bold it
-must. Its pre-tag audit found the batch-position defect above and four wording defects,
-and two rounds of adversarial review then found that each fix for an overclaim had
-introduced a quieter one. 0.7.4 before it corrects 0.7.3: the remedy `check` had just started
-printing named `pip`, which a `uv venv` does not have — and on a distro that packages one
-the word still resolves, to the *system* interpreter, so the fix ran clean and changed
-nothing the failing interpreter could see. Hints are now phrased for the interpreter
-reading them (`install.py`, `find_spec` and deliberately not `shutil.which`). Both
-0.7.3-era findings and this one came from the same place: installing the published artifact
-as a stranger would and following its instructions literally. 0.7.3 before it is the first
-release cut from an *adoption* measurement rather than
-from review: a fresh agent, given a cold install, a community CadQuery library and an
-external standard to check it against, spent roughly 40% of its effort discovering the
-contract API. `check` now prints `report.hint` — the remedy — instead of leaving it in the
-artifact while `measure` and `render` printed theirs; a run-level fault is stated once
-rather than once per skipped check; both Python engine factories have docstrings; and
-`--help` says where the specs every diagnostic cites actually live. 0.7.2 before it
-retracts #109: `uv pip install 'partspec[occt]'` was never broken, and the strand three
-releases of documentation blamed on uv was this repo's own
-`[tool.uv] override-dependencies`, applied to whatever `uv pip` installs from a directory
-under this one. The one code change is the error that names the state. 0.7.1 before it
-carried no code change at all, and exists to repair the sdist — the shipped suite passes
-in a base install, and the shipped docs no longer cite files the tarball omits. `check`,
-`measure` and `render` work
-against all three engines (`render`
-with `--section` cuts on both tiers), `diff` compares reports and `vdiff` compares renders,
-`lint` reads the geometry (tier 2), and `partspec-mcp` serves check/measure/render/vdiff as
-stateless MCP tools. **v0.7.0 shipped the depth epic (#136)**: the OCCT tier gained
-`draft_angle`, `self_intersection_free`, `step_roundtrip` and `min_wall`, and `min_wall`
-made the `approximate` verdict live — a guaranteed interval that straddles a limit now
-exits 2 rather than guessing.
+Status: pre-alpha; **v0.7.6 on PyPI** (2026-08-15, tag → trusted publishing via
+`release.yml`). What each release changed is in `CHANGELOG.md`; `docs/POST-V0.md` records
+what is still withheld and why. Keep this section an orientation — a test bounds it, since
+release narrative accreted here for six releases with nothing to evict it.
 
-v0.7.0 also **narrowed the public surface** — `BBox` deleted, `run` out of `__all__`,
-`CheckResult.part_refs` gone, `csg.read_csg`/`contains_strings` gone, and the mesh tier no
-longer declares a `raycast` capability it could not keep — **ships `py.typed`** (before it,
-a consumer got no type checking at all, silently), and **changed the sdist**, which no
-longer carries `notes/` or `evals/`. The mechanical enumerations in the specs are generated
-(see Conventions); do not hand-edit a block between `<!-- BEGIN GENERATED -->` markers.
-P0–P6 of `docs/PLAN.md` are complete; epic #6 grew the vocabulary to real mechanical
-intent (`keep_out`/`keep_in`, `hole_diameter`, `bolt_circle`, `fillet_radius`) and added
-the `partspec diff` comparator (`SPEC-diff.md`); epic #5 added reference data with
-provenance — `partspec.refs` tables and fragments (`iso15`, `nema17`), cited limits in
-the report, and the unattributed-limit disclosure (SPEC-contract §6/§10/§11); epic #4
-made the loop trustworthy unattended — bounded builds (`--timeout`),
-missing-wheel/environment origin, identifiable `measure` output, multi-target `check`
-with module-cache invalidation, the claims pin (`--pin`/`--expect`, SPEC-report §7.1
-`expectation`), and the agent contract (`docs/AGENT-CONTRACT.md`); epic #3 shipped the craft — three tested skills, three worked exemplars, the failure catalogue
-(`docs/FAILURE-MODES.md`), `partspec lint` tier 1 (`docs/LINT.md`), and the recorded
-guidance before/after ([`evals/AUTHORING.md`][authoring-evals]).
-What remains withheld, and why, is `docs/POST-V0.md`.
+**Start here.** `docs/AGENT-CONTRACT.md` is how to drive the tool: which artifact to read,
+what each exit code obliges you to do, and the two cases where the exit and the report
+disagree on purpose. `docs/SPEC-contract.md` is how to author one.
 
 ## Stack
 
@@ -132,6 +67,9 @@ evals/            # agent-in-the-loop evidence: convergence (#30), authoring arm
 notes/            # frozen analysis the tracker cites (see notes/README.md; #51)
 scripts/          # helper scripts invoked by just recipes
 docs/             # the specs and decision log — normative, not background reading
+  AGENT-CONTRACT.md   # how to DRIVE partspec: artifact, exit codes, the two disagreements
+  SPEC-contract.md    # how to AUTHOR a contract: the check vocabulary and its grammar
+  FAILURE-MODES.md    # the observed ways a build passes while the part is wrong
 ```
 
 ## Commands
@@ -271,5 +209,3 @@ Run the suite under both before touching `engines/openscad.py`.
   to differ from the gate.
 - Do not add a dependency without justification; the core is stdlib-only by design.
 - Do not commit secrets or credentials.
-
-[authoring-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md

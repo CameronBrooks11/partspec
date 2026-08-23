@@ -2,45 +2,180 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.7.6 is on PyPI** — a failing check now says what it
-> measured and what you asked for. `FAIL solid_count` was the whole diagnostic
-> until 0.7.6: the fact you already had, without the one you needed, while the
-> report held both numbers. It reads `measured 1, limit equals=2` now, from a
-> renderer generic over every scalar check. `measure --out` also says where the
-> artifact landed on the tier that writes one, and `render`'s section and view
-> paths no longer delete their own outputs before the engine reads them.
-> 0.7.5 before it made `diff` able to answer for a
-> contract that wraps a third-party library: every such comparison
-> was indeterminate whatever it found, because a Python closure was flagged
-> partial unconditionally; the report now records which distributions the model
-> imported and names its gaps, and `diff` keys on the *class* of gap rather
-> than a boolean. A library that moved under unmoved claims is `identical` and
-> says which library. It
-> runs end to end — `check`, `measure` and `render` across all three engines (with
-> `--section` cuts on both tiers), `diff` on the reports and `vdiff` on
-> the renders they produce — and is dogfooded on real
-> parts. The vocabulary covers real mechanical intent: keep-out/keep-in regions,
-> `hole_diameter`, `bolt_circle`, `fillet_radius`, `draft_angle`,
-> `self_intersection_free`, `step_roundtrip` and `min_wall` on the OCCT tier — the last
-> of which answers with a guaranteed interval and says `approximate` rather than guess
-> when a limit falls inside it. The loop is built
-> to run unattended: every build is bounded (`--timeout`), `check` takes many targets in
-> one process, a committed claims pin (`--pin`/`--expect`) catches a contract that shrank
-> with no baseline in hand, and the rules an agent follows are
-> [`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md).
-> And the repo teaches the craft it verifies: `partspec lint` (advisory; tier 1 is
-> engine-free, the three `csg-*` tier-2 rules need the OpenSCAD binary and refuse without it),
-> three authoring skills, worked exemplars, the observed
-> [failure catalogue](https://github.com/CameronBrooks11/partspec/blob/main/docs/FAILURE-MODES.md),
-> and a [recorded before/after](https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md)
-> showing what the guidance changes.
-> [`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md) records what is still withheld and why.
-> Expect the Python API to move: the stable surface is the report schema plus the exit
-> codes. `partspec.run()` is internal: it is importable, and it is not in `__all__`, and
-> its signature may change without a major bump. The package is fully annotated and ships
-> a `py.typed` marker, so a consumer type-checks against it rather than being handed
-> `Any` — before v0.7.0 it shipped none, which gave downstream not weaker checking but
-> silently none at all.
+> **Status: pre-alpha; v0.7.6 is on PyPI.** It runs end to end and is dogfooded on real
+> parts. Expect the Python API to move: the stable surface is the report schema plus the
+> exit codes. What changed in each release is in
+> [CHANGELOG.md](https://github.com/CameronBrooks11/partspec/blob/main/CHANGELOG.md).
+
+`partspec.run()` is internal: it is importable, it is not in `__all__`, and its signature may
+change without a major bump. The package is fully annotated and ships a `py.typed` marker, so a
+consumer type-checks against it rather than being handed `Any` — before v0.7.0 it shipped none,
+which gave downstream not weaker checking but silently none at all.
+
+## Install
+
+```sh
+pip install 'partspec[mesh]'      # OpenSCAD parts — the smallest useful install
+```
+
+Or for development, from a clone:
+
+```sh
+uv sync --all-extras     # or: just setup
+uv run partspec check examples/spacer/spec.py:spacer
+```
+
+Engines are optional extras — `mesh`, `occt`, `cadquery` — so `uv sync --extra mesh` is
+enough for OpenSCAD-only work. The `mcp` extra adds `partspec-mcp`, a stdio MCP server
+exposing `check`, `measure`, `render` and `vdiff` as stateless tools: each call runs the CLI in a
+fresh subprocess and returns its artifact, per the boundary in [D18](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md).
+
+The `openscad` binary is a system dependency and is not on the wheel's dependency list,
+and installing both Python engines under plain `pip` needs one extra step —
+[Setting up the engines](#setting-up-the-engines) has both.
+
+## What runs today
+
+`check`, `measure` and `render` work across all three engines, with `--section` cuts on both
+tiers; `diff` compares two reports and `vdiff` two runs' renders. The vocabulary covers real
+mechanical intent:
+keep-out/keep-in regions, `hole_diameter`, `bolt_circle`, `fillet_radius`, `draft_angle`,
+`self_intersection_free`, `step_roundtrip` and `min_wall` on the OCCT tier — the last of which
+answers with a guaranteed interval and says `approximate` rather than guess when a limit falls
+inside it. The loop is built to run unattended: every build is bounded (`--timeout`), `check`
+takes many targets in one process, a committed claims pin (`--pin`/`--expect`) catches a
+contract that shrank with no baseline in hand, and the rules an agent follows are
+[`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md).
+And the repo teaches the craft it verifies: `partspec lint` (advisory; tier 1 is engine-free,
+the three `csg-*` tier-2 rules need the OpenSCAD binary and refuse without it), three authoring
+skills, worked exemplars, the observed [failure
+catalogue](https://github.com/CameronBrooks11/partspec/blob/main/docs/FAILURE-MODES.md), and a
+[recorded
+before/after](https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md) showing
+what the guidance changes.
+[`docs/POST-V0.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/POST-V0.md)
+records what is still withheld and why.
+
+## Engines
+
+| engine | tier | notes |
+|---|---|---|
+| OpenSCAD | mesh | via binary STL, measured with trimesh |
+| build123d | OCCT | native |
+| CadQuery | OCCT | adopted into the build123d backend via `.wrapped` — same kernel, no conversion |
+
+One contract, evaluated identically wherever it can be, with honest degradation where it
+cannot.
+
+## Setting up the engines
+
+### The OpenSCAD binary
+
+`partspec[mesh]` installs the Python side. The `openscad` binary itself is a system
+dependency and is not on the wheel's dependency list — install it separately:
+
+```sh
+sudo apt install openscad             # Debian/Ubuntu — 2021.01
+brew install openscad@snapshot        # macOS — a current snapshot
+# or a build from https://openscad.org/downloads.html
+```
+
+`openscad@snapshot` rather than the bare `openscad` cask: that one is deprecated and
+Homebrew disables it on 2026-09-01, after which it installs nothing.
+
+`PARTSPEC_OPENSCAD` pins which binary is used, and the version is recorded in every report
+because it changes the artifact — the same model can build a different part on a different
+OpenSCAD, so the engine is part of the answer rather than a detail of how it was obtained.
+
+### Headless
+
+**2021.01 cannot write a PNG without a display** — it has no EGL offscreen path, so it
+segfaults leaving a 0-byte file, which partspec reports as an environment fault rather
+than a verdict on your part. This affects `render` and `check --render`; plain `check` and
+`measure` are unaffected, because they export STL and that needs no GL context.
+
+Either run those under `xvfb-run -a`, or use a build with EGL offscreen support. Note what
+the second option means in practice: **2021.01 is the newest OpenSCAD release there has
+ever been**, so a build with EGL offscreen is a development snapshot. On macOS the
+`openscad@snapshot` cask above already is one. On Linux the AppImage needs more than a
+download —
+
+```sh
+# It links a graphics stack it does not bundle, and will not answer --version without it.
+sudo apt install -y libegl1 libgl1 libopengl0 libgbm1 libwayland-client0 \
+                    libfontconfig1 libharfbuzz0b libgmp10
+
+cd /somewhere/outside/your/repo   # --appimage-extract writes squashfs-root/ into the CWD
+curl -fsSL -o openscad.AppImage \
+  https://files.openscad.org/snapshots/OpenSCAD-2026.08.19-x86_64.AppImage
+chmod +x openscad.AppImage && ./openscad.AppImage --appimage-extract >/dev/null
+export PARTSPEC_OPENSCAD=$PWD/squashfs-root/AppRun
+```
+
+Extracted rather than run in place because mounting it needs `libfuse2`, and outside your
+repo because that `squashfs-root/` contains a whole Python stdlib that every linter you
+run will then walk. Snapshots are pruned on a rolling window, so pick a date currently
+listed at <https://files.openscad.org/snapshots/> rather than the one above — that
+address is also named in the hint partspec prints on this fault, and a test holds the two
+together, so keep it spelled that way here. `.github/workflows/ci.yml` follows this same
+procedure to pin the second engine leg (at its own pinned date, not the one above).
+
+**Installing both Python engines with plain `pip`** needs one extra step:
+
+```sh
+pip install 'partspec[occt,cadquery]'
+pip install --force-reinstall --no-deps cadquery-ocp   # re-assert the VTK build
+
+# or, under uv
+uv pip install 'partspec[occt,cadquery]'
+uv pip install --no-deps --reinstall-package cadquery-ocp cadquery-ocp
+```
+
+build123d wants `cadquery-ocp-novtk` and CadQuery wants `cadquery-ocp`. Both wheels install
+the same top-level `OCP/` package, neither pip nor uv detects the conflict, and whichever
+lands last wins — when novtk wins, CadQuery cannot import at all. This repo drops novtk with
+a `[tool.uv]` override, but that is a workspace setting and is not carried in wheel
+metadata, so a `pip` install has no override in scope. Which one wins is install-order luck
+and the two installers do not agree — `just test-cadquery-only` passed for a month on pip
+and failed on its first CI run under uv — so the second line is not optional advice. If you
+skip it, partspec tells you: the clobber is reported as an environment fault with that
+command as the hint, not as a failing part — and it hints whichever of the two lines above
+fits the environment it is running in, because a `uv venv` ships no `pip` and the word then
+resolves to the system one, which installs somewhere the failing interpreter cannot see.
+
+**`uv pip install 'partspec[occt]'` works.** Earlier releases of this README said it did
+not — that no `OCP` module landed and you had to fall back to plain `pip` (#109). That was
+wrong, and the cause was ours: `uv pip` reads `[tool.uv]` from the nearest pyproject.toml
+above the working directory and applies it to whatever it is installing, so every
+measurement taken from inside a partspec checkout inherited this repo's
+`override-dependencies`, which drops `cadquery-ocp-novtk` on purpose. One directory over,
+the same command has always worked. If you are installing *from* a clone, pass
+`--no-config`.
+
+That leaves one real way to reach an engine with no OCP behind it, and partspec names it
+rather than blaming your part —
+
+```
+$ partspec check spec.py:stepper_bracket        # exit 4, verdict "error"
+  --   builds — not evaluated: build123d is not importable: No module named
+       'OCP'; no OCP provider is installed (cadquery-ocp-proxy 7.9.3.1.1 is
+       present, but it ships no OCP) — something dropped cadquery-ocp-novtk
+       from the resolution
+  --   watertight — not evaluated: build123d is not importable: <the same>
+
+ERROR: 2 skipped
+  hint: pip install cadquery-ocp-novtk; if you installed from a partspec
+        checkout, `uv pip` applied this repo's [tool.uv] override — re-run it
+        with --no-config. See partspec issue #109
+  outputs/spec-stepper_bracket/report.json
+```
+
+(Captured from a run, then wrapped to fit this page; the real lines are one
+each. The hint names `pip` because that run had one — in a `uv venv` the same
+hint reads `uv pip install`. Every declared check is `skipped` and `builds` is not reported as
+failing, because an absent OCP disproves nothing about the design —
+`build_origin: "environment"` in the report is the machine-readable form of
+that distinction.)
 
 ## What it is for
 
@@ -179,143 +314,6 @@ Refusal is kept as narrow as the mathematics allows. An *open* mesh still determ
 body count, so `solid_count` still answers there; only a non-manifold junction, where
 counting through and counting across disagree, makes it refuse. An unnecessary
 `unsupported` is its own way of failing to answer an answerable question.
-
-## Engines
-
-| engine | tier | notes |
-|---|---|---|
-| OpenSCAD | mesh | via binary STL, measured with trimesh |
-| build123d | OCCT | native |
-| CadQuery | OCCT | adopted into the build123d backend via `.wrapped` — same kernel, no conversion |
-
-One contract, evaluated identically wherever it can be, with honest degradation where it
-cannot.
-
-## Install
-
-```sh
-pip install 'partspec[mesh]'      # OpenSCAD parts — the smallest useful install
-```
-
-Or for development, from a clone:
-
-```sh
-uv sync --all-extras     # or: just setup
-uv run partspec check examples/spacer/spec.py:spacer
-```
-
-Engines are optional extras — `mesh`, `occt`, `cadquery` — so `uv sync --extra mesh` is
-enough for OpenSCAD-only work. The `mcp` extra adds `partspec-mcp`, a stdio MCP server
-exposing `check`, `measure`, `render` and `vdiff` as stateless tools: each call runs the CLI in a
-fresh subprocess and returns its artifact, per the boundary in [D18](https://github.com/CameronBrooks11/partspec/blob/main/docs/DECISIONS.md).
-
-### The OpenSCAD binary
-
-`partspec[mesh]` installs the Python side. The `openscad` binary itself is a system
-dependency and is not on the wheel's dependency list — install it separately:
-
-```sh
-sudo apt install openscad             # Debian/Ubuntu — 2021.01
-brew install openscad@snapshot        # macOS — a current snapshot
-# or a build from https://openscad.org/downloads.html
-```
-
-`openscad@snapshot` rather than the bare `openscad` cask: that one is deprecated and
-Homebrew disables it on 2026-09-01, after which it installs nothing.
-
-`PARTSPEC_OPENSCAD` pins which binary is used, and the version is recorded in every report
-because it changes the artifact — the same model can build a different part on a different
-OpenSCAD, so the engine is part of the answer rather than a detail of how it was obtained.
-
-### Headless
-
-**2021.01 cannot write a PNG without a display** — it has no EGL offscreen path, so it
-segfaults leaving a 0-byte file, which partspec reports as an environment fault rather
-than a verdict on your part. This affects `render` and `check --render`; plain `check` and
-`measure` are unaffected, because they export STL and that needs no GL context.
-
-Either run those under `xvfb-run -a`, or use a build with EGL offscreen support. Note what
-the second option means in practice: **2021.01 is the newest OpenSCAD release there has
-ever been**, so a build with EGL offscreen is a development snapshot. On macOS the
-`openscad@snapshot` cask above already is one. On Linux the AppImage needs more than a
-download —
-
-```sh
-# It links a graphics stack it does not bundle, and will not answer --version without it.
-sudo apt install -y libegl1 libgl1 libopengl0 libgbm1 libwayland-client0 \
-                    libfontconfig1 libharfbuzz0b libgmp10
-
-cd /somewhere/outside/your/repo   # --appimage-extract writes squashfs-root/ into the CWD
-curl -fsSL -o openscad.AppImage \
-  https://files.openscad.org/snapshots/OpenSCAD-2026.08.19-x86_64.AppImage
-chmod +x openscad.AppImage && ./openscad.AppImage --appimage-extract >/dev/null
-export PARTSPEC_OPENSCAD=$PWD/squashfs-root/AppRun
-```
-
-Extracted rather than run in place because mounting it needs `libfuse2`, and outside your
-repo because that `squashfs-root/` contains a whole Python stdlib that every linter you
-run will then walk. Snapshots are pruned on a rolling window, so pick a date currently
-listed at <https://files.openscad.org/snapshots/> rather than the one above — that
-address is also named in the hint partspec prints on this fault, and a test holds the two
-together, so keep it spelled that way here. `.github/workflows/ci.yml` follows this same
-procedure to pin the second engine leg (at its own pinned date, not the one above).
-
-**Installing both Python engines with plain `pip`** needs one extra step:
-
-```sh
-pip install 'partspec[occt,cadquery]'
-pip install --force-reinstall --no-deps cadquery-ocp   # re-assert the VTK build
-
-# or, under uv
-uv pip install 'partspec[occt,cadquery]'
-uv pip install --no-deps --reinstall-package cadquery-ocp cadquery-ocp
-```
-
-build123d wants `cadquery-ocp-novtk` and CadQuery wants `cadquery-ocp`. Both wheels install
-the same top-level `OCP/` package, neither pip nor uv detects the conflict, and whichever
-lands last wins — when novtk wins, CadQuery cannot import at all. This repo drops novtk with
-a `[tool.uv]` override, but that is a workspace setting and is not carried in wheel
-metadata, so a `pip` install has no override in scope. Which one wins is install-order luck
-and the two installers do not agree — `just test-cadquery-only` passed for a month on pip
-and failed on its first CI run under uv — so the second line is not optional advice. If you
-skip it, partspec tells you: the clobber is reported as an environment fault with that
-command as the hint, not as a failing part — and it hints whichever of the two lines above
-fits the environment it is running in, because a `uv venv` ships no `pip` and the word then
-resolves to the system one, which installs somewhere the failing interpreter cannot see.
-
-**`uv pip install 'partspec[occt]'` works.** Earlier releases of this README said it did
-not — that no `OCP` module landed and you had to fall back to plain `pip` (#109). That was
-wrong, and the cause was ours: `uv pip` reads `[tool.uv]` from the nearest pyproject.toml
-above the working directory and applies it to whatever it is installing, so every
-measurement taken from inside a partspec checkout inherited this repo's
-`override-dependencies`, which drops `cadquery-ocp-novtk` on purpose. One directory over,
-the same command has always worked. If you are installing *from* a clone, pass
-`--no-config`.
-
-That leaves one real way to reach an engine with no OCP behind it, and partspec names it
-rather than blaming your part —
-
-```
-$ partspec check spec.py:stepper_bracket        # exit 4, verdict "error"
-  --   builds — not evaluated: build123d is not importable: No module named
-       'OCP'; no OCP provider is installed (cadquery-ocp-proxy 7.9.3.1.1 is
-       present, but it ships no OCP) — something dropped cadquery-ocp-novtk
-       from the resolution
-  --   watertight — not evaluated: build123d is not importable: <the same>
-
-ERROR: 2 skipped
-  hint: pip install cadquery-ocp-novtk; if you installed from a partspec
-        checkout, `uv pip` applied this repo's [tool.uv] override — re-run it
-        with --no-config. See partspec issue #109
-  outputs/spec-stepper_bracket/report.json
-```
-
-(Captured from a run, then wrapped to fit this page; the real lines are one
-each. The hint names `pip` because that run had one — in a `uv venv` the same
-hint reads `uv pip install`. Every declared check is `skipped` and `builds` is not reported as
-failing, because an absent OCP disproves nothing about the design —
-`build_origin: "environment"` in the report is the machine-readable form of
-that distinction.)
 
 ## Documentation
 
