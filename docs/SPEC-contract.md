@@ -209,7 +209,12 @@ components, measurement has 3"* — never a partial claim.
 **`watertight`** is the boolean *every edge is bounded by exactly two faces*. It takes
 no bound; `p.watertight()` claims True. It is a claim about the **surface**, not about
 what the part contains: measured, a tray with an open pocket is watertight, one solid,
-zero cavities and genus 0.
+zero cavities and genus 0. On the OCCT tier the phrase is `is_manifold`, and it counts
+**degenerate** edges — a sphere's poles are bounded by no area and used once each — so
+it reads **false** on a sphere, a cone and a filleted box, all three of them closed.
+`genus` (§4.2.3, below) asks the same question of its own body and skips those edges,
+which is why the two can disagree on the same part and why `watertight` is not the
+closedness precondition `genus` uses.
 
 **`solid_count(n)`** counts **solids** — closed, outward-oriented bodies — not surface
 components. A sealed void is not a second solid: measured, a 20 mm cube with a 10 mm
@@ -243,8 +248,8 @@ contract declaring `genus(0)`, `watertight()`, `solid_count(1)` and `cavities(0)
 reported `PASS: 5 pass` at exit 0 on a part with a through-hole. **`watertight` is
 not the missing test**: a vertex adds no edge, so manifoldness is unmoved and
 `watertight` stays `true` while `genus` is wrong. It is not the closedness test
-either — measured, `is_manifold` reads `false` on a sphere, a cone and a filleted
-box, all three of them closed.
+either: it counts degenerate edges, so measured it reads `false` on a sphere, a
+cone and a filleted box, all three of them closed.
 
 What is checked instead, stated where the measurement is taken:
 
@@ -256,10 +261,17 @@ What is checked instead, stated where the measurement is taken:
   counts.
 - **That one solid closed.** `Solid(Shell(box.faces()[1:]))` is one solid carrying
   nothing beside it, and it reported `genus 0` on a surface that has no genus. Every
-  edge of a closed boundary is bounded by exactly two faces — counted as *uses*, so
-  a seam edge used twice by one face is closed, which is why `is_manifold` cannot
-  serve. Measured: *"genus is defined for one closed body; it is not closed: 4
-  edge(s) not bounded by exactly two faces"*.
+  edge of a closed boundary is bounded by exactly two faces — counted as *uses*, not
+  as distinct faces, and skipping degenerate edges, which is where `watertight`
+  differs (see below). Both directions are refused: measured, *"genus is defined for
+  one closed body; it is not closed: 4 edge(s) not bounded by exactly two faces"*,
+  on an open shell and equally on a solid whose partition edges are used by four
+  faces.
+- **A genus that is not negative.** The characteristic sums the genera of the body's
+  shells, so a closed body cannot produce a negative one, and a solid whose single
+  shell encloses two disjoint boxes does: measured `-1, exact` at 2000 mm³, with
+  nothing beside the solid and every edge used exactly twice. Refused as *"the Euler
+  characteristic gives -1, which no closed body has"*.
 
 Neither refuses more than the mathematics requires: a compound wrapping exactly one
 solid still measures, and so does a solid with a sealed void — two shells, both the

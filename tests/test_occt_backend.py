@@ -570,7 +570,83 @@ def test_genus_is_refused_for_a_solid_built_over_an_open_shell(
     """
     reason = refused(backend.genus(builder())).reason
     assert "one closed body" in reason, name
-    assert f"{boundary} edge(s) not bounded by exactly two faces" in reason, name
+    assert f"it is not closed: {boundary} edge(s) not bounded by exactly two faces" in reason, name
+
+
+def _non_manifold_solid():
+    """One solid whose interface edges are bounded by FOUR faces.
+
+    Two stacked boxes sewn WITH the internal partition kept. The default
+    `SetNonManifoldMode(False)` yields a compound of shells and cannot reach
+    this; `True` yields one shell, and the solid over it is 2000 mm3 with four
+    such edges and no boundary edges at all. It reported `genus -1, exact`
+    before the closedness guard counted uses `!= 2` rather than `< 2`.
+    """
+    from OCP.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeSolid,  # type: ignore[attr-defined]
+        BRepBuilderAPI_Sewing,  # type: ignore[attr-defined]
+    )
+    from OCP.TopoDS import TopoDS
+
+    sew = BRepBuilderAPI_Sewing(1e-6)
+    sew.SetNonManifoldMode(True)
+    for box in (bd.Box(10, 10, 10), bd.Box(10, 10, 10).moved(bd.Location((0, 0, 10)))):
+        for face in box.faces():
+            sew.Add(face.wrapped)
+    sew.Perform()
+    return bd.Solid(BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(sew.SewedShape())).Solid())
+
+
+def _one_shell_holding_two_disjoint_boxes():
+    """One solid, one shell, two boxes 40 mm apart inside it.
+
+    Every edge is bounded by exactly two faces and nothing sits beside the
+    solid, so both preconditions above are satisfied and the arithmetic still
+    corrupts: the characteristic of two components is twice one component's,
+    while the shell count says one. `bd.Shell` refuses the input (TypeError),
+    so it takes `BRep_Builder` -- but a STEP import is under no such
+    obligation.
+    """
+    from OCP.BRep import BRep_Builder  # type: ignore[attr-defined]
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid  # type: ignore[attr-defined]
+    from OCP.TopoDS import TopoDS_Shell  # type: ignore[attr-defined]
+
+    shell = TopoDS_Shell()
+    builder = BRep_Builder()
+    builder.MakeShell(shell)
+    for box in (bd.Box(10, 10, 10), bd.Box(10, 10, 10).moved(bd.Location((40, 0, 0)))):
+        for face in box.faces():
+            builder.Add(shell, face.wrapped)
+    return bd.Solid(BRepBuilderAPI_MakeSolid(shell).Solid())
+
+
+def test_genus_is_refused_for_a_solid_with_a_non_manifold_edge(backend: OcctBackend):
+    """The other half of "not bounded by exactly two faces" — used MORE than
+    twice, not fewer. One solid, 2000 mm3, no boundary edge anywhere."""
+    solid = _non_manifold_solid()
+    assert backend.solid_count(solid).value == 1
+    assert measured(backend.volume(solid)).value == pytest.approx(2000.0)
+
+    reason = refused(backend.genus(solid)).reason
+    assert "one closed body" in reason
+    assert "it is not closed: 4 edge(s) not bounded by exactly two faces" in reason
+
+
+def test_genus_is_refused_when_one_shell_encloses_two_bodies(backend: OcctBackend):
+    """Both preconditions pass and the answer is still not a genus.
+
+    Nothing sits beside the solid and every edge is bounded by exactly two
+    faces — the shape is two closed boxes sharing one shell. The formula
+    reports the shells' genera SUMMED, so a legitimate closed body can never
+    reach a negative number; this one measured `-1, exact` at 2000 mm3.
+    """
+    solid = _one_shell_holding_two_disjoint_boxes()
+    assert backend.solid_count(solid).value == 1
+    assert measured(backend.volume(solid)).value == pytest.approx(2000.0)
+
+    reason = refused(backend.genus(solid)).reason
+    assert "one closed body" in reason
+    assert "the Euler characteristic gives -1" in reason
 
 
 @pytest.mark.parametrize(
@@ -584,11 +660,18 @@ def test_genus_is_refused_for_a_solid_built_over_an_open_shell(
 def test_genus_answers_for_closed_bodies_that_is_manifold_calls_open(
     backend: OcctBackend, name, shape
 ):
-    """Why the closedness guard counts edge USES and not distinct faces.
+    """Why the closedness guard is not `is_manifold`, and what it does instead.
 
-    A seam edge is used twice by the same face, so `is_manifold` reads False on
-    these three — all of them closed, all of them genus 0. Building the
-    precondition on it would have refused a sphere.
+    `is_manifold` applies the same "used by exactly two faces" rule; it differs
+    only in which edges it skips as degenerate, and its test never fires.
+    Measured, a sphere carries 2 degenerate edges, a cone 1 and a filleted box
+    8, each used once, so it reads False on all three — every one of them
+    closed and genus 0. Building the precondition on it would have refused a
+    sphere.
+
+    The uses-versus-distinct-faces distinction is the other half and is pinned
+    by a mutant, not by this test: a seam edge is used twice by one face, so
+    counting distinct faces refuses a sphere too, for a different reason.
     """
     assert shape.is_manifold is False, f"{name}: the premise of this test"
     assert measured(backend.genus(shape)).value == 0, name

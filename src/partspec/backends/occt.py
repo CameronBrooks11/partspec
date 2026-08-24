@@ -137,12 +137,21 @@ _EULER_ENTITIES = {
 def _not_closed(body: Any) -> str | None:
     """Why this solid's boundary is not closed, or None if it is.
 
-    Every edge of a closed boundary is used by exactly two faces. Counted as
-    **occurrences** rather than distinct ancestor faces, because a seam edge is
-    used twice by the SAME face — which is why `is_manifold` cannot be the
-    closedness test here: measured, it reads False on a sphere, a cone and a
-    filleted box, all three of them closed. Degenerate edges (a sphere's poles)
-    are bounded by no area and are skipped.
+    Every edge of a closed boundary is used by exactly two faces, with two
+    details that each decide the answer on ordinary parts:
+
+    * Counted as **occurrences**, not distinct ancestor faces. A seam edge is
+      used twice by the SAME face; counting distinct faces refuses a sphere.
+    * **OCCT-degenerate edges skipped** (`BRep_Tool.Degenerated_s`) — a sphere's
+      poles are edges bounded by no area, used once each.
+
+    `is_manifold` gets the first right and the second wrong, and that alone is
+    why it cannot be this test. Measured, it applies the same `Extent() != 2`
+    rule but skips an edge only when both its vertices are null and identical,
+    which never fires: a sphere has 2 degenerate edges, a cone 1 and a filleted
+    box 8, each used once, and `is_manifold` reads False on all three — all
+    three of them closed. Excluding the degenerate ones leaves no edge with a
+    use count other than 2 on any of them.
 
     Deliberately the mesh tier's question in this tier's terms (`_not_closed` in
     mesh.py): a solid built over an open shell is one solid carrying nothing
@@ -150,11 +159,14 @@ def _not_closed(body: Any) -> str | None:
     over an open body (`Solid(Shell(box.faces()[1:]))` -- reported 0 on a shape
     with no genus at all).
 
-    One count, not the mesh tier's boundary/non-manifold split, because an edge
-    used by MORE than two faces could not be constructed here to test the wording
-    it would get: OCCT fuses two edge-touching boxes into two solids, sewing two
-    stacked boxes yields a compound of shells, and `Shell` de-duplicates a face
-    listed twice. Both defects are refused; only the phrasing is pooled.
+    One pooled count, not the mesh tier's boundary/non-manifold split, and the
+    phrasing is literally true of both: an edge used four times is as much "not
+    bounded by exactly two faces" as an edge used once. Both defects are real and
+    both are reachable -- sewing two stacked boxes yields a compound of shells in
+    the DEFAULT mode, but `SetNonManifoldMode(True)` yields one shell, and the
+    solid over it is 1 solid of 2000 mm3 with four edges used by four faces and
+    no boundary edges at all. Measured, it reported `genus -1, exact` before this
+    guard.
     """
     from OCP.BRep import BRep_Tool  # type: ignore[attr-defined]
     from OCP.TopAbs import TopAbs_ShapeEnum  # type: ignore[attr-defined]
@@ -671,6 +683,19 @@ class OcctBackend:
             len(body.wires()),
         )
         genus = len(body.shells()) - (v - e + 2 * f - w) / 2
+        if genus < 0:
+            # The reported genus is the sum of the genera of the body's shells,
+            # so a legitimate closed body cannot reach a negative one. It is
+            # reachable when a single shell holds more than one closed
+            # component -- one TopoDS_SOLID whose one shell carries two
+            # disjoint boxes measured `-1, exact` at 2000 mm3, with nothing
+            # beside the solid and every edge bounded by exactly two faces, so
+            # neither guard above sees it.
+            return Unsupported(
+                f"genus is defined for one closed body; the Euler characteristic gives "
+                f"{int(genus)}, which no closed body has -- its shells do not each "
+                f"enclose exactly one body"
+            )
         return Measurement(int(genus), "count", exact=True)
 
     def topology_counts(self, a: Any) -> Measurement:

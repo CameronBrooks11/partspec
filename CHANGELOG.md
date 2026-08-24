@@ -744,12 +744,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **And the solid itself must be closed**, which the count test does not establish:
   `Solid(Shell(box.faces()[1:]))` is one solid carrying nothing beside it, and
   reported `genus 0` on a surface with no genus. Closedness is every edge being
-  bounded by exactly two faces, counted as *uses* rather than distinct faces —
-  a seam edge is used twice by the same face, which is why `is_manifold` cannot
-  serve here either: measured, it reads `false` on a sphere, a cone and a filleted
-  box, all three closed. An integrality test on the genus alone would not have
-  done it: a shell missing two opposite faces has an even characteristic and comes
-  out a whole `1`.
+  bounded by exactly two faces — counted as *uses* rather than distinct faces, so
+  a seam edge used twice by one face stays closed, and **skipping degenerate
+  edges**. `is_manifold` applies the same rule and gets only the second wrong: its
+  degeneracy test never fires, so a sphere's 2 pole edges, a cone's 1 and a
+  filleted box's 8 each count as unshared and it reads `false` on all three, every
+  one of them closed. That, and not the seam, is why it cannot serve here.
+  An integrality test on the genus alone would not have done it either: a shell
+  missing two opposite faces has an even characteristic and comes out a whole `1`.
+  **Two further corruptions clear both of those and are refused as well.** An edge
+  used by FOUR faces — one solid of 2000 mm³, no boundary edge anywhere, built by
+  sewing two stacked boxes with `SetNonManifoldMode(True)` — reported `genus -1`;
+  it is caught by counting uses `!= 2` rather than `< 2`. And a single shell
+  holding two disjoint boxes passes every structural test there is, so the last
+  guard is arithmetic: the characteristic sums the shells' genera, so a closed
+  body cannot produce a negative one, and that shape reported `-1, exact` at
+  2000 mm³.
   **Nothing legitimate is newly refused**, measured rather than assumed: eighteen
   single-solid shapes taken before and after — a `BuildPart` part, a compound
   wrapping one solid, a sealed cavity (two shells, both the solid's own), a torus,
@@ -764,7 +774,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   class where the tiers still disagree on purpose — a stray vertex, which the mesh
   tier answers correctly at genus 1 by counting *referenced* vertices only, and
   which OCCT refuses. `volume` and `area` double on the `Shell` row above and are
-  **not** fixed here; that is #344.
+  **not** fixed here; that is #344, and #347 is the same primitive reading `0.0`
+  on a solid two compounds deep.
   The `cavities` fixture table also gains the comment #337 asks for: its cases
   build their shapes inside a `lambda` because `Compound(children=[...])`
   **reparents**, and a shape handed to a second compound leaves the first holding
