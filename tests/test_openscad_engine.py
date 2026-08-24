@@ -1458,9 +1458,244 @@ def test_the_unresolved_markers_match_both_engine_spellings():
         "WARNING: Can't open library 'nowhere/absent.scad'.",
         'ECHO: "include file: none"',
         "Geometries in cache: 2",
-        "WARNING: Unable to convert cube(size=[undef, 5, 5], ...) parameter to a number",
     ):
         assert not openscad._unresolved_lines(benign, openscad._UNRESOLVED_NAME_MARKERS), benign
+
+    # A conversion failure IS refused on the success path since #308 — but by
+    # `_SUBSTITUTED_VALUE_MARKERS`, and not by this set, because no name failed
+    # to resolve in it. The two sets are kept apart so the diagnosis can be.
+    assert not openscad._unresolved_lines(
+        "WARNING: Unable to convert cube(size=[undef, 5, 5], ...) parameter to a number",
+        openscad._UNRESOLVED_NAME_MARKERS,
+    )
+
+
+def test_the_substituted_value_markers_match_both_engine_spellings():
+    """A value the engine could not convert, and defaulted, on a render that won.
+
+    Every line below was produced by running the source named under BOTH
+    binaries the CI matrix pins, with `o = undef`, and the two engines print
+    them character-for-character alike — which the include marker's
+    `Can't open` / `Can't find` split says is a thing to measure, not assume.
+    Each of these sources exits 0 and exports a clean, watertight, single-solid
+    mesh built to a size nobody wrote down (#308).
+
+    Asserted against the matcher directly, like the test above, so it runs on a
+    machine with no engine and cannot be skipped into silence.
+    """
+    observed = [
+        "WARNING: Unable to convert cube(size=[undef, 5, 5], ...) parameter to a number"
+        " or a vec3 of numbers in file a.scad, line 2",
+        "WARNING: Unable to convert translate([undef, 0, 0]) parameter to a vec3 or"
+        " vec2 of numbers in file b.scad, line 2",
+        "WARNING: Unable to convert square(size=[undef, 30], ...) parameter to a number"
+        " or a vec2 of numbers in file c.scad, line 2",
+        "WARNING: Unable to convert scale(undef) parameter to a number, a vec3 or vec2"
+        " of numbers or a number in file d.scad, line 2",
+    ]
+    for line in observed:
+        assert openscad._unresolved_lines(line, openscad._SUCCESS_PATH_MARKERS), line
+
+    # The success path is the one that refuses a part the engine already built,
+    # so a false match here errors correct code. Each of these was measured on
+    # both engines beside geometry that is completely right.
+    for benign in (
+        # The case that took `undefined operation` off the success path: `+`
+        # where `str()` was meant, beside a perfect 272-facet part.
+        "WARNING: undefined operation (string + number) in file q.scad, line 2",
+        # Same shape with an optional parameter left at its `undef` default,
+        # which is why the operand types cannot rescue that marker either.
+        "WARNING: undefined operation (string + undefined) in file q.scad, line 2",
+        # A BUILT-IN FUNCTION rejecting an argument, in a pure expression that
+        # reaches no geometry. Note the wording: `could not be converted`, not
+        # `Unable to convert` — a looser substring would refuse `echo(len(x))`.
+        # BOTH spellings, and the split is the ENGINE, not the function:
+        # 2021.01 prints the short form for every builtin, 2026.08.01 the long
+        # one. Listing one form per function said neither (round-1 review).
+        "WARNING: len() parameter could not be converted in file q.scad, line 2",
+        "WARNING: sin() parameter could not be converted in file q.scad, line 2",
+        "WARNING: len() parameter could not be converted: argument 0: expected string,"
+        " found undefined (undef) in file q.scad, line 2",
+        "WARNING: sin() parameter could not be converted: argument 0: expected number,"
+        " found undefined (undef) in file q.scad, line 2",
+        'WARNING: Unable to parse color "nosuchcolour" in file q.scad, line 1',
+        # The GUI camera. True, and about nothing that is exported. All four
+        # variables in BOTH shapes: every vector form warns on both engines,
+        # every scalar form on 2026.08.01 only, and the split is scalar-vs-
+        # vector rather than which variable (round-1 review corrected this).
+        "WARNING: Unable to convert $vpt=[undef, 0, 0] to a vec3 or vec2 of numbers",
+        "WARNING: Unable to convert $vpr=[undef, 0, 0] to a vec3 or vec2 of numbers",
+        "WARNING: Unable to convert $vpd=[undef, 0, 0] to a number",
+        "WARNING: Unable to convert $vpf=[undef, 0, 0] to a number",
+        "WARNING: Unable to convert $vpt=undef to a vec3 or vec2 of numbers",
+        "WARNING: Unable to convert $vpr=undef to a vec3 or vec2 of numbers",
+        "WARNING: Unable to convert $vpd=undef to a number",
+        "WARNING: Unable to convert $vpf=undef to a number",
+        # A RANGE or STEP the engine could not build. Head-anchored like a
+        # substitution, and not one: it comes from expression evaluation, so it
+        # yields `undef` into the expression and reaches geometry only if
+        # something else puts it there. 2026.08.01 ONLY -- 2021.01 has no such
+        # message, which is why a sweep run on one engine could not see it.
+        # `core/Expression.cc` holds both, and they are the only two of that
+        # source's 21 `Unable to convert` templates beginning with `[`.
+        "WARNING: Unable to convert [0:...:undef] to a range in file q.scad, line 2",
+        "WARNING: Unable to convert [...:undef:...] to a step value in file q.scad, line 2",
+        # `rotate()` words its substitution differently and is deliberately NOT
+        # guarded (#333). Without this line, adding `Problem converting` to the
+        # marker set leaves the whole suite green -- so the deferral is a claim
+        # with nothing holding it (round-2 review).
+        "WARNING: Problem converting rotate(a=undef) parameter in file q.scad, line 2",
+        "WARNING: Problem converting rotate(a=[undef, 0, 0]) parameter in file q.scad, line 2",
+    ):
+        assert not openscad._unresolved_lines(benign, openscad._SUCCESS_PATH_MARKERS), benign
+
+
+def test_the_viewport_carve_out_is_anchored_and_a_source_cannot_spell_its_way_out():
+    """A model must not be able to turn the guard off by naming it.
+
+    OpenSCAD echoes string literals verbatim into the warning, so an unanchored
+    `in` test read the MODEL's text as the engine's. Measured end to end before
+    the anchor, both engines:
+
+        translate(["harmless", o, 0]) cube(5);              ERROR: 3 skipped, 4
+        translate(["Unable to convert $vp", o, 0]) cube(5); PASS:  3 pass,    0
+
+    One dropped transform either way, and the second is the silent false pass
+    this guard exists to prevent (round-1 review). Both severities are stripped
+    because `polygon()` emits the marker as `ERROR:` on 2021.01 and `WARNING:`
+    on 2026.08.01.
+    """
+    for spelled in (
+        'WARNING: Unable to convert translate(["Unable to convert $vp", undef, 0])'
+        " parameter to a vec3 or vec2 of numbers in file q.scad, line 2",
+        'WARNING: Unable to convert cube(size=["$vpt=", undef, 5], ...) parameter'
+        " to a number or a vec3 of numbers in file q.scad, line 2",
+        'ERROR: Unable to convert points[2] = ["Unable to convert $vpd", 10] to a'
+        " vec2 of numbers in file q.scad, line 1",
+    ):
+        assert openscad._unresolved_lines(spelled, openscad._SUCCESS_PATH_MARKERS), spelled
+
+    # `Unable to convert` is also not always a substitution. CGAL says this on
+    # 2021.01 for a `difference()` over an unclosed polyhedron -- exit 1, no
+    # STL, no value substituted -- while 2026.08.01 words the same failure
+    # `[manifold] Input mesh is not closed!` and never says "convert". Matched,
+    # it gave one source two different reports on the two pinned engines, and
+    # blamed a defaulted dimension for an unclosed mesh. Found sweeping 1503
+    # third-party library files, where it is what two YAPP_Box examples emit.
+    for not_a_substitution in (
+        "ERROR: The given mesh is not closed! Unable to convert to CGAL_Nef_Polyhedron.",
+        "WARNING: The given mesh is not closed! Unable to convert to CGAL_Nef_Polyhedron.",
+    ):
+        assert not openscad._unresolved_lines(not_a_substitution, openscad._UNRESOLVED_MARKERS), (
+            not_a_substitution
+        )
+        assert not openscad.is_substituted_value(not_a_substitution), not_a_substitution
+
+    # And the real thing still carves out, at either severity, with or without
+    # the leading whitespace stderr sometimes carries.
+    for camera in (
+        "WARNING: Unable to convert $vpt=[undef, 0, 0] to a vec3 or vec2 of numbers",
+        "  WARNING: Unable to convert $vpd=undef to a number",
+        "ERROR: Unable to convert $vpf=undef to a number",
+    ):
+        assert not openscad._unresolved_lines(camera, openscad._SUCCESS_PATH_MARKERS), camera
+
+
+@needs_openscad
+def test_a_defaulted_dimension_is_read_where_a_debug_echos_type_error_is_not(tmp_path: Path):
+    """The discrimination #308 turns on, driven through the real binary.
+
+    Both sources below exit 0 with a well-formed mesh and both print a warning.
+    Only one of them is a lie about the part: `cube(size=[o, 30, 6])` with `o`
+    undefined is exported as a 1x1x1 unit cube -- the whole size vector goes,
+    not just the axis that did not convert, measured on both engines -- while
+    `echo("holes: " + holes)` is a debug line with a type error beside geometry
+    that is completely correct. Refusing the second is what got the wider
+    `undefined operation` marker reverted in PR #306, so it is asserted here
+    and not only reasoned about.
+    """
+    defaulted = _scad(tmp_path, "defaulted.scad", "o = undef;\ncube(size=[o, 30, 6]);\n")
+    seen: list[str] = []
+    result = openscad.render(
+        OpenSCADSource(path=defaulted), tmp_path / "defaulted.stl", unresolved_out=seen
+    )
+    assert not isinstance(result, BuildError), "premise: the engine builds this happily"
+    assert result.stat().st_size > 0, "premise: and writes a real mesh"
+    assert seen, "a dimension the engine defaulted must not reach a measurement"
+    assert "Unable to convert" in seen[0]
+
+    echoed = _scad(
+        tmp_path,
+        "echoed.scad",
+        'holes = 4;\necho("holes: " + holes);\n'
+        "difference() {\n  cube([40,30,6], center=true);\n"
+        "  cylinder(d=8, h=20, center=true, $fn=64);\n}\n",
+    )
+    quiet: list[str] = []
+    ok = openscad.render(OpenSCADSource(path=echoed), tmp_path / "echoed.stl", unresolved_out=quiet)
+    assert not isinstance(ok, BuildError), ok
+    assert quiet == [], "a type error in a debug echo reached no geometry"
+
+
+@needs_openscad
+def test_a_range_that_would_not_convert_is_not_a_defaulted_dimension(tmp_path: Path):
+    """The protected echo case from PR #306, with a range instead of a concat.
+
+    An optional module parameter left at `undef` and printed in a debug echo.
+    The part is completely correct -- the export is byte-identical to the same
+    source with the echo deleted -- and only 2026.08.01 says anything at all:
+
+        WARNING: Unable to convert [0:...:undef] to a range
+
+    Head-anchored, so the CGAL anchor does not exclude it; matched, it refused
+    a correct part at exit 4 on 2026.08.01 and exit 0 on 2021.01 -- one source,
+    two verdicts, with a diagnosis whose every clause was false (no module, no
+    default, nothing reaching geometry). Round-2 review; the sweep that should
+    have caught it was run on 2021.01 alone, where the message does not exist.
+
+    THIS TEST ONLY BITES ON 2026.08.01. On 2021.01 the engine says nothing for
+    either source, so `seen == []` holds however the carve-out is written and
+    the assertion is trivially true -- removing the entry fails two tests here
+    on the newer engine and one on the older. It is still run on both, because
+    a later engine gaining the 2021.01 silence back is a change worth failing
+    on; what pins the class on BOTH legs is the engine-free literal in
+    `test_the_substituted_value_markers_match_both_engine_spellings`.
+    """
+    for name, body in (
+        (
+            "range.scad",
+            "module p(w, h, holes = undef) {\n"
+            '  echo("holes:", [0 : holes]);\n'
+            "  cube([w, h, 6], center=true);\n}\np(40, 30);\n",
+        ),
+        ("step.scad", 's = undef;\necho("steps:", [0 : s : 10]);\ncube([40, 30, 6]);\n'),
+    ):
+        src = _scad(tmp_path, name, body)
+        seen: list[str] = []
+        result = openscad.render(
+            OpenSCADSource(path=src), tmp_path / f"{src.stem}.stl", unresolved_out=seen
+        )
+        assert not isinstance(result, BuildError), result
+        assert seen == [], f"{name}: an expression that built no geometry is not a substitution"
+
+
+@needs_openscad
+def test_a_viewport_variable_that_would_not_convert_says_nothing_about_the_mesh(tmp_path: Path):
+    """`$vpt` takes the same sentence as a defaulted dimension and is not one.
+
+    Measured on both engines: `$vpt = [undef, 0, 0]` prints
+    `WARNING: Unable to convert $vpt=[undef, 0, 0] to a vec3 or vec2 of
+    numbers` — the marker's exact words, with no file or line — beside a cube
+    that is exactly right. It is the GUI camera; no exported geometry depends
+    on it. Without the carve-out this refuses a correct part, which is the one
+    trade this guard must not make.
+    """
+    src = _scad(tmp_path, "camera.scad", "$vpt = [undef, 0, 0];\ncube([40, 30, 6]);\n")
+    seen: list[str] = []
+    result = openscad.render(OpenSCADSource(path=src), tmp_path / "camera.stl", unresolved_out=seen)
+
+    assert not isinstance(result, BuildError), result
+    assert seen == [], "the camera is not the part"
 
 
 @needs_openscad

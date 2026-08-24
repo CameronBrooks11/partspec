@@ -150,6 +150,40 @@ def test_measure_refuses_a_part_the_engine_hollowed_out(tmp_path: Path, capsys):
 
 
 @needs_scad_tier
+def test_measure_names_the_conversion_cause_and_not_the_include_path(tmp_path: Path, capsys):
+    """`measure` must diagnose a defaulted value the way `check` does.
+
+    The verb matters here more than anywhere: `measure` is what an author turns
+    into a contract, so a refusal that sends them to `OPENSCADPATH` costs them
+    the search before they find the expression that was never bound. Every name
+    in this source resolves; nothing is missing from the machine.
+
+    Round-1 review found this surface defended by nothing -- reverting the call
+    to the hardcoded name pair left all 267 tests in these three files green
+    while `measure` went back to printing the include-path hint on a value that
+    would not convert (#308).
+    """
+    src = tmp_path / "defaulted.scad"
+    src.write_text("o = undef;\ncube(size=[o, 30, 6]);\n")
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('defaulted', openscad('defaulted.scad'))\n"
+    )
+
+    assert main(["measure", f"{spec}:make"]) == 4
+    doc = json.loads(capsys.readouterr().out)
+
+    assert "measurements" not in doc, "a 1x1x1 unit cube is not this part"
+    assert doc["error"].startswith(
+        "the engine could not convert a value and built a default in place of it"
+    )
+    assert "Unable to convert" in doc["error"], "the engine's own line, quoted"
+    assert "resolve a name" not in doc["error"]
+    assert "OPENSCADPATH" not in doc["hint"], "nothing here is missing from the machine"
+
+
+@needs_scad_tier
 def test_measure_out_file_refuses_without_touching_the_destination(tmp_path: Path, capsys):
     """A refusal must leave `--out FILE` exactly as the caller left it.
 

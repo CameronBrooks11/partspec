@@ -477,21 +477,28 @@ def _names_the_artifact(raw: str) -> bool:
 
 
 def _hollowed_measurements(first_line: str) -> BuildError:
-    """`measure` refusing a part the engine rendered without a name it lost.
+    """`measure` refusing a part the engine built out of something it lost.
 
     A `BuildError` rather than a bespoke branch so both `--out` forms end at
     the one `isinstance(artifact, BuildError)` arm, with one message. `origin`
     is never read on this path -- `_measure_failure` takes the message and hint
     directly -- so the default does not become a claim the way it would in
     `render`'s payload, which records one (#307).
+
+    The cause and the hint come from `runner._unresolved_diagnosis`, which
+    `check` reads too: a name that did not resolve and a value that would not
+    convert are different faults with different remedies, and `measure` must
+    not describe one of them differently from `check` (#308). What is local to
+    this verb is the middle clause -- there is no report here to be wrong, only
+    numbers that would be taken off the wrong part.
     """
+    from .runner import _unresolved_diagnosis
+
+    cause, hint = _unresolved_diagnosis(first_line)
     return BuildError(
-        "the engine could not resolve a name and rendered without it, so these "
-        "would be measurements of something other than what this source describes: "
-        f"{first_line}",
-        hint="the engine exited 0 and wrote a mesh, so this is not a compile error — "
-        "either the source misspells the name, or whatever defines it is not on "
-        "OPENSCADPATH. Fix the name or install the library, then re-run",
+        f"{cause}, so these would be measurements of something other than what "
+        f"this source describes: {first_line}",
+        hint=hint,
     )
 
 

@@ -35,6 +35,7 @@ __all__ = [
     "OpenSCADSource",
     "find_executable",
     "include_closure",
+    "is_substituted_value",
     "render",
     "render_views",
     "scad_literal",
@@ -447,15 +448,18 @@ def render(
 ) -> Path | BuildError:
     """Render to binary STL, returning the path or a BuildError.
 
-    `unresolved_out`, when given, receives the stderr lines naming something the
-    engine could not resolve **on a render that succeeded** (#286). OpenSCAD
-    renders an unresolved call's children not at all and still exits 0 with a
-    well-formed mesh, so the artifact alone cannot say that the geometry
-    measured is not the geometry the source describes -- and this return type
-    has no room to say it. Before #286 those lines were read only to build a
-    `BuildError`, which is to say only when the engine had already failed; the
-    success path discarded `proc.stderr` outright and every downstream check
-    reported PASS against a part the engine had quietly hollowed out.
+    `unresolved_out`, when given, receives the stderr lines saying the engine
+    built something other than what the source asked for **on a render that
+    succeeded** (#286, #308): a name it could not resolve, or a value it could
+    not convert and defaulted. OpenSCAD renders an unresolved call's children
+    not at all, and substitutes a default where a dimension would not convert,
+    and still exits 0 with a well-formed mesh in both cases -- so the artifact
+    alone cannot say that the geometry measured is not the geometry the source
+    describes, and this return type has no room to say it. Before #286 those
+    lines were read only to build a `BuildError`, which is to say only when the
+    engine had already failed; the success path discarded `proc.stderr`
+    outright and every downstream check reported PASS against a part the engine
+    had quietly hollowed out.
 
     Binary STL specifically: lib3mf cannot read ASCII STL, and OpenSCAD 2021.01
     defaults to ASCII. Choosing the format explicitly means the export does not
@@ -734,10 +738,11 @@ def render(
                 if refusal is not None:
                     return refusal
             # Read here, on the path that WORKED, and not only where a
-            # BuildError is built: an unresolved name does not have to fail the
+            # BuildError is built: an unresolved name, or a dimension the engine
+            # defaulted because it would not convert, does not have to fail the
             # render to have changed the part.
             if unresolved_out is not None:
-                unresolved_out.extend(_unresolved_lines(proc.stderr, _UNRESOLVED_NAME_MARKERS))
+                unresolved_out.extend(_unresolved_lines(proc.stderr, _SUCCESS_PATH_MARKERS))
             staged.replace(stl)
             return stl
     except OSError as exc:
@@ -933,12 +938,10 @@ the `undef` reached a dimension, the diagnosis (a name did not resolve) is true
 either way, and the remedy is the same -- while a value silently substituted
 into a dimension is the case that must not be waved through (#286).
 
-One success-path shape is knowingly given up by narrowing to these: an
-expression whose type error defaults a dimension -- `linear_extrude(undef + 1)`
--- prints `undefined operation` alone and still passes. That is a type error
-rather than an unresolved name, and catching it wants a different marker
-(`Unable to convert`, which names the substitution directly) and its own
-issue.
+A second success-path shape lives in `_SUBSTITUTED_VALUE_MARKERS` below rather
+than here, because the diagnosis differs: no name failed to resolve, a value
+failed to CONVERT and the engine put a default in its place. Both sets are read
+after a render that succeeded, together, as `_SUCCESS_PATH_MARKERS` (#308).
 
 `undefined operation` is deliberately NOT here. It reports a type error in an
 expression, not a lookup that failed, and on the success path it fires on code
@@ -952,14 +955,155 @@ It remains in `_UNRESOLVED_MARKERS` below, where the question is narrower and
 the docstring's reasoning holds: there, the render already produced NOTHING,
 and `vector * string` is real evidence that a null result is not genuine."""
 
+_SUBSTITUTED_VALUE_MARKERS = (
+    # Character-identical on both binaries the CI matrix pins, which is not the
+    # assumption the include marker got away with -- measured under each, from
+    # the sources named:
+    #   cube(size=[o,5,5])     Unable to convert cube(size=[undef, 5, 5], ...)
+    #                          parameter to a number or a vec3 of numbers
+    #   translate([o,0,0])     Unable to convert translate([undef, 0, 0])
+    #                          parameter to a vec3 or vec2 of numbers
+    #   square([o,30])         Unable to convert square(size=[undef, 30], ...)
+    #                          parameter to a number or a vec2 of numbers
+    #   scale(o)               Unable to convert scale(undef) parameter to a
+    #                          number, a vec3 or vec2 of numbers or a number
+    # each with `o = undef`, each exiting 0 with a clean single-solid mesh.
+    "Unable to convert",
+)
+"""What OpenSCAD says where a value reached geometry and could not be converted,
+so a default went in instead.
+
+This is the discrimination `undefined operation` could not make. That line
+reports a type error anywhere in the file, geometry or not, which is why
+guarding on it errored correct parts (see above). `Unable to convert` is
+emitted at the point of SUBSTITUTION, by the module whose parameter it is, and
+names that module and the value it rejected. Measured on both engines, the
+`echo("holes: " + holes)` case that killed the wider marker does not emit it --
+nothing reached geometry there, so there was nothing to substitute into.
+
+The substitution is total, not partial: `cube(size=[o, 30, 6])` with `o = undef`
+exports a 1x1x1 unit cube on both engines -- the 30 and the 6 go with the axis
+that did not convert -- watertight, single-solid, exit 0.
+
+What this does NOT cover, measured rather than assumed, and the reason #308's
+own headline reproduction is still open: a *scalar* dimension taking `undef`
+prints nothing at all. `linear_extrude(undef) square([40,30])` and
+`cylinder(h=undef)` are silent on both engines; `linear_extrude(undef + 1)`
+prints `undefined operation` and no conversion line. There is no stderr signal
+to guard on, so a fix needs another channel entirely -- #332 holds the
+measurements.
+
+Nor is "vector-valued" the rule, which an earlier draft of this docstring
+asserted and round-1 review disproved. `resize([undef,10,10])`,
+`multmatrix(undef)` and `offset(delta=undef)` are silent on BOTH engines while
+building a defaulted part. Which modules narrate the substitution is the
+engine's own list, not a property anyone can derive; the four above are the
+ones measured, `mirror([undef,0,0])` is a fifth, and this set covers what the
+engine chooses to say and nothing more. Do not read it as covering every
+silently defaulted dimension.
+
+`rotate(a=undef)` drops a rotation just as quietly and words it
+`Problem converting rotate(a=undef) parameter` -- identical on both engines,
+same class, deliberately not added here (#333).
+
+`_NON_GEOMETRY_CONVERSIONS` carves out the two shapes measured to say this and
+mean nothing about the exported mesh: the GUI camera, and a range or step built
+in an expression."""
+
+_NON_GEOMETRY_CONVERSIONS = (
+    # THE GUI CAMERA. `$vpt`/`$vpr`/`$vpd`/`$vpf`, and no exported mesh depends
+    # on any of them. Measured beside a cube that is exactly right, all four
+    # variables in both shapes, on both engines:
+    #   $vpt = [undef, 0, 0]   Unable to convert $vpt=[undef, 0, 0] to a vec3
+    #                          or vec2 of numbers        -- BOTH engines
+    #   $vpt = undef           Unable to convert $vpt=undef to a vec3 or vec2
+    #                          of numbers                -- 2026.08.01 only
+    # and identically for `$vpr`, and for `$vpd`/`$vpf` with `to a number`.
+    # The engine split is SCALAR vs VECTOR, not which variable: every vector
+    # form warns on both engines, every scalar form is silent on 2021.01. A
+    # round-1 review caught this comment claiming the split was `$vpd`/`$vpf`,
+    # which was two measurements read as four. No file, no line, on either
+    # engine -- the assignment is not a module call.
+    "Unable to convert $vp",
+    # A RANGE OR STEP THE ENGINE COULD NOT BUILD, which happens in expression
+    # evaluation and not in a module assembling geometry -- the same place
+    # `len() parameter could not be converted` fires, which this guard has
+    # excluded from the start. 2026.08.01 ONLY; the message does not exist on
+    # 2021.01, which is why a corpus sweep run on one engine could not see it
+    # (round-2 review):
+    #   echo("at:", [0 : undef])    Unable to convert [0:...:undef] to a range
+    #   echo("at:", [0 : undef : 10])
+    #                               Unable to convert [...:undef:...] to a
+    #                               step value
+    # Both from `core/Expression.cc`; counted in that source, they are the ONLY
+    # two of the 21 distinct `Unable to convert` templates that begin with `[`.
+    # Every substitution template begins with a module name or a field name --
+    # `cube(`, `square(`, `translate(`, `mirror(`, `scale(`, `import(`,
+    # `points`, `points[`, `faces`, `faces[`, `paths`, `paths[` -- so the `[`
+    # separates the two classes exactly, and does so by the engine's own
+    # grammar rather than by a list this file would have to chase.
+    "Unable to convert [",
+)
+"""Conversion warnings that are true and about nothing that is exported.
+
+Two classes, and only the first is unconditionally irrelevant. A viewport
+variable is the GUI camera and no exported mesh can depend on it. A range or
+step is different, and the difference is a TRADE rather than a fact.
+
+A failed range yields `undef` into the expression, exactly as an unresolved
+function does -- and an unresolved function's `undef` IS refused, on the
+reasoning `SPEC-report.md` §6.1 gives in as many words. What separates them is
+only that this line fires on a correct part often enough to matter and that one
+does not. So the honest statement is: **this line cannot distinguish an
+expression that reached geometry from one that did not**, correct parts win the
+tie, and there is a remainder.
+
+The remainder is real and measured on 2026.08.01, where this line is the ONLY
+stderr signal in each case:
+
+    module rail(n = undef) {                    // the loop's geometry vanishes
+      cube([40, 8, 6]);
+      for (i = [1 : n]) translate([i*8, 0, 6]) cube([6, 8, 4]);
+    }
+    rail();                                     // `Facets: 6` against 76 for n=4
+
+    n = undef;  r = [0 : n];  h = r[2];         // #308's own headline shape
+    linear_extrude(h) square([40, 30]);         // exported bbox z 0..100
+
+`Facets:` is OpenSCAD's own summary vocabulary, quoted rather than measured: the
+exported STL carries 12 triangles for the defaulted part and 76 for `n = 4`, so
+a reader cross-checking against `partspec measure` sees 12 where the engine says
+6. The engine's number is the one printed beside the warning, which is why it is
+the one shown; the mesh is what partspec measures (D15).
+
+The second is `linear_extrude` substituting its own default into a dimension --
+precisely the fault #308 exists to refuse -- passing at exit 0. Filed as #338.
+
+Carved out anyway, and the precedent is settled: matching this line refused
+CORRECT parts (round-2 review of PR #329 found the protected echo case from PR
+#306 with a range where the string concat was -- byte-identical export, exit 4
+on 2026.08.01 against exit 0 on 2021.01), and `undefined operation` came off
+the success path for exactly this reason with #332 holding its remainder. A
+loud false error on working code is the worse trade, and this repo has made it
+twice and reverted twice.
+
+Both entries are ANCHORED at the head of the engine's sentence, like the marker
+itself -- see `_unresolved_lines`."""
+
+_SUCCESS_PATH_MARKERS = (*_UNRESOLVED_NAME_MARKERS, *_SUBSTITUTED_VALUE_MARKERS)
+"""What may be read off a render that SUCCEEDED: a name that did not resolve, or
+a value that did not convert. Both mean the mesh on disk is not the mesh this
+source describes, and both are absent from a correct part."""
+
 _UNRESOLVED_MARKERS = (
-    *_UNRESOLVED_NAME_MARKERS,
+    *_SUCCESS_PATH_MARKERS,
     "undefined operation",
 )
-"""What OpenSCAD says when a name did not resolve — measured on 2021.01, not
-guessed. Each was produced from a source written to trigger it: a missing
-include, a misspelt module, an unknown function, an undefined variable, and a
-`vector * string`.
+"""What OpenSCAD says when it did not build what the source asked for — measured
+on 2021.01, not guessed. Each was produced from a source written to trigger it:
+a missing include, a misspelt module, an unknown function, an undefined
+variable, a `vector * string`, and (via `_SUBSTITUTED_VALUE_MARKERS`) a value
+that would not convert.
 
 The list exists because an unresolved name and a genuinely null result are
 INDISTINGUISHABLE downstream: both exit 1 with `Current top level object is
@@ -976,14 +1120,105 @@ this as the fallback."""
 def _unresolved_lines(
     stderr: str, markers: tuple[str, ...] = _UNRESOLVED_MARKERS
 ) -> tuple[str, ...]:
-    """The stderr lines naming something the engine could not resolve.
+    """The stderr lines saying the engine built something other than the source.
+
+    Two causes, one list: a name it could not resolve, and a value it could not
+    convert and defaulted (#308). `is_substituted_value` tells them apart for a
+    caller that has to say which.
 
     `markers` defaults to the wide set, which is right where the render already
     produced nothing. A caller asking about a render that SUCCEEDED must pass
-    `_UNRESOLVED_NAME_MARKERS` -- see its docstring for the one that does not
-    survive the move.
+    `_SUCCESS_PATH_MARKERS` -- see `_UNRESOLVED_NAME_MARKERS` for the one that
+    does not survive the move.
+
+    The non-geometry carve-out is applied to every set rather than folded into
+    one, because it is a statement about the LINE and not about the caller: a
+    `$vpt` or range conversion is read the same way whether the render
+    succeeded or produced nothing.
+
+    A substitution marker is matched ANCHORED at the head of the engine's
+    sentence, through `is_substituted_value`, and the name markers by
+    substring. Two measured reasons, both for the anchor.
+
+    OpenSCAD echoes string literals verbatim into the warning, so an
+    unanchored test let the source turn the guard off by naming the carve-out
+    (round-1 review):
+
+        translate(["harmless", o, 0]) cube(5);              -> refused, exit 4
+        translate(["Unable to convert $vp", o, 0]) cube(5); -> PASSED, exit 0
+
+    And `Unable to convert` is not only a substitution: CGAL says
+    `The given mesh is not closed! Unable to convert to CGAL_Nef_Polyhedron.`
+    on 2021.01 for a `difference()` over an unclosed polyhedron -- exit 1, no
+    STL, no value substituted anywhere -- while 2026.08.01 words the same
+    failure `[manifold] Input mesh is not closed!` and never says "convert".
+    Unanchored, one source got two different reports on the two pinned
+    engines, and the 2021.01 one blamed a defaulted dimension for an unclosed
+    mesh. That is F13 with a false cause attached, found sweeping 1503
+    third-party library files.
+
+    The matcher shares `is_substituted_value` rather than repeating its test,
+    so what is REFUSED and what is DIAGNOSED as a substitution cannot drift
+    apart.
     """
-    return tuple(line.strip() for line in stderr.splitlines() if any(m in line for m in markers))
+    name_like = tuple(m for m in markers if m not in _SUBSTITUTED_VALUE_MARKERS)
+    # Only when the CALLER asked for them. `markers` is a set, and a caller
+    # passing `_UNRESOLVED_NAME_MARKERS` alone is asking whether a NAME failed
+    # to resolve -- a conversion is not one, and answering yes would collapse
+    # the two sets this module keeps apart. The first draft of this anchor
+    # applied the substitution test unconditionally and
+    # `test_the_unresolved_markers_match_both_engine_spellings` caught it.
+    wants_substitutions = len(name_like) != len(markers)
+    return tuple(
+        line.strip()
+        for line in stderr.splitlines()
+        if (
+            any(m in line for m in name_like)
+            or (wants_substitutions and is_substituted_value(line))
+        )
+        and not _reaches_no_geometry(line)
+    )
+
+
+def _message(line: str) -> str:
+    """The engine's sentence with its severity prefix removed.
+
+    Both severities, because both occur for one marker: `polygon()` emits the
+    conversion warning as `ERROR:` on 2021.01 and as `WARNING:` on 2026.08.01,
+    measured, so a test that knew one spelling would be anchored on one engine
+    and unanchored on the other.
+    """
+    message = line.strip()
+    for severity in ("WARNING: ", "ERROR: "):
+        message = message.removeprefix(severity)
+    return message
+
+
+def _reaches_no_geometry(line: str) -> bool:
+    """Whether a conversion warning is true and about nothing that is exported."""
+    return _message(line).startswith(_NON_GEOMETRY_CONVERSIONS)
+
+
+def is_substituted_value(line: str) -> bool:
+    """Whether a line reports a value the engine could not CONVERT -- and
+    defaulted -- rather than a name it could not resolve.
+
+    Anchored at the head of the engine's sentence: the substitution warnings
+    are that whole sentence, and `Unable to convert` appearing further in is
+    either the model's own string literal or a different failure entirely (see
+    `_unresolved_lines`). This is both the matcher's test and the caller's
+    diagnosis, so the two cannot disagree about one line.
+
+    The two causes travel one list, because both mean the mesh on disk is not
+    the mesh the source describes and both are read at the same moment. Only
+    the diagnosis and the remedy differ, and the caller's sentence has to
+    differ with them: "check `OPENSCADPATH`" is useless advice to someone whose
+    include resolved fine and whose expression produced `undef` (#308).
+
+    Ask it of the line the caller QUOTES, so the sentence and the evidence
+    printed under it always name one cause. A run can produce both kinds.
+    """
+    return _message(line).startswith(_SUBSTITUTED_VALUE_MARKERS)
 
 
 def _display_failure(returncode: int, stderr: str) -> bool:

@@ -123,10 +123,14 @@ Read the non-`pass` statuses in `checks[]`:
 - **`error` says a variable list is INCOMPLETE** (`build_origin: "environment"`) → an
   `include` did not open, so partspec could not finish reading which names `-D` can bind
   and will not judge your parameter either way. `error` names the file. **This is the one
-  exit-4 shape where a model edit may be the fix**, against the table above: the include
-  path can be misspelt in the source exactly as easily as the library can be missing from
-  the machine, and partspec cannot tell those apart — `environment` is the nearer of the
-  two values it can carry, not a finding. Check the path in the source first, then the
+  `build_origin: "environment"` shape where a model edit may be the fix**, against the
+  table above: the include path can be misspelt in the source exactly as easily as the
+  library can be missing from the machine, and partspec cannot tell those apart —
+  `environment` is the nearer of the two values it can carry, not a finding. The two
+  `build_origin: null` shapes below — a name that did not resolve, and a value the engine
+  could not convert — are model edits too, but they never claimed the machine's origin, so
+  the tension this bullet exists to flag is not theirs. Said "the one exit-4 shape" until
+  it was one of three. Check the path in the source first, then the
   machine. Do not touch the contract: the parameter has not been judged, so nothing has
   been said about it.
 - **`error` mentions the claims pin** → the contract does not match its committed lock.
@@ -146,6 +150,19 @@ Read the non-`pass` statuses in `checks[]`:
   path; do not expect a location. Whether it is a typo or a library absent from this
   machine is what partspec cannot tell, which is why the origin is `null` rather than a
   guess.
+- **`error` says the engine could not convert a value and built a default in place of
+  it** (`build_origin: null`) → the build *succeeded*, every name resolved, and the
+  artifact is still not the part: a value reaching a module's parameter was not a type it
+  accepts, so the engine substituted **that module's own default** and exported it.
+  `cube(size=[o, 30, 6])` with `o = undef` gives a 1×1×1 unit cube — clean, watertight,
+  one solid — on both pinned engines. **Do not touch the contract**, and **do not go
+  looking at `OPENSCADPATH`**: nothing here is missing from the machine. `error` quotes
+  the engine's own line, which names the module and the value it rejected —
+  `Unable to convert cube(size=[undef, 30, 6], ...) parameter to a number or a vec3 of
+  numbers in file part.scad, line 2`, identical on both engines. Read it as a pointer to
+  the *expression*, not the module: the fix is wherever that value was left `undef` or
+  given the wrong type, which is usually a parameter that was never bound or a name
+  spelled correctly but assigned nothing.
 - **Otherwise** → the contract itself raised (the report says "the contract is wrong,
   not the part"), or the report is still the placeholder ("run did not complete") —
   whose most common cause is deterministic, not transient: **the contract failed to

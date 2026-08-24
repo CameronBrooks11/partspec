@@ -233,9 +233,12 @@ def _evaluate(
             # Declared, and not satisfied. Two ways to get here and they are not
             # the same fault, so the detail says which: the engine failed before
             # it could produce anything, or it produced nothing BECAUSE a name
-            # did not resolve -- a probe whose geometry never existed to be
-            # intersected. The second is the case this check exists to refuse,
-            # and it is invisible in the exit code (#237).
+            # did not resolve, or a value did not convert -- a probe whose
+            # geometry never existed to be intersected. The latter is the case
+            # this check exists to refuse, and it is invisible in the exit code
+            # (#237). The cause clause comes from the same classifier `check`
+            # and `measure` use, so one engine line cannot be diagnosed two ways
+            # depending on which path reached it (#308).
             results.append(
                 CheckResult(
                     id=spec.id,
@@ -243,7 +246,8 @@ def _evaluate(
                     phase=GEOMETRY,
                     status=Status.FAIL,
                     detail=(
-                        f"the result is empty, but the engine could not resolve a name, "
+                        f"the result is empty, but "
+                        f"{_unresolved_diagnosis(artifact.unresolved[0])[0]}, "
                         f"so the geometry never existed to be empty of: "
                         f"{artifact.unresolved[0]}"
                         if artifact.unresolved
@@ -263,7 +267,9 @@ def _evaluate(
         # The build SUCCEEDED and the artifact is well-formed -- and it is not
         # the part. OpenSCAD renders an unresolved call's children not at all,
         # so a misspelt module or an include that did not open silently removes
-        # geometry and still exits 0 (`docs/FAILURE-MODES.md` §1). Every
+        # geometry and still exits 0 (`docs/FAILURE-MODES.md` §1); and where a
+        # value will not convert it substitutes the module's own default, so a
+        # dimension nobody wrote is exported just as quietly (#308). Every
         # geometry check downstream would then be measuring a different part
         # than the contract describes, and before #286 every one of them
         # reported PASS.
@@ -274,18 +280,17 @@ def _evaluate(
         # is -- a typo in the source, or a library absent from this machine --
         # is exactly what partspec cannot tell, so it claims neither and says
         # what it does know: it did not measure the part it was given.
+        #
+        # Diagnosed from the line that is QUOTED, so the sentence and the
+        # evidence under it always name one cause even when both kinds are in
+        # the list; the `(and N more)` suffix is what says the list is longer.
+        cause, report.hint = _unresolved_diagnosis(engine_unresolved[0])
         report.error = (
-            "the engine could not resolve a name and rendered without it, so the "
-            "geometry measured is not the geometry this source describes: "
-            f"{engine_unresolved[0]}"
+            f"{cause}, so the geometry measured is not the geometry this "
+            f"source describes: {engine_unresolved[0]}"
         )
         if len(engine_unresolved) > 1:
             report.error += f" (and {len(engine_unresolved) - 1} more)"
-        report.hint = (
-            "the engine exited 0 and wrote a mesh, so this is not a compile error — "
-            "either the source misspells the name, or whatever defines it is not on "
-            "OPENSCADPATH. Fix the name or install the library, then re-run"
-        )
         reason = f"not evaluated: {report.error}"
         results.append(_skipped(_builds_spec(), reason))
         results.extend(_skipped(spec, reason) for spec in geometry_specs)
@@ -1541,6 +1546,45 @@ def _builds_spec() -> CheckSpec:
 
 def _all_specs(part: Part) -> list[CheckSpec]:
     return [*part.checks, _builds_spec()]
+
+
+_UNRESOLVED_NAME_CAUSE = "the engine could not resolve a name and rendered without it"
+_UNRESOLVED_NAME_HINT = (
+    "the engine exited 0 and wrote a mesh, so this is not a compile error — "
+    "either the source misspells the name, or whatever defines it is not on "
+    "OPENSCADPATH. Fix the name or install the library, then re-run"
+)
+
+_SUBSTITUTED_VALUE_CAUSE = "the engine could not convert a value and built a default in place of it"
+_SUBSTITUTED_VALUE_HINT = (
+    "the engine exited 0 and wrote a mesh, so this is not a compile error — "
+    "the warning names the module and the value it rejected, and that module "
+    "built its own default instead. Nothing here is about the include path: "
+    "trace the value back to whatever left it undefined or the wrong type, "
+    "then re-run"
+)
+
+
+def _unresolved_diagnosis(line: str) -> tuple[str, str]:
+    """The (cause, hint) pair for one success-path marker line.
+
+    One function and one pair of strings for two callers, because `check` and
+    `measure` refusing the same engine line must not drift into two accounts of
+    it. Their SENTENCES differ -- a report's `error` against a refusal to
+    measure -- and the cause and the remedy do not, so only the sentences live
+    at the call sites.
+
+    Both causes were one message until #308, which added the second: a value
+    the engine could not convert, so it substituted a default into a dimension.
+    Told to check `OPENSCADPATH` for that, a reader goes looking for a library
+    that is not missing. Naming a name that did not resolve is equally wrong in
+    the other direction, so the name text is unchanged and pinned.
+    """
+    from .engines.openscad import is_substituted_value
+
+    if is_substituted_value(line):
+        return _SUBSTITUTED_VALUE_CAUSE, _SUBSTITUTED_VALUE_HINT
+    return _UNRESOLVED_NAME_CAUSE, _UNRESOLVED_NAME_HINT
 
 
 def _skipped(spec: CheckSpec, reason: str) -> CheckResult:

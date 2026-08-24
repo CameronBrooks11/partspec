@@ -803,6 +803,142 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2.4087341226347263..2.508734122634726, cited to ISO 724:2023 / M3 /
   `minor_diameter_internal`, and passes against a Ø2.459 bore.
 
+- **A dimension the engine defaulted, because a value would not convert, no
+  longer reaches a measurement** (part of #308; the remainder is #332, epic
+  #305). `cube(size=[o, 30, 6])` with `o = undef` exports a clean,
+  watertight, single-solid **1x1x1 unit cube** — the 30 and the 6 go with the
+  axis that did not convert — and `check` over `watertight()` +
+  `solid_count(1)` reported `PASS: 3 pass` at exit 0 on both pinned engines.
+  #286's success-path guard reads only the markers that name a NAME, and this
+  shape names none. `Unable to convert` — the line OpenSCAD prints at the
+  moment of substitution, naming the module and the value it rejected — is now
+  read there too, and the same case is `ERROR: 3 skipped` at exit 4 on both.
+  **Measured under both pinned engines rather than assumed**, which the
+  include marker's `Can't open` / `Can't find` split makes mandatory:
+  `cube`, `translate`, `square` and `scale` print this line
+  character-for-character alike on 2021.01 and 2026.08.01.
+  It is its own marker set rather than an addition to the name markers,
+  because `undefined operation` — the obvious candidate, tried and reverted in
+  PR #306 — also fires on `echo("holes: " + holes)`, a debug line with a type
+  error beside a completely correct 272-facet part. `Unable to convert` is
+  emitted only where a value actually reached geometry, so that part still
+  passes at exit 0; asserted through the binary, not reasoned about.
+  **Two classes of conversion warning are carved out.** The **GUI camera** is
+  unconditionally safe — `$vpt = [undef, 0, 0]` prints the marker's exact words
+  on both engines beside a cube that is exactly right, and no exported mesh can
+  depend on the camera. The second is a **trade with a remainder, stated here
+  rather than implied**: a **range or step built in an expression**. On
+  2026.08.01,
+  `echo("holes:", [0 : holes])` with an optional module parameter left at
+  `undef` prints `Unable to convert [0:...:undef] to a range` — head-anchored,
+  so the anchor above does not exclude it — beside a part whose export is
+  **byte-identical** to the same source with the echo deleted. That is PR
+  #306's protected echo case with a range where the string concat was, and
+  matching it gave exit 4 on 2026.08.01 against exit 0 on 2021.01, with a
+  diagnosis whose every clause was false: no module, no default, nothing
+  reaching geometry. Counted in OpenSCAD's own source, the two range templates
+  are the only two of its 21 distinct `Unable to convert` messages that begin
+  with `[`; every substitution begins with a module or field name, so the
+  bracket separates the classes by the engine's grammar rather than by a list
+  this repo would have to chase.
+  **What that carve-out costs** (#338): a failed range yields `undef` into the
+  expression, and that `undef` can reach geometry. On 2026.08.01, where this
+  line is the only stderr signal produced, `for (i = [1 : n])` with `n` unbound
+  drops the loop's geometry entirely — the engine's summary line reads
+  `Facets: 6` against 76 for `n = 4`, and the exported STL carries 12 triangles
+  against 76, the engine's own vocabulary rather than the measured mesh — and
+  `n = undef; r = [0 : n]; linear_extrude(r[2])` exports a part 100 mm tall,
+  which is #308's own headline fault. Both pass at exit 0. The line cannot tell
+  an expression that reached geometry from one that did not, so correct parts
+  win the tie: matching it refused a byte-identical-export part in round-2
+  review, and `undefined operation` came off the success path for the same
+  reason with #332 holding its remainder. The trade is deliberate; the
+  remainder is filed, not waved away.
+  **What is still uncovered, measured rather than supposed** (#332): a
+  *scalar* dimension taking `undef` narrates nothing at all.
+  `linear_extrude(undef)` and `cylinder(h=undef)` are silent on both engines,
+  and #308's own headline reproduction — `linear_extrude(undef + 1)` — prints
+  `undefined operation` and no conversion line, so it still passes. There is
+  no stderr signal to guard on, so #308 stays open. `rotate(a=undef)` is a
+  sibling with a different spelling, `Problem converting`, left out to keep
+  this change to one guard (#333) — and pinned as a negative, since adding it
+  to the marker set otherwise left the whole suite green, which is a deferral
+  with nothing holding it. The docstring in `engines/openscad.py` says both,
+  rather than implying the shape closed.
+  **The marker is anchored at the head of the engine's sentence**, and that is
+  the whole of its safety. Two measured reasons. OpenSCAD echoes string
+  literals verbatim into the warning, so an unanchored test let a source turn
+  the guard off by naming it — `translate(["harmless", o, 0])` was refused at
+  exit 4 while `translate(["Unable to convert $vp", o, 0])` reported
+  `PASS: 3 pass` at exit 0, one dropped transform either way. And
+  `Unable to convert` is not only a substitution: CGAL says
+  `The given mesh is not closed! Unable to convert to CGAL_Nef_Polyhedron.` on
+  2021.01 for a `difference()` over an unclosed polyhedron — exit 1, no STL,
+  nothing substituted — where 2026.08.01 words it `[manifold] Input mesh is not
+  closed!` and never says "convert". Unanchored, one source got two different
+  reports on the two pinned engines and the 2021.01 one blamed a defaulted
+  dimension for an unclosed mesh: F13 with a false cause attached. The matcher
+  and the diagnosis now share one predicate, so what is refused and what is
+  called a substitution cannot drift apart.
+
+  **Real library code does trip this, and that is a behaviour change.** Not a
+  count: three attempts at a corpus total were wrong three different ways — one
+  engine, then a 15 s render cap, then a corpus swept with the libraries hidden
+  from themselves, where the dominant marker was `Can't open include file` and
+  the conversion lines beneath it were knock-on `undef`s from a library that
+  never loaded. That is a #286 refusal, already exit 4 before this change. What
+  follows is therefore a **verified list, not a census**: each file rendered
+  with its own library root on `OPENSCADPATH`, under both pinned engines, at a
+  250 s cap, classified by the shipping predicate, and kept only where **no**
+  `#286` name marker accompanies the conversion line.
+
+  | file | 2021.01 | 2026.08.01 |
+  |---|---|---|
+  | `MCAD/hardware.scad` (its own demo block) | 5 | 5 |
+  | `YAPP_Box/examples/GateAlarm_Sample_v30.scad` | 1 | 1 |
+  | `pathbuilder/demo/TwistedMesh.scad` | 1 | 68500 |
+  | `MCAD/trochoids.scad` | — | 120 |
+  | `openscad/examples/Old/example011.scad` (OpenSCAD's own) | — | 1 |
+
+  Counts are conversion lines emitted. Every one is a **true** refusal:
+  `module bearing(position) … translate([0, 0, -position - bearingwidth/2])`
+  with `position` unbound really does lose the offset, and `faces = undef` into
+  `polyhedron()` really is a solid with no faces. So a user pointing
+  `partspec check` at one of these now gets exit 4 where they previously got a
+  build, and the report is about their library rather than their part.
+
+  Files that look like hits and are not, since the difference is the whole
+  lesson: `BOSL`/`BOSL2` `orientations.scad` emit **zero** conversion lines
+  once BOSL is on the path; two of the three `pathbuilder` demos are likewise
+  clean once `pathbuilder/` is; `YAPP_Box`'s `RidgeExtDemo` and `HookTest`
+  carry `Ignoring unknown variable 'ridgeExtTop'` on both engines and so were
+  already exit 4; and `NopSCADlib`'s Gridfinity example is a 2021.01 hit
+  accompanied by `Ignoring unknown variable '$d'` — already exit 4 there — and
+  a clean **non**-hit on 2026.08.01, one more divergence in this family.
+
+  Nothing partspec ships trips it — all 25 in-repo `.scad` files are clean on
+  both engines.
+
+  **The refusal says which of the two faults it is.** #286's guard had one
+  sentence, and *the engine could not resolve a name* with a hint to check
+  `OPENSCADPATH` sends a reader hunting for a library that is not missing.
+  A conversion now reads *the engine could not convert a value and built a
+  default in place of it*, with a hint that names the module and points at
+  whatever left the value undefined. `check`, `measure` and the `empty()`
+  detail take the cause from one classifier, so one engine line cannot be
+  diagnosed two ways by two verbs; the name text is unchanged to the byte and
+  both are pinned.
+  **The specs say so too.** `SPEC-report.md` §6.1 and §6.2 enumerated the ways
+  a run reaches `error`/exit 4 and this was none of them — the contract did not
+  raise, the build succeeded, every name resolved — so both tables and the
+  prose above them now carry it. `SPEC-contract.md` §4.12 listed the evidence
+  `empty()` reads and omitted the new marker while `empty()` was already
+  failing on it; `AGENT-CONTRACT.md` §2.3 is a decision list whose branches
+  this cause matched none of, so an agent fell through to *the contract itself
+  raised* and was sent to edit the contract — the one thing §4 forbids. It has
+  its own branch now, saying explicitly not to go looking at `OPENSCADPATH`.
+
+
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry
   to carry the claim delta because "an entry saying only 'fixed' would report

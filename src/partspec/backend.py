@@ -159,16 +159,22 @@ class BuildError:
     failure."""
 
     unresolved: tuple[str, ...] = ()
-    """Diagnostic lines naming something the engine could not resolve.
+    """Diagnostic lines saying the engine built something other than the source.
+
+    Two causes, and the field carries both: a name the engine could not
+    resolve, and a value it could not convert, where it substitutes a default
+    (#308). `engines.openscad.is_substituted_value` tells them apart for a
+    caller that has to name one.
 
     An empty result means two very different things — "the intersection is
-    genuinely null" and "a module name was misspelt, or an include did not
-    open, so the geometry never existed to intersect". On OpenSCAD 2021.01 both
-    exit 1 with the same `Current top level object is empty.`, so the exit code
-    cannot separate them and the warning lines above it are the only evidence
-    that can. Carried so `empty` can refuse to be satisfied by a broken probe;
-    an empty result with unresolved names is a laundered pass, which is the one
-    outcome this whole check must not produce (#237)."""
+    genuinely null" and "a module name was misspelt, an include did not open,
+    or a transform's argument would not convert, so the geometry never existed
+    to intersect". On OpenSCAD 2021.01 both exit 1 with the same
+    `Current top level object is empty.`, so the exit code cannot separate them
+    and the warning lines above it are the only evidence that can. Carried so
+    `empty` can refuse to be satisfied by a broken probe; an empty result with
+    these lines is a laundered pass, which is the one outcome this whole check
+    must not produce (#237)."""
 
 
 @runtime_checkable
@@ -225,12 +231,14 @@ class GeometryBackend(Protocol):
         `artifact_out`, and an empty list means "the engine did not say",
         which is never "the render read nothing".
 
-        `unresolved_out`, when given, receives the diagnostic lines naming a
-        name the engine could not resolve on a build that nonetheless SUCCEEDED
-        (#286) -- populated on the mesh tier, empty on a tier whose engine
-        cannot half-render. Same reason it is an out-parameter rather than part
-        of the return: the handle is a `trimesh` by the time a caller holds it,
-        and a mesh cannot say what its own source failed to name.
+        `unresolved_out`, when given, receives the diagnostic lines saying the
+        engine built something other than what the source asked for on a build
+        that nonetheless SUCCEEDED -- a name it could not resolve (#286), or a
+        value it could not convert and defaulted (#308) -- populated on the
+        mesh tier, empty on a tier whose engine cannot half-render. Same reason
+        it is an out-parameter rather than part of the return: the handle is a
+        `trimesh` by the time a caller holds it, and a mesh cannot say what its
+        own source was built without.
         """
         ...
 

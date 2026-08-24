@@ -926,20 +926,32 @@ declared.
 **A broken probe must not satisfy it.** This is the whole difficulty, and it is not
 visible in an exit code. On OpenSCAD 2021.01 a genuinely null intersection and a model
 whose geometry never existed are **identical downstream**: both exit 1 with
-`Current top level object is empty.` and write no STL. A misspelt module name, or an
-include that did not open, yields nothing to intersect — so without a guard, one typo
-would make every interference probe in a contract pass, and the more broken the source the
-greener the run.
+`Current top level object is empty.` and write no STL. A misspelt module name, an
+include that did not open, or a transform whose argument would not convert yields
+nothing to intersect — so without a guard, one typo would make every interference probe
+in a contract pass, and the more broken the source the greener the run.
 
 The only evidence separating them is the engine's own diagnostics above that line —
-`Can't open include file`, `Ignoring unknown module` / `function` / `variable`,
-`undefined operation`, each measured rather than assumed. `empty` therefore **fails when
-the engine reported an unresolved name**, and its detail names the line. Engines own
-those strings, so the classification is made in the engine and carried on `BuildError`
-(`produced_nothing`, `unresolved`) rather than by the runner reading stderr.
+`Can't open include file` / `Can't find include file`, `Ignoring unknown module` /
+`function` / `variable`, `undefined operation`, and `Unable to convert`, each measured
+under both pinned engines rather than assumed. `empty` therefore **fails when the engine
+reported that it built something other than what the source describes**, and its detail
+names the line. Engines own those strings, so the classification is made in the engine
+and carried on `BuildError` (`produced_nothing`, `unresolved`) rather than by the runner
+reading stderr.
 
-A Python model has no equivalent hazard: an unresolved name raises, it does not silently
-render empty. Its null results all set the same flag, so the check reads the same on
+Two causes reach the guard and the detail MUST name the one it found, because the
+remedies do not overlap. A name that did not resolve is *the engine could not resolve a
+name*; a value the engine could not convert — where it substitutes the module's own
+default — is *the engine could not convert a value and built a default in place of it*.
+Sending a reader after `OPENSCADPATH` for the second is advice about a library that is
+not missing. Measured on both pinned engines, an `intersection()` whose second child is
+displaced by `scale(undef)` renders genuinely empty at exit 1 and fails this check with
+the conversion clause (#308).
+
+A Python model has no equivalent hazard on either cause: an unresolved name raises, and
+so does a value of the wrong type — neither silently renders empty, and no Python CAD
+kernel substitutes a default for an argument it will not accept. Its null results all set the same flag, so the check reads the same on
 either tier — a null shape, an empty CadQuery stack, **and an empty `Compound` with no
 underlying handle**, which is what build123d returns for `a & b` on two disjoint solids
 and so the one an interference probe on that tier actually produces. That third one did not
