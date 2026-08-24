@@ -122,6 +122,33 @@ def _empty(a: Any) -> bool:
     return not a.vertices()
 
 
+# The five entity counts the Euler-Poincare formula reads, and the singular of
+# each — genus is a statement about one closed body, so every one of them has to
+# be that body's own (#334).
+_EULER_ENTITIES = {
+    "vertices": "vertex",
+    "edges": "edge",
+    "wires": "wire",
+    "faces": "face",
+    "shells": "shell",
+}
+
+
+def _stray_geometry(a: Any, body: Any) -> str | None:
+    """What `a` carries beyond the single solid `body`, phrased, or None.
+
+    Counted per entity kind rather than by `a.children`, because the runner
+    never sees the children: `adopt` rewraps the TopoDS handle, and the stray
+    sheet that reaches `genus` as 8 faces arrives with `children == ()`.
+    """
+    extra = []
+    for plural, singular in _EULER_ENTITIES.items():
+        n = len(getattr(a, plural)()) - len(getattr(body, plural)())
+        if n:
+            extra.append(f"{n} {singular if n == 1 else plural}")
+    return ", ".join(extra) if extra else None
+
+
 def _min_draft_deg(a_coef: float, b_coef: float, c_coef: float, u1: float, u2: float) -> float:
     """min over u in [u1, u2] of asin(|a cos u + b sin u + c|), in degrees.
 
@@ -554,6 +581,24 @@ class OcctBackend:
 
         Refused for multi-body parts for the same reason as the mesh tier: genus
         is defined per body.
+
+        Refused too when the shape carries anything at all beside that one
+        solid, whatever its dimensionality. The formula is a statement about
+        **one closed body**, and the solid count alone does not establish one:
+        a stray face, a bodiless edge or a lone `Vertex` is not a solid, so it
+        rode past the count and was summed into the characteristic anyway. On a
+        20 mm cube bored 6 mm through — honestly genus 1 — each of the three
+        produced `0, exact`, and a contract declaring `genus(0)`, `watertight()`,
+        `solid_count(1)` and `cavities(0)` reported `PASS: 5 pass` at exit 0 on a
+        part with a through-hole (#334). `watertight` catches only part of the
+        class: a `Vertex` contributes no edge, so `is_manifold` stays true.
+
+        The precondition is therefore "one solid and nothing else", tested as
+        the five counts the formula reads being that solid's own — which is
+        exactly what the formula assumes when it is applied. `cavities` above
+        names the same configuration as the shape PR #147 was rewritten to
+        survive; this is that guard, five lines further down, where it was
+        never given.
         """
         solids = a.solids()
         if len(solids) != 1:
@@ -561,9 +606,20 @@ class OcctBackend:
                 f"genus is defined per body; this part has {len(solids)} solids "
                 f"(check solid_count first, or split the part)"
             )
-        v, e, f, w = len(a.vertices()), len(a.edges()), len(a.faces()), len(a.wires())
-        shells = max(len(a.shells()), 1)
-        genus = shells - (v - e + 2 * f - w) / 2
+        body = solids[0]
+        stray = _stray_geometry(a, body)
+        if stray is not None:
+            return Unsupported(
+                f"genus is defined for one closed body; this shape carries {stray} "
+                f"beside its one solid (drop the stray geometry, or measure the solid alone)"
+            )
+        v, e, f, w = (
+            len(body.vertices()),
+            len(body.edges()),
+            len(body.faces()),
+            len(body.wires()),
+        )
+        genus = len(body.shells()) - (v - e + 2 * f - w) / 2
         return Measurement(int(genus), "count", exact=True)
 
     def topology_counts(self, a: Any) -> Measurement:

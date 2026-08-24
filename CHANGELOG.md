@@ -715,6 +715,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pastes, and §7's, which carries the normative MUST and which nothing in the
   suite had run.
 
+- **OCCT `genus` measures one closed body, or refuses** (#334). The guard
+  counted solids and nothing else, so any body that is *not* a solid rode along
+  beside one without moving `len(a.solids())` — and its vertices, edges, faces
+  and wires were then summed into the Euler-Poincaré characteristic anyway.
+  Measured on a 20 mm cube bored Ø6 through, honestly genus **1**: a disjoint
+  face, a bodiless edge and a lone `Vertex` each reported `0, exact`, and a
+  `Shell` over the solid's own faces reported `2, exact`. End to end, a contract
+  declaring `genus(0)`, `watertight()`, `solid_count(1)` and `cavities(0)`
+  reported `PASS: 5 pass` at exit 0 on a part with a through-hole; it now reports
+  `INCOMPLETE: 4 pass, 1 unsupported` at exit 2.
+  **`watertight` could not have been the precondition.** Two of those four leave
+  `is_manifold` **true** — a `Vertex` contributes no edge, and a shell over the
+  solid's own faces shares them — so a guard built on closedness would have
+  fixed the sheet and the edge and looked like it had fixed the class. The
+  precondition is *one solid and nothing else*, tested as the five entity counts
+  the formula reads being that solid's own, which is exactly what the formula
+  assumes when it is applied. Counted from the topology and not from
+  `a.children`, because the runner never sees children: `adopt` rewraps the
+  TopoDS handle, and the stray sheet reaches `genus` with `children == ()`.
+  **Nothing legitimate is newly refused**, measured rather than assumed:
+  eighteen single-solid shapes taken before and after — a `BuildPart` part, a
+  compound wrapping one solid, a sealed cavity (two shells, neither of them
+  stray), a torus, a chamfered box, a CadQuery bored plate among them — plus
+  this repo's two build123d examples, `block.py` at genus 1 and `bracket.py` at
+  genus 5, all answer exactly as before. `cavities` above already named this configuration as the
+  shape PR #147 was rewritten to survive; this is that guard, five lines further
+  down, where it had never been given.
+  The `cavities` fixture table also gains the comment #337 asks for: its cases
+  build their shapes inside a `lambda` because `Compound(children=[...])`
+  **reparents**, and a shape handed to a second compound leaves the first
+  holding nothing — a row that then goes on reporting green while measuring
+  nothing.
+
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).
   [`evals/run.py`](https://github.com/CameronBrooks11/partspec/blob/main/evals/run.py)

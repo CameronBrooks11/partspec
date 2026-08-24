@@ -440,6 +440,95 @@ def test_genus_is_refused_for_multi_body_parts(backend: OcctBackend):
     assert "per body" in refused(backend.genus(two)).reason
 
 
+def _bored_cube():
+    """A 20 mm cube bored 6 mm through — one closed body, honestly genus 1."""
+    return bd.Box(20, 20, 20) - bd.Cylinder(radius=3, height=40)
+
+
+def _cube_beside_a_shell_over_its_own_faces():
+    """The stray that moves ONLY the shell count: a Shell built over the
+    solid's own faces shares their TShapes, so V, E, F and W are unmoved and
+    `shells` goes 1 -> 2. Measured, this is the member of the class that
+    inflates genus *upward* — the old code reported 2 on a part with one hole,
+    with `watertight` true and `cavities` 0."""
+    part = _bored_cube()
+    return bd.Compound(children=[part, bd.Shell(part.faces())])
+
+
+# Each case builds its shapes fresh inside the `Compound(...)` call, behind a
+# `lambda` — the discipline #337 records, for the reason given at the `cavities`
+# table above.
+@pytest.mark.parametrize(
+    ("name", "builder", "stray", "watertight"),
+    [
+        (
+            "a disjoint face",
+            lambda: bd.Compound(
+                children=[_bored_cube(), bd.Pos(60, 0, 0) * bd.Rectangle(10, 10).face()]
+            ),
+            "1 face",
+            False,
+        ),
+        (
+            "a bodiless edge",
+            lambda: bd.Compound(
+                children=[_bored_cube(), bd.Pos(60, 0, 0) * bd.Line((0, 0, 0), (10, 0, 0)).edge()]
+            ),
+            "1 edge",
+            False,
+        ),
+        (
+            "a lone vertex",
+            lambda: bd.Compound(children=[_bored_cube(), bd.Vertex(60, 0, 0)]),
+            "1 vertex",
+            True,
+        ),
+        (
+            "a shell over the solid's own faces",
+            _cube_beside_a_shell_over_its_own_faces,
+            "1 shell",
+            True,
+        ),
+    ],
+)
+def test_genus_is_refused_when_the_shape_carries_more_than_its_one_solid(
+    backend: OcctBackend, name, builder, stray, watertight
+):
+    """#334: the solid count is not the precondition the formula needs.
+
+    Anything that is not itself a solid rides beside one without moving
+    `len(a.solids())`, and was then summed into the Euler-Poincare
+    characteristic anyway. Measured on the bored cube — genus 1 — the four
+    strays below reported `0`, `0`, `0` and `2`, every one of them `exact`.
+
+    `watertight` cannot stand in for the guard: two of the four leave
+    `is_manifold` true, which is why the precondition is "one solid and
+    nothing else" and not "one solid and it is manifold".
+    """
+    shape = builder()
+    assert measured(backend.genus(_bored_cube())).value == 1, "the solid alone is genus 1"
+    assert backend.solid_count(shape).value == 1, name
+    assert measured(backend.watertight(shape)).value is watertight, name
+
+    reason = refused(backend.genus(shape)).reason
+    assert "one closed body" in reason, name
+    assert stray in reason, name
+
+
+def test_genus_still_answers_for_a_compound_holding_nothing_but_its_solid(backend: OcctBackend):
+    """The other half of D17: an unnecessary refusal is also a failure to
+    answer. A part arrives from `BuildPart` as a Compound around one solid,
+    and a sealed cavity gives that solid a second shell — neither is stray
+    geometry, and both are still measured."""
+    with bd.BuildPart() as bp:
+        bd.Box(20, 20, 20)
+        bd.Cylinder(radius=3, height=40, mode=bd.Mode.SUBTRACT)
+    assert measured(backend.genus(bp.part)).value == 1
+
+    cavity = bd.Compound(children=[bd.Box(20, 20, 20) - bd.Box(10, 10, 10)])
+    assert measured(backend.genus(cavity)).value == 0
+
+
 # --------------------------------------------------------------------------
 # refusal — a shape that bounds no solid
 # --------------------------------------------------------------------------
