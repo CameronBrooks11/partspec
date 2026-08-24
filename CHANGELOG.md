@@ -308,6 +308,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`SPEC-contract` states the two geometry conventions that a wrong guess
+  passes on** (#283, epic #305). §4.2 carried no normative text for any v0
+  geometry kind — `envelope`, the most-declared check in the tree, appeared
+  only in the generated vocabulary table and two category lists — and §4.4
+  named `region.cylinder(d=, h=, at=, axis=, segments=)` without ever saying
+  where `at` sits. Misreading either produces a **passing** run about a claim
+  nobody made.
+  **A new §4.2.3 says what each of the seven v0 geometry kinds measures**,
+  starting with `envelope`: the axis-aligned bounding box's **extents**, per
+  axis of the model's own frame, taken over the whole part, translation-
+  invariant, with a bare scalar broadcasting to all three axes and a
+  wrong-length tuple a `ContractError` rather than a partial claim. The trap it
+  exists for is that the same API spells min/max the other way one section
+  down — `region.box(min=, max=)` takes **corners** — and the corner reading
+  passes silently: measured, a 40 × 30 × 6 mm plate at `(100, 200, 300)`
+  declared `p.envelope(max=(140, 230, 306))` from its far corner passes, and
+  the identical declaration passes again against a part 120 mm wide. The other
+  six kinds get the same paragraph, each behind a measured number — a 20 mm
+  cube with a 10 mm cube void is `solid_count 1`, `cavities 1`, `genus 0`,
+  `volume 7000.0` and `area 3000.0`, and the same cube bored through is
+  `genus 1` where the blind bore is `genus 0`.
+  **§4.4 now states that `at` is the centre of the base face**, not the
+  centroid, and `region.cylinder`'s *function* docstring — the one an author
+  reaches through `help()`, as against the class docstring that has said it all
+  along — says so too. Measured on `examples/stepper-bracket`, displacing the
+  shipped `pilot-boss-clearance` region by ±h/2 along its own axis leaves both
+  `ok pilot-boss-clearance` and `PASS: 10 pass` unchanged, in both directions:
+  a region that has drifted off its feature is still a region, so neither half
+  of the paired keep-out claim is a guard against the misreading.
+
 - **`--out` says where it writes when nobody tells it where to write** (#277,
   epic #305). With the flag absent, every verb that takes one resolves to
   `<contract dir>/outputs/<part-slug>` — beside the **contract**, not in the

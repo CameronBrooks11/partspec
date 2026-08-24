@@ -321,6 +321,10 @@ def cylinder(
 ) -> CylinderRegion:
     """A cylinder region: diameter `d`, extending `h` from `at` along one axis.
 
+    `at` is the centre of the BASE face, not the centroid: the prism spans `h`
+    from `at`, so reading it as the centroid displaces the region by `h/2`
+    (SPEC-contract.md 4.4), which no check can catch.
+
     `axis` is the string `'x'`, `'y'` or `'z'` — the axis to extend along, not a
     direction vector — and the prism grows in that axis's positive direction.
 

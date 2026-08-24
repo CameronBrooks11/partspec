@@ -173,6 +173,61 @@ The word `empty` carries two unrelated meanings here and they are worth separati
 contract that declared nothing was the result. A part can be neither, either, or — for a
 `Part` carrying only `p.empty()` — not both, since that part has a declared check.
 
+### 4.2.3 What each v0 geometry kind measures
+
+The table names each kind's measurement **shape**; this says what the number **is**.
+These are the conventions an author has to get right, and a guessed one is silent:
+it produces a green run about a different claim rather than an error.
+
+**`envelope` — the axis-aligned bounding box's EXTENTS, not its corners.** The
+measurement is `(x, y, z)`: the part's size along each axis of the model's own
+coordinate frame, in `mm`, taken over the whole part — measured, two 10 mm cubes with
+a 10 mm gap between them report `(30, 10, 10)`. The box is axis-aligned rather than
+fitted, so it is the part's size only when the part is square to the frame: the same
+20 mm cube rotated 45° about z measures `(28.284271, 28.284271, 20.0)`. And it is
+**translation-invariant** — a 40 × 30 × 6 mm plate reports `(40, 30, 6)` whether it
+sits at the origin or at `(10000, 200, 300)` — so `envelope` never constrains *where*
+a part is.
+
+`min` and `max` therefore bound those extents. **The same API spells min/max the other
+way one section down**: `region.box(min=, max=)` (§4.4) takes the box's min and max
+*corners*. Carrying the corner reading into `envelope` writes a bound far looser than
+intended and nothing says so — measured, that 40 × 30 × 6 mm plate at `(100, 200,
+300)`, declared `p.envelope(max=(140, 230, 306))` from its far corner, passes, and the
+identical declaration passes again against a part 120 mm wide.
+
+A bound MAY be a bare scalar, which **broadcasts to every axis**: `p.envelope(max=45.0)`
+bounds all three. A tuple MUST carry one entry per axis; `None` in a position is no
+claim on that axis, and `checks[].components` then records only the axes actually
+constrained. A tuple of the wrong length is a `ContractError` — *"vector limit has 2
+components, measurement has 3"* — never a partial claim.
+
+**`watertight`** is the boolean *every edge is bounded by exactly two faces*. It takes
+no bound; `p.watertight()` claims True. It is a claim about the **surface**, not about
+what the part contains: measured, a tray with an open pocket is watertight, one solid,
+zero cavities and genus 0.
+
+**`solid_count(n)`** counts **solids** — closed, outward-oriented bodies — not surface
+components. A sealed void is not a second solid: measured, a 20 mm cube with a 10 mm
+cube void reports `solid_count 1` and `cavities 1`.
+
+**`cavities(n)`** counts those **sealed internal voids**, the quantity `solid_count` was
+once conflated with. `cavities(0)` is the claim that no void was left behind, which is
+worth declaring: a void nobody asked for is trapped powder or a boolean that never
+reached the surface.
+
+**`genus(n)`** counts **through-holes, and only through-holes**. Measured on a 20 mm
+cube: a Ø6 bore drilled through reports genus 1, the same bore drilled blind reports
+genus 0, and a sealed void reports genus 0 — a blind hole is `hole_diameter`'s claim
+(§4.5) or a region's (§4.4). Genus is defined **per body**, so a part with more than
+one solid reports `unsupported` on both tiers rather than a sum.
+
+**`volume(min=, max=)`** is the **enclosed material** in `mm3`, voids excluded — the
+cube-with-a-void above measures 7000.0, not 8000.0. **`area(min=, max=)`** is the
+**total** surface in `mm2`, cavity walls included — the same part measures 3000.0, the
+2400 outside plus the 600 facing the void. Neither takes a tessellation tolerance, and
+§4.2.1 is why.
+
 ### 4.2.2 `topology` — the check that makes the tiers visible
 
 Every other v0 kind maps to a primitive both backends declare. `topology` is the exception,
@@ -262,6 +317,18 @@ CADGenBench scores "interface match". Regions are declared as pure data from
 `partspec.region` — `region.box(min=, max=)` and `region.cylinder(d=, h=, at=, axis=,
 segments=)` — because the contract layer imports no geometry library (§1.1); each backend
 materializes them via its `region_solid` primitive.
+
+**A box is given by its two CORNERS; a cylinder by its BASE.** `region.box` takes the
+min and max corners, in the model's own coordinates — the opposite reading to
+`envelope`'s extents (§4.2.3). `region.cylinder`'s `at` is the **centre of the base
+face**, not the centroid: the prism spans `h` from `at` in the named axis's POSITIVE
+direction, and `axis` is the string `'x'`, `'y'` or `'z'`, never a direction vector
+(#193, #199). Reading `at` as the centroid displaces the whole region by `h/2`, and
+the displacement is silent — measured on `examples/stepper-bracket`, moving the
+shipped `pilot-boss-clearance` region by ±h/2 along its own axis leaves both the
+`ok pilot-boss-clearance` line and the `PASS: 10 pass` verdict unchanged. A region
+that has drifted off its feature is still a region, so neither half of the paired
+claim below is a guard against this; the convention has to be read, not discovered.
 
 **The verification shell is mandatory, and it is the whole design.** The naive claims are
 both vacuous: "no material here" is satisfied perfectly by a part with the material
