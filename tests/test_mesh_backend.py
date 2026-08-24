@@ -92,8 +92,12 @@ def test_bbox_is_translation_invariant(backend: MeshBackend):
     fails. What it cannot tell is an extent from any quantity that COINCIDES
     with the extent at the origin, because it measures one box at one position.
     `2.0 * bounds[1]` is such a quantity — correct for every origin-centred
-    part, wrong the moment one is displaced — and it passes both tests above
-    and fails only this one. One size, two positions, is what closes that.
+    part, wrong the moment one is displaced — and it passes every bbox
+    assertion that predates this test while failing this one. (It does not
+    pass the SUITE: measured, that mutation fails 12 tests, most of them
+    end-to-end ones that compare a report against a fixture. What no
+    pre-existing *bbox* test does is say why.) One size, two positions, is
+    what closes that.
     """
     at_origin = trimesh.creation.box(extents=(10, 20, 30))
     displaced = trimesh.creation.box(extents=(10, 20, 30))
@@ -101,6 +105,38 @@ def test_bbox_is_translation_invariant(backend: MeshBackend):
 
     assert backend.bbox(at_origin).value == pytest.approx((10.0, 20.0, 30.0))
     assert backend.bbox(displaced).value == pytest.approx(backend.bbox(at_origin).value)
+
+
+@needs_mesh
+def test_bbox_is_axis_aligned_not_fitted(backend: MeshBackend):
+    """The other half of what §4.2.3 says `envelope` measures.
+
+    The box is axis-aligned to the model's own frame, so it is the part's own
+    size only when the part is square to that frame — a rotated part measures
+    the space it occupies, not its dimensions. An author who reads `envelope`
+    as "how big is this part" and then rotates the model gets a bound that
+    fails for a reason the part did not change.
+
+    Pinned because the honest-looking substitute is one attribute away:
+    `bounding_box_oriented.primitive.extents` FITS the box to the part and
+    returns (20, 20, 20) here — the part's own size, and not what `envelope`
+    claims. Every other bbox assertion on either tier uses an axis-aligned
+    fixture, where the two agree: measured, that substitution leaves all four
+    of them passing and fails this one alone. (It does not pass the SUITE —
+    20 tests fail, nearly all end-to-end. What no other *bbox* assertion does
+    is say which property broke.)
+
+    Watch the attribute, not the property name: `bounding_box_oriented.extents`
+    is the AABB *of* the fitted box, and measured it returns the same
+    (21.213203, 21.213203, 30.0) as the plain AABB for a rotated 10x20x30 box
+    while `.volume` correctly reads 6000. Only `.primitive.extents` is the
+    fitted measurement.
+    """
+    rotated = trimesh.creation.box(extents=(20, 20, 20))
+    rotated.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 4, (0, 0, 1)))
+
+    side = 20.0 * math.sqrt(2.0)
+    assert backend.bbox(rotated).value == pytest.approx((side, side, 20.0))
 
 
 @needs_mesh

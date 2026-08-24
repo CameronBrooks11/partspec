@@ -328,14 +328,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `region.box(min=, max=)` takes **corners** — and the corner reading passes
   silently: measured, a 40 × 30 × 6 mm plate at `(100, 200, 300)` declared
   `p.envelope(max=(140, 230, 306))` from its far corner passes, and the
-  identical declaration passes again against a part 120 mm wide. **A test pins
-  a test on each tier pins the invariance that trap rests on** — one size
-  measured at two positions. Both tiers, because §4.2.3 is about the
-  measurements both carry and states the invariance without qualifying it.
+  identical declaration passes again against a part 120 mm wide. **A test on
+  each tier pins the invariance that trap rests on** — one size measured at two
+  positions. Both tiers, because §4.2.3 is about the measurements both carry
+  and states the invariance without qualifying it.
   Neither file had measured a box at more than one position, which cannot
   separate an extent from a quantity that merely coincides with it at the
   origin: `2.0 * max_corner` passes every bbox assertion that predates these
-  two and fails both of them.
+  two and fails both of them. A third pins the other half of the same
+  sentence, that the box is axis-aligned rather than FITTED — measured, a
+  20 mm cube rotated 45° about z is `(28.284271, 28.284271, 20.0)`, and
+  substituting trimesh's fitted `bounding_box_oriented.primitive.extents`,
+  which returns `(20, 20, 20)`, leaves all four other bbox assertions passing
+  and fails only that one.
   The other six kinds get the same paragraph, each behind a measured number — a
   20 mm cube with a 10 mm cube void is `solid_count 1`, `cavities 1`,
   `genus 0`, `volume 7000.0` and `area 3000.0`, and the same cube bored through
@@ -344,14 +349,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   number about one closed body — and then states, per tier, what is actually
   shipped: a multi-solid part is `unsupported` on both, a wholly open surface
   likewise, the mesh tier testing closedness directly and the OCCT tier because
-  an open shell bounds no solid. **One configuration escapes that and is a
-  defect, now tracked as #334**: on the OCCT tier an open sheet accompanying a
-  solid clears a guard that counts solids and never tests closedness, so a
-  20 mm cube bored through — honestly genus 1 — beside a disjoint 10 mm face
-  reports `genus 0` flagged `exact`, where the mesh tier refuses the identical
-  configuration. The spec says so and names `watertight` as the reading that
-  catches it meanwhile. Found by this PR's own review, checking whether a
-  sentence it had just added was true on both tiers; it was not.
+  an open shell bounds no solid. **A whole CLASS of configurations escapes that,
+  and it is a defect rather than a convention — now tracked as #334**: on the
+  OCCT tier the guard counts solids and never tests closedness, so any body
+  that is not itself a solid rides along beside one without moving the count.
+  Measured on a 20 mm cube bored through, honestly genus 1: beside a disjoint
+  face, a stray edge or a lone vertex it reports `genus 0` flagged `exact`.
+  **`watertight` catches only part of that** — `false` beside the face and the
+  edge, but a vertex adds no edges, so manifoldness is unmoved and a contract
+  declaring `genus(0)`, `watertight()`, `solid_count(1)` and `cavities(0)`
+  reports `PASS: 5 pass` and exits 0 on a part with a through-hole. The mesh
+  tier goes wrong on none of the three. The spec says all of this rather than
+  naming a mitigation that does not hold, and #334 carries the note that a fix
+  built on manifoldness alone would look like it worked. Found by this PR's own
+  review over two rounds: the first caught a sentence that was false on one
+  tier, the second caught the replacement recommending a mitigation that does
+  not cover the class the sentence describes.
   **§4.4 now states that `at` is the centre of the base face**, not the
   centroid, and `region.cylinder`'s *function* docstring — the one an author
   reaches through `help()`, as against the class docstring that has said it all
