@@ -122,6 +122,90 @@ def _empty(a: Any) -> bool:
     return not a.vertices()
 
 
+# The five entity counts the Euler-Poincare formula reads, and the singular of
+# each — genus is a statement about one closed body, so every one of them has to
+# be that body's own (#334).
+_EULER_ENTITIES = {
+    "vertices": "vertex",
+    "edges": "edge",
+    "wires": "wire",
+    "faces": "face",
+    "shells": "shell",
+}
+
+
+def _not_closed(body: Any) -> str | None:
+    """Why this solid's boundary is not closed, or None if it is.
+
+    Every edge of a closed boundary is used by exactly two faces, with two
+    details that each decide the answer on ordinary parts:
+
+    * Counted as **occurrences**, not distinct ancestor faces. A seam edge is
+      used twice by the SAME face; counting distinct faces refuses a sphere.
+    * **OCCT-degenerate edges skipped** (`BRep_Tool.Degenerated_s`) — a sphere's
+      poles are edges bounded by no area, used once each.
+
+    `is_manifold` gets the first right and the second wrong, and that alone is
+    why it cannot be this test. Measured, it applies the same `Extent() != 2`
+    rule but skips an edge only when both its vertices are null and identical,
+    which never fires on a solid's boundary — the predicate IS satisfiable, by an
+    unbounded-line edge, which OCCT does not call degenerate and which bounds no
+    face. So a sphere's 2 degenerate edges, a cone's 1 and a filleted box's 8 are
+    each counted, used once each, and `is_manifold` reads False on all three —
+    all three of them closed. Excluding the degenerate ones leaves no edge with a
+    use count other than 2 on any of them.
+
+    Deliberately the mesh tier's question in this tier's terms (`_not_closed` in
+    mesh.py): a solid built over an open shell is one solid carrying nothing
+    beside it, so the stray-geometry guard alone let it through to a genus taken
+    over an open body (`Solid(Shell(box.faces()[1:]))` -- reported 0 on a shape
+    with no genus at all).
+
+    One pooled count, not the mesh tier's boundary/non-manifold split, and the
+    phrasing is literally true of both: an edge used four times is as much "not
+    bounded by exactly two faces" as an edge used once. Both defects are real and
+    both are reachable -- sewing two stacked boxes yields a compound of shells in
+    the DEFAULT mode, but `SetNonManifoldMode(True)` yields one shell, and the
+    solid over it is 1 solid of 2000 mm3 with four edges used by four faces and
+    no boundary edges at all. Measured, it reported `genus -1, exact` before this
+    guard.
+    """
+    from OCP.BRep import BRep_Tool  # type: ignore[attr-defined]
+    from OCP.TopAbs import TopAbs_ShapeEnum  # type: ignore[attr-defined]
+    from OCP.TopExp import TopExp  # type: ignore[attr-defined]
+    from OCP.TopoDS import TopoDS
+    from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape  # type: ignore[attr-defined]
+
+    uses = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(
+        body.wrapped, TopAbs_ShapeEnum.TopAbs_EDGE, TopAbs_ShapeEnum.TopAbs_FACE, uses
+    )
+    unshared = 0
+    for i in range(1, uses.Extent() + 1):
+        if BRep_Tool.Degenerated_s(TopoDS.Edge_s(uses.FindKey(i))):
+            continue
+        if uses.FindFromIndex(i).Extent() != 2:
+            unshared += 1
+    if unshared:
+        return f"it is not closed: {unshared} edge(s) not bounded by exactly two faces"
+    return None
+
+
+def _stray_geometry(a: Any, body: Any) -> str | None:
+    """What `a` carries beyond the single solid `body`, phrased, or None.
+
+    Counted per entity kind rather than by `a.children`, because the runner
+    never sees the children: `adopt` rewraps the TopoDS handle, and the stray
+    sheet that reaches `genus` as 8 faces arrives with `children == ()`.
+    """
+    extra = []
+    for plural, singular in _EULER_ENTITIES.items():
+        n = len(getattr(a, plural)()) - len(getattr(body, plural)())
+        if n:
+            extra.append(f"{n} {singular if n == 1 else plural}")
+    return ", ".join(extra) if extra else None
+
+
 def _min_draft_deg(a_coef: float, b_coef: float, c_coef: float, u1: float, u2: float) -> float:
     """min over u in [u1, u2] of asin(|a cos u + b sin u + c|), in degrees.
 
@@ -554,6 +638,29 @@ class OcctBackend:
 
         Refused for multi-body parts for the same reason as the mesh tier: genus
         is defined per body.
+
+        Refused too when the shape carries anything **the formula would read**
+        beside that one solid — a vertex, edge, wire, face or shell of its own,
+        whatever its dimensionality. (A duplicate reference to geometry the
+        solid already owns adds nothing to those counts and is still measured;
+        refusing it would refuse more than the mathematics requires.) The
+        solid count does not establish one closed body: a stray face, a
+        bodiless edge or a lone `Vertex` is not a solid, so it rode past the
+        count and was summed into the characteristic anyway. On a 20 mm cube
+        bored 6 mm through — honestly genus 1 — each of the three produced
+        `0, exact`, and a contract declaring `genus(0)`, `watertight()`,
+        `solid_count(1)` and `cavities(0)` reported `PASS: 5 pass` at exit 0 on a
+        part with a through-hole (#334). `watertight` catches only part of the
+        class: a `Vertex` contributes no edge, so `is_manifold` stays true.
+
+        The precondition is therefore "one solid, nothing else it would read,
+        and that solid closed" — the first two tested as the five counts the
+        formula reads being the solid's own, which is exactly what the formula
+        assumes when it is applied, and the third by `_not_closed`, because one
+        solid over an open shell carries nothing beside itself and still has no
+        genus. `cavities` above names the same configuration as the shape PR
+        #147 was rewritten to survive; this is that guard, five lines further
+        down, where it was never given.
         """
         solids = a.solids()
         if len(solids) != 1:
@@ -561,9 +668,36 @@ class OcctBackend:
                 f"genus is defined per body; this part has {len(solids)} solids "
                 f"(check solid_count first, or split the part)"
             )
-        v, e, f, w = len(a.vertices()), len(a.edges()), len(a.faces()), len(a.wires())
-        shells = max(len(a.shells()), 1)
-        genus = shells - (v - e + 2 * f - w) / 2
+        body = solids[0]
+        stray = _stray_geometry(a, body)
+        if stray is not None:
+            return Unsupported(
+                f"genus is defined for one closed body; this shape carries {stray} "
+                f"beside its one solid (drop the stray geometry, or measure the solid alone)"
+            )
+        open_along = _not_closed(body)
+        if open_along is not None:
+            return Unsupported(f"genus is defined for one closed body; {open_along}")
+        v, e, f, w = (
+            len(body.vertices()),
+            len(body.edges()),
+            len(body.faces()),
+            len(body.wires()),
+        )
+        genus = len(body.shells()) - (v - e + 2 * f - w) / 2
+        if genus < 0:
+            # The reported genus is the sum of the genera of the body's shells,
+            # so a legitimate closed body cannot reach a negative one. It is
+            # reachable when a single shell holds more than one closed
+            # component -- one TopoDS_SOLID whose one shell carries two
+            # disjoint boxes measured `-1, exact` at 2000 mm3, with nothing
+            # beside the solid and every edge bounded by exactly two faces, so
+            # neither guard above sees it.
+            return Unsupported(
+                f"genus is defined for one closed body; the Euler-Poincare formula gives "
+                f"{int(genus)}, which no closed body has -- its shells do not each "
+                f"enclose exactly one body"
+            )
         return Measurement(int(genus), "count", exact=True)
 
     def topology_counts(self, a: Any) -> Measurement:

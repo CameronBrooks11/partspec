@@ -209,7 +209,12 @@ components, measurement has 3"* — never a partial claim.
 **`watertight`** is the boolean *every edge is bounded by exactly two faces*. It takes
 no bound; `p.watertight()` claims True. It is a claim about the **surface**, not about
 what the part contains: measured, a tray with an open pocket is watertight, one solid,
-zero cavities and genus 0.
+zero cavities and genus 0. On the OCCT tier the phrase is `is_manifold`, and it counts
+**degenerate** edges — a sphere's poles are bounded by no area and used once each — so
+it reads **false** on a sphere, a cone and a filleted box, all three of them closed.
+`genus` (below) asks the same question of its own body and skips those edges,
+which is why the two can disagree on the same part and why `watertight` is not the
+closedness precondition `genus` uses.
 
 **`solid_count(n)`** counts **solids** — closed, outward-oriented bodies — not surface
 components. A sealed void is not a second solid: measured, a 20 mm cube with a 10 mm
@@ -233,25 +238,54 @@ on the mesh tier and *"genus is defined per body; this part has 0 solids"* on th
 OCCT tier; either way the run lands `incomplete` rather than buying a pass with
 silence.
 
-A whole **class** of configurations escapes that on the OCCT tier, and it is a
-**defect rather than a convention** (#334). The guard there counts solids and never
-tests closedness, so any body that is not itself a solid rides along beside one
-without moving the count — a sheet, a stray edge, a lone vertex — and the
-characteristic is then summed over a shape that is not one closed body. Measured on a
-20 mm cube bored Ø6 through, honestly genus 1: beside a disjoint face, a stray edge,
-or a single vertex it reports `genus 0`, flagged `exact`. **The mesh tier goes wrong
-in none of the three** — it refuses the sheet outright, it answers the stray vertex
-correctly at genus 1 because it counts *referenced* vertices only, and a bodiless
-edge has no form there at all. One contract, two tiers, two answers.
+Both preconditions are checked on the OCCT tier too, and a whole **class** of
+configurations used to escape them (#334). The guard there counted solids and never
+tested closedness, so any body that is not itself a solid rode along beside one
+without moving the count. Measured on a 20 mm cube bored Ø6 through, honestly genus
+1: beside a disjoint face, a stray edge or a lone vertex it reported `genus 0`,
+beside a `Shell` over the solid's own faces `genus 2`, all flagged `exact` — and a
+contract declaring `genus(0)`, `watertight()`, `solid_count(1)` and `cavities(0)`
+reported `PASS: 5 pass` at exit 0 on a part with a through-hole. **`watertight` is
+not the missing test**: a vertex adds no edge, so manifoldness is unmoved and
+`watertight` stays `true` while `genus` is wrong. It is not the closedness test
+either: it counts degenerate edges, so measured it reads `false` on a sphere, a
+cone and a filleted box, all three of them closed.
 
-**No other check reliably catches it, and `watertight` in particular does not.** It
-reports `false` beside a face or an edge, but a vertex adds no edges, so
-manifoldness is unmoved and `watertight` stays `true` while `genus` is still wrong.
-Measured end to end, a contract declaring `genus(0)`, `watertight()`,
-`solid_count(1)` and `cavities(0)` on the bored cube fails honestly on `genus`; add
-one stray vertex and the same contract reports `PASS: 5 pass` and exits 0. Until
-#334 lands, a `genus` claim on the OCCT tier is only as good as the knowledge that
-the part is a lone solid, and nothing in the vocabulary establishes that for you.
+What is checked instead, stated where the measurement is taken:
+
+- **One solid, and nothing else the formula would read.** The five counts the
+  Euler characteristic reads — vertices, edges, wires, faces, shells — must be that
+  solid's own. The refusal names what it found: *"genus is defined for one closed
+  body; this shape carries 1 vertex beside its one solid"*. Geometry the solid
+  already owns is not stray and is not refused, because it moves none of those
+  counts.
+- **That one solid closed.** `Solid(Shell(box.faces()[1:]))` is one solid carrying
+  nothing beside it, and it reported `genus 0` on a surface that has no genus. Every
+  edge of a closed boundary is bounded by exactly two faces — counted as *uses*, not
+  as distinct faces, and skipping degenerate edges, which is where `watertight`
+  differs (see above). Both directions are refused: measured, *"genus is defined for
+  one closed body; it is not closed: 4 edge(s) not bounded by exactly two faces"*,
+  on an open shell and equally on a solid whose partition edges are used by four
+  faces.
+- **A genus that is not negative.** The characteristic sums the genera of the body's
+  shells, so a closed body cannot produce a negative one, and a solid whose single
+  shell encloses two disjoint boxes does: measured `-1, exact` at 2000 mm³, with
+  nothing beside the solid and every edge used exactly twice. Refused as *"the
+  Euler-Poincare formula gives -1, which no closed body has"*.
+
+Neither refuses more than the mathematics requires: a compound wrapping exactly one
+solid still measures, and so does a solid with a sealed void — two shells, both the
+solid's own, genus 0.
+
+**On one member of that class the tiers still disagree, and it is a decision rather
+than an oversight.** A stray vertex beside a solid: the mesh tier answers `genus 1`,
+correctly, because it counts *referenced* vertices only; the OCCT tier refuses,
+though it has the same answer in hand — it sums over the solid, not the compound. An
+unreferenced vertex in a mesh is an artefact of the file format, while a `Vertex` in
+a BREP compound is a body the model put there, and a part carrying one is not the
+part the contract described. So a `genus` claim on such a part lands `incomplete` on
+OCCT and decides on mesh. A wholly open surface is refused by both, and a part of
+more than one solid by both.
 
 **`volume(min=, max=)`** is the **enclosed material** in `mm3`, voids excluded — the
 cube-with-a-void above measures 7000.0, not 8000.0. **`area(min=, max=)`** is the

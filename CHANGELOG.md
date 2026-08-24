@@ -715,6 +715,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pastes, and §7's, which carries the normative MUST and which nothing in the
   suite had run.
 
+- **OCCT `genus` measures one closed body, or refuses** (#334). The guard counted
+  solids and nothing else, so any body that is *not* a solid rode along beside one
+  without moving `len(a.solids())` — and its vertices, edges, faces and wires were
+  then summed into the Euler-Poincaré characteristic anyway. Measured on a 20 mm
+  cube bored Ø6 through, honestly genus **1**:
+
+  | stray beside the solid | reported | `solid_count` | `watertight` |
+  | --- | --- | --- | --- |
+  | a disjoint face | `0` exact | 1 | false |
+  | a bodiless edge | `0` exact | 1 | false |
+  | a lone `Vertex` | `0` exact | 1 | **true** |
+  | a `Shell` over the solid's own faces | `2` exact | 1 | **true** |
+  | a `Wire` over the solid's own edges | `int(1.5)` exact | 1 | false |
+
+  End to end, a contract declaring `genus(0)`, `watertight()`, `solid_count(1)` and
+  `cavities(0)` reported `PASS: 5 pass` at exit 0 on a part with a through-hole; it
+  now reports `INCOMPLETE: 4 pass, 1 unsupported` at exit 2.
+  **`watertight` could not have been the precondition.** Two of those five leave
+  `is_manifold` **true** — a `Vertex` contributes no edge, and a shell over the
+  solid's own faces shares them — so a guard built on it would have fixed the sheet
+  and the edge and looked like it had fixed the class. The precondition is *one
+  solid, nothing else the formula would read*, tested as the five entity counts
+  being that solid's own, which is exactly what the formula assumes when it is
+  applied. Counted from the topology and not from `a.children`, because the runner
+  never sees children: `adopt` rewraps the TopoDS handle, and the stray sheet
+  reaches `genus` with `children == ()`.
+  **And the solid itself must be closed**, which the count test does not establish:
+  `Solid(Shell(box.faces()[1:]))` is one solid carrying nothing beside it, and
+  reported `genus 0` on a surface with no genus. Closedness is every edge being
+  bounded by exactly two faces — counted as *uses* rather than distinct faces, so
+  a seam edge used twice by one face stays closed, and **skipping degenerate
+  edges**. `is_manifold` applies the same rule and gets only the second wrong: its
+  degeneracy test never fires, so a sphere's 2 pole edges, a cone's 1 and a
+  filleted box's 8 each count as unshared and it reads `false` on all three, every
+  one of them closed. That, and not the seam, is why it cannot serve here.
+  An integrality test on the genus alone would not have done it either: a shell
+  missing two opposite faces has an even characteristic and comes out a whole `1`.
+  **Two further corruptions clear both of those and are refused as well.** An edge
+  used by FOUR faces — one solid of 2000 mm³, no boundary edge anywhere, built by
+  sewing two stacked boxes with `SetNonManifoldMode(True)` — reported `genus -1`;
+  it is caught by counting uses `!= 2` rather than `< 2`. And a single shell
+  holding two disjoint boxes passes every structural test there is, so the last
+  guard is arithmetic: the characteristic sums the shells' genera, so a closed
+  body cannot produce a negative one, and that shape reported `-1, exact` at
+  2000 mm³.
+  **Nothing legitimate is newly refused**, measured rather than assumed: eighteen
+  single-solid shapes taken before and after — a `BuildPart` part, a compound
+  wrapping one solid, a sealed cavity (two shells, both the solid's own), a torus,
+  a sphere, a chamfered box, a shelled box, a CadQuery bored plate among them —
+  plus this repo's two build123d examples, `block.py` at genus 1 and `bracket.py`
+  at genus 5, all answer exactly as before.
+  `cavities`, the primitive immediately preceding `genus` in the same file, already
+  named this configuration as the shape PR #147 was rewritten to survive; this is
+  that guard, where it had never been given. `SPEC-contract.md` §4.2.3 described
+  the defect in the present tense and told authors not to trust a `genus` claim
+  until this landed; it now describes what ships, including the one member of the
+  class where the tiers still disagree on purpose — a stray vertex, which the mesh
+  tier answers correctly at genus 1 by counting *referenced* vertices only, and
+  which OCCT refuses. `volume` and `area` double on the `Shell` row above and are
+  **not** fixed here; that is #344, and #347 is the same primitive reading `0.0`
+  on a solid two compounds deep.
+  The `cavities` fixture table also gains the comment #337 asks for: its cases
+  build their shapes inside a `lambda` because `Compound(children=[...])`
+  **reparents**, and a shape handed to a second compound leaves the first holding
+  nothing — a row that then goes on reporting green while measuring nothing.
+
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).
   [`evals/run.py`](https://github.com/CameronBrooks11/partspec/blob/main/evals/run.py)
