@@ -200,7 +200,9 @@ here.** On these two verbs, decide whose fault it is first:
   `PARTSPEC_OPENSCAD=/nope/openscad` gives `origin: "environment"`.
 - **`measure` has no such field, so there is nothing to branch on.** Measured, its
   failure payload carries exactly `engine`, `error`, `geometry`, `hint`, `params`,
-  `part`, `schema_version`, `tool` — in *both* failure modes. `origin` is **absent**, not
+  `part`, `payload`, `schema_version`, `tool` — in *both* failure modes, and
+  `tests/test_cli.py::test_the_measure_failure_payload_carries_exactly_these_keys`
+  fails when that stops being true. `origin` is **absent**, not
   null, so a consumer cannot even read it as "unknown". Fall back to the prose: `error`
   and `hint` quote the engine, and a parser error naming a line in your source is the
   model where a missing binary or package is the machine. Or run `check` on the same

@@ -672,6 +672,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
+  counts the field this release added to it** (#295, #340). §2.4 lists that
+  payload's keys as "Measured … exactly `engine`, `error`, `geometry`, `hint`,
+  `params`, `part`, `schema_version`, `tool` — in *both* failure modes", which
+  an agent reads to learn there is no `origin` to branch on. Adding `payload`
+  made it nine, and neither change was wrong alone: #340 measured the payload
+  correctly, and #295 extended it additively. **The composition was false and
+  no test could see it**, so CI stayed green over a document that had just been
+  measured.
+  That is #299's class in a second file, and the second time in one wave that a
+  hand-maintained list went stale where nothing gated it. The list is corrected
+  and now has a gate:
+  `tests/test_cli.py::test_the_measure_failure_payload_carries_exactly_these_keys`
+  asserts the exact key set in both failure modes — exit 4 from a build that
+  failed and exit 64 from a refused `--out` — and §2.4 cites it by name, so the
+  next such falsification is a red run rather than a shipped falsehood. The
+  test states the shape directly rather than parsing the document, which would
+  only prove two copies of one list agree.
+
 - **AGENT-CONTRACT's exit table covers only `check`, and routed the agent into
   the one case it does not cover** (#301, epic #305). §2 opens "Every evaluated
   `check` run", the exit-3 row says to run `measure`, and `measure` has no

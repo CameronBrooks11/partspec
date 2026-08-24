@@ -1080,6 +1080,64 @@ def test_measure_records_the_parameters_that_produced_the_numbers(tmp_path: Path
     assert doc["params"] == {"hole": 4}
 
 
+@needs_build123d
+@needs_openscad
+def test_the_measure_failure_payload_carries_exactly_these_keys(tmp_path: Path, capsys):
+    """`AGENT-CONTRACT.md` §2.4 enumerates this key set as *Measured*, and an
+    agent reads that enumeration to learn there is no `origin` to branch on.
+
+    The list is hand-maintained and nothing gated it, so it went stale the
+    moment #295 added `payload` to the same payload — two PRs each correct
+    alone, a false composition, and a green CI because no test read the list.
+    That is #299's class, one document over. This is the gate: an enumeration
+    labelled "Measured" now has something that measures it.
+
+    Asserted as the exact SET, in BOTH failure modes, because the doc says
+    "exactly" and says "both". Not by parsing the document — that is the
+    doc-vs-code diff `AGENTS.md` forbids, and it would only prove two copies
+    of a list agree. This states the payload's shape directly; the doc cites
+    this test by name, so a reader who distrusts the prose has somewhere to
+    look.
+    """
+    expected = {
+        "engine",
+        "error",
+        "geometry",
+        "hint",
+        "params",
+        "part",
+        "payload",
+        "schema_version",
+        "tool",
+    }
+
+    # Mode 1: the build failed (exit 4). A `.scad` that is not there.
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('subject', openscad('missing.scad'))\n"
+    )
+    assert main(["measure", f"{module}:make"]) == exit_code(Verdict.ERROR)
+    built = json.loads(capsys.readouterr().out)
+
+    # Mode 2: the ask was refused (exit 64). A filename `--out` on a tier that
+    # exports no artifact — a different code path to the same shape.
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
+    )
+    assert main(["measure", py_target(tmp_path), "--out", str(tmp_path / "x.stl")]) == 64
+    refused = json.loads(capsys.readouterr().out)
+
+    assert set(built) == expected, "the exit-4 failure payload"
+    assert set(refused) == expected, "the exit-64 refusal payload"
+    assert "origin" not in built and "origin" not in refused, (
+        "absent, not null — §2.4 tells an agent it cannot even read it as 'unknown'"
+    )
+    assert "measurements" not in built and "measurements" not in refused, (
+        "a run that measured nothing states no measurements (SPEC-report §7.3)"
+    )
+
+
 @needs_openscad
 def test_measure_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     """A caller parsing stdout used to get an empty string and a bare exit
