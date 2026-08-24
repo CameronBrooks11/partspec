@@ -86,12 +86,14 @@ class GeometryBackend(Protocol):
         `artifact_out`, and an empty list means "the engine did not say",
         which is never "the render read nothing".
 
-        `unresolved_out`, when given, receives the diagnostic lines naming a
-        name the engine could not resolve on a build that nonetheless SUCCEEDED
-        (#286) -- populated on the mesh tier, empty on a tier whose engine
-        cannot half-render. Same reason it is an out-parameter rather than part
-        of the return: the handle is a `trimesh` by the time a caller holds it,
-        and a mesh cannot say what its own source failed to name.
+        `unresolved_out`, when given, receives the diagnostic lines saying the
+        engine built something other than what the source asked for on a build
+        that nonetheless SUCCEEDED -- a name it could not resolve (#286), or a
+        value it could not convert and defaulted (#308) -- populated on the
+        mesh tier, empty on a tier whose engine cannot half-render. Same reason
+        it is an out-parameter rather than part of the return: the handle is a
+        `trimesh` by the time a caller holds it, and a mesh cannot say what its
+        own source was built without.
         """
         ...
 

@@ -22,7 +22,7 @@ import pytest
 from support import needs_build123d, needs_openscad, needs_scad_tier
 
 from partspec import Part, Status, Verdict, openscad, run
-from partspec.runner import _run_parameter_check
+from partspec.runner import _run_parameter_check, _unresolved_diagnosis
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -1072,6 +1072,107 @@ def test_every_unresolved_name_marker_is_read_on_the_success_path(
     assert report.verdict is Verdict.ERROR
     assert report.error is not None
     assert named in report.error
+
+
+def test_a_value_that_would_not_convert_gets_a_different_diagnosis_than_a_name():
+    """Two causes reach one guard, and they must not reach it as one sentence.
+
+    #286's refusal had one message, and #308 gave the guard a second cause: a
+    value the engine could not convert, so it substituted the module's own
+    default into a dimension. Told to check `OPENSCADPATH` for that, a reader
+    goes hunting for a library that is not missing -- which is the shape that
+    got `undefined operation` reverted in PR #306, one cause over.
+
+    Both directions are pinned, because merging them back is a one-line edit
+    in either file and would be invisible on the path that stayed correct.
+    Engine-free: `_unresolved_diagnosis` reads a string.
+    """
+    name_cause, name_hint = _unresolved_diagnosis(
+        "WARNING: Ignoring unknown module 'nope_module' in file q.scad, line 2"
+    )
+    convert_cause, convert_hint = _unresolved_diagnosis(
+        "WARNING: Unable to convert cube(size=[undef, 30, 6], ...) parameter to a"
+        " number or a vec3 of numbers in file q.scad, line 2"
+    )
+
+    # The name text is unchanged by #308, to the byte, and still carries the
+    # only advice that is any use for it.
+    assert name_cause == "the engine could not resolve a name and rendered without it"
+    assert "OPENSCADPATH" in name_hint
+
+    # The conversion text names the substitution, and says neither of the two
+    # things that would be false of it.
+    assert convert_cause != name_cause
+    assert "resolve a name" not in convert_cause
+    assert "built its own default" in convert_hint
+    assert "OPENSCADPATH" not in convert_hint
+
+
+@needs_scad_tier
+def test_a_defaulted_dimension_is_refused_with_the_conversion_diagnosis(tmp_path: Path):
+    """The conversion message out of a real build, rather than off a literal.
+
+    The test above pins the two texts against each other and needs no engine;
+    this one holds the wiring, which a passing classifier does not -- reading
+    `_UNRESOLVED_NAME_MARKERS` at the call site again would leave that test
+    green and this build unrefused.
+
+    `cube(size=[o, 30, 6])` with `o = undef` exports a 1x1x1 unit cube at exit
+    0 on both pinned engines -- clean, watertight, one solid -- and every check
+    downstream passed until #308. It is refused now, and the sentence it is
+    refused with is the conversion one, quoting the engine's own line.
+    """
+    src = tmp_path / "probe.scad"
+    src.write_text("o = undef;\ncube(size=[o, 30, 6]);\n")
+    p = Part("probe", openscad(src))
+    p.watertight()
+    p.solid_count(1)
+
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.error is not None
+    assert report.error.startswith(
+        "the engine could not convert a value and built a default in place of it"
+    )
+    assert "Unable to convert" in report.error, "the engine's own line, quoted"
+    assert "OPENSCADPATH" not in (report.hint or "")
+
+
+@needs_scad_tier
+def test_a_probe_emptied_by_a_conversion_failure_cannot_satisfy_empty(tmp_path: Path):
+    """`empty()` is the third surface, and a null result is its passing answer.
+
+    A conversion failure can empty a probe as thoroughly as a misspelt module:
+    `scale(undef)` drops the scale, so the second child stays where
+    `translate([50,0,0])` put it and the intersection is genuinely null --
+    exit 1, `Current top level object is empty.`, no STL. Measured on both
+    pinned engines. Without the marker in the WIDE set, `p.empty()` reads that
+    as its passing answer and the probe reports `PASS: 2 pass` at exit 0 on
+    geometry that never existed, which is the laundered pass §4.12 exists to
+    refuse.
+
+    Round-1 review found this surface defended by nothing: reverting
+    `_UNRESOLVED_MARKERS` to the name set alone left all 267 tests in the three
+    relevant files green. The detail is asserted too, not just the status --
+    the empty path had its own hardcoded copy of the name sentence (#308).
+    """
+    src = tmp_path / "probe.scad"
+    src.write_text(
+        "o = undef;\nintersection() {\n  cube([10,10,10]);\n"
+        "  translate([50,0,0]) scale(o) cube([10,10,10]);\n}\n"
+    )
+    p = Part("probe", openscad(src))
+    p.empty(id="no-shared-space")
+
+    report = run(p, out_dir=tmp_path / "out")
+
+    result = next(c for c in report.checks if c.id == "no-shared-space")
+    assert result.status is Status.FAIL, "a probe the engine emptied is not a clearance"
+    assert result.detail is not None
+    assert "could not convert a value and built a default in place of it" in result.detail
+    assert "resolve a name" not in result.detail, "the wrong cause, and the wrong remedy"
+    assert "Unable to convert" in result.detail, "the engine's own line, quoted"
 
 
 @needs_scad_tier

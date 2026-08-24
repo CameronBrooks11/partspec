@@ -588,11 +588,19 @@ class Part:
         **A broken probe cannot satisfy it.** An empty result means two different
         things, and on OpenSCAD 2021.01 they are identical downstream: both exit
         1 with `Current top level object is empty.` and write no STL. A misspelt
-        module, or an include that did not open, produces geometry that never
-        existed to intersect — so the check refuses to be satisfied when the
-        engine also reported an unresolved name, and says which one. That is the
-        difference between asserting a clearance and laundering a typo into a
-        green run.
+        module, an include that did not open, or a transform whose argument
+        would not convert produces geometry that never existed to intersect —
+        so the check refuses to be satisfied when the engine also reported that
+        it built something other than the source, and says which line. That is
+        the difference between asserting a clearance and laundering a typo into
+        a green run.
+
+        Both causes reach it and the detail names the one it found. Measured on
+        both pinned engines, an `intersection()` whose second child is displaced
+        by `scale(undef)` renders genuinely empty at exit 1 and this check
+        FAILS with *the engine could not convert a value and built a default in
+        place of it* (#308) — where an unresolved name gives *could not resolve
+        a name*, unchanged (#286).
 
         The claim is exclusive by nature rather than by rule: there is no mesh to
         measure, so every other geometry check on the part is skipped and the run

@@ -803,6 +803,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2.4087341226347263..2.508734122634726, cited to ISO 724:2023 / M3 /
   `minor_diameter_internal`, and passes against a Ø2.459 bore.
 
+- **A dimension the engine defaulted, because a value would not convert, no
+  longer reaches a measurement** (part of #308; the remainder is #332, epic
+  #305). `cube(size=[o, 30, 6])` with `o = undef` exports a clean,
+  watertight, single-solid **1x1x1 unit cube** — the 30 and the 6 go with the
+  axis that did not convert — and `check` over `watertight()` +
+  `solid_count(1)` reported `PASS: 3 pass` at exit 0 on both pinned engines.
+  #286's success-path guard reads only the markers that name a NAME, and this
+  shape names none. `Unable to convert` — the line OpenSCAD prints at the
+  moment of substitution, naming the module and the value it rejected — is now
+  read there too, and the same case is `ERROR: 3 skipped` at exit 4 on both.
+  **Measured under both pinned engines rather than assumed**, which the
+  include marker's `Can't open` / `Can't find` split makes mandatory:
+  `cube`, `translate`, `square` and `scale` print this line
+  character-for-character alike on 2021.01 and 2026.08.01.
+  It is its own marker set rather than an addition to the name markers,
+  because `undefined operation` — the obvious candidate, tried and reverted in
+  PR #306 — also fires on `echo("holes: " + holes)`, a debug line with a type
+  error beside a completely correct 272-facet part. `Unable to convert` is
+  emitted only where a value actually reached geometry, so that part still
+  passes at exit 0; asserted through the binary, not reasoned about.
+  **The viewport is carved out.** `$vpt = [undef, 0, 0]` prints the marker's
+  exact words on both engines beside a cube that is exactly right — it is the
+  GUI camera, nothing exported depends on it, and matching it would refuse
+  correct code, which is the one trade this guard must not make.
+  **What is still uncovered, measured rather than supposed** (#332): a
+  *scalar* dimension taking `undef` narrates nothing at all.
+  `linear_extrude(undef)` and `cylinder(h=undef)` are silent on both engines,
+  and #308's own headline reproduction — `linear_extrude(undef + 1)` — prints
+  `undefined operation` and no conversion line, so it still passes. There is
+  no stderr signal to guard on, so #308 stays open. `rotate(a=undef)` is a
+  sibling with a different spelling, `Problem converting`, left out to keep
+  this change to one guard (#333). The docstring in `engines/openscad.py`
+  says both, rather than implying the shape closed.
+  **The marker is anchored at the head of the engine's sentence**, and that is
+  the whole of its safety. Two measured reasons. OpenSCAD echoes string
+  literals verbatim into the warning, so an unanchored test let a source turn
+  the guard off by naming it — `translate(["harmless", o, 0])` was refused at
+  exit 4 while `translate(["Unable to convert $vp", o, 0])` reported
+  `PASS: 3 pass` at exit 0, one dropped transform either way. And
+  `Unable to convert` is not only a substitution: CGAL says
+  `The given mesh is not closed! Unable to convert to CGAL_Nef_Polyhedron.` on
+  2021.01 for a `difference()` over an unclosed polyhedron — exit 1, no STL,
+  nothing substituted — where 2026.08.01 words it `[manifold] Input mesh is not
+  closed!` and never says "convert". Unanchored, one source got two different
+  reports on the two pinned engines and the 2021.01 one blamed a defaulted
+  dimension for an unclosed mesh: F13 with a false cause attached. The matcher
+  and the diagnosis now share one predicate, so what is refused and what is
+  called a substitution cannot drift apart.
+
+  **Real library sources do trip this, and that is a behaviour change.** Swept
+  1503 third-party `.scad` files (BOSL, BOSL2, MCAD, NopSCADlib, YAPP_Box,
+  Stemfie, lasercut and others) on 2021.01: 27 files match, 18 of them inside
+  the OpenSCAD source tree's own deliberately-broken regression fixtures, and
+  **8 distinct genuine library sources** — `MCAD/hardware.scad`'s own demo
+  block, three `YAPP_Box` examples, `BOSL`/`BOSL2`'s `orientations.scad`, a
+  `BOSL` test, and `NopSCADlib/examples/Gridfinity`. Every one inspected is a
+  **true** refusal: `translate([0, 0, undef])` really does lose the offset. But
+  a user who points `partspec check` at one of those examples now gets exit 4
+  where they previously got a build, and the report is about their library
+  rather than their part. Nothing partspec ships trips it — all 25 in-repo
+  `.scad` files are clean on both engines.
+
+  **The refusal says which of the two faults it is.** #286's guard had one
+  sentence, and *the engine could not resolve a name* with a hint to check
+  `OPENSCADPATH` sends a reader hunting for a library that is not missing.
+  A conversion now reads *the engine could not convert a value and built a
+  default in place of it*, with a hint that names the module and points at
+  whatever left the value undefined. `check`, `measure` and the `empty()`
+  detail take the cause from one classifier, so one engine line cannot be
+  diagnosed two ways by two verbs; the name text is unchanged to the byte and
+  both are pinned.
+  **The specs say so too.** `SPEC-report.md` §6.1 and §6.2 enumerated the ways
+  a run reaches `error`/exit 4 and this was none of them — the contract did not
+  raise, the build succeeded, every name resolved — so both tables and the
+  prose above them now carry it. `SPEC-contract.md` §4.12 listed the evidence
+  `empty()` reads and omitted the new marker while `empty()` was already
+  failing on it; `AGENT-CONTRACT.md` §2.3 is a decision list whose branches
+  this cause matched none of, so an agent fell through to *the contract itself
+  raised* and was sent to edit the contract — the one thing §4 forbids. It has
+  its own branch now, saying explicitly not to go looking at `OPENSCADPATH`.
+
+
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry
   to carry the claim delta because "an entry saying only 'fixed' would report
