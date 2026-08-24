@@ -362,6 +362,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tool asked for. That claim is now executed by a test over a sound part and a
   broken one on the same tier, where `refused` grows, `measurements` shrinks
   and the union may not move.
+  **Two of the three are omitted when empty, and the section says so**, because
+  the first draft did not and would have reproduced for `measure` the exact
+  defect the `partial` fix below closes. `refused` is absent on a part that
+  defeated nothing; `unavailable` is absent on a tier that answers everything
+  asked — which is the whole OCCT tier, whose capability set covers all
+  fourteen names the verb asks, so a build123d payload's top level is exactly
+  `schema_version, payload, tool, part, engine, params, geometry,
+  measurements`. A consumer MUST read both with a default, and the test that
+  pins the partition now has a build123d arm, the property being
+  tier-independent while the section had been written from mesh-tier runs
+  alone.
   The issue said `unavailable` was sorted. It is not, and the spec says what
   it is: the fixed order the verb asks the quantities in, which is stable
   between runs and is not alphabetical.

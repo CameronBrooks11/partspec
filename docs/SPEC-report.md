@@ -905,10 +905,21 @@ important trend, and nothing else in the system can see it.
 ### 7.3 The `measure` payload — `measurements`, `refused`, `unavailable`
 
 `measure` emits the identity prefix (Scope), then `geometry`, then the numbers. Those
-arrive in **three** blocks, and the distinction between them is the verb's product rather
-than bookkeeping. Every name the verb asks about lands in exactly one of them, so a
+arrive in up to **three** blocks, and the distinction between them is the verb's product
+rather than bookkeeping. Every name the verb asks about lands in exactly one of them, so a
 consumer that reads all three has accounted for the whole vocabulary and a name missing
 from all three is a defect in this tool, not a silence about the part.
+
+**Two of the three are omitted when they would be empty, and a consumer MUST read all
+three with a default rather than by subscript.** `measurements` is always present.
+`refused` is absent on a part that defeated nothing — the common case. `unavailable` is
+absent on a tier that can answer everything asked, which is **not** hypothetical: the OCCT
+tier's capability set covers all fourteen names the verb asks, so a build123d or CadQuery
+payload carries neither key and its top level is exactly
+`schema_version, payload, tool, part, engine, params, geometry, measurements`. An empty
+block is omitted rather than emitted as `{}` or `[]` for the same reason `partial` is
+(§8.3), and it carries the same obligation on the reader: absence here means "nothing to
+report", never "not asked".
 
 - **`measurements`** — name → the §2 measurement shape: `value` (scalar or vector),
   `unit`, `exactness` (`"exact"` | `"approximate"`), `bounds` when the backend gave an
@@ -922,7 +933,8 @@ from all three is a defect in this tool, not a silence about the part.
   `refused` key.
 - **`unavailable`** — the names this **tier** cannot answer for any part, so the same list
   every time that backend measures anything. Listed in the fixed order the verb asks them
-  in, which is not alphabetical.
+  in, which is not alphabetical. **Omitted entirely when the tier can answer everything
+  asked**, which is the whole OCCT tier today.
 
 The two silences are separate because conflating them was a bug this verb had. `refused`
 is a property of the part and `unavailable` a property of the tier, and an author reading
@@ -932,8 +944,8 @@ tier or not at all. Before D17 only the second kind existed and dropping the nam
 was honest; it is not honest now, since an open mesh drops `volume`, `genus` and
 `center_of_mass` and a reader would conclude the part has no volume to claim.
 
-Emission order is `measurements`, `refused`, `unavailable`, after `geometry`; `artifact`
-follows them when `--out` was passed, in the two states Scope fixes. The name vocabulary
+Emission order, among those present, is `measurements`, `refused`, `unavailable`, after
+`geometry`; `artifact` follows them when `--out` was passed, in the two states Scope fixes. The name vocabulary
 is the backend capability set, deliberately **not** enumerated here — it is a superset of
 the check vocabulary (`SPEC-contract.md` §7: `is_valid` and `topology_counts` are worth
 seeing while deciding what to claim and are not check kinds), and the report format must

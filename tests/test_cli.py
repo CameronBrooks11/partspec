@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from support import (
     decode_png,
+    needs_build123d,
     needs_openscad,
     needs_scad_tier,
     py_target,
@@ -35,6 +36,27 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def _measure(target: str, capsys) -> dict:
     assert main(["measure", target]) == 0, "measure never produces a verdict"
     return json.loads(capsys.readouterr().out)
+
+
+def _accounted_names(doc: dict) -> set[str]:
+    """Every name the measure payload accounts for, asserting the partition.
+
+    Read with `.get` on both optional blocks, which is the rule SPEC-report
+    §7.3 states and not a defensive tic: `refused` is absent on a part that
+    defeated nothing, and `unavailable` is absent on a tier that can answer
+    everything asked — which is the whole OCCT tier, so subscripting it here
+    would make this helper `KeyError` on exactly the tier it least covers.
+    """
+    blocks = [
+        set(doc["measurements"]),
+        set(doc.get("refused", {})),
+        set(doc.get("unavailable", ())),
+    ]
+    union: set[str] = set().union(*blocks)
+    assert sum(len(b) for b in blocks) == len(union), (
+        "a name in two blocks at once says two different things about it"
+    )
+    return union
 
 
 # --------------------------------------------------------------------------
@@ -197,17 +219,46 @@ def test_the_three_measure_blocks_account_for_every_name(tmp_path: Path, capsys)
         root = tmp_path / name
         root.mkdir()
         docs[name] = _measure(scad_target(root, source=source, claims=""), capsys)
-    unions = {}
-    for name, doc in docs.items():
-        blocks = [set(doc["measurements"]), set(doc.get("refused", {})), set(doc["unavailable"])]
-        unions[name] = set().union(*blocks)
-        assert sum(len(b) for b in blocks) == len(unions[name]), (
-            f"{name}: a name in two blocks at once says two different things about it"
-        )
+
+    unions = {name: _accounted_names(doc) for name, doc in docs.items()}
     assert docs["sound"].get("refused") is None and docs["broken"]["refused"]
     assert unions["sound"] == unions["broken"], (
         "the vocabulary asked is the tier's, not the part's — so a name that "
         "went missing from all three would show up here as a shrunken union"
+    )
+
+
+@needs_build123d
+def test_a_tier_that_answers_everything_omits_both_optional_blocks(tmp_path: Path, capsys):
+    """SPEC-report §7.3, the OCCT half — and the reason it is a MUST that a
+    consumer read the two optional blocks with a default.
+
+    The OCCT capability set covers all fourteen names the verb asks, so a
+    build123d payload carries neither `refused` nor `unavailable`: a consumer
+    following "read all three" by subscript gets a `KeyError` on its first
+    build123d part. That is the defect class #302 fixed for `partial`, and
+    §7.3 was written from mesh-tier runs alone, where `unavailable` is never
+    empty. The partition property itself is tier-independent, which is why it
+    is asserted here too rather than only on the tier that exercises all three.
+    """
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
+    )
+    doc = _measure(py_target(tmp_path), capsys)
+
+    assert "unavailable" not in doc and "refused" not in doc
+    assert list(doc) == [
+        "schema_version",
+        "payload",
+        "tool",
+        "part",
+        "engine",
+        "params",
+        "geometry",
+        "measurements",
+    ]
+    assert _accounted_names(doc) == set(doc["measurements"]), (
+        "with both optional blocks absent, `measurements` accounts for the whole ask"
     )
 
 
