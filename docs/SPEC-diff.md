@@ -259,6 +259,26 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   detection (#31 owns adjudicating *within* a run; `diff` only reports the change, both
   sides shown, and takes no view on direction).
 
+**What an entry carries is not decided by the bucket it lands in.** The bucket names the
+most significant thing that changed — a status change outranks a moved claim, which outranks
+a moved value — and every delta this comparison computed then rides the entry, whatever
+bucket that was. The reason is the one already given above for the status-change case, which
+is a statement about what a reader is told rather than about statuses: an entry saying only
+`limit_changed` tells a reader that the bound moved and the part did not. Measured: a `min`
+loosened 2.0 → 1.0 while the wall it bounds thinned 2.9 → 2.1 — both sides passing, so no
+status changed — reported the contract edit and **discarded** the drift it was covering. Not
+omitted for brevity: computed, and thrown away. That is §1's second job (`SPEC-report.md`
+§7.2) dropped on the one entry where the two facts explain each other, since a bound loosened
+over a measurement moving toward it is a different event from either alone. The same chain
+lost a `requires` check's `operands` whenever a `measurement.value` moved beside them (#330).
+
+Three deltas are computed and any of them may ride any entry: `claim`, `value` and
+`operands`. One structural consequence, which is not an exception: a `drifted` entry never
+carries a `claim`, because a moved claim is what would have made it `limit_changed`. No other
+recorded field is compared — `intrusion`, `components` and `measurement.unit` are not — so
+this rule reaches exactly what the comparison already sees, and a field added later stays
+outside it until it is compared.
+
 **Tolerance.** A **measured** value compares under the same `epsilon(reference)` as
 adjudication (`SPEC-report.md` §3.3), with the old value as reference: rebuilding identical
 geometry through a different transform order perturbs coordinates at ~1e-13, and exact

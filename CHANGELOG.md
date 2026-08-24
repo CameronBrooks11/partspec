@@ -781,6 +781,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **reparents**, and a shape handed to a second compound leaves the first holding
   nothing — a row that then goes on reporting green while measuring nothing.
 
+- **A `diff` entry now carries every delta the comparison computed, whatever
+  bucket it landed in** (#330, epic #305). `_check_entry` was a chain of
+  returns and each branch returned as soon as it knew its own *name*, one
+  delta into a chain of three. So `limit_changed` reported a contract edit
+  and discarded the drift it was covering, and `drifted` reported a moved
+  measurement and discarded the operands beside it — both computed one line
+  earlier, both thrown away rather than merely omitted.
+  Measured on the flagship shape, end to end: a `min` bound loosened
+  2.0 → 1.0 while the parameter it bounds moved 2.9 → 2.1 in the same edit,
+  both sides passing so no status changed. The entry named the bound and not
+  the parameter, which tells a reader the bound moved and the part did not —
+  and a bound loosened over a value moving toward it is a different event
+  from either alone. That is §1's second job (`SPEC-report.md` §7.2) dropped
+  on the one entry where the two facts explain each other.
+  **The rule is that the bucket names the change and does not decide what the
+  entry carries**, which §3 now states once for all four buckets rather than
+  as a MUST scoped to status changes. The code says it the same way: the
+  deltas are built into one mapping above the branch and spread onto
+  whichever entry is returned, so no branch is able to ship a subset of what
+  was measured. Three deltas are computed and any may ride any entry —
+  `claim`, `value`, `operands` — with one structural consequence that is not
+  an exception: a `drifted` entry never carries a `claim`, because a moved
+  claim is what would have made it `limit_changed`.
+  Filed rather than folded into #326 when it was found, because §3's MUST was
+  scoped to status-change entries and genuinely did not reach this bucket —
+  so the spec sentence came first and the code followed it.
+
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).
   [`evals/run.py`](https://github.com/CameronBrooks11/partspec/blob/main/evals/run.py)

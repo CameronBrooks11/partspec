@@ -118,6 +118,20 @@ def _values_equal(old: Any, new: Any) -> bool:
     return old == new
 
 
+def _value_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
+    """The movement in a check's recorded `measurement.value`, or None.
+
+    The twin of `_operands_delta`, and separate from it for the same reason
+    the two are separate fields: one is what the check measured, the other is
+    what its expression read, and an entry may carry both.
+    """
+    old_value = (old.get("measurement") or {}).get("value")
+    new_value = (new.get("measurement") or {}).get("value")
+    if _values_equal(old_value, new_value):
+        return None
+    return {"old": old_value, "new": new_value}
+
+
 def _operands_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
     """The movement in a `requires` check's recorded operands, or None.
 
@@ -172,52 +186,49 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
         if claim_fields
         else None
     )
-    old_value = (old.get("measurement") or {}).get("value")
-    new_value = (new.get("measurement") or {}).get("value")
-    value_moved = not _values_equal(old_value, new_value)
+    value = _value_delta(old, new)
     operands = _operands_delta(old, new)
+    # Every delta this comparison computed, in the order the artifact shows
+    # them. One mapping, built once and spread onto whichever entry is
+    # returned, so no branch can carry a subset of what was measured (§3).
+    deltas = {
+        name: delta
+        for name, delta in (("claim", claim), ("value", value), ("operands", operands))
+        if delta is not None
+    }
 
     if old["status"] != new["status"]:
         # A status change does not get to hide what else moved: loosening a
         # limit until a failing check passes is the flagship weakening move,
         # and an entry saying only "fixed" would report the attack as an
-        # improvement. The claim and value deltas ride along — and `operands`
-        # IS the value of a `requires` check (§3's `drifted` bullet says so),
-        # which this branch did not know: it returned above the operands
-        # comparison and so dropped them on exactly the entry that most needed
-        # them, `1 regressed` and not one of the numbers that regressed it
-        # (#326). Deltas beyond those two are out of scope here and not
-        # claimed to ride: `intrusion` and `components` are recorded and
-        # compared nowhere in this function, and `measurement.unit` is never
-        # compared at all.
+        # improvement (#326). That reason is about what a reader is told, so
+        # it never belonged to this branch alone — `deltas` above is the whole
+        # of it, spread here and on the entry below alike.
         worse = _SEVERITY[Status(new["status"])] > _SEVERITY[Status(old["status"])]
-        entry = {
+        return {
             **base,
             "change": "regressed" if worse else "fixed",
             "status": {"old": old["status"], "new": new["status"]},
-        }
-        if claim is not None:
-            entry["claim"] = claim
-        if value_moved:
-            entry["value"] = {"old": old_value, "new": new_value}
-        if operands is not None:
-            entry["operands"] = operands
-        return entry
-
-    if claim is not None:
-        return {**base, "change": "limit_changed", "status": old["status"], "claim": claim}
-
-    if value_moved:
-        return {
-            **base,
-            "change": "drifted",
-            "status": old["status"],
-            "value": {"old": old_value, "new": new_value},
+            **deltas,
         }
 
-    if operands is not None:
-        return {**base, "change": "drifted", "status": old["status"], "operands": operands}
-    return None
+    if not deltas:
+        return None
+
+    # The bucket names the most significant thing that changed; it does not
+    # decide what the entry may carry (§3). Written as one dict spread rather
+    # than as per-branch attachment because the per-branch version is what
+    # dropped things: each branch returned as soon as it knew its own NAME,
+    # one delta into a chain of three, so `limit_changed` shipped the contract
+    # edit without the drift it was covering and `drifted` shipped a moved
+    # measurement without the operands beside it — both computed above, both
+    # discarded (#330).
+    return {
+        **base,
+        "change": "limit_changed" if claim is not None else "drifted",
+        "status": old["status"],
+        **deltas,
+    }
 
 
 _IRREDUCIBLE_GAPS = frozenset({"native_reads"})

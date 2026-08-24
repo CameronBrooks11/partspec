@@ -155,6 +155,104 @@ def test_requires_checks_drift_on_operands():
     assert entry["operands"]["new"]["b"] == 2.5
 
 
+# --------------------------------------------------------------------------
+# the bucket names the change; it does not decide what the entry carries (#330)
+# --------------------------------------------------------------------------
+
+# bucket -> (old status, new status, whether the claim moves)
+_BUCKETS = {
+    "regressed": ("pass", "fail", True),
+    "fixed": ("fail", "pass", True),
+    "limit_changed": ("pass", "pass", True),
+    "drifted": ("pass", "pass", False),
+}
+
+
+def _every_delta_pair(old_status: str, new_status: str, claim_moves: bool) -> tuple[dict, dict]:
+    """One check pair in which the claim, the measurement and the operands all
+    move, so any entry carrying a subset of them is visible.
+
+    `fits` is the fixture's second check, so this is never read at the head of
+    the list. A check carrying BOTH a `measurement` and `operands` is not
+    something the runner emits — `_run_parameter_check` gives a `requires`
+    result no measurement — but the report schema permits it, and §2 rule 4 is
+    that the comparator does not get to assume it produced its own input."""
+    docs = (_doc(), _doc())
+    for doc, status, limit, value, b in (
+        (docs[0], old_status, 2.0, 2.9, 2.0),
+        (docs[1], new_status, 1.0 if claim_moves else 2.0, 2.1, 7.9),
+    ):
+        check = next(c for c in doc["checks"] if c["id"] == "fits")
+        check["status"] = status
+        check["limit"] = {"min": limit}
+        check["measurement"] = {"value": value, "unit": "mm"}
+        check["operands"] = {"a": 1.0, "b": b, "c": 4.0}
+        doc["verdict"] = "fail" if status == "fail" else "pass"
+    return docs
+
+
+@pytest.mark.parametrize("bucket", sorted(_BUCKETS))
+def test_no_bucket_carries_a_subset_of_what_moved(bucket: str):
+    """#330. Each branch returned as soon as it knew its own NAME, one delta
+    into a chain of three — so `limit_changed` shipped the contract edit
+    without the drift it was covering, and `drifted` shipped a moved
+    measurement without the operands beside it. Both were computed and thrown
+    away.
+
+    Over every bucket, because the defect is a property of the chain and not
+    of one branch: whichever entry a pair lands on, it carries every delta the
+    comparison computed. Presence AND absence are asserted, so a fix that
+    attaches deltas unconditionally fails here too."""
+    old_status, new_status, claim_moves = _BUCKETS[bucket]
+    old, new = _every_delta_pair(old_status, new_status, claim_moves)
+
+    entry = next(c for c in _diff(old, new)["checks"] if c["id"] == "fits")
+    assert entry["change"] == bucket
+    assert set(entry) - {"id", "kind", "change", "status"} == (
+        {"claim", "value", "operands"} if claim_moves else {"value", "operands"}
+    )
+    assert entry["value"] == {"old": 2.9, "new": 2.1}
+    assert entry["operands"]["old"]["b"] == 2.0
+    assert entry["operands"]["new"]["b"] == 7.9
+    if claim_moves:
+        assert entry["claim"] == {"old": {"limit": {"min": 2.0}}, "new": {"limit": {"min": 1.0}}}
+
+
+def test_an_entry_carries_only_what_actually_moved():
+    """The rule is that the bucket does not gate the deltas, not that every
+    entry gets all three: an entry naming a delta that did not move would
+    invent a difference, which is the mirror of the defect."""
+    old, new = _doc(), _doc()
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 1.0}
+    entry = next(c for c in _diff(old, new)["checks"] if c["id"] == "wall_gt_2")
+    assert entry["change"] == "limit_changed"
+    assert set(entry) - {"id", "kind", "change", "status"} == {"claim"}
+
+    old, new = _doc(), _doc()
+    next(c for c in new["checks"] if c["id"] == "fits")["operands"]["b"] = 2.5
+    entry = next(c for c in _diff(old, new)["checks"] if c["id"] == "fits")
+    assert entry["change"] == "drifted"
+    assert set(entry) - {"id", "kind", "change", "status"} == {"operands"}
+
+
+def test_a_drifted_entry_never_carries_a_claim():
+    """The one structural consequence §3 states, and not an exception to the
+    rule: a moved claim is exactly what would have made the entry
+    `limit_changed`, so `drifted` and `claim` cannot co-occur by construction.
+
+    Pinned as the ONE pair that differs — same movement, claim held on the
+    second — because asserting "no drifted entry carries a claim" over a
+    document with no drifted entry in it passes for the wrong reason."""
+    moved = next(c for c in _diff(*_every_delta_pair("pass", "pass", True))["checks"])
+    held = next(c for c in _diff(*_every_delta_pair("pass", "pass", False))["checks"])
+
+    assert (moved["change"], "claim" in moved) == ("limit_changed", True)
+    assert (held["change"], "claim" in held) == ("drifted", False)
+    # The bucket is the only thing the claim decided: both carry the rest.
+    assert moved["value"] == held["value"] == {"old": 2.9, "new": 2.1}
+    assert moved["operands"] == held["operands"]
+
+
 def _two_requires(status: str, operands: dict, other_status: str, other_operands: dict) -> dict:
     """A document with TWO `requires` checks, `clears` ahead of the fixture's
     own `fits`, so a rule about `requires` checks is observed somewhere other
@@ -841,6 +939,44 @@ def test_cli_diff_on_two_real_runs(tmp_path: Path):
     assert entry["value"]["old"][2] == pytest.approx(4.0)
     assert entry["value"]["new"][2] == pytest.approx(8.0)
     assert doc["source"]["digest_changed"] is True
+
+
+@needs_scad_tier
+def test_cli_a_loosened_bound_shows_the_drift_it_was_covering(tmp_path: Path):
+    """#330, end to end and on the flagship shape. The bound is loosened and
+    the parameter it bounds moves toward it in the same edit; both sides pass,
+    so no status changes and the entry is `limit_changed`. Reporting the
+    contract edit alone tells the reader the bound moved and the part did not,
+    which is §1's second job dropped on the one entry where the two facts
+    explain each other."""
+    scad = tmp_path / "plate.scad"
+    scad.write_text("wall = 2.9;\ncube([40, 30, 6]);\n")
+    contract = tmp_path / "spec.py"
+
+    def write(wall: float, minimum: float) -> None:
+        contract.write_text(
+            "from partspec import Part, openscad\n\n\n"
+            "def make() -> Part:\n"
+            f"    p = Part('plate', openscad('plate.scad', wall={wall}))\n"
+            f"    p.param('wall', min={minimum})\n"
+            "    return p\n"
+        )
+
+    target = f"{contract}:make"
+    write(2.9, 2.0)
+    assert _run_cli("check", target, "--out", str(tmp_path / "a"), "--quiet")[0] == 0
+    write(2.1, 1.0)
+    assert _run_cli("check", target, "--out", str(tmp_path / "b"), "--quiet")[0] == 0
+
+    code, out, err = _run_cli(
+        "diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")
+    )
+    assert code == 1, err
+    entry = next(c for c in json.loads(out)["checks"] if c["id"] == "param:wall")
+    assert entry["change"] == "limit_changed"
+    assert entry["claim"] == {"old": {"limit": {"min": 2.0}}, "new": {"limit": {"min": 1.0}}}
+    assert entry["value"]["old"] == pytest.approx(2.9)
+    assert entry["value"]["new"] == pytest.approx(2.1)
 
 
 @needs_scad_tier
