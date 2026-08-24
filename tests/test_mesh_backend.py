@@ -86,9 +86,14 @@ def test_bbox_is_translation_invariant(backend: MeshBackend):
     that part and passes again on one 120 mm wide. Nothing downstream can catch
     it, because the position never reaches the measurement.
 
-    Which is exactly why the invariance has to be pinned here. The bbox test
-    above measures one box at one position, so it cannot tell a size from a
-    corner; this measures one size at two positions.
+    Which is exactly why the invariance has to be pinned here — but not
+    because the test above cannot tell an extent from a corner. It can: a
+    `bounds[1]` mutation gives `(5, 10, 15)` against its `(10, 20, 30)` and it
+    fails. What it cannot tell is an extent from any quantity that COINCIDES
+    with the extent at the origin, because it measures one box at one position.
+    `2.0 * bounds[1]` is such a quantity — correct for every origin-centred
+    part, wrong the moment one is displaced — and it passes both tests above
+    and fails only this one. One size, two positions, is what closes that.
     """
     at_origin = trimesh.creation.box(extents=(10, 20, 30))
     displaced = trimesh.creation.box(extents=(10, 20, 30))

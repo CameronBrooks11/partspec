@@ -156,6 +156,30 @@ def test_closed_form_measurements(backend: OcctBackend):
     assert backend.solid_count(box).value == 1
 
 
+def test_bbox_is_translation_invariant(backend: OcctBackend):
+    """`envelope` bounds EXTENTS, not corners (SPEC-contract.md 4.2.3).
+
+    §4.2.3 is about the measurements both tiers carry, and states the
+    invariance without qualifying it by tier, so both tiers pin it — the mesh
+    tier's copy is `test_bbox_is_translation_invariant` there. The claim is
+    what the whole envelope-versus-`region.box` trap rests on: a bound written
+    from a part's far CORNER is satisfied by parts far larger than the one it
+    was written for, and the position never reaches the measurement, so nothing
+    downstream can catch it.
+
+    `test_closed_form_measurements` above measures one box at one position,
+    which cannot separate an extent from a quantity that coincides with it at
+    the origin. One size at two positions can.
+    """
+    at_origin = bd.Box(10, 20, 30)
+    displaced = at_origin.moved(bd.Location((100.0, 200.0, 300.0)))
+
+    assert measured(backend.bbox(at_origin)).value == pytest.approx((10.0, 20.0, 30.0))
+    assert measured(backend.bbox(displaced)).value == pytest.approx(
+        measured(backend.bbox(at_origin)).value
+    )
+
+
 def test_a_sealed_cavity_is_one_solid_with_one_void(backend: OcctBackend):
     """This tier was always right about the solid count — a block enclosing a
     sealed void is 1 solid and 2 shells. What was missing is that the void had

@@ -309,12 +309,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **`SPEC-contract` states the two geometry conventions that a wrong guess
-  passes on** (#283, epic #305). §4.2's normative prose reached three of its
-  ten rows — `builds` in the section body, `topology` in §4.2.2, `volume` and
-  `area`'s bound form in §4.2.1 — and the measuring kinds an author reaches
-  for first were not among them. `envelope` had no definition anywhere: the
-  generated vocabulary table, the §1 code sample and two category lists, and
-  nothing saying what the number is. §4.4 named
+  passes on** (#283, epic #305). §4.2's normative prose reached five of its
+  ten rows, across three sites — `builds` and `empty` in the section body,
+  `topology` in §4.2.2, `volume` and `area`'s bound form in §4.2.1 — and the
+  measuring kinds an author reaches for first were not among them. `envelope`
+  had no definition anywhere: the generated vocabulary table, the §1 code
+  sample and two category lists, and nothing saying what the number is. §4.4
+  named
   `region.cylinder(d=, h=, at=, axis=, segments=)` without ever saying where
   `at` sits. Misreading either produces a **passing** run about a claim nobody
   made.
@@ -328,15 +329,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silently: measured, a 40 × 30 × 6 mm plate at `(100, 200, 300)` declared
   `p.envelope(max=(140, 230, 306))` from its far corner passes, and the
   identical declaration passes again against a part 120 mm wide. **A test pins
-  the invariance that trap rests on** — one size measured at two positions;
-  `tests/test_mesh_backend.py` had only ever measured a box at one.
+  a test on each tier pins the invariance that trap rests on** — one size
+  measured at two positions. Both tiers, because §4.2.3 is about the
+  measurements both carry and states the invariance without qualifying it.
+  Neither file had measured a box at more than one position, which cannot
+  separate an extent from a quantity that merely coincides with it at the
+  origin: `2.0 * max_corner` passes every bbox assertion that predates these
+  two and fails both of them.
   The other six kinds get the same paragraph, each behind a measured number — a
   20 mm cube with a 10 mm cube void is `solid_count 1`, `cavities 1`,
   `genus 0`, `volume 7000.0` and `area 3000.0`, and the same cube bored through
   is `genus 1` where the blind bore is `genus 0`. `genus` states the *reason*
-  it is refused rather than one instance of it: the Euler characteristic is a
-  number about one closed body, so an open surface and a multi-solid part are
-  both `unsupported`, on both tiers, differently worded and the same refusal.
+  it is refused rather than one instance of it — the Euler characteristic is a
+  number about one closed body — and then states, per tier, what is actually
+  shipped: a multi-solid part is `unsupported` on both, a wholly open surface
+  likewise, the mesh tier testing closedness directly and the OCCT tier because
+  an open shell bounds no solid. **One configuration escapes that and is a
+  defect, now tracked as #334**: on the OCCT tier an open sheet accompanying a
+  solid clears a guard that counts solids and never tests closedness, so a
+  20 mm cube bored through — honestly genus 1 — beside a disjoint 10 mm face
+  reports `genus 0` flagged `exact`, where the mesh tier refuses the identical
+  configuration. The spec says so and names `watertight` as the reading that
+  catches it meanwhile. Found by this PR's own review, checking whether a
+  sentence it had just added was true on both tiers; it was not.
   **§4.4 now states that `at` is the centre of the base face**, not the
   centroid, and `region.cylinder`'s *function* docstring — the one an author
   reaches through `help()`, as against the class docstring that has said it all
@@ -733,10 +748,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/partspec/__init__.py:5` that `help(partspec)` shows, where the
   lazy-import rule is justified; `SPEC-contract.md` §1.1 rule 3; and the
   comment on `dependencies = []` in `pyproject.toml`, which ships in the sdist.
-  All three said the rule "keeps the parameter phase and `--list` fast". There
-  is no such flag: `partspec check --list foo.py` exits 64 with *unrecognized
-  arguments: --list*, and none of the six verbs' `--help` mentions one. Present
-  since the repo's first commit and never reconciled.
+  All three named a flag in the same clause, two of them word for word — "keeps
+  the parameter phase and `--list` fast" — and §1.1 rule 3 as "the parameter
+  phase and `--list` stay fast". There is no such flag: `partspec check --list
+  foo.py` exits 64 with *unrecognized arguments: --list*, and none of the six
+  verbs' `--help` mentions one. All three landed together in `34104ab`, the
+  commit that scaffolded the repo — the first commit, `c28973d`, is the LICENSE
+  and nothing else — and none was ever reconciled.
   The third site is the finding worth recording, because #303's own evidence
   grepped `src/ docs/ README.md AGENTS.md tests/` and called the result
   repo-wide, so the fix inherited the undercount and the first commit's subject

@@ -224,13 +224,23 @@ reached the surface.
 cube: a Ø6 bore drilled through reports genus 1, the same bore drilled blind reports
 genus 0, and a sealed void reports genus 0 — a blind hole is `hole_diameter`'s claim
 (§4.5) or a region's (§4.4). It is read from the Euler characteristic, which is a
-number about **one closed body**, so anything else MUST be refused rather than
-assumed: both an open surface and a part of more than one solid report `unsupported`
-on both tiers, and the run lands `incomplete` rather than buying a pass with silence.
-The two tiers name the shortfall differently — measured, an open surface says
+number about **one closed body**, so a part that is not one MUST be refused rather
+than assumed. A part of more than one solid reports `unsupported` on both tiers, and
+so does a wholly open surface — the mesh tier by testing closedness directly, the
+OCCT tier because an open shell bounds no solid. Measured, the open surface says
 *"genus is defined for a closed surface; this mesh is open along 4 boundary edge(s)"*
 on the mesh tier and *"genus is defined per body; this part has 0 solids"* on the
-OCCT tier — and both are the same refusal.
+OCCT tier; either way the run lands `incomplete` rather than buying a pass with
+silence.
+
+One configuration escapes that on the OCCT tier, and it is a **defect rather than a
+convention** (#334): an open sheet *accompanying* a solid is not itself a solid, so it
+clears a guard that counts solids and never tests closedness, and the characteristic
+is then summed over a shape that is not one closed body. Measured, a 20 mm cube bored
+Ø6 through — honestly genus 1 — beside a disjoint 10 mm face reports `genus 0`,
+flagged `exact`, while the mesh tier refuses the identical configuration. Until it is
+fixed, `watertight` is the reading that catches it: it reports `false` on that part,
+where `solid_count` reports 1 and `cavities` 0.
 
 **`volume(min=, max=)`** is the **enclosed material** in `mm3`, voids excluded — the
 cube-with-a-void above measures 7000.0, not 8000.0. **`area(min=, max=)`** is the
