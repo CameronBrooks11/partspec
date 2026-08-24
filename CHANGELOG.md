@@ -925,6 +925,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scoped to status-change entries and genuinely did not reach this bucket —
   so the spec sentence came first and the code followed it.
 
+- **`part.contract` names the factory that was invoked** (#297, epic #305).
+  `SPEC-report.md` §7 showed `"contract": "parts/bayonet/spec.py:lock"` and
+  §7.1 said normatively that "the contract digest is module-scoped while
+  `part.contract` names a symbol" — the whole justification for the
+  module-scoped digest. The runner passed the contract path as **both**
+  arguments to `_relative`, which always yields the bare basename: never the
+  directory, never the `:factory`.
+  **Two factories in one module returning parts with the same `id` therefore
+  produced byte-identical `part` blocks** — same module-scoped
+  `contract_digest`, same source, same closure — and nothing in either
+  artifact said which target ran. Measured, before: two `check` runs of
+  `same.py:imperial` and `same.py:metric` both wrote
+  `"contract": "same.py"` and the same digest; after, `same.py:imperial` and
+  `same.py:metric`. The code was wrong and the spec was right about the
+  symbol: the collision is a defect whichever document one prefers, and the
+  spec's stated reason for the over-firing digest rests on the field naming a
+  symbol.
+  The spec was wrong about the **path**, and its example is corrected to
+  `"spec.py:lock"`: #45 deliberately normalized this field to the contract's
+  own directory — the frame `_anchor` already resolves against, so that two
+  checkouts of one tree produce byte-identical `part` blocks — and a
+  CWD-relative chain is exactly what that closed. §7.1 now states both halves,
+  including that the suffix is **optional**: a module with one factory needs no
+  name to resolve and records none.
+  `tests/test_report.py`'s fixture asserted `parts/p.py:main`, a shape the
+  production path cannot emit, so the spec, the dataclass and the suite all
+  agreed and only the runner did not — which is why 1,203 tests could not see
+  this. The one spec-conformance test reads key names and order and never
+  values; a second now executes the documented value through the tool's own
+  target parser, where a directory chain and a missing symbol both fail.
+  **Not fixed here:** `partspec diff` still answers `identical` at exit 0 for
+  those two reports, because it joins on `contract_digest` and never compares
+  `part.contract`. The artifacts now record which target ran; teaching the
+  comparator to read it is `diff`'s own change.
+
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).
   [`evals/run.py`](https://github.com/CameronBrooks11/partspec/blob/main/evals/run.py)

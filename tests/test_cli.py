@@ -74,6 +74,46 @@ def test_each_payload_says_which_artifact_it_is(tmp_path: Path, capsys):
     assert len(set(seen.values())) == 4, "a discriminator that repeats discriminates nothing"
 
 
+@needs_scad_tier
+def test_every_verb_records_which_target_it_ran(tmp_path: Path, capsys):
+    """#297. The CLI knew the factory all along — it is in the `--out` slug,
+    and naming two colliding slugs is a refusal — but it reached neither the
+    report nor the `measure`/`render` payloads. Three verbs, three call sites,
+    and threading it through only one leaves the other two identity-blind.
+    """
+    shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
+    module = tmp_path / "same.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def imperial() -> Part:\n"
+        "    return Part('widget', openscad('block_with_hole.scad')).watertight()\n\n\n"
+        "def metric() -> Part:\n"
+        "    return Part('widget', openscad('block_with_hole.scad')).watertight()\n"
+    )
+    out = tmp_path / "out"
+    assert main(["check", f"{module}:imperial", "--quiet", "--out", str(out)]) == 0
+    capsys.readouterr()
+
+    seen = {"check": report_of(out)["part"]["contract"]}
+    seen["measure"] = _measure(f"{module}:imperial", capsys)["part"]["contract"]
+    assert main(["render", f"{module}:imperial", "--out", str(tmp_path / "r")]) in (
+        0,
+        exit_code(Verdict.ERROR),
+    )
+    seen["render"] = json.loads(capsys.readouterr().out)["part"]["contract"]
+    assert set(seen.values()) == {"same.py:imperial"}, seen
+
+    # The sibling factory is the whole point: same id, same source, same
+    # module-scoped digest, so the symbol is the only thing left to tell the
+    # two artifacts apart.
+    other = tmp_path / "out2"
+    assert main(["check", f"{module}:metric", "--quiet", "--out", str(other)]) == 0
+    capsys.readouterr()
+    first, second = report_of(out)["part"], report_of(other)["part"]
+    assert first["contract_digest"] == second["contract_digest"], "module-scoped (§7.1)"
+    assert first != second, "and the part blocks were byte-identical before #297"
+
+
 # --------------------------------------------------------------------------
 # measure — the adoption path
 # --------------------------------------------------------------------------
@@ -973,7 +1013,7 @@ def test_measure_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     doc = json.loads(captured.out)
     assert doc["schema_version"] == 1
     assert doc["part"]["id"] == "subject"
-    assert doc["part"]["contract"].endswith("spec.py")
+    assert doc["part"]["contract"] == "spec.py:make", "the invoked symbol, not just the file"
     assert doc["engine"]["kind"] == "openscad"
     # The payload records what was ASKED; `error` says what happened. A
     # typo'd parameter stays visible rather than vanishing with the build.
@@ -2077,7 +2117,7 @@ def test_render_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     doc = json.loads(captured.out)
     assert doc["schema_version"] == 1
     assert doc["part"]["id"] == "subject"
-    assert doc["part"]["contract"].endswith("spec.py")
+    assert doc["part"]["contract"] == "spec.py:make", "the invoked symbol, not just the file"
     assert doc["engine"]["kind"] == "openscad"
     # The payload records what was ASKED; `error` says what happened. A
     # typo'd parameter stays visible rather than vanishing with the build.

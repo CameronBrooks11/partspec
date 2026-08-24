@@ -533,7 +533,7 @@ version alone cannot tell a report from a `measure` dump, the two carrying the s
 
   "part": {
     "id": "bayonet-lock-pin",
-    "contract": "parts/bayonet/spec.py:lock",
+    "contract": "spec.py:lock",           // the module in its own frame, then the symbol
     "contract_digest": "sha256:4a17...",
     "source": "vendor/bayonet_lock.scad",
     "source_digest": "sha256:9f2c...",
@@ -679,6 +679,23 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   `partspec diff` keeps that one: a guard keyed on `payload` would refuse every report the
   tool wrote before this release, and a document that declares a verdict is a report
   whatever it calls itself.
+- **`part.contract`** — the contract module, followed by `:<factory>` when the invocation
+  named one. The path is in the frame §8 rule 4 fixes and `_anchor` already uses —
+  relative to the contract's own directory, which for the contract file itself is its
+  filename (#45; the alternative, a CWD-relative path, makes two checkouts of one tree
+  produce different reports). The symbol is the rest of the identity, and it is not
+  decoration: two factories in one module returning parts with the same `id` otherwise
+  produce **byte-identical** `part` blocks — same module-scoped `contract_digest`, same
+  source, same closure — and nothing in either artifact says which target was invoked
+  (#297). A module declaring a single factory needs no name to resolve, so both
+  `<module>` and `<module>:<factory>` are well-formed and a consumer MUST parse the suffix
+  as optional. The corollary is that one run spelled two ways — `spec.py` and
+  `spec.py:spacer` for the same single-factory module — records two different strings for
+  one part, which is why this field is **provenance and not comparison identity**:
+  `contract_digest` is what a comparator joins on. One exception, and it is visible: the
+  pre-resolution placeholder (§5 rule 2) is written before the target resolves, so it can
+  only echo the argument as typed — absolute path included. Its `part.id` is
+  `"unresolved"`, which is what tells a consumer it is holding one.
 - **`part.contract_digest` / `part.source_digest`** — sha256 of the contract module and of
   the source content. Digests give **identity**, and support **comparison-based** tamper
   evidence: two reports whose `contract_digest` differs were produced from different
@@ -687,8 +704,10 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   They do **not** make a weakened contract visible in a *single* report — "the digest
   changed" is a two-observation predicate, and D6 assigns that job to the semantic `diff`
   that §9 defers. Two further limits, stated rather than glossed: the contract digest is
-  **module-scoped** while `part.contract` names a symbol, so an unrelated edit to the same
-  module also changes it; and `source_digest` covers only the named file, **not** anything
+  **module-scoped** while `part.contract` may name a symbol within that module, so an
+  unrelated edit to the same module also changes it — and, in the other direction, an edit
+  to a *sibling* factory moves the digest of a part that did not change; and
+  `source_digest` covers only the named file, **not** anything
   it pulls in via `include <>` / `use <>`.
 
   > **The v0 gap, closed post-v0.1: silent contract weakening.** An agent that deletes a

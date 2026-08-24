@@ -1113,6 +1113,7 @@ def _check_resolved(
         out_dir=out,
         argv=argv,
         contract_path=target.path,
+        factory=target.factory,
         timeout_s=timeout_s,
         expected_claims=expected_claims,
         artifact_out=built,
@@ -1228,7 +1229,7 @@ def _measure_failure(
         "schema_version": SCHEMA_VERSION,
         "payload": "measure",
         "tool": {"name": "partspec", "version": tool_version()},
-        "part": identity(part, target.path),
+        "part": identity(part, target.path, factory=target.factory),
         "engine": engine_block(part, backend),
         "params": dict(part.source.params),
         # Empty rather than absent, mirroring the report's failure shape:
@@ -1431,7 +1432,11 @@ def _measure_resolved(
         "payload": "measure",
         "tool": {"name": "partspec", "version": tool_version()},
         "part": identity(
-            part, target.path, built=True, engine_deps=engine_deps[0] if engine_deps else None
+            part,
+            target.path,
+            factory=target.factory,
+            built=True,
+            engine_deps=engine_deps[0] if engine_deps else None,
         ),
         "engine": engine_block(part, backend),
         "params": dict(part.source.params),
@@ -1874,12 +1879,14 @@ def _render_resolved(
     # The identity prefix mirrors the report's field order (#103, the #47
     # pattern): render was the last verb whose payload named its part with a
     # bare id string — no digests, no closure — so its images could not be
-    # tied to the revision that produced them.
+    # tied to the revision that produced them. This `part` seeds the key
+    # ORDER: both branches below replace it with `_identity()` once the build
+    # has run, since a Python model's imports are only knowable then.
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "payload": "render",
         "tool": {"name": "partspec", "version": tool_version()},
-        "part": identity(part, target.path),
+        "part": identity(part, target.path, factory=target.factory),
         "engine": engine,
         "params": dict(part.source.params),
     }
@@ -1901,6 +1908,7 @@ def _render_resolved(
         return identity(
             part,
             target.path,
+            factory=target.factory,
             built=True,
             engine_deps=render_deps[0] if render_deps else None,
         )
