@@ -920,22 +920,36 @@ important trend, and nothing else in the system can see it.
 
 ### 7.3 The `measure` payload — `measurements`, `refused`, `unavailable`
 
-`measure` emits the identity prefix (Scope), then `geometry`, then the numbers. Those
-arrive in up to **three** blocks, and the distinction between them is the verb's product
-rather than bookkeeping. Every name the verb asks about lands in exactly one of them, so a
-consumer that reads all three has accounted for the whole vocabulary and a name missing
-from all three is a defect in this tool, not a silence about the part.
+**This section describes the payload of a run that measured.** A run whose build failed,
+or whose `--out` was refused, takes the failure shape Scope fixes instead — the identity
+prefix, an empty `geometry`, and `error`/`hint` — and carries **none** of the three blocks
+below, `measurements` included. The two shapes are told apart by `error`, which the
+failure shape always carries and this one never does.
 
-**Two of the three are omitted when they would be empty, and a consumer MUST read all
-three with a default rather than by subscript.** `measurements` is always present.
-`refused` is absent on a part that defeated nothing — the common case. `unavailable` is
-absent on a tier that can answer everything asked, which is **not** hypothetical: the OCCT
-tier's capability set covers all fourteen names the verb asks, so a build123d or CadQuery
-payload carries neither key and its top level is exactly
-`schema_version, payload, tool, part, engine, params, geometry, measurements`. An empty
+Within that payload, `measure` emits the identity prefix (Scope), then `geometry`, then
+the numbers. Those arrive in up to **three** blocks, and the distinction between them is
+the verb's product rather than bookkeeping. Every name the verb asks about lands in
+exactly one of them, so a consumer that reads all three has accounted for the whole
+vocabulary and a name missing from all three is a defect in this tool, not a silence about
+the part.
+
+**Every one of the three is omitted when it would be empty, and a consumer MUST read all
+three with a default rather than by subscript.** `refused` is absent on a part that
+defeated nothing — the common case. `unavailable` is absent on a tier that can answer
+everything asked, which is **not** hypothetical: the OCCT tier's capability set covers all
+fourteen names the verb asks, so a build123d or CadQuery payload carries neither key. And
+`measurements` itself is absent from the failure shape above, so no block here is
+unconditional. An empty
 block is omitted rather than emitted as `{}` or `[]` for the same reason `partial` is
 (§8.3), and it carries the same obligation on the reader: absence here means "nothing to
 report", never "not asked".
+
+A **sound** part measured **without `--out`** on a tier that answers everything therefore
+has as its whole top level
+`schema_version, payload, tool, part, engine, params, geometry, measurements` — the
+minimal shape, stated so a consumer knows what it may see, and **not** a key set to
+validate against: `refused`, `unavailable` and `artifact` each extend it, and each is
+reachable on the same tier from the rules just above.
 
 - **`measurements`** — name → the §2 measurement shape: `value` (scalar or vector),
   `unit`, `exactness` (`"exact"` | `"approximate"`), `bounds` when the backend gave an

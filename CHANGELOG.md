@@ -378,6 +378,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pins the partition now has a build123d arm, the property being
   tier-independent while the section had been written from mesh-tier runs
   alone.
+  **All three are optional, and the section is scoped to the run that
+  measured.** The first repair asserted `measurements` was always present,
+  which reproduced the same defect one field over: `measure`'s failure payload
+  carries none of the three, in both failure modes. §7.3 now opens by saying it
+  describes a run that measured and that a failed one takes Scope's failure
+  shape, tellable apart by `error`. The eight-key top level is likewise stated
+  as the **minimal** shape and explicitly not a key set to validate against —
+  `--out` adds `artifact` and a two-solid part adds `refused`, both reachable
+  on that same tier, both now pinned by the test rather than left to the
+  sentence.
   The issue said `unavailable` was sorted. It is not, and the spec says what
   it is: the fixed order the verb asks the quantities in, which is stable
   between runs and is not alphabetical.

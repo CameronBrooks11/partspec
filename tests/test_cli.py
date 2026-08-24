@@ -46,6 +46,13 @@ def _accounted_names(doc: dict) -> set[str]:
     defeated nothing, and `unavailable` is absent on a tier that can answer
     everything asked — which is the whole OCCT tier, so subscripting it here
     would make this helper `KeyError` on exactly the tier it least covers.
+
+    `measurements` IS subscripted, and deliberately: §7.3 lets it be absent
+    too, but only from the failure shape, which carries `error` and reaches
+    this helper from nowhere — every caller measures a run that exited 0. A
+    successful measure that carried no `measurements` would be the silence
+    this project exists to prevent, so it should raise here rather than
+    default to empty and read as "nothing to report".
     """
     blocks = [
         set(doc["measurements"]),
@@ -260,6 +267,23 @@ def test_a_tier_that_answers_everything_omits_both_optional_blocks(tmp_path: Pat
     assert _accounted_names(doc) == set(doc["measurements"]), (
         "with both optional blocks absent, `measurements` accounts for the whole ask"
     )
+
+    # And the same eight keys are the MINIMAL shape, not a key set to validate
+    # against: §7.3 says `refused` and `artifact` each extend it, and both are
+    # reachable on THIS tier. Pinned here because the sentence above reads as
+    # an exact enumeration and would otherwise licence a strict validator that
+    # rejects valid payloads.
+    assert main(["measure", py_target(tmp_path), "--out", str(tmp_path / "art")]) == 0
+    with_out = json.loads(capsys.readouterr().out)
+    assert list(with_out) == [*doc, "artifact"], "`--out` extends the minimal shape"
+
+    (tmp_path / "two.py").write_text(
+        "from build123d import Box, Compound, Location\n\n\ndef make_part():\n"
+        "    return Compound(children=[Box(10, 10, 10), Location((50, 0, 0)) * Box(10, 10, 10)])\n"
+    )
+    two = _measure(py_target(tmp_path, model="two.py", part_id="two"), capsys)
+    assert list(two) == [*doc, "refused"], "a part that defeats a measurement extends it too"
+    assert "genus" in two["refused"] and "genus" not in two["measurements"]
 
 
 @needs_scad_tier
