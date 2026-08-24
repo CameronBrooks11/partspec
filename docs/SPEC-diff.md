@@ -299,17 +299,45 @@ falls below it. And the flip: `bore_d + 2 * wall <= plate_y` goes true → false
 a field added later: a comparison tolerance belongs to the *provenance* of the value, not
 to its type.
 
-**Where that rule currently stops: #335.** The justification above is a *conjunction* —
-contract-parameter provenance **and** exact adjudication — and only `requires` satisfies
-both. A `param_range` check's `measurement.value` is read straight from the declared
-parameters too (`runner.py` builds it from `params[expr]`, and the artifact labels it
-`"exactness": "exact"`), but it is adjudicated against a limit under `epsilon(lo)`, and
-this comparison still gives it `epsilon(old value)`. So the same dead band exists there,
-narrower — it needs the parameter already within roughly `epsilon(limit)` of its own
-limit — and reachable: measured, `wall` moving `1.999999 → 1.999998` against `min=2.0`
-flips `pass → fail` and is reported as `{id, kind, change, status}` with no value. Naming
-the boundary here rather than leaving it inferred, because a rule stated without its
-exception is read as covering the exception.
+**The key is `phase`, because that is where the report records the provenance.**
+`SPEC-report.md` types `checks[].phase` as `parameter` or `geometry`, and it is REQUIRED,
+so every check states which side of the build its value came from. A parameter-phase check
+reads the declared parameters before any engine runs — the two kinds that are
+parameter-phase, `requires` and `param_range`, both take their numbers straight from the
+contract's own inputs — and a geometry-phase value is measured off an exported artifact. A
+parameter-phase `measurement.value` therefore compares **exactly**, on the same grounds as
+`operands` (#335).
+
+**`exactness` cannot be that key, and reaching for it would break the tier it looks like it
+describes.** `exact` distinguishes a point value from a bounded interval — `bounds` is
+required iff not `exact` — and says nothing about reproducibility. Measured on the mesh
+tier: `cube([120.3, 80.7, 40.1])` reports `exactness: "exact"` beside
+`[120.30000305175781, 80.69999694824219, 40.099998474121094]`, ±3.052e-06 of float32
+quantisation, which `epsilon(120.3) = 1.303e-05` absorbs. `SPEC-backend.md` §5.2 permits
+collapsing that quantisation *because* the comparison epsilon is wider than it, so a
+comparison keyed on `exactness` would withdraw the tolerance that permission rests on and
+report a rebuild of identical geometry as drift.
+
+**This corrects the bound rather than extending past it.** The justification given above is
+a conjunction — parameter provenance **and** exact adjudication — and `param_range`
+satisfies only the first: its value is `params[expr]`, but it is adjudicated against a
+limit under `epsilon(lo)`. The conjunction was the wrong bound, because the two tolerances
+answer different questions. An **adjudication** tolerance decides a verdict and must
+forgive what the pipeline could have perturbed. A **comparison** tolerance suppresses
+noise, and a number read from the contract's declared parameters has none to suppress —
+while it does have something to hide. A sub-epsilon parameter move that changed no status
+is exactly the drift §1 exists to report: two passing reports and one trend the boolean
+cannot see. Measured before the fix: `wall` moving `1.999999 → 1.999998` against
+`min=2.0` flips `pass → fail` and was reported as `{id, kind, change, status}` with no
+value at all.
+
+**Where the two sides disagree, or say nothing.** A pair with `parameter` on either side
+compares exactly: that direction can only report more differences, never fewer, and §2's
+rule is that "no differences found" is the positive claim. A report recording no `phase`
+at all gets the measurement tolerance, which reproduces exactly what it received before —
+a producer that did not record the provenance is read as having proven nothing about it,
+and treating silence as `parameter` would report float32 noise as drift for every report
+written before the field existed.
 
 Also compared, at the top level, and **outcome-bearing**: `verdict` and `counts.total` (a
 shrink is named, not implied).

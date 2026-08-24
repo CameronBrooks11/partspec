@@ -124,12 +124,38 @@ def _value_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
     The twin of `_operands_delta`, and separate from it for the same reason
     the two are separate fields: one is what the check measured, the other is
     what its expression read, and an entry may carry both.
+
+    **The tolerance keys on `phase`** (§3, #335). A parameter-phase value is
+    read from the declared parameters before any engine runs, so it is the
+    same kind of number an operand is and compares exactly; a geometry-phase
+    value is measured off an exported artifact and gets `epsilon`.
+
+    Not keyed on `measurement.exactness`, which looks like the right field and
+    is not: `exact` distinguishes a point value from a bounded interval
+    (`bounds` is required iff not `exact`) and says nothing about
+    reproducibility. Measured on the mesh tier, `cube([120.3, 80.7, 40.1])`
+    reports `exactness: "exact"` beside `120.30000305175781` — ±3.052e-06 of
+    float32 quantisation, absorbed by `epsilon(120.3) = 1.303e-05`.
+    `SPEC-backend.md` §5.2 permits the mesh tier to collapse that quantisation
+    *because* this epsilon is wider than it, so keying here on `exactness`
+    would withdraw the tolerance that permission rests on and report a rebuild
+    of identical geometry as drift.
+
+    `parameter` on EITHER side is enough. The exact comparison can only report
+    more differences, never fewer, and §2's rule is that "no differences
+    found" is the positive claim — so a pair that disagrees about its own
+    provenance fails toward reporting. A report carrying no `phase` gets the
+    epsilon, reproducing what it received before the field was read here:
+    silence is not evidence of parameter provenance, and reading it as such
+    would report float32 noise as drift for every pre-`phase` report.
     """
     old_value = (old.get("measurement") or {}).get("value")
     new_value = (new.get("measurement") or {}).get("value")
-    if _values_equal(old_value, new_value):
-        return None
-    return {"old": old_value, "new": new_value}
+    if "parameter" in (old.get("phase"), new.get("phase")):
+        moved = old_value != new_value
+    else:
+        moved = not _values_equal(old_value, new_value)
+    return {"old": old_value, "new": new_value} if moved else None
 
 
 def _operands_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:

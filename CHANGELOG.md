@@ -781,6 +781,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **reparents**, and a shape handed to a second compound leaves the first holding
   nothing — a row that then goes on reporting green while measuring nothing.
 
+- **A `param_range` check's value compares exactly, because it is a contract
+  parameter and not a measurement** (#335, epic #305). `runner` reads it
+  straight from the declared parameters before any engine runs, so it is the
+  same kind of number a `requires` operand is — but `diff` gave it the
+  adjudication `epsilon`, which is sized for what a *measurement* survives.
+  Measured before the fix, end to end: `wall` moving `1.999999 → 1.999998`
+  against `min=2.0` flips `pass → fail`, and the entry read
+  `{id, kind, change, status}` with no value at all — a parameter crossing its
+  own limit, reported with neither number.
+  **The key is `phase`, which is where the report records the provenance.**
+  `checks[].phase` is REQUIRED and closed (`parameter` | `geometry`), and the
+  two parameter-phase kinds — `requires` and `param_range` — both take their
+  numbers from the contract's own inputs.
+  **Not `exactness`, which looks like the right field and would have broken
+  the mesh tier.** `exact` separates a point value from a bounded interval
+  (`bounds` is required iff not `exact`) and says nothing about
+  reproducibility: measured, `cube([120.3, 80.7, 40.1])` reports
+  `exactness: "exact"` beside `[120.30000305175781, 80.69999694824219,
+  40.099998474121094]` — ±3.052e-06 of float32 quantisation, absorbed by
+  `epsilon(120.3) = 1.303e-05`. `SPEC-backend.md` §5.2 permits that tier to
+  collapse the quantisation *because* this epsilon is wider than it, so a
+  comparison keyed on `exactness` would withdraw the tolerance that permission
+  rests on and report a rebuild of identical geometry as drift. A test pins
+  the two apart on one fixture with one field changed.
+  **This corrects §3's bound rather than reaching past it.** The rule was
+  justified by a conjunction — parameter provenance *and* exact adjudication —
+  and `param_range` satisfies only the first. The conjunction was wrong: an
+  adjudication tolerance decides a verdict and must forgive what the pipeline
+  could have perturbed, while a comparison tolerance suppresses noise, and a
+  number read from the declared parameters has none to suppress. A sub-epsilon
+  parameter move that changed no status is exactly the drift §1 exists to
+  report.
+  `parameter` on either side is enough, since exact comparison can only report
+  more and "no differences found" is the positive claim; a report recording no
+  `phase` keeps the tolerance, because silence is not evidence of provenance.
+
 - **A `diff` entry now carries every delta the comparison computed, whatever
   bucket it landed in** (#330, epic #305). `_check_entry` was a chain of
   returns and each branch returned as soon as it knew its own *name*, one

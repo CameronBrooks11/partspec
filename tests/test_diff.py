@@ -156,6 +156,122 @@ def test_requires_checks_drift_on_operands():
 
 
 # --------------------------------------------------------------------------
+# the comparison tolerance keys on recorded provenance, not on type (#335)
+# --------------------------------------------------------------------------
+
+
+def _move(doc: dict, check_id: str, value, status: str | None = None) -> dict:
+    check = next(c for c in doc["checks"] if c["id"] == check_id)
+    check["measurement"]["value"] = value
+    if status is not None:
+        check["status"] = status
+    return doc
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [(2.9, 2.9 - 1e-6), (1000.0, 1000.0 - 1e-5)],
+    ids=["at 2.9mm", "at 1000mm"],
+)
+def test_a_parameter_phase_value_compares_exactly(before: float, after: float):
+    """#335. `epsilon(reference)` is sized for what a MEASUREMENT survives — a
+    binary-STL round-trip through float32 — and a parameter-phase value
+    survives nothing: `runner` reads it from the declared parameters before
+    any engine runs. Under the measurement tolerance a parameter could cross
+    its own limit and be called unmoved.
+
+    Two magnitudes, because `epsilon` is magnitude-dependent and a fixture at
+    one value pins nothing about a tolerance that grows with the number."""
+    assert abs(after - before) < epsilon(before)  # the fixture is inside the old dead band
+
+    # status held: the drift SPEC-diff §1 exists to report
+    held = _diff(_move(_doc(), "wall_gt_2", before), _move(_doc(), "wall_gt_2", after))
+    entry = next(c for c in held["checks"] if c["id"] == "wall_gt_2")
+    assert entry["change"] == "drifted"
+    assert entry["value"] == {"old": before, "new": after}
+
+    # status flipped: #335's own reproduction, where the entry named neither number
+    flipped = _diff(
+        _move(_doc(), "wall_gt_2", before, "pass"),
+        _move(_doc(), "wall_gt_2", after, "fail"),
+    )
+    entry = next(c for c in flipped["checks"] if c["id"] == "wall_gt_2")
+    assert entry["change"] == "regressed"
+    assert entry["value"] == {"old": before, "new": after}
+
+
+def test_a_geometry_phase_value_keeps_the_measurement_tolerance():
+    """The other half of the same rule, and the half that must not move: a
+    geometry value is measured off an exported artifact, and exact equality
+    there reports transform-order noise as drift. Both directions are pinned,
+    so this is the tolerance still working and not geometry going silent."""
+    absorbed = _diff(_doc(), _move(_doc(), "envelope", [30.0 + 1e-6, 20.0 - 1e-6, 10.0 + 1e-6]))
+    assert absorbed["checks"] == []
+    assert absorbed["outcome"] == "identical"
+
+    reported = _diff(_doc(), _move(_doc(), "envelope", [30.0, 20.0, 10.5]))
+    entry = next(c for c in reported["checks"] if c["id"] == "envelope")
+    assert entry["change"] == "drifted"
+    assert entry["value"]["new"] == [30.0, 20.0, 10.5]
+
+
+def test_the_tolerance_keys_on_phase_and_not_on_exactness():
+    """The field that looks like the right key and is not. `exact` separates a
+    point value from a bounded interval — `bounds` is required iff not
+    `exact` — and says nothing about reproducibility: the fixture's geometry
+    `envelope` and its parameter `wall_gt_2` are BOTH labelled
+    `exactness: "exact"`.
+
+    The pair below is the real thing, measured: `cube([120.3, 80.7, 40.1])` on
+    the mesh tier reports 120.30000305175781, which is float32 quantisation
+    and which `SPEC-backend.md` §5.2 lets that tier collapse *because* this
+    epsilon is wider than it. One fixture, one field changed, opposite
+    answers — so a comparison keyed on `exactness` fails here while passing
+    every other test in this file."""
+    quantised = 120.30000305175781
+
+    def envelope_pair(phase: str) -> tuple[dict, dict]:
+        docs = (_doc(), _doc())
+        for doc, value in zip(docs, (120.3, quantised), strict=True):
+            check = next(c for c in doc["checks"] if c["id"] == "envelope")
+            check["phase"] = phase
+            check["measurement"]["value"] = value
+            assert check["measurement"]["exactness"] == "exact"
+        return docs
+
+    assert _diff(*envelope_pair("geometry"))["checks"] == []
+    entry = next(c for c in _diff(*envelope_pair("parameter"))["checks"])
+    assert entry["value"] == {"old": 120.3, "new": quantised}
+
+
+def test_parameter_phase_on_either_side_is_enough():
+    """A pair disagreeing about its own provenance fails toward reporting: the
+    exact comparison can only report more differences, never fewer, and §2's
+    rule is that "no differences found" is the positive claim."""
+    for relabelled in ("old", "new"):
+        docs = {"old": _doc(), "new": _move(_doc(), "wall_gt_2", 2.9 - 1e-6)}
+        for side, doc in docs.items():
+            check = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+            check["phase"] = "parameter" if side == relabelled else "geometry"
+
+        entry = next(c for c in _diff(docs["old"], docs["new"])["checks"])
+        assert entry["id"] == "wall_gt_2"
+        assert entry["value"] == {"old": 2.9, "new": 2.9 - 1e-6}
+
+
+def test_a_report_that_records_no_phase_keeps_the_measurement_tolerance():
+    """Silence is not evidence of parameter provenance. Reading an absent
+    `phase` as one would report float32 noise as drift for every report
+    written before this comparison read the field — so it reproduces what it
+    received before."""
+    docs = (_doc(), _move(_doc(), "wall_gt_2", 2.9 - 1e-6))
+    for doc in docs:
+        del next(c for c in doc["checks"] if c["id"] == "wall_gt_2")["phase"]
+
+    assert _diff(*docs)["checks"] == []
+
+
+# --------------------------------------------------------------------------
 # the bucket names the change; it does not decide what the entry carries (#330)
 # --------------------------------------------------------------------------
 
