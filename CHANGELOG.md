@@ -618,6 +618,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the last place in the repo that did — `README.md` and `docs/AGENT-CONTRACT.md`
   already named all four.
 
+- **A `requires` check that regresses now carries the operands that moved with
+  it** (#326, epic #305). `SPEC-diff.md` §3 makes `operands` the value of a
+  `requires` check — "`measurement.value` … or `operands` for a `requires`
+  check (`SPEC-contract.md` §5 records them for exactly this)" — and the same
+  section requires a status-change entry to carry the value delta.
+  `_check_entry` attached `claim` and the `measurement`-based `value` on the
+  status branch and returned there, one branch above the operands comparison,
+  so the delta was recorded when the status *held* and dropped when it
+  changed. Measured end to end over `examples/spacer` with `BORE_D` moved
+  8.0 → 28.0, which breaks `bore_d + 2 * wall <= plate_y`: the artifact's
+  entry was `{id, kind, change: "regressed", status}` — a precondition
+  reported broken with none of the three numbers that broke it, though both
+  reports record all three. It now carries
+  `operands: {old: {bore_d: 8.0, …}, new: {bore_d: 28.0, …}}`, both maps in
+  full, so "which input changed?" is answered by the comparison rather than
+  only by the two files it compared.
+  One helper, called by both branches, because the defect was two branches
+  disagreeing about a question with one answer — including its tolerance, so
+  operands wobbling at 1e-13 across a status change are still not a movement.
+  `SPEC-diff.md` needed no change: §3's MUST already required this. The
+  headline qualifier §3 gives the status buckets still reads the claim and
+  nothing else — `operands` is a result, listed in `NON_CLAIM_FIELDS` as one —
+  so a part whose inputs moved is not accused of being a contract that was
+  edited.
+
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry
   to carry the claim delta because "an entry saying only 'fixed' would report

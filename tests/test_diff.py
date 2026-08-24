@@ -155,6 +155,110 @@ def test_requires_checks_drift_on_operands():
     assert entry["operands"]["new"]["b"] == 2.5
 
 
+def _two_requires(status: str, operands: dict, other_status: str, other_operands: dict) -> dict:
+    """A document with TWO `requires` checks, `clears` ahead of the fixture's
+    own `fits`, so a rule about `requires` checks is observed somewhere other
+    than at the head of the list."""
+    doc = _doc()
+    fits = next(c for c in doc["checks"] if c["id"] == "fits")
+    fits["status"], fits["operands"] = other_status, other_operands
+    doc["checks"].insert(
+        0, {**fits, "id": "clears", "expr": "d <= h", "status": status, "operands": operands}
+    )
+    tally = {key: 0 for key in doc["counts"] if key != "total"}
+    for check in doc["checks"]:
+        tally[check["status"]] += 1
+    doc["counts"] = {"total": len(doc["checks"]), **tally}
+    doc["verdict"] = "fail" if tally["fail"] else "pass"
+    return doc
+
+
+def test_a_status_change_carries_the_operands_that_moved_with_it():
+    """#326. §3 names `operands` as the value of a `requires` check — it is
+    what `measurement.value` is for every other kind — and §3 says a
+    status-change entry MUST carry the value delta. The status branch
+    returned before reaching the operands comparison, so the delta was
+    recorded when the status held and dropped when it changed: `1 regressed`
+    and not one of the numbers that regressed it, though both reports carry
+    them.
+
+    Both directions of the severity order, two checks, and operands moving
+    up on one and down on the other, because a rule about status changes is
+    not pinned by one transition of one check in one direction."""
+    old = _two_requires("pass", {"d": 3.0, "h": 9.0}, "fail", {"a": 1.0, "b": 28.0, "c": 4.0})
+    new = _two_requires("fail", {"d": 12.0, "h": 9.0}, "pass", {"a": 1.0, "b": 2.0, "c": 4.0})
+
+    doc = _diff(old, new)
+    entries = {c["id"]: c for c in doc["checks"] if c["kind"] == "requires"}
+    assert {i: e["change"] for i, e in entries.items()} == {
+        "clears": "regressed",
+        "fits": "fixed",
+    }
+    # Both sides in full, unmoved operands included: the delta is the two maps
+    # the reports recorded, which is what makes `d` the answer to "which input
+    # changed?" rather than one of three numbers a reader must go and fetch.
+    assert entries["clears"]["operands"] == {
+        "old": {"d": 3.0, "h": 9.0},
+        "new": {"d": 12.0, "h": 9.0},
+    }
+    assert entries["fits"]["operands"] == {
+        "old": {"a": 1.0, "b": 28.0, "c": 4.0},
+        "new": {"a": 1.0, "b": 2.0, "c": 4.0},
+    }
+
+
+def test_operands_that_did_not_move_do_not_ride_a_status_change():
+    """The entry carries a delta, not a dump of whatever the new side holds:
+    a status that changed for a reason outside the expression must not be
+    given three numbers that did not move as its explanation.
+
+    The second shape is the tolerance: `operands` compares under the same
+    `epsilon(reference)` as everything else (§3), so transform noise on a
+    status change is not a moved operand either. A branch that reimplemented
+    the comparison instead of sharing it passes the first and fails this."""
+    unmoved = {"a": 1.0, "b": 2.0, "c": 4.0}
+    noise = {"a": 1.0 + 1e-13, "b": 2.0 - 1e-13, "c": 4.0}
+    for new_operands in (unmoved, noise):
+        old = _two_requires("pass", {"d": 3.0, "h": 9.0}, "pass", unmoved)
+        new = _two_requires("fail", {"d": 12.0, "h": 9.0}, "fail", new_operands)
+
+        entries = {c["id"]: c for c in _diff(old, new)["checks"] if c["kind"] == "requires"}
+        assert entries["fits"]["change"] == "regressed"
+        assert "operands" not in entries["fits"]
+        # The other check in the same document did move, so this is the
+        # comparison answering per pair and not answering "no" globally.
+        assert "operands" in entries["clears"]
+
+
+def test_an_operand_that_stopped_being_recorded_is_a_moved_operand():
+    """The runner writes `operands: {}` for a `requires` check it skipped
+    (`runner.py`), so the map emptying is the real shape of a check that
+    stopped being evaluated — and an entry saying only `fixed` there hides
+    that the expression was never read. The reverse, a map that gained an
+    operand, is the same comparison and is pinned with it."""
+    recorded = {"a": 1.0, "b": 2.0, "c": 4.0}
+    old = _two_requires("pass", {"d": 3.0}, "pass", recorded)
+    new = _two_requires("skipped", {"d": 3.0, "h": 9.0}, "skipped", {})
+
+    entries = {c["id"]: c for c in _diff(old, new)["checks"] if c["kind"] == "requires"}
+    assert entries["fits"]["operands"] == {"old": recorded, "new": {}}
+    assert entries["clears"]["operands"] == {"old": {"d": 3.0}, "new": {"d": 3.0, "h": 9.0}}
+
+
+def test_moved_operands_are_not_counted_as_a_moved_claim_on_the_headline():
+    """§3 gives the `regressed`/`fixed` qualifier to a moved *claim* and to
+    nothing else: `operands` is a result, listed in `NON_CLAIM_FIELDS` as
+    such. A qualifier that counted them would report a part whose inputs
+    moved as a contract that was edited, which is #293's accusation aimed at
+    an innocent run."""
+    old = _two_requires("pass", {"d": 3.0, "h": 9.0}, "pass", {"a": 1.0, "b": 2.0, "c": 4.0})
+    new = _two_requires("fail", {"d": 12.0, "h": 9.0}, "fail", {"a": 1.0, "b": 28.0, "c": 4.0})
+
+    doc = _diff(old, new)
+    assert sum(1 for c in doc["checks"] if "operands" in c) == 2
+    assert summary_of(doc, new).splitlines()[0] == "different: p — 2 regressed"
+
+
 # --------------------------------------------------------------------------
 # the honest refusals
 # --------------------------------------------------------------------------

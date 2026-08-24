@@ -118,6 +118,24 @@ def _values_equal(old: Any, new: Any) -> bool:
     return old == new
 
 
+def _operands_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
+    """The movement in a `requires` check's recorded operands, or None.
+
+    Lifted out of the `drifted` branch so both callers share one comparison.
+    `SPEC-diff.md` §3 names `operands` as *the* value of a `requires` check —
+    it is what `measurement.value` is for every other kind — so it is subject
+    to the same rule, and a second implementation of "did the operands move"
+    is how the two branches would drift apart again (#326).
+    """
+    old_ops, new_ops = old.get("operands"), new.get("operands")
+    if not (old_ops or new_ops):
+        return None
+    moved = set(old_ops or {}) != set(new_ops or {}) or any(
+        not _values_equal(v, (new_ops or {}).get(k)) for k, v in (old_ops or {}).items()
+    )
+    return {"old": old_ops, "new": new_ops} if moved else None
+
+
 def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
     """The difference one joined check pair contributes, or None."""
     base = {"id": new["id"], "kind": new["kind"]}
@@ -143,12 +161,18 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
     old_value = (old.get("measurement") or {}).get("value")
     new_value = (new.get("measurement") or {}).get("value")
     value_moved = not _values_equal(old_value, new_value)
+    operands = _operands_delta(old, new)
 
     if old["status"] != new["status"]:
         # A status change does not get to hide what else moved: loosening a
         # limit until a failing check passes is the flagship weakening move,
         # and an entry saying only "fixed" would report the attack as an
-        # improvement. The claim and value deltas ride along.
+        # improvement. Every delta the pair recorded therefore rides along —
+        # which is one rule and not a list, since the branch that named two of
+        # them returned before reaching the third and so dropped a regressing
+        # `requires` check's operands on exactly the entry that most needed
+        # them: `1 regressed` and not one of the numbers that regressed it
+        # (#326).
         worse = _SEVERITY[Status(new["status"])] > _SEVERITY[Status(old["status"])]
         entry = {
             **base,
@@ -159,6 +183,8 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
             entry["claim"] = claim
         if value_moved:
             entry["value"] = {"old": old_value, "new": new_value}
+        if operands is not None:
+            entry["operands"] = operands
         return entry
 
     if claim is not None:
@@ -172,17 +198,8 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
             "value": {"old": old_value, "new": new_value},
         }
 
-    old_ops, new_ops = old.get("operands"), new.get("operands")
-    if (old_ops or new_ops) and (
-        set(old_ops or {}) != set(new_ops or {})
-        or any(not _values_equal(v, (new_ops or {}).get(k)) for k, v in (old_ops or {}).items())
-    ):
-        return {
-            **base,
-            "change": "drifted",
-            "status": old["status"],
-            "operands": {"old": old_ops, "new": new_ops},
-        }
+    if operands is not None:
+        return {**base, "change": "drifted", "status": old["status"], "operands": operands}
     return None
 
 
