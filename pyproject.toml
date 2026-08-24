@@ -15,8 +15,8 @@ classifiers = [
 
 # Intentionally empty. Importing `partspec` MUST NOT pull in a CAD engine
 # (SPEC-contract.md 1.1). Engines are extras; the core is stdlib-only, which
-# keeps the parameter phase and `--list` fast and makes the rule structural
-# rather than a convention someone has to remember.
+# keeps the parameter phase fast and makes the rule structural rather than a
+# convention someone has to remember.
 dependencies = []
 
 [project.optional-dependencies]

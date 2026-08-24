@@ -75,6 +75,30 @@ def test_bbox_is_a_named_vector(backend: MeshBackend):
 
 
 @needs_mesh
+def test_bbox_is_translation_invariant(backend: MeshBackend):
+    """`envelope` bounds EXTENTS, not corners (SPEC-contract.md 4.2.3).
+
+    The whole envelope-versus-`region.box` trap rests on this. The same API
+    spells min/max two ways — a region takes CORNERS, an envelope bounds
+    EXTENTS — and an author who carries the corner reading across writes a
+    bound far looser than intended: measured, `envelope(max=(140, 230, 306))`
+    written from the far corner of a 40x30x6 part at (100, 200, 300) passes on
+    that part and passes again on one 120 mm wide. Nothing downstream can catch
+    it, because the position never reaches the measurement.
+
+    Which is exactly why the invariance has to be pinned here. The bbox test
+    above measures one box at one position, so it cannot tell a size from a
+    corner; this measures one size at two positions.
+    """
+    at_origin = trimesh.creation.box(extents=(10, 20, 30))
+    displaced = trimesh.creation.box(extents=(10, 20, 30))
+    displaced.apply_translation((100.0, 200.0, 300.0))
+
+    assert backend.bbox(at_origin).value == pytest.approx((10.0, 20.0, 30.0))
+    assert backend.bbox(displaced).value == pytest.approx(backend.bbox(at_origin).value)
+
+
+@needs_mesh
 def test_watertight_and_validity(backend: MeshBackend):
     mesh = trimesh.creation.box(extents=(1, 1, 1))
     assert backend.watertight(mesh).value is True

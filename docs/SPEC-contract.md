@@ -173,9 +173,13 @@ The word `empty` carries two unrelated meanings here and they are worth separati
 contract that declared nothing was the result. A part can be neither, either, or — for a
 `Part` carrying only `p.empty()` — not both, since that part has a declared check.
 
-### 4.2.3 What each v0 geometry kind measures
+### 4.2.3 What the both-tier v0 measurements mean
 
 The table names each kind's measurement **shape**; this says what the number **is**.
+It covers the seven v0 geometry kinds that carry a measurement on both tiers —
+`envelope`, `watertight`, `solid_count`, `cavities`, `genus`, `volume`, `area`. The
+other three v0 rows are specified elsewhere and not repeated here: `builds` and
+`empty` carry no measurement (above, and §4.12), and `topology` is OCCT-only (§4.2.2).
 These are the conventions an author has to get right, and a guessed one is silent:
 it produces a green run about a different claim rather than an error.
 
@@ -219,8 +223,14 @@ reached the surface.
 **`genus(n)`** counts **through-holes, and only through-holes**. Measured on a 20 mm
 cube: a Ø6 bore drilled through reports genus 1, the same bore drilled blind reports
 genus 0, and a sealed void reports genus 0 — a blind hole is `hole_diameter`'s claim
-(§4.5) or a region's (§4.4). Genus is defined **per body**, so a part with more than
-one solid reports `unsupported` on both tiers rather than a sum.
+(§4.5) or a region's (§4.4). It is read from the Euler characteristic, which is a
+number about **one closed body**, so anything else MUST be refused rather than
+assumed: both an open surface and a part of more than one solid report `unsupported`
+on both tiers, and the run lands `incomplete` rather than buying a pass with silence.
+The two tiers name the shortfall differently — measured, an open surface says
+*"genus is defined for a closed surface; this mesh is open along 4 boundary edge(s)"*
+on the mesh tier and *"genus is defined per body; this part has 0 solids"* on the
+OCCT tier — and both are the same refusal.
 
 **`volume(min=, max=)`** is the **enclosed material** in `mm3`, voids excluded — the
 cube-with-a-void above measures 7000.0, not 8000.0. **`area(min=, max=)`** is the

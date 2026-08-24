@@ -309,26 +309,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **`SPEC-contract` states the two geometry conventions that a wrong guess
-  passes on** (#283, epic #305). §4.2 carried no normative text for any v0
-  geometry kind — `envelope`, the most-declared check in the tree, appeared
-  only in the generated vocabulary table and two category lists — and §4.4
-  named `region.cylinder(d=, h=, at=, axis=, segments=)` without ever saying
-  where `at` sits. Misreading either produces a **passing** run about a claim
-  nobody made.
-  **A new §4.2.3 says what each of the seven v0 geometry kinds measures**,
-  starting with `envelope`: the axis-aligned bounding box's **extents**, per
-  axis of the model's own frame, taken over the whole part, translation-
-  invariant, with a bare scalar broadcasting to all three axes and a
-  wrong-length tuple a `ContractError` rather than a partial claim. The trap it
-  exists for is that the same API spells min/max the other way one section
-  down — `region.box(min=, max=)` takes **corners** — and the corner reading
-  passes silently: measured, a 40 × 30 × 6 mm plate at `(100, 200, 300)`
-  declared `p.envelope(max=(140, 230, 306))` from its far corner passes, and
-  the identical declaration passes again against a part 120 mm wide. The other
-  six kinds get the same paragraph, each behind a measured number — a 20 mm
-  cube with a 10 mm cube void is `solid_count 1`, `cavities 1`, `genus 0`,
-  `volume 7000.0` and `area 3000.0`, and the same cube bored through is
-  `genus 1` where the blind bore is `genus 0`.
+  passes on** (#283, epic #305). §4.2's normative prose reached three of its
+  ten rows — `builds` in the section body, `topology` in §4.2.2, `volume` and
+  `area`'s bound form in §4.2.1 — and the measuring kinds an author reaches
+  for first were not among them. `envelope` had no definition anywhere: the
+  generated vocabulary table, the §1 code sample and two category lists, and
+  nothing saying what the number is. §4.4 named
+  `region.cylinder(d=, h=, at=, axis=, segments=)` without ever saying where
+  `at` sits. Misreading either produces a **passing** run about a claim nobody
+  made.
+  **A new §4.2.3 says what the seven both-tier v0 measurements mean**, starting
+  with `envelope`: the axis-aligned bounding box's **extents**, per axis of the
+  model's own frame, taken over the whole part, translation-invariant, with a
+  bare scalar broadcasting to all three axes and a wrong-length tuple a
+  `ContractError` rather than a partial claim. The trap it exists for is that
+  the same API spells min/max the other way one section down —
+  `region.box(min=, max=)` takes **corners** — and the corner reading passes
+  silently: measured, a 40 × 30 × 6 mm plate at `(100, 200, 300)` declared
+  `p.envelope(max=(140, 230, 306))` from its far corner passes, and the
+  identical declaration passes again against a part 120 mm wide. **A test pins
+  the invariance that trap rests on** — one size measured at two positions;
+  `tests/test_mesh_backend.py` had only ever measured a box at one.
+  The other six kinds get the same paragraph, each behind a measured number — a
+  20 mm cube with a 10 mm cube void is `solid_count 1`, `cavities 1`,
+  `genus 0`, `volume 7000.0` and `area 3000.0`, and the same cube bored through
+  is `genus 1` where the blind bore is `genus 0`. `genus` states the *reason*
+  it is refused rather than one instance of it: the Euler characteristic is a
+  number about one closed body, so an open surface and a multi-solid part are
+  both `unsupported`, on both tiers, differently worded and the same refusal.
   **§4.4 now states that `at` is the centre of the base face**, not the
   centroid, and `region.cylinder`'s *function* docstring — the one an author
   reaches through `help()`, as against the class docstring that has said it all
@@ -721,17 +729,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the identity prefix — is #295 and is independent of it.
 
 - **`--list` is no longer cited as a CLI flag that does not exist** (#303,
-  epic #305). `src/partspec/__init__.py`'s module docstring — what
-  `help(partspec)` shows, and the one place the lazy-import rule is justified —
-  said the rule
-  "keeps the parameter phase and `--list` fast", and `SPEC-contract.md` §1.1
-  rule 3 repeated it. There is no such flag: `partspec check --list foo.py`
-  exits 64 with *unrecognized arguments: --list*, and none of the six verbs'
-  `--help` mentions one. Present since the repo's first commit and never
-  reconciled. Both sentences keep their parameter-phase half, which was always
-  the argument; nothing else changes, and `--pin LOCK` remains the nearest
-  shipped thing to enumerating a contract's declared claims — and it still
-  builds.
+  epic #305). One sentence, copied to **three** files: the docstring at
+  `src/partspec/__init__.py:5` that `help(partspec)` shows, where the
+  lazy-import rule is justified; `SPEC-contract.md` §1.1 rule 3; and the
+  comment on `dependencies = []` in `pyproject.toml`, which ships in the sdist.
+  All three said the rule "keeps the parameter phase and `--list` fast". There
+  is no such flag: `partspec check --list foo.py` exits 64 with *unrecognized
+  arguments: --list*, and none of the six verbs' `--help` mentions one. Present
+  since the repo's first commit and never reconciled.
+  The third site is the finding worth recording, because #303's own evidence
+  grepped `src/ docs/ README.md AGENTS.md tests/` and called the result
+  repo-wide, so the fix inherited the undercount and the first commit's subject
+  said "two documents". The same divergence has bitten this tree before, the
+  other way round: `tests/test_packaging.py:394` records PR #155's review
+  finding two figures already corrected in `pyproject.toml` and not in the
+  test enforcing them. A build file that carries prose is a documentation site.
+  All three sentences keep their parameter-phase half, which was always the
+  argument, and `--pin LOCK` remains the nearest shipped thing to enumerating a
+  contract's declared claims — and it still builds.
 
 - **`iso_metric_thread.tapped_hole` is named in a document** (#285, epic #305).
   It ships in the module's `__all__` and is a full §11 fragment — namespaced
