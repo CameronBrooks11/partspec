@@ -1258,8 +1258,10 @@ contract from a real part is easy *and explicit*.
 ## 7. `measure` — how contracts get written
 
 `partspec measure <target>` builds the part and dumps every quantity the backend can
-honestly produce, with `exactness` on each, and **emits nothing that would be
-`unsupported`**. It is not a check run and produces no verdict.
+honestly produce, with `exactness` on each, and **turns nothing it could not answer into a
+number**. It is not a check run and produces no verdict. What it could not answer it names
+rather than omits, in one of two blocks: `refused` when this part defeated the measurement,
+`unavailable` when this tier cannot answer it for any part (`SPEC-report.md` §7.3).
 
 This is the adoption path and the answer to "how do I retrofit contracts onto 30 existing
 OpenSCAD libraries": measure, read, decide which numbers are *intent* rather than
@@ -1297,8 +1299,12 @@ module off the returned class rather than restating this sentence.
 `topology_counts` appear here and are not kinds (§4.3) — the first because its meaning
 differs by tier, the second because only one tier can answer it. Both are worth *seeing*
 while deciding what to claim, which is what this verb is for, and neither can mislead here
-because the output carries no verdict. The rule that it emits nothing `unsupported` does the
-rest: on a mesh, `topology_counts` is simply absent rather than present-and-wrong.
+because the output carries no verdict. On a mesh, `topology_counts` is therefore in
+`unavailable` and never present-and-wrong. It is **named there, not absent**: an omission
+would read as "this part has no topology to speak of" to exactly the author this verb
+exists to serve, when what happened is that the tier cannot see it. Run against the
+example spacer, `unavailable` reads
+`["self_intersection_free", "min_wall", "topology_counts", "bores", "blend_radii"]`.
 
 ---
 

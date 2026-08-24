@@ -902,6 +902,49 @@ checks whose pass/fail state did not change* — "drift the boolean can't see." 
 thinning from 2.9 mm to 2.1 mm against a 2.0 mm minimum is two passes and one very
 important trend, and nothing else in the system can see it.
 
+### 7.3 The `measure` payload — `measurements`, `refused`, `unavailable`
+
+`measure` emits the identity prefix (Scope), then `geometry`, then the numbers. Those
+arrive in **three** blocks, and the distinction between them is the verb's product rather
+than bookkeeping. Every name the verb asks about lands in exactly one of them, so a
+consumer that reads all three has accounted for the whole vocabulary and a name missing
+from all three is a defect in this tool, not a silence about the part.
+
+- **`measurements`** — name → the §2 measurement shape: `value` (scalar or vector),
+  `unit`, `exactness` (`"exact"` | `"approximate"`), `bounds` when the backend gave an
+  interval, and `axes` on a vector. The interval is the honesty: an approximate value shown
+  without it reads more certain than it is, in the verb whose whole job is showing the
+  numbers.
+- **`refused`** — name → the reason this **part** could not be measured, in the reason's
+  own words: `"volume": "volume is the integral over a closed surface; this mesh is open
+  along 4 boundary edge(s)"`. The reason names the part's defect, so it is the finding and
+  not an apology. **Omitted entirely when nothing was refused** — a sound part carries no
+  `refused` key.
+- **`unavailable`** — the names this **tier** cannot answer for any part, so the same list
+  every time that backend measures anything. Listed in the fixed order the verb asks them
+  in, which is not alphabetical.
+
+The two silences are separate because conflating them was a bug this verb had. `refused`
+is a property of the part and `unavailable` a property of the tier, and an author reading
+a measure dump to decide what to claim needs to know which one they are looking at: a
+refusal is something to fix in the model, a tier limit is something to claim on the other
+tier or not at all. Before D17 only the second kind existed and dropping the name silently
+was honest; it is not honest now, since an open mesh drops `volume`, `genus` and
+`center_of_mass` and a reader would conclude the part has no volume to claim.
+
+Emission order is `measurements`, `refused`, `unavailable`, after `geometry`; `artifact`
+follows them when `--out` was passed, in the two states Scope fixes. The name vocabulary
+is the backend capability set, deliberately **not** enumerated here — it is a superset of
+the check vocabulary (`SPEC-contract.md` §7: `is_valid` and `topology_counts` are worth
+seeing while deciding what to claim and are not check kinds), and the report format must
+not need revising each time a backend can answer one more thing.
+
+A `measure` payload carries **no `verdict`, no `counts` and no `checks`**, and MUST NOT be
+read as a report: it states numbers and makes no claim about the part. That absence is
+what `partspec diff` tests to refuse one (`SPEC-diff.md` §2), since a comparison of two
+documents that declare nothing would answer `identical` for two files that never made a
+claim; `payload: "measure"` (§7.1) now says the same thing by name.
+
 ---
 
 ## 8. Determinism

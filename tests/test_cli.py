@@ -181,6 +181,37 @@ def test_measure_separates_a_tier_gap_from_a_broken_part(tmp_path: Path, capsys)
 
 
 @needs_scad_tier
+def test_the_three_measure_blocks_account_for_every_name(tmp_path: Path, capsys):
+    """SPEC-report §7.3: every name the verb asks about lands in exactly one of
+    `measurements`, `refused` and `unavailable`.
+
+    That is the property the three-block shape exists for — a name absent from
+    all three is a silence about a quantity the tool asked for, which is the
+    one thing this project says must never happen. Asserted over a sound part
+    AND a broken one on the same tier, because the partition is only
+    interesting if the SAME vocabulary is accounted for both times: `refused`
+    grows and `measurements` shrinks, and the union may not move.
+    """
+    docs = {}
+    for name, source in (("sound", "block_with_hole.scad"), ("broken", "open_box.scad")):
+        root = tmp_path / name
+        root.mkdir()
+        docs[name] = _measure(scad_target(root, source=source, claims=""), capsys)
+    unions = {}
+    for name, doc in docs.items():
+        blocks = [set(doc["measurements"]), set(doc.get("refused", {})), set(doc["unavailable"])]
+        unions[name] = set().union(*blocks)
+        assert sum(len(b) for b in blocks) == len(unions[name]), (
+            f"{name}: a name in two blocks at once says two different things about it"
+        )
+    assert docs["sound"].get("refused") is None and docs["broken"]["refused"]
+    assert unions["sound"] == unions["broken"], (
+        "the vocabulary asked is the tier's, not the part's — so a name that "
+        "went missing from all three would show up here as a shrunken union"
+    )
+
+
+@needs_scad_tier
 def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
     """Exit 0 on an open box is correct here and would be a bug in `check`.
 

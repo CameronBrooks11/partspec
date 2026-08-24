@@ -335,6 +335,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`SPEC-report` specifies the `measure` payload's body** (#296, epic #305).
+  `measurements`, `unavailable` and `refused` — the only part of that payload
+  carrying information, 9 and 5 and 3 entries on a real run — appeared nowhere
+  in `docs/` or `README.md`. The Scope paragraph described the payload as the
+  identity prefix "followed by `geometry`", which is where it stops being
+  true. A new §7.3 states the three blocks and the property that makes the
+  shape worth having: **every name the verb asks about lands in exactly one of
+  them**, so a name missing from all three is a silence about a quantity the
+  tool asked for. That claim is now executed by a test over a sound part and a
+  broken one on the same tier, where `refused` grows, `measurements` shrinks
+  and the union may not move.
+  The issue said `unavailable` was sorted. It is not, and the spec says what
+  it is: the fixed order the verb asks the quantities in, which is stable
+  between runs and is not alphabetical.
+  **`SPEC-contract` §7 said `measure` "emits nothing that would be
+  `unsupported`"** and that on a mesh `topology_counts` "is simply absent
+  rather than present-and-wrong" — while the shipped skill routes contract
+  authors to that very section, and `topology_counts` is right there in
+  `unavailable` on every mesh-tier run. The sentence dates from before the
+  two silences existed. It now says what the verb does instead: what it could
+  not answer it NAMES, in `refused` when the part defeated the measurement and
+  in `unavailable` when the tier cannot answer it at all — because an omission
+  reads as "this part has no topology to speak of" to exactly the author the
+  verb exists to serve.
+
 - **`SPEC-contract` states the two geometry conventions that a wrong guess
   passes on** (#283, epic #305). §4.2's normative prose reached five of its
   ten rows, across three sites — `builds` and `empty` in the section body,
