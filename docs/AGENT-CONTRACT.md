@@ -206,6 +206,16 @@ here.** On these two verbs, decide whose fault it is first:
   model where a missing binary or package is the machine. Or run `check` on the same
   target, whose report does carry `build_origin`.
 
+**Two states fall outside both branches, and neither is about the part.** If the exit is
+`4` and **stdout is empty** — no payload at all, not a payload without `origin` — the
+contract raised before either verb had anything to describe: measured, a factory that
+raises gives `measure` and `render` exit `4` and zero bytes on stdout, with the traceback
+and *"the contract is wrong, not the part"* on stderr. That is §2.3's last bullet, and it
+applies here in full; §2.4 narrows the table's *rows*, not §2.3's diagnosis of a contract
+that would not run. And exit `64` still means what the table says it means — a malformed
+invocation, stdout empty, e.g. a target naming a file that does not exist. Read stderr in
+both cases; there is no artifact to read.
+
 That asymmetry is a gap rather than a design. `check`'s report has carried `build_origin`
 since #47 and `render`'s payload gained `origin` in #191; `measure` was given neither, and
 the two that exist do not even share a key name. Giving `measure` the same field is the

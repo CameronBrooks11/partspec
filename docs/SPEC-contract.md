@@ -1250,9 +1250,12 @@ Naming the **model** instead exits `64`. That it gets as far as being called is 
 stating, because it decides what the diagnostic can say: a build123d or CadQuery model
 annotated `-> Part` is annotated with *its* library's `Part`, and target resolution
 compares the annotation by name, so such a model is discovered as a factory like any
-other and refused only on what it returns. The refusal therefore MUST name the returned
-type's defining module — `build123d.topology.composite.Part`, not `Part` — since the
-unqualified form states the collision as though it were a contradiction.
+other and refused only on what it returns. The refusal therefore MUST locate the returned
+type — `build123d.topology.composite.Part`, not `Part` — since the unqualified form states
+the collision as though it were a contradiction. Where the class is defined in the
+contract file itself, the locus is that **file**: modules loaded this way are synthesised
+under a per-process name, so qualifying by module there would print a different string on
+every run.
 
 `measure` deliberately reports a **superset** of the check vocabulary. `is_valid` and
 `topology_counts` appear here and are not kinds (§4.3) — the first because its meaning

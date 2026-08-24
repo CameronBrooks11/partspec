@@ -608,7 +608,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does carry one: `"model"` for the broken `.scad`, `"environment"` under
   `PARTSPEC_OPENSCAD=/nope/openscad`.
   So §2.4 says to branch on `render`'s `origin` and to fall back to `error` and
-  `hint` on `measure`, and records the asymmetry as a gap rather than a design:
+  `hint` on `measure` — and names the state that fits neither branch, since
+  narrowing the table could otherwise leave it uncovered: exit 4 with **stdout
+  empty** is a contract that raised, diagnosed on stderr by §2.3's last bullet,
+  and exit 64 still means a malformed invocation. Measured on both verbs.
+  It records the asymmetry as a gap rather than a design:
   `check`'s report has carried `build_origin` since #47, `render`'s payload
   gained `origin` in #191, `measure` was given neither, and the two that exist
   do not share a key name. A test pins both payload shapes, so giving `measure`
@@ -626,7 +630,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cli.py`'s epilog, which an MCP client never sees — it has a tool list and
   nothing else. `_INSTRUCTIONS` now names the four tools as the whole surface,
   says which flags and verbs are CLI-only and that the pin-and-compare remedy
-  therefore needs a shell, and gives the documents' URL.
+  therefore needs a shell, and gives the documents' URL. It also says which
+  tool produces an artifact and which return their payload directly, **scoped
+  to the tool it is true of**: only `check` writes a `report.json` and only
+  `check` passes `--quiet`, which is not merely unpassed on the other three but
+  not a valid flag — `measure ... --quiet` exits 64, unrecognized. A test pins
+  that by parsing, since a sentence generalising over a tool list is exactly
+  what drifts.
   `lint` joins `diff` in §0's gap list: `git log -S` dates that paragraph to
   2026-08-09, one day after `lint` shipped, so it named the gap that existed
   when it was written.
@@ -671,14 +681,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   class. So the `hints is Part` half of the discovery test cannot fire under
   `_load` at all, the comparison is purely lexical, and the model is discovered
   as a factory, called, and refused only on what it returned.
-  The refusal now names the defining module — `returned
+  The refusal now LOCATES the returned type — `returned
   build123d.topology.composite.Part, not partspec.Part` — with a second line
-  saying to write a contract declaring the model as its source. The skill's
-  step 1 and `SPEC-contract.md` §7 both now open the retrofit by writing that
-  contract: a `Part` with an id and a source and no checks, which is the
-  smallest thing `measure` accepts. Measured on `examples/spacer/spacer.scad`,
-  it reads `bbox (40, 30, 6)`, `volume 6898.891440076026`, `genus 1` and names
-  five unavailable primitives.
+  saying to write a contract declaring the model as its source. Where the class
+  is defined in the contract file itself, which is the shape #282 filed its
+  reproduction on, the locus is that **file**: `_load` synthesises a module
+  name embedding `hash()`, so qualifying by module there printed a different
+  string every run — `_partspec_contract_691635311308020508.Part`, then
+  `..._6872466290535898064.Part`, measured across three processes. A test pins
+  the property rather than the sentence, reading the expected module off the
+  class: reverting to the old wording fails it, and so does dropping the
+  file-name fallback. The skill's step 1 and `SPEC-contract.md` §7 both now
+  open the retrofit by writing that contract: a `Part` with an id and a source
+  and no checks, which is the smallest thing `measure` accepts. Measured on
+  `examples/spacer/spacer.scad`, it reads `bbox (40, 30, 6)`,
+  `volume 6898.891440076026`, `genus 1` and names five unavailable primitives.
+  **Both copies of that block are executed** — the skill's, which an agent
+  pastes, and §7's, which carries the normative MUST and which nothing in the
+  suite had run.
 
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).

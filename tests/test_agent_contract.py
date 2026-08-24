@@ -194,3 +194,77 @@ def test_measure_and_render_exit_4_on_a_model_origin_failure(tmp_path: Path):
         "none and to read the hint prose instead, so that paragraph is now wrong"
     )
     assert payload["error"] and payload["hint"], "the prose §2.4 falls back on must exist"
+
+
+def test_a_raising_contract_gives_measure_and_render_exit_4_and_no_payload(tmp_path: Path):
+    """§2.4's third state: exit 4 with nothing on stdout.
+
+    The section offers two branches — `render`'s `origin`, `measure`'s
+    `error`/`hint` — and a contract that RAISES satisfies neither: there is no
+    payload to read either from. It is neither the model nor the machine, and
+    §2.3's last bullet is the diagnosis, which §2.4 now says explicitly
+    (PR #340 review, F3).
+
+    Pinned because the clause is only true while the payload really is empty:
+    if either verb starts emitting one on this path, the sentence telling the
+    agent to read stderr becomes the wrong advice.
+    """
+    (tmp_path / "raises.py").write_text(
+        "from partspec import Part\n\n\n"
+        'def thing() -> Part:\n    raise RuntimeError("the contract itself is broken")\n'
+    )
+
+    for verb in ("measure", "render"):
+        result = subprocess.run(
+            [sys.executable, "-m", "partspec", verb, "raises.py:thing", "--out", verb],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 4, f"{verb} on a raising contract exits 4"
+        assert result.stdout.strip() == "", (
+            f"{verb} emitted a payload on a raising contract; §2.4 tells the agent "
+            f"an empty stdout is how this state is recognised"
+        )
+        assert "the contract is wrong, not the part" in result.stderr, (
+            f"{verb} must put the diagnosis on stderr, which is where §2.4 sends the agent"
+        )
+
+
+def test_quiet_is_a_check_only_flag():
+    """`mcp.py`'s instructions tell the agent that `check` runs `--quiet` and
+    the other three return their payload directly.
+
+    The first draft of that paragraph said it of all four, and `--quiet` is
+    not merely unpassed elsewhere — `partspec measure ... --quiet` is exit 64,
+    unrecognized. A sentence generalising over a tool list is worth pinning
+    against the parser that defines the list (PR #340 review, F1).
+
+    Asserted through parsing rather than argparse internals: what the agent
+    would hit is the refusal, so that is what is checked.
+    """
+    import contextlib
+    import io
+
+    from partspec.cli import build_parser
+
+    def accepts(argv: list[str]) -> bool:
+        parser = build_parser()
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                parser.parse_args(argv)
+            except SystemExit:
+                return False
+        return True
+
+    assert accepts(["check", "spec.py", "--quiet"]), "check must accept --quiet; mcp.py passes it"
+    for verb, argv in (
+        ("measure", ["measure", "spec.py", "--quiet"]),
+        ("render", ["render", "spec.py", "--quiet"]),
+        ("vdiff", ["vdiff", "a", "b", "--quiet"]),
+    ):
+        assert not accepts(argv), (
+            f"{verb} now accepts --quiet, so mcp.py's instructions — which say only "
+            f"check passes it — understate the surface"
+        )

@@ -45,11 +45,22 @@ class Target:
         return self.path.stem if self.factory is None else f"{self.path.stem}-{self.factory}"
 
 
+_CONTRACT_MODULE_PREFIX = "_partspec_contract_"
+"""What `_load` names the modules it synthesises.
+
+Shared with the diagnostic below rather than spelled twice: the name embeds
+`hash()`, which is salted per process, so a class defined in the contract
+itself carries a DIFFERENT `__module__` on every run. A message qualifying
+such a class by its module would print unstable noise where it promised a
+locus (PR #340 review, F4).
+"""
+
+
 def _load(path: Path) -> ModuleType:
     if not path.is_file():
         raise TargetError(f"contract not found: {path}")
 
-    module_name = f"_partspec_contract_{abs(hash(str(path.resolve())))}"
+    module_name = f"{_CONTRACT_MODULE_PREFIX}{abs(hash(str(path.resolve())))}"
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise TargetError(f"could not load contract: {path}")
@@ -168,9 +179,14 @@ def resolve(spec: str) -> tuple[Part, Target]:
         # annotation a string, so `-> Part` in a build123d model is
         # indistinguishable from a contract's by the annotation alone.
         got = type(part)
+        where = (
+            f"{got.__qualname__} defined in {target.path.name}"
+            if got.__module__.startswith(_CONTRACT_MODULE_PREFIX)
+            else f"{got.__module__}.{got.__qualname__}"
+        )
         raise TargetError(
             f"{target.path}:{getattr(factory, '__name__', '?')} returned "
-            f"{got.__module__}.{got.__qualname__}, not partspec.Part"
+            f"{where}, not partspec.Part"
             f"\n  hint: check and measure take the CONTRACT, not the model it "
             f"builds. Write a contract declaring this model as its source "
             f"(SPEC-contract.md 3), then name that file."
