@@ -300,4 +300,4 @@ clean:
 
 # Run the agent-convergence evals (see evals/README.md). Costs real agent calls.
 eval *ARGS:
-    python3 evals/run.py {{ARGS}}
+    uv run python evals/run.py {{ARGS}}

@@ -512,6 +512,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`just eval` runs the partspec it is meant to measure, and the result says
+  which one** (#304). `justfile:303` was the only place in the justfile running
+  Python outside `uv run`, so nothing put `.venv/bin` on PATH for the harness —
+  on this checkout `partspec` does not resolve on the bare PATH at all, so the
+  recipe as written failed its own guard rather than measuring the wrong build.
+  It goes through `uv run python` now.
+  `results.json` recorded `when`, `agent`, `arm`, `trials` and `summary`: no
+  version, no commit, no path to the binary it measured. The header now carries
+  `partspec` (the resolved absolute path), `partspec_version` (what that binary
+  reports) and `harness_commit` (the checkout the driver ran from — a separate
+  key because `--partspec` may be an installed wheel from anywhere, and the two
+  are not one fact). This is the class of defect the tool exists to prevent:
+  `report.json` carries `tool_version` and `diff` refuses a comparison without
+  one, while the directory arguing the tool works carried none — and a run costs
+  real agent calls, so a baseline that cannot name its build cannot be compared
+  to a later one.
+  **`--partspec` names one executable, and the guard says so.** It was split for
+  `shutil.which` and passed whole as `argv[0]`, so `PARTSPEC_BIN="uv run
+  partspec"` cleared the guard and then failed in the first trial — after the
+  spend had started. It is resolved once, refused at the guard when it does not
+  resolve, and the resolved path is what runs and what the header records.
+  `PARTSPEC_BIN` was documented nowhere;
+  [`evals/README.md`](https://github.com/CameronBrooks11/partspec/blob/main/evals/README.md)
+  documents it now.
+
 - **`AGENTS.md`'s layout tree is generated, so it can neither miss a module nor
   keep describing one that moved** (#299). The `## Layout` fence is the map this
   repo tells an agent to read first, and it had no generator and no test behind

@@ -5,9 +5,12 @@ See evals/README.md. The three properties that make the answer mean something:
 the contract is frozen, the prompt carries no hints, and every trial runs in a
 throwaway copy of the case.
 
-    python evals/run.py --list
-    python evals/run.py --case bore-breach --trials 3
-    python evals/run.py                      # every case, one trial each
+    uv run python evals/run.py --list
+    uv run python evals/run.py --case bore-breach --trials 3
+    uv run python evals/run.py               # every case, one trial each
+
+Through `uv run`, because `--partspec` defaults to whatever `partspec` PATH
+resolves to and nothing else here puts `.venv/bin` on it (#304).
 """
 
 from __future__ import annotations
@@ -228,6 +231,35 @@ def lint_count(work: Path, model: str, partspec: str) -> int | None:
         return None
 
 
+def provenance(partspec: str) -> dict[str, str | None]:
+    """Which build this run measured, for the header of `results.json`.
+
+    The payload recorded `when` and `agent` and nothing at all about the tool
+    under test, while `report.json` — the artifact this project ships — carries
+    `tool_version`, and `diff` refuses a comparison that cannot say what
+    produced each side. A baseline that costs real agent calls to take and
+    cannot name its own build cannot be compared to a later one (#304).
+
+    `harness_commit` describes the checkout `run.py` ran from, which is NOT
+    necessarily the build above it: `--partspec` may be an installed wheel from
+    anywhere. The path and the version are what identify the binary; the commit
+    identifies the cases, the prompts and this driver.
+    """
+
+    def captured(cmd: list[str]) -> str | None:
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return (proc.stdout.strip() or None) if proc.returncode == 0 else None
+
+    return {
+        "partspec": partspec,
+        "partspec_version": captured([partspec, "--version"]),
+        "harness_commit": captured(["git", "-C", str(ROOT), "rev-parse", "HEAD"]),
+    }
+
+
 def run_trial(
     case_dir: Path, cfg: dict, trial_n: int, agent: str, partspec: str, out_dir: Path, arm: str
 ) -> Trial:
@@ -375,21 +407,37 @@ def main() -> int:
             print("no authoring cases to run under --arm skills", file=sys.stderr)
             return 64
 
-    if not shutil.which(args.partspec.split()[0]):
-        print(f"partspec not found: {args.partspec} (set PARTSPEC_BIN)", file=sys.stderr)
+    # ONE executable, resolved here and passed down resolved. `run_check` uses
+    # this whole string as argv[0], so the earlier `.split()[0]` guard let
+    # PARTSPEC_BIN="uv run partspec" pass and then fail in the first trial —
+    # after the run had started. A multi-word command now fails the guard,
+    # where the message can say so (#304).
+    partspec = shutil.which(args.partspec)
+    if partspec is None:
+        print(
+            f"partspec not found: {args.partspec!r}. Set PARTSPEC_BIN to ONE "
+            "executable — a path, or a name on PATH; not a multi-word command.",
+            file=sys.stderr,
+        )
         return 64
 
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = RESULTS / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"agent:   {args.agent}\nresults: {out_dir}\n")
+    provenance_of_run = provenance(partspec)
+    print(
+        f"agent:    {args.agent}\n"
+        f"partspec: {provenance_of_run['partspec_version']}  ({partspec})\n"
+        f"commit:   {provenance_of_run['harness_commit']}\n"
+        f"results:  {out_dir}\n"
+    )
 
     trials: list[Trial] = []
     for d, cfg in cases:
         for n in range(1, args.trials + 1):
             print(f"-- {cfg['id']} trial {n}/{args.trials}", flush=True)
             try:
-                t = run_trial(d, cfg, n, args.agent, args.partspec, out_dir, args.arm)
+                t = run_trial(d, cfg, n, args.agent, partspec, out_dir, args.arm)
             except Exception as exc:  # noqa: BLE001 - a harness fault is data, not a crash
                 t = Trial(
                     case=cfg["id"], trial=n, outcome="error", note=f"{type(exc).__name__}: {exc}"
@@ -402,6 +450,7 @@ def main() -> int:
         "when": stamp,
         "agent": args.agent,
         "arm": args.arm,
+        **provenance_of_run,
         "trials": [asdict(t) for t in trials],
         "summary": {
             o: sum(1 for t in trials if t.outcome == o)

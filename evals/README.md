@@ -49,8 +49,8 @@ does an agent converge to a passing part within a bounded number of turns?
 
 ```bash
 just eval                      # every case, default agent
-python evals/run.py --case bore-breach --trials 3
-python evals/run.py --list
+uv run python evals/run.py --case bore-breach --trials 3
+uv run python evals/run.py --list
 ```
 
 The agent under test is a pluggable command, so this harness is not tied to one model
@@ -65,10 +65,25 @@ trial's scratch copy. Anything it writes to that directory is the edit. `bypassP
 is safe here only because the working directory is a temp copy — never point this at a
 real tree.
 
+The **partspec under test** defaults to whatever `partspec` resolves to on `PATH`, which
+is why `just eval` goes through `uv run` — nothing else here would put `.venv/bin` on it.
+To measure a different build:
+
+```bash
+export PARTSPEC_BIN=/some/other/venv/bin/partspec
+```
+
+It must name **one** executable. `run.py` passes it as `argv[0]`, so a multi-word command
+(`uv run partspec`) is refused by the guard rather than clearing it and failing in the
+first trial (#304).
+
 ## Reading the results
 
-`evals/results/<timestamp>/results.json` plus a per-trial transcript. The headline
-numbers:
+`evals/results/<timestamp>/results.json` plus a per-trial transcript. Its header says
+which build was measured — `partspec` (the resolved path), `partspec_version` (what that
+binary reports) and `harness_commit` (the checkout this driver ran from, which is *not*
+necessarily the build above it). A run costs real agent calls, so a result that cannot
+name its own build cannot be compared to a later one. The headline numbers:
 
 | outcome | meaning |
 |---|---|
