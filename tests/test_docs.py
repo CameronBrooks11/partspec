@@ -751,6 +751,18 @@ def test_the_layout_generator_counts_an_async_mcp_tool():
         "@staticmethod\n"
         "def not_a_tool(): ...\n"
         "async def also_not_a_tool(): ...\n"
+        # The near-misses fence the LOOSENING direction, which the rest of this
+        # fixture does not: `call_tool` and `list_tools` are the low-level MCP
+        # SDK's own decorators, and a substring match would write both into the
+        # row as verbs. `toolset` is the prefix case — needed because the name
+        # matched is the decorator's TRAILING one, so `call_tool` does not
+        # start with "tool" and leaves `startswith` alive (PR #331 review, R2-3).
+        "@server.call_tool()\n"
+        "def ct(): ...\n"
+        "@server.list_tools()\n"
+        "def lt(): ...\n"
+        "@server.toolset()\n"
+        "def ts(): ...\n"
     )
     assert tool_names(source) == ["check", "vdiff", "render", "measure"]
 

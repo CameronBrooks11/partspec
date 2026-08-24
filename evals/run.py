@@ -486,10 +486,15 @@ def main() -> int:
     # the CWD the user typed it against is still the CWD (PR #331 review, F1).
     resolved = shutil.which(args.partspec)
     if resolved is None:
+        # `.exists()`, not `.is_file()`: a DIRECTORY exists, and `is_file`
+        # sent it down the "no such file" branch to be told it was not there.
+        # `shutil.which` refuses a directory correctly either way, so this is
+        # the sentence and not the behaviour — a false sentence shipped to a
+        # user is still shipped (PR #331 review, R2-1).
         candidate = Path(args.partspec)
         why = (
             "it exists but is not executable"
-            if candidate.is_file()
+            if candidate.exists()
             else "no such file, and no such name on PATH"
         )
         print(

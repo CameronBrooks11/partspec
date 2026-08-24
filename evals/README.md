@@ -80,10 +80,13 @@ first trial (#304).
 ## Reading the results
 
 `evals/results/<timestamp>/results.json` plus a per-trial transcript. Its header says
-which build was measured — `partspec` (the resolved path), `partspec_version` (what that
+which build was measured — `partspec` (an absolute path), `partspec_version` (what that
 binary reports) and `harness_commit` (the checkout this driver ran from, which is *not*
-necessarily the build above it). A run costs real agent calls, so a result that cannot
-name its own build cannot be compared to a later one. The headline numbers:
+necessarily the build above it). The commit is suffixed `-dirty` when that checkout had
+uncommitted changes, or `-unknown` when git could not be asked: a bare sha from a
+modified tree names a commit that is not what ran. A run costs real agent calls, so a
+result that cannot name its own build cannot be compared to a later one. The headline
+numbers:
 
 | outcome | meaning |
 |---|---|
