@@ -250,9 +250,18 @@ def test_answered_rides_a_status_change_and_only_those():
     unchanged value a reader can already read.
 
     Pinned over every unanswered status and both status-holding buckets,
-    because §3 read without the scope makes each of these a violation — a
-    grid of 18,225 pairs holds 2,106 of them — and a mutant obeying that
-    reading passed the whole suite."""
+    because §3 read without the scope makes each of these a violation, and a
+    mutant obeying that reading passed the whole suite.
+
+    The census behind that claim, stated with its method so it can be
+    re-checked rather than re-derived: 135 check variants per side — 5
+    statuses × 3 claims × 3 measurement values × 3 operand sets — diffed
+    against each other is 135² = 18,225 ordered pairs, of which 2,106 hold
+    their status at an unanswered one and 0 carry the record. The dimensions
+    are the three fields the comparison compares, plus `status`. `phase` is
+    held fixed and is NOT one of them: it picks a tolerance and is never
+    itself a difference, and a grid that makes it a dimension also totals
+    18,225 while answering 1,944."""
     for status in (s for s in Status if s not in {Status.PASS, Status.FAIL}):
         claim_moved, value_moved = _status_pair(status, status), _status_pair(status, status)
         next(c for c in claim_moved[1]["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 1.0}

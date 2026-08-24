@@ -817,9 +817,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **The record rides a status-change entry and only those**, present there
   exactly when the new side is unanswered. It corrects a bucket that names a
   *direction*, and only `regressed` and `fixed` do; where the status held,
-  `status` is the single unchanged value a reader can already read. A grid of
-  18,225 pairs holds 2,106 entries that hold their status at an unanswered one
-  and carry no record, so the scoping is stated rather than left implied.
+  `status` is the single unchanged value a reader can already read. A census
+  holds the scoping to evidence, stated with its method so the next reader
+  re-checks it instead of re-deriving it: 135 check variants per side — 5
+  statuses × 3 claims × 3 measurement values × 3 operand sets — diffed against
+  each other is 135² = 18,225 ordered pairs, of which 2,106 hold their status
+  at an unanswered one and 0 carry the record. The dimensions are the three
+  fields this comparison compares, plus `status`; `phase` is held fixed and is
+  deliberately not one of them, since it picks a tolerance and is never itself
+  a difference — a grid that makes it a dimension also totals 18,225 and
+  answers 1,944, which is the shape of a number that is wrong until its method
+  travels with it.
   **An additive field, not a fifth `change` value.** §4's compatibility rule
   covers fields; it says nothing about enum values, and widening a closed
   vocabulary breaks every consumer that switches on it. A console-only

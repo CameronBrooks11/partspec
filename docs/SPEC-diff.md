@@ -267,8 +267,14 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   `regressed` and `fixed` do; on a `limit_changed` or `drifted` entry `status` is the single
   unchanged value a reader can already read, and nothing is being misstated for the field to
   answer. Stated because the scoping is not implied by the rest: measured over a grid of
-  18,225 pairs, 2,106 entries hold their status at an unanswered one, and none carries the
-  field — an unscoped reading of this sentence would make every one of them a violation.
+  **135 check variants per side — 5 statuses × 3 claims × 3 measurement values × 3 operand
+  sets — diffed against each other, 135² = 18,225 ordered pairs**, 2,106 entries hold their
+  status at an unanswered one and none carries the field, so an unscoped reading of this
+  sentence would make every one of them a violation. The dimensions are the three fields
+  this comparison *compares*, plus `status`; `phase` is held fixed and is deliberately not
+  among them, since it is read to pick a tolerance and is never itself a difference. A
+  reconstruction that makes it a fourth dimension reaches 18,225 by a different route and
+  answers 1,944.
 
   **An additive field, not a fifth `change` value.** §4's compatibility rule covers
   *fields* — additive ones are non-breaking and consumers MUST ignore what they do not
