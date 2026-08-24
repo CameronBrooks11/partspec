@@ -512,6 +512,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`AGENTS.md`'s layout tree is generated, so it can neither miss a module nor
+  keep describing one that moved** (#299). The `## Layout` fence is the map this
+  repo tells an agent to read first, and it had no generator and no test behind
+  it. It named 15 of the 21 modules in `src/partspec/`: `csg.py`, `imports.py`,
+  `raster.py` and `vdiff.py` — 1,874 of `src/`'s 16,722 lines — were absent.
+  Three of the four are named elsewhere in the file, so the damage is bounded;
+  **`raster.py` was not, and no shipped markdown named the file at all**, so an
+  agent looking for the OCCT tier's render path goes to `engines/`, where it is
+  not — `cli.py` and `vdiff.py` are the two modules that import it.
+  Two rows had also gone false. `mcp.py` read "check/measure/render" while the
+  module registers a fourth `@server.tool()`, `vdiff`; `refs/` read
+  "(iso15, nema17)" while `iso_metric_thread.py` sits beside them. (#299 reports
+  a third, `lint.py` as tier-1-only — #316 had already fixed that one.)
+  **A generator rather than a test**, which is this repo's own convention: a
+  test that reads the map and reads the tree is two copies of one fact with a
+  failure report attached, and it reports drift only after it has happened.
+  `scripts/gen_docs.py` gains a sixth block, and a module added with no row
+  fails `just fmt` and `just check` alike, naming the module and the function to
+  add it to. The MCP tool list and the `refs/` contents are derived the same
+  way. What stays hand-written is the one line saying what each module is FOR —
+  that is a judgement, not a projection of the code, and the generator holds it
+  as prose rather than deriving it from a docstring.
+
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry
   to carry the claim delta because "an entry saying only 'fixed' would report
