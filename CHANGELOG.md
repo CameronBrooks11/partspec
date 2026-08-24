@@ -512,6 +512,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The eval harness stops calling a file "lint-clean" when three rules never
+  looked at it** (#317, epic #305).
+  [`evals/run.py`](https://github.com/CameronBrooks11/partspec/blob/main/evals/run.py)
+  branched on `counts.findings` alone and
+  [`evals/AUTHORING.md`](https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md)
+  reported that as "trials lint-clean" — the blind loop `docs/LINT.md` names in
+  its own words: "a `findings: 0` with `unsupported: 3` is not a clean file".
+  A trial on a machine with no OpenSCAD, or over a source whose `.csg` export
+  is refused, recorded zero and counted as clean while every tier-2 rule was
+  skipped. Reproduced directly: a three-line `.scad` carrying a string reports
+  `counts` `(findings 0, unsupported 3)` — clean under the old metric.
+  The harness now records `findings`, `unsupported` and a three-way
+  `lint_outcome`: `clean` only when both are zero, `findings` when every rule
+  ran and something was found, `incomplete` when any rule did not. Wholeness is
+  decided **first**, because nothing can be concluded from a findings count
+  taken over a partial pass — a trial with both findings and refusals is
+  `incomplete`, not `findings`. An absent `counts.unsupported` (a partspec
+  predating #316, where the key is additive) reads as `incomplete` rather than
+  as a zero. `results.json` gains a per-bucket `lint` tally beside `summary`,
+  so the figure `AUTHORING.md` reports by hand is one the harness computes
+  under a stated definition.
+  **The recorded figures are annotated, not restated.** They are a measurement
+  from a dated run that costs real agent calls to retake, so `AUTHORING.md`
+  keeps its numbers and gains the definition in force when they were taken:
+  every lint figure there is a **tier-1 count**. The runs are stamped
+  `20260808-133845` and `20260808-134127`, and tier 2 was not committed until
+  `1ac5807` at 17:27 the same day — so no tier-2 rule ran and none could
+  refuse. `counts.unsupported` did not exist in the payload at all until #316.
+  Reinterpreting those numbers under the new definition would report a
+  measurement nobody took.
+
 - **`just eval` runs the partspec it is meant to measure, and the result says
   which one** (#304). `justfile:303` was the only place in the justfile running
   Python outside `uv run`, so nothing put `.venv/bin` on PATH for the harness —

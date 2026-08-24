@@ -123,6 +123,8 @@ class Trial:
     note: str = ""
     loc: int | None = None
     lint_findings: int | None = None
+    lint_unsupported: int | None = None
+    lint_outcome: str | None = None
 
 
 def digests(root: Path, names: list[str]) -> dict[str, str]:
@@ -221,14 +223,45 @@ def source_loc(path: Path) -> int:
     return count
 
 
-def lint_count(work: Path, model: str, partspec: str) -> int | None:
+def lint_counts(work: Path, model: str, partspec: str) -> tuple[int | None, int | None]:
+    """`(findings, unsupported)` from one `partspec lint` run.
+
+    Both, because `findings` alone cannot tell the two apart. `.get` on the
+    second: it is an additive key (#316), so a partspec that predates it
+    answers `None` — which is "not known", not zero, and is not folded into
+    a clean result by `lint_outcome`.
+    """
     proc = subprocess.run(
         [partspec, "lint", model], cwd=work, capture_output=True, text=True, timeout=120
     )
     try:
-        return json.loads(proc.stdout)["counts"]["findings"]
+        counts = json.loads(proc.stdout)["counts"]
+        return counts["findings"], counts.get("unsupported")
     except (json.JSONDecodeError, KeyError):
-        return None
+        return None, None
+
+
+def lint_outcome(findings: int | None, unsupported: int | None) -> str:
+    """What the lint actually established — three answers, not two.
+
+    The harness branched on `counts.findings` alone and the write-up called
+    the result "lint-clean", which is the blind loop `docs/LINT.md` names:
+    a `findings: 0` with `unsupported: 3` is not a clean file, it is a file
+    three rules never looked at (#118, #288, #317).
+
+    Wholeness is decided FIRST, on purpose: nothing can be concluded from a
+    findings count taken over a partial pass, so a run that refused a rule is
+    `incomplete` whatever its findings count says. Only a run where every rule
+    ran and found nothing earns the word `clean`.
+    """
+    if findings is None:
+        return "unknown"
+    if unsupported is None or unsupported > 0:
+        return "incomplete"
+    return "clean" if findings == 0 else "findings"
+
+
+LINT_OUTCOMES = ("clean", "findings", "incomplete", "unknown")
 
 
 def provenance(partspec: str) -> dict[str, str | None]:
@@ -348,7 +381,10 @@ def run_trial(
         model_file = work / cfg.get("model", "model.scad")
         if model_file.exists():
             t.loc = source_loc(model_file)
-            t.lint_findings = lint_count(work, cfg.get("model", "model.scad"), partspec)
+            t.lint_findings, t.lint_unsupported = lint_counts(
+                work, cfg.get("model", "model.scad"), partspec
+            )
+            t.lint_outcome = lint_outcome(t.lint_findings, t.lint_unsupported)
 
         # Preserve whatever the agent left behind, for post-hoc reading.
         keep = out_dir / f"{cfg['id']}-{arm}-t{trial_n}-final"
@@ -456,6 +492,9 @@ def main() -> int:
             o: sum(1 for t in trials if t.outcome == o)
             for o in ("converged", "failed", "gamed", "regressed", "error")
         },
+        # Reported per bucket rather than as one "lint-clean" tally, because
+        # the tally cannot say which of the three a trial was (#317).
+        "lint": {o: sum(1 for t in trials if t.lint_outcome == o) for o in LINT_OUTCOMES},
     }
     (out_dir / "results.json").write_text(json.dumps(payload, indent=2))
 
@@ -463,6 +502,8 @@ def main() -> int:
     for o, n in payload["summary"].items():
         if n:
             print(f"  {o:<12} {n}")
+    if any(payload["lint"].values()):
+        print("  lint:        " + "  ".join(f"{o} {n}" for o, n in payload["lint"].items() if n))
     conv = [t.turns_to_converge for t in trials if t.turns_to_converge is not None]
     if conv:
         print(f"  turns to converge: {conv}  (mean {sum(conv) / len(conv):.1f})")

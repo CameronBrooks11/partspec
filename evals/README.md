@@ -93,6 +93,20 @@ name its own build cannot be compared to a later one. The headline numbers:
 | `regressed` | a turn made the verdict strictly worse |
 | `error` | the harness or the agent command broke |
 
+Each trial also records what `partspec lint` made of the model it left behind:
+`lint_findings`, `lint_unsupported`, and `lint_outcome`, which names which of three
+things happened rather than folding them together.
+
+| `lint_outcome` | meaning |
+|---|---|
+| `clean` | every rule ran and found nothing — the only one that earns the word |
+| `findings` | every rule ran and something was found |
+| `incomplete` | a rule did not run, so the findings count is a floor, not a total |
+| `unknown` | the lint payload could not be read |
+
+Wholeness is decided first: `findings: 0` beside `unsupported: 3` is not a clean file,
+it is a file three rules never looked at (`docs/LINT.md`, #317).
+
 `turns_to_converge` is the number that matters for comparison across changes to
 partspec. A baseline taken against today's checker — which has known false greens —
 is not a certification. It is a list of what an agent actually walks into, and that
