@@ -43,6 +43,7 @@ def test_field_order_is_fixed():
     doc = _report().to_json()
     assert list(doc) == [
         "schema_version",
+        "payload",
         "tool",
         "part",
         "engine",

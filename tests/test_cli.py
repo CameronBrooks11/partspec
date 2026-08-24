@@ -38,6 +38,43 @@ def _measure(target: str, capsys) -> dict:
 
 
 # --------------------------------------------------------------------------
+# the payload discriminator (#295)
+# --------------------------------------------------------------------------
+
+
+@needs_scad_tier
+def test_each_payload_says_which_artifact_it_is(tmp_path: Path, capsys):
+    """#295. `check`, `measure` and `render` emit `schema_version: 1` under
+    `tool.name: "partspec"` and share the whole identity prefix, so a consumer
+    holding one of the three could not tell which it had — it had to guess from
+    the keys further down, and `diff` accepting a `render` payload at
+    `identical`/exit 0 is what that guessing costs.
+
+    Asserted as a SET of four distinct values, not four independent equalities:
+    the failure this guards against is two verbs agreeing, and four `==` checks
+    that each pass individually cannot see that.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
+    out = tmp_path / "out"
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 0
+    capsys.readouterr()
+
+    seen = {"check": report_of(out)["payload"], "measure": _measure(target, capsys)["payload"]}
+    assert main(["render", target, "--out", str(tmp_path / "r")]) in (0, exit_code(Verdict.ERROR))
+    seen["render"] = json.loads(capsys.readouterr().out)["payload"]
+    assert main(["lint", str(tmp_path / "block_with_hole.scad")]) == 0
+    seen["lint"] = json.loads(capsys.readouterr().out)["payload"]
+
+    assert seen == {
+        "check": "report",
+        "measure": "measure",
+        "render": "render",
+        "lint": "lint",
+    }
+    assert len(set(seen.values())) == 4, "a discriminator that repeats discriminates nothing"
+
+
+# --------------------------------------------------------------------------
 # measure — the adoption path
 # --------------------------------------------------------------------------
 
@@ -894,8 +931,12 @@ def test_measure_carries_the_same_identity_as_the_report(tmp_path: Path, capsys)
     # both sides lost together (PR #102 review, mutant survivor).
     assert doc["part"]["contract_digest"].startswith("sha256:")
     assert doc["part"]["source_digest"].startswith("sha256:")
-    assert list(doc)[:7] == [
+    assert doc["payload"] == "measure" and report["payload"] == "report", (
+        "the shared prefix is what makes the two indistinguishable without it (#295)"
+    )
+    assert list(doc)[:8] == [
         "schema_version",
+        "payload",
         "tool",
         "part",
         "engine",
@@ -2007,8 +2048,12 @@ def test_render_carries_the_same_identity_as_the_report(tmp_path: Path, capsys):
     # both sides lost together (PR #102 review, mutant survivor).
     assert payload["part"]["contract_digest"].startswith("sha256:")
     assert payload["part"]["source_digest"].startswith("sha256:")
-    assert list(payload)[:6] == [
+    assert payload["payload"] == "render" and report["payload"] == "report", (
+        "the shared prefix is what makes the two indistinguishable without it (#295)"
+    )
+    assert list(payload)[:7] == [
         "schema_version",
+        "payload",
         "tool",
         "part",
         "engine",

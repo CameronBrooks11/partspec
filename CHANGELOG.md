@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`payload` — every artifact now says which artifact it is** (#295, epic
+  #305). `check`, `measure` and `render` all emit `schema_version: 1` under
+  `tool.name: "partspec"` and share the whole identity prefix by design, so a
+  consumer holding one of the three could not tell which it had. Each payload
+  now names itself — `report`, `measure`, `render`, `lint`, `vdiff` —
+  immediately after `schema_version`, where the two are read together: the
+  version says how to READ the document, `payload` says WHAT it is.
+  **`vdiff` spelled its version `vdiff_schema_version` and nothing else**, so
+  `doc["schema_version"]` — the key `SPEC-report.md` §7 tells a consumer to key
+  on — raised `KeyError` on that one artifact and on no other. It emits
+  `schema_version` as well now, both spellings taken from one constant so they
+  cannot drift; the old key stays for one release, and dropping it later is the
+  breaking change §7.1 says a removal is.
+  **Additive, so `schema_version` does not move** — §7.1: "adding a field is a
+  non-breaking change and MUST NOT bump `schema_version`". The same rule makes
+  the field optional to a *reader*: every artifact written before this release
+  carries none, and its absence means "an older partspec wrote this", never
+  "not a report". That is why `diff`'s "is this a report" guard (#292, #328)
+  keeps keying on `verdict` and `counts` being present rather than on the new
+  field — one keyed on `payload` would refuse every report the tool has written
+  to date, and a document that declares a verdict is a report whatever it calls
+  itself. The guard already refuses a `measure` or `render` payload by that
+  test, at exit 64; what the discriminator adds is that a consumer which is not
+  `diff` can now make the same distinction, by name, without reverse-engineering
+  it from the key set. `partspec diff`'s own output does not carry the field
+  yet.
+
 - **`csg-two-part-intersection`, an advisory lint rule** (#270). Fires when a
   file's entire top level is a single `intersection()` of exactly two children.
   A probe whose two parts are module calls matches too, since the export folds

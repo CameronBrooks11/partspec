@@ -1226,6 +1226,7 @@ def _measure_failure(
 
     failed: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
+        "payload": "measure",
         "tool": {"name": "partspec", "version": tool_version()},
         "part": identity(part, target.path),
         "engine": engine_block(part, backend),
@@ -1422,10 +1423,12 @@ def _measure_resolved(
 
     measured: dict[str, object] = {
         # The identity prefix mirrors the report's field order exactly
-        # (schema_version, tool, part, engine, params, geometry), so a
-        # consumer of one artifact can orient in the other. `built=True`:
+        # (schema_version, payload, tool, part, engine, params, geometry), so a
+        # consumer of one artifact can orient in the other — and `payload` is
+        # what tells the two apart once it has (#295). `built=True`:
         # a Python model's imports are only knowable once it has run.
         "schema_version": SCHEMA_VERSION,
+        "payload": "measure",
         "tool": {"name": "partspec", "version": tool_version()},
         "part": identity(
             part, target.path, built=True, engine_deps=engine_deps[0] if engine_deps else None
@@ -1578,6 +1581,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     unsupported_total = sum(len(f.get("unsupported", ())) for f in files)
     payload = {
         "schema_version": LINT_SCHEMA_VERSION,
+        "payload": "lint",
         "tool": {"name": "partspec-lint", "version": tool_version()},
         "files": files,
         "counts": {
@@ -1873,6 +1877,7 @@ def _render_resolved(
     # tied to the revision that produced them.
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
+        "payload": "render",
         "tool": {"name": "partspec", "version": tool_version()},
         "part": identity(part, target.path),
         "engine": engine,

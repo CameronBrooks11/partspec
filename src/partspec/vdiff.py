@@ -197,7 +197,16 @@ def diff_renders(
 
     from .raster import write_png
 
+    # `schema_version` under the name every other partspec artifact uses, and
+    # `payload` saying which artifact it is (#295). This document spelled its
+    # version `vdiff_schema_version` alone, so a consumer reading
+    # `doc["schema_version"]` — the key SPEC-report.md 7 tells it to key on —
+    # raised KeyError here and nowhere else. The old spelling is emitted
+    # alongside for one release so a reader of it keeps working; both carry the
+    # same integer, from one constant, so they cannot drift apart.
     doc: dict[str, Any] = {
+        "schema_version": VDIFF_SCHEMA_VERSION,
+        "payload": "vdiff",
         "vdiff_schema_version": VDIFF_SCHEMA_VERSION,
         "tool": {"name": "partspec", "version": tool_version},
         "inputs": {

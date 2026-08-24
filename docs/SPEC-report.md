@@ -17,9 +17,12 @@ model-cache-invalidation MUST, and the `measure` identity-prefix scope; draft 7 
 references, and the §8.3 closure reversal
 **Scope:** the JSON artifact `partspec check` emits, and the process exit code that
 accompanies it. `partspec measure` and `partspec render` emit sibling payloads that MUST
-share the identity prefix — `schema_version`, `tool`, `part`, `engine`, `params`, built
+share the identity prefix — `schema_version`, `payload`, `tool`, `part`, `engine`,
+`params`, built
 by the same code (#47, #103) — followed by `geometry` for `measure` and by `renders` for
-`render`, which carries no `geometry` block. `render`'s engine block states what ran
+`render`, which carries no `geometry` block. Sharing that prefix is what makes `payload`
+(§7.1) load-bearing: it is the only field that says WHICH of the three a consumer is
+holding, the other five being identical by design. `render`'s engine block states what ran
 (#18): on the OCCT tier the part builds through the same backend `check` uses, so the
 block is §7's in full — `backend` included — and the payload carries
 `render_tessellation` after `renders` (`{tolerance_mm, triangles}`: under D15 the
@@ -516,11 +519,14 @@ so nothing needs reserving now.
 ## 7. Schema
 
 `schema_version` is an integer, incremented on any breaking change. Consumers MUST reject
-an unknown major version rather than best-effort parse it.
+an unknown major version rather than best-effort parse it. It says how to READ the
+document; `payload` (§7.1) says WHAT the document is, and a consumer needs both — the
+version alone cannot tell a report from a `measure` dump, the two carrying the same one.
 
 ```jsonc
 {
   "schema_version": 1,
+  "payload": "report",                                 // which artifact this is (7.1)
   "tool": { "name": "partspec", "version": "0.7.6" },  // whatever is installed; a
                                                        // consumer keys on `schema_version`
                                                        // above, never on this
@@ -660,6 +666,19 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 
 ### 7.1 Field rules
 
+- **`payload`** — which artifact this document is. The three this specification governs
+  are `report`, `measure` and `render`; `lint` and `vdiff` name the sibling artifacts that
+  carry the same field. A consumer MUST key on it rather than on `tool.name` or on the
+  presence of a block: `check`, `measure` and `render` all emit `schema_version: 1` under
+  `tool.name: "partspec"` and share the whole identity prefix by design (Scope), so until
+  this field existed the three were told apart only by guessing from the keys further down
+  (#295). Additive (no schema bump), and therefore **optional to a reader**: every artifact
+  written before it existed carries none, and its absence means "an older partspec wrote
+  this", never "not a report". That is also why a structural test — does this document
+  declare a `verdict` and `counts`? — remains the right guard for "is this a report", and
+  `partspec diff` keeps that one: a guard keyed on `payload` would refuse every report the
+  tool wrote before this release, and a document that declares a verdict is a report
+  whatever it calls itself.
 - **`part.contract_digest` / `part.source_digest`** — sha256 of the contract module and of
   the source content. Digests give **identity**, and support **comparison-based** tamper
   evidence: two reports whose `contract_digest` differs were produced from different
