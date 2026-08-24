@@ -1,8 +1,13 @@
 # SPEC — `partspec diff`
 
-**Status:** draft 5 · 2026-08-23 · §2 states that being parseable is not being a report,
+**Status:** draft 6 · 2026-08-24 · §3 states three rules the reasons behind draft 5 already
+implied: an entry carries every delta the comparison computed whatever bucket it landed in
+(#330), the comparison tolerance keys on `phase` because that is where the report records a
+value's provenance (#335), and a status-change entry says when the new report does not
+answer the check, the headline counting those as it counts a moved claim (#325);
+draft 5 stated that being parseable is not being a report,
 two `measure` payloads of a changed part having compared `identical` at exit `0` (#292),
-and §3 scopes the comparison tolerance to measured values, a status change over operands
+and §3 scoped the comparison tolerance to measured values, a status change over operands
 inside the adjudication epsilon having been reported with none of them (#326);
 draft 4 bound the §1 headline to the claim delta a status-change entry already carried, the
 console having reported a loosened limit as `1 fixed` (#293); draft 3 keyed §2 rule 3 on the
@@ -225,23 +230,66 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   improvement. The **§1 headline** MUST state the same fact, since the reason is a
   statement about readers and the headline is the surface a human reads: a `regressed` or
   `fixed` count says how many of its entries also moved the claim. The count itself stays
-  the bucket's true total; the qualifier breaks it down. Neither `limit_changed` (where the
-  claim moving is the bucket) nor `drifted` (which cannot carry one) takes the qualifier.
-  This rule reaches a *moved claim* and no further, and the gap that leaves is stated here
-  rather than left to be inferred from the reason given for the rule. `pass` is the only
-  status in the severity order that means the check was answered and held, so **every**
-  transition into `approximate`, `unsupported` or `skipped` from a status ranked above it
-  is bucketed `fixed` — a check that is not answered on the new side, filed as one that was
-  answered better. Not only when it left `fail`, and not always a check that *stopped* being
-  answerable: `unsupported` → `skipped` was not answered on either side. Within a status
-  bucket the qualifier reads the claim and nothing else, so where the claim did not move it
-  does not fire and the headline reports the transition as a repair. Such an entry is
-  usually not otherwise empty — a check that stops being evaluated normally loses its
-  measurement with it, and all four `skipped`/`unsupported` sites in the runner build the
-  result without one — so a `value` delta is generally present and is not what the qualifier
-  reads. Generally, not always: `fail` → `approximate` over an unchanged measurement, and
-  any transition between two unmeasured statuses, carry nothing but the status. That is
-  #325, and unfixed.
+  the bucket's true total, and each qualifier is an independent tally over it rather than a
+  partition of it — with the second qualifier below now also in force, the two count
+  overlapping sets and may sum past the bucket, and two different situations can render
+  alike. Each number is individually true and the bucket total is the answer to "how many?",
+  which is what this line is for. Neither `limit_changed` (where the claim moving is the
+  bucket) nor `drifted` (which cannot carry one) takes the qualifier.
+  This rule reaches a *moved claim* and no further, and a second fact needs saying
+  alongside it.
+
+  **A status-change entry MUST say when the new report does not answer the check, and the
+  headline MUST count those the way it counts a moved claim** (#325). `pass` and `fail` are
+  the two statuses meaning the check was evaluated to a conclusion, which the vocabulary
+  states of itself rather than needing a list of the rest: `approximate` is "indeterminate
+  … the tool does not know", `unsupported` is "cannot evaluate this check … at all",
+  `skipped` is "not evaluated". The severity order ranks all three below `fail` — correctly,
+  for a verdict — so a check that is not answered on the new side lands in `fixed` and is
+  filed as one that was answered better. Measured: an `envelope` failing at `max=(40,30,4)`,
+  then a `requires` precondition breaking so the geometry phase never runs, produced
+  `{"change": "fixed", "status": {"old": "fail", "new": "skipped"}}` under a headline
+  reading `2 regressed; 1 fixed`. That check did not get better. It stopped being evaluated.
+
+  **The record keys on the new status alone.** Whether this report answers the check is a
+  fact about this report; where it came from is already in `status`. Keying on the
+  transition is how two drafts of #325 got the bound wrong, each by enumerating pairs — the
+  first omitting `approximate`, the second admitting only transitions out of `fail`. Two
+  consequences follow and neither is an exception: `unsupported` → `skipped`, answered on
+  neither side, is recorded, because the headline calls it `fixed` just the same; and
+  `pass` → `skipped`, which is bucketed `regressed`, is recorded too, because the fact is
+  true of it and a rule firing on one bucket only would be the enumeration again. Both sides
+  are carried, so a reader can tell a check that stopped being answered from one that never
+  was without re-deriving the vocabulary.
+
+  **The field rides a status-change entry and only those**, present there exactly when the
+  new side is unanswered. It exists to correct a bucket that names a *direction*, and only
+  `regressed` and `fixed` do; on a `limit_changed` or `drifted` entry `status` is the single
+  unchanged value a reader can already read, and nothing is being misstated for the field to
+  answer. Stated because the scoping is not implied by the rest: measured over a grid of
+  **135 check variants per side — 5 statuses × 3 claims × 3 measurement values × 3 operand
+  sets — diffed against each other, 135² = 18,225 ordered pairs**, 2,106 entries hold their
+  status at an unanswered one and none carries the field, so an unscoped reading of this
+  sentence would make every one of them a violation. The dimensions are the three fields
+  this comparison *compares*, plus `status`; `phase` is held fixed and is deliberately not
+  among them, since it is read to pick a tolerance and is never itself a difference. A
+  reconstruction that makes it a fourth dimension reaches 18,225 by a different route and
+  answers 1,944.
+
+  **An additive field, not a fifth `change` value.** §4's compatibility rule covers
+  *fields* — additive ones are non-breaking and consumers MUST ignore what they do not
+  recognise — and says nothing about enum values, so a fifth `change` would break every
+  consumer that switches on the four. Nor is a console-only qualifier enough: it would
+  leave the artifact still calling the entry `fixed`, which is the complaint. This is a
+  second qualifier rather than a widening of the first, because such an entry carries no
+  `claim` for the first to fire on and the two answer different questions; where both
+  apply, the headline states both.
+
+  `_SEVERITY` is untouched. Its ordering is right for `verdict_of` — a run with a skipped
+  check is not worse than one with a failing check, and the exit code must not say it is —
+  and the question here was only whether this comparison may reuse that ordering to name a
+  direction of change without saying which kind of change it was.
+
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
@@ -258,6 +306,26 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   This is a contract edit visible between runs — the raw material of weakening
   detection (#31 owns adjudicating *within* a run; `diff` only reports the change, both
   sides shown, and takes no view on direction).
+
+**What an entry carries is not decided by the bucket it lands in.** The bucket names the
+most significant thing that changed — a status change outranks a moved claim, which outranks
+a moved value — and every delta this comparison computed then rides the entry, whatever
+bucket that was. The reason is the one already given above for the status-change case, which
+is a statement about what a reader is told rather than about statuses: an entry saying only
+`limit_changed` tells a reader that the bound moved and the part did not. Measured: a `min`
+loosened 2.0 → 1.0 while the wall it bounds thinned 2.9 → 2.1 — both sides passing, so no
+status changed — reported the contract edit and **discarded** the drift it was covering. Not
+omitted for brevity: computed, and thrown away. That is §1's second job (`SPEC-report.md`
+§7.2) dropped on the one entry where the two facts explain each other, since a bound loosened
+over a measurement moving toward it is a different event from either alone. The same chain
+lost a `requires` check's `operands` whenever a `measurement.value` moved beside them (#330).
+
+Three deltas are computed and any of them may ride any entry: `claim`, `value` and
+`operands`. One structural consequence, which is not an exception: a `drifted` entry never
+carries a `claim`, because a moved claim is what would have made it `limit_changed`. No other
+recorded field is compared — `intrusion`, `components` and `measurement.unit` are not — so
+this rule reaches exactly what the comparison already sees, and a field added later stays
+outside it until it is compared.
 
 **Tolerance.** A **measured** value compares under the same `epsilon(reference)` as
 adjudication (`SPEC-report.md` §3.3), with the old value as reference: rebuilding identical
@@ -279,17 +347,48 @@ falls below it. And the flip: `bore_d + 2 * wall <= plate_y` goes true → false
 a field added later: a comparison tolerance belongs to the *provenance* of the value, not
 to its type.
 
-**Where that rule currently stops: #335.** The justification above is a *conjunction* —
-contract-parameter provenance **and** exact adjudication — and only `requires` satisfies
-both. A `param_range` check's `measurement.value` is read straight from the declared
-parameters too (`runner.py` builds it from `params[expr]`, and the artifact labels it
-`"exactness": "exact"`), but it is adjudicated against a limit under `epsilon(lo)`, and
-this comparison still gives it `epsilon(old value)`. So the same dead band exists there,
-narrower — it needs the parameter already within roughly `epsilon(limit)` of its own
-limit — and reachable: measured, `wall` moving `1.999999 → 1.999998` against `min=2.0`
-flips `pass → fail` and is reported as `{id, kind, change, status}` with no value. Naming
-the boundary here rather than leaving it inferred, because a rule stated without its
-exception is read as covering the exception.
+**The key is `phase`, because that is where the report records the provenance.**
+`SPEC-report.md` types `checks[].phase` as `parameter` or `geometry`, and it is REQUIRED,
+so every check states which side of the build its value came from. A parameter-phase check
+reads the declared parameters before any engine runs — the two kinds that are
+parameter-phase, `requires` and `param_range`, both take their numbers straight from the
+contract's own inputs — and a geometry-phase value is measured off an exported artifact. A
+parameter-phase `measurement.value` therefore compares **exactly**, on the same grounds as
+`operands` (#335).
+
+**`exactness` cannot be that key, and reaching for it would break the tier it looks like it
+describes.** `exact` distinguishes a point value from a bounded interval — `bounds` is
+required iff not `exact` — and says nothing about reproducibility. Measured on the mesh
+tier: `cube([120.3, 80.7, 40.1])` reports `exactness: "exact"` beside
+`[120.30000305175781, 80.69999694824219, 40.099998474121094]`, ±3.052e-06 of float32
+quantisation, which `epsilon(120.3) = 1.303e-05` absorbs. `SPEC-backend.md` §5.2 permits
+collapsing that quantisation *because* the comparison epsilon is wider than it, so a
+comparison keyed on `exactness` would withdraw the tolerance that permission rests on and
+report a rebuild of identical geometry as drift.
+
+**This corrects the bound rather than extending past it.** The justification given above is
+a conjunction — parameter provenance **and** exact adjudication — and `param_range`
+satisfies only the first: its value is `params[expr]`, but it is adjudicated against a
+limit under `epsilon(lo)`. The conjunction was the wrong bound, because the two tolerances
+answer different questions. An **adjudication** tolerance decides a verdict and must
+forgive what the pipeline could have perturbed. A **comparison** tolerance suppresses
+noise, and a number read from the contract's declared parameters has none to suppress —
+while it does have something to hide. A sub-epsilon parameter move that changed no status
+is exactly the drift §1 exists to report: two passing reports and one trend the boolean
+cannot see. Measured before the fix: `wall` moving `1.999999 → 1.999998` against
+`min=2.0` flips `pass → fail` and was reported as `{id, kind, change, status}` with no
+value at all.
+
+**Where the two sides disagree, or say nothing.** A pair with `parameter` on either side
+compares exactly: that direction can only report more differences, never fewer, and §2's
+rule is that "no differences found" is the positive claim. A report recording no `phase`
+at all gets the measurement tolerance: a producer that did not record the provenance is
+read as having proven nothing about it, and a value this comparison cannot place is
+treated as the kind that carries noise. No report partspec has ever written is in that
+state — `phase` is REQUIRED, has been emitted unconditionally since the scaffolding commit,
+and `schema_version` has never left 1 — so this governs a hand-written or third-party
+document, which §2 rule 4's principle already covers: the comparator does not get to assume
+it produced its own input.
 
 Also compared, at the top level, and **outcome-bearing**: `verdict` and `counts.total` (a
 shrink is named, not implied).
@@ -415,6 +514,16 @@ It does not change the outcome: an old report that predates the field still diff
     {
       "id": "genus", "kind": "genus", "change": "regressed",
       "status": { "old": "pass", "new": "fail" }
+    },
+    {
+      "id": "watertight", "kind": "watertight", "change": "fixed",
+      "status": { "old": "fail", "new": "skipped" },
+      "answered": { "old": true, "new": false }
+                                    // present only when the NEW side is not
+                                    // answered: `fixed` here is the severity
+                                    // order, not a repair. Both sides shown so
+                                    // a check that stopped being answered is
+                                    // distinguishable from one that never was
     }
   ],
   "environment": {

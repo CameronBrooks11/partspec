@@ -155,6 +155,383 @@ def test_requires_checks_drift_on_operands():
     assert entry["operands"]["new"]["b"] == 2.5
 
 
+# --------------------------------------------------------------------------
+# a check that stopped being answered is not a repair (#325)
+# --------------------------------------------------------------------------
+
+
+def _status_pair(old_status: Status, new_status: Status) -> tuple[dict, dict]:
+    docs = (_doc(), _doc())
+    for doc, status in zip(docs, (old_status, new_status), strict=True):
+        next(c for c in doc["checks"] if c["id"] == "wall_gt_2")["status"] = status.value
+    return docs
+
+
+def test_the_answered_record_keys_on_the_new_status_over_every_transition():
+    """#325. `_SEVERITY` ranks `approximate`, `unsupported` and `skipped`
+    below `fail` — right for a verdict — so a check that is not answered on
+    the new side lands in `fixed` and is filed as one that was answered
+    better.
+
+    Asserted over EVERY ordered pair of distinct statuses, with the
+    expectation derived from the vocabulary rather than listed: a check is
+    answered iff `Status` calls its outcome conclusive. Enumerating pairs is
+    how two drafts of the issue got the bound wrong — the first omitting
+    `approximate`, the second admitting only transitions out of `fail` — and a
+    hand-written table of cases here would be the same mistake with a green
+    suite on top."""
+    conclusive = {Status.PASS, Status.FAIL}
+    seen = set()
+    for old_status in Status:
+        for new_status in Status:
+            if old_status is new_status:
+                continue
+            entry = next(
+                c
+                for c in _diff(*_status_pair(old_status, new_status))["checks"]
+                if c["id"] == "wall_gt_2"
+            )
+            assert entry["change"] in ("regressed", "fixed")
+            where = (old_status.value, new_status.value)
+            if new_status in conclusive:
+                assert "answered" not in entry, where
+            else:
+                assert entry["answered"] == {"old": old_status in conclusive, "new": False}, where
+            seen.add(where)
+
+    # The sweep really covered the whole vocabulary, not a subset of it.
+    assert len(seen) == len(Status) * (len(Status) - 1) == 20
+
+
+def test_a_check_that_was_never_answered_is_recorded_too():
+    """`unsupported` → `skipped` was answered on neither side, so nothing
+    *stopped* being answerable — and the headline calls it `fixed` just the
+    same, which is why the record keys on the new status and not on the
+    transition. Both sides are carried so the two cases stay distinguishable."""
+    never = next(c for c in _diff(*_status_pair(Status.UNSUPPORTED, Status.SKIPPED))["checks"])
+    stopped = next(c for c in _diff(*_status_pair(Status.FAIL, Status.SKIPPED))["checks"])
+
+    assert never["change"] == stopped["change"] == "fixed"
+    assert never["answered"] == {"old": False, "new": False}
+    assert stopped["answered"] == {"old": True, "new": False}
+
+
+def test_the_headline_qualifier_follows_the_record_over_every_transition():
+    """Review round 1, F1. The artifact got a derived sweep and the headline
+    got enumeration-shaped coverage: every headline case here used a `fixed`
+    entry whose old status was `fail`. Two mutants lived in the gap — one
+    qualifying only the `fixed` bucket, one counting only checks that
+    *stopped* being answered — and the second printed #325's original output
+    verbatim for `unsupported` → `skipped`.
+
+    So the headline is swept the same way the record is: over every ordered
+    pair of distinct statuses, the qualifier appears exactly when the entry
+    carries the record, in whichever bucket the entry landed. Asserted as the
+    whole line, since a substring check cannot see a qualifier that should be
+    absent."""
+    for old_status in Status:
+        for new_status in Status:
+            if old_status is new_status:
+                continue
+            old, new = _status_pair(old_status, new_status)
+            doc = _diff(old, new)
+            entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+
+            qualifier = " (1 not answered)" if "answered" in entry else ""
+            assert summary_of(doc, new).splitlines()[0] == (
+                f"different: p — 1 {entry['change']}{qualifier}"
+            ), (old_status.value, new_status.value)
+
+
+def test_answered_rides_a_status_change_and_only_those():
+    """Review round 1, F3. §3 scopes the record to status-change entries: it
+    exists to correct a bucket that names a DIRECTION, and only `regressed`
+    and `fixed` do. On an entry whose status held, `status` is the single
+    unchanged value a reader can already read.
+
+    Pinned over every unanswered status and both status-holding buckets,
+    because §3 read without the scope makes each of these a violation, and a
+    mutant obeying that reading passed the whole suite.
+
+    The census behind that claim, stated with its method so it can be
+    re-checked rather than re-derived: 135 check variants per side — 5
+    statuses × 3 claims × 3 measurement values × 3 operand sets — diffed
+    against each other is 135² = 18,225 ordered pairs, of which 2,106 hold
+    their status at an unanswered one and 0 carry the record. The dimensions
+    are the three fields the comparison compares, plus `status`. `phase` is
+    held fixed and is NOT one of them: it picks a tolerance and is never
+    itself a difference, and a grid that makes it a dimension also totals
+    18,225 while answering 1,944."""
+    for status in (s for s in Status if s not in {Status.PASS, Status.FAIL}):
+        claim_moved, value_moved = _status_pair(status, status), _status_pair(status, status)
+        next(c for c in claim_moved[1]["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 1.0}
+        next(c for c in value_moved[1]["checks"] if c["id"] == "wall_gt_2")["measurement"][
+            "value"
+        ] = 9.9
+
+        for pair, bucket in ((claim_moved, "limit_changed"), (value_moved, "drifted")):
+            entry = next(c for c in _diff(*pair)["checks"] if c["id"] == "wall_gt_2")
+            assert entry["change"] == bucket, status.value
+            assert entry["status"] == status.value
+            assert "answered" not in entry, (status.value, bucket)
+
+
+def test_the_headline_counts_the_checks_the_new_report_does_not_answer():
+    """The artifact carrying the fact is half of it: the headline is the
+    surface a human reads in a terminal or a PR check, and `1 fixed` there is
+    the whole of #325's complaint.
+
+    Three entries, so the count is neither zero nor the bucket total and the
+    qualified entry is not the only one — a qualifier printing the bucket
+    total reads identically at one entry."""
+    old, new = _doc(), _doc()
+    for doc, statuses in (
+        (old, {"wall_gt_2": "fail", "envelope": "fail", "fits": "fail"}),
+        (new, {"wall_gt_2": "pass", "envelope": "skipped", "fits": "unsupported"}),
+    ):
+        for check in doc["checks"]:
+            if check["id"] in statuses:
+                check["status"] = statuses[check["id"]]
+        doc["verdict"] = "fail"
+
+    doc = _diff(old, new)
+    assert {c["id"]: "answered" in c for c in doc["checks"]} == {
+        "wall_gt_2": False,  # fail -> pass is the genuine repair
+        "envelope": True,
+        "fits": True,
+    }
+    assert summary_of(doc, new).splitlines()[0] == "different: p — 3 fixed (2 not answered)"
+
+
+def test_both_qualifiers_are_stated_where_both_apply():
+    """A second qualifier, not a widening of the first. They answer different
+    questions — whether the author moved the goalposts, and whether anyone was
+    still keeping score — and an entry can earn both."""
+    old, new = _status_pair(Status.FAIL, Status.SKIPPED)
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 1.0}
+
+    doc = _diff(old, new)
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert "claim" in entry and "answered" in entry
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed, 1 not answered)"
+    )
+
+
+# --------------------------------------------------------------------------
+# the comparison tolerance keys on recorded provenance, not on type (#335)
+# --------------------------------------------------------------------------
+
+
+def _move(doc: dict, check_id: str, value, status: str | None = None) -> dict:
+    check = next(c for c in doc["checks"] if c["id"] == check_id)
+    check["measurement"]["value"] = value
+    if status is not None:
+        check["status"] = status
+    return doc
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [(2.9, 2.9 - 1e-6), (1000.0, 1000.0 - 1e-5)],
+    ids=["at 2.9mm", "at 1000mm"],
+)
+def test_a_parameter_phase_value_compares_exactly(before: float, after: float):
+    """#335. `epsilon(reference)` is sized for what a MEASUREMENT survives — a
+    binary-STL round-trip through float32 — and a parameter-phase value
+    survives nothing: `runner` reads it from the declared parameters before
+    any engine runs. Under the measurement tolerance a parameter could cross
+    its own limit and be called unmoved.
+
+    Two magnitudes, because `epsilon` is magnitude-dependent and a fixture at
+    one value pins nothing about a tolerance that grows with the number."""
+    assert abs(after - before) < epsilon(before)  # the fixture is inside the old dead band
+
+    # status held: the drift SPEC-diff §1 exists to report
+    held = _diff(_move(_doc(), "wall_gt_2", before), _move(_doc(), "wall_gt_2", after))
+    entry = next(c for c in held["checks"] if c["id"] == "wall_gt_2")
+    assert entry["change"] == "drifted"
+    assert entry["value"] == {"old": before, "new": after}
+
+    # status flipped: #335's own reproduction, where the entry named neither number
+    flipped = _diff(
+        _move(_doc(), "wall_gt_2", before, "pass"),
+        _move(_doc(), "wall_gt_2", after, "fail"),
+    )
+    entry = next(c for c in flipped["checks"] if c["id"] == "wall_gt_2")
+    assert entry["change"] == "regressed"
+    assert entry["value"] == {"old": before, "new": after}
+
+
+def test_a_geometry_phase_value_keeps_the_measurement_tolerance():
+    """The other half of the same rule, and the half that must not move: a
+    geometry value is measured off an exported artifact, and exact equality
+    there reports transform-order noise as drift. Both directions are pinned,
+    so this is the tolerance still working and not geometry going silent."""
+    absorbed = _diff(_doc(), _move(_doc(), "envelope", [30.0 + 1e-6, 20.0 - 1e-6, 10.0 + 1e-6]))
+    assert absorbed["checks"] == []
+    assert absorbed["outcome"] == "identical"
+
+    reported = _diff(_doc(), _move(_doc(), "envelope", [30.0, 20.0, 10.5]))
+    entry = next(c for c in reported["checks"] if c["id"] == "envelope")
+    assert entry["change"] == "drifted"
+    assert entry["value"]["new"] == [30.0, 20.0, 10.5]
+
+
+def test_the_tolerance_keys_on_phase_and_not_on_exactness():
+    """The field that looks like the right key and is not. `exact` separates a
+    point value from a bounded interval — `bounds` is required iff not
+    `exact` — and says nothing about reproducibility: the fixture's geometry
+    `envelope` and its parameter `wall_gt_2` are BOTH labelled
+    `exactness: "exact"`.
+
+    The pair below is the real thing, measured: `cube([120.3, 80.7, 40.1])` on
+    the mesh tier reports 120.30000305175781, which is float32 quantisation
+    and which `SPEC-backend.md` §5.2 lets that tier collapse *because* this
+    epsilon is wider than it. One fixture, one field changed, opposite
+    answers — so a comparison keyed on `exactness` fails here while passing
+    every other test in this file."""
+    quantised = 120.30000305175781
+
+    def envelope_pair(phase: str) -> tuple[dict, dict]:
+        docs = (_doc(), _doc())
+        for doc, value in zip(docs, (120.3, quantised), strict=True):
+            check = next(c for c in doc["checks"] if c["id"] == "envelope")
+            check["phase"] = phase
+            check["measurement"]["value"] = value
+            assert check["measurement"]["exactness"] == "exact"
+        return docs
+
+    assert _diff(*envelope_pair("geometry"))["checks"] == []
+    entry = next(c for c in _diff(*envelope_pair("parameter"))["checks"])
+    assert entry["value"] == {"old": 120.3, "new": quantised}
+
+
+def test_parameter_phase_on_either_side_is_enough():
+    """A pair disagreeing about its own provenance fails toward reporting: the
+    exact comparison can only report more differences, never fewer, and §2's
+    rule is that "no differences found" is the positive claim."""
+    for relabelled in ("old", "new"):
+        docs = {"old": _doc(), "new": _move(_doc(), "wall_gt_2", 2.9 - 1e-6)}
+        for side, doc in docs.items():
+            check = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+            check["phase"] = "parameter" if side == relabelled else "geometry"
+
+        entry = next(c for c in _diff(docs["old"], docs["new"])["checks"])
+        assert entry["id"] == "wall_gt_2"
+        assert entry["value"] == {"old": 2.9, "new": 2.9 - 1e-6}
+
+
+def test_a_report_that_records_no_phase_keeps_the_measurement_tolerance():
+    """Silence is not evidence of parameter provenance. Reading an absent
+    `phase` as one would report float32 noise as drift for every report
+    written before this comparison read the field — so it reproduces what it
+    received before."""
+    docs = (_doc(), _move(_doc(), "wall_gt_2", 2.9 - 1e-6))
+    for doc in docs:
+        del next(c for c in doc["checks"] if c["id"] == "wall_gt_2")["phase"]
+
+    assert _diff(*docs)["checks"] == []
+
+
+# --------------------------------------------------------------------------
+# the bucket names the change; it does not decide what the entry carries (#330)
+# --------------------------------------------------------------------------
+
+# bucket -> (old status, new status, whether the claim moves)
+_BUCKETS = {
+    "regressed": ("pass", "fail", True),
+    "fixed": ("fail", "pass", True),
+    "limit_changed": ("pass", "pass", True),
+    "drifted": ("pass", "pass", False),
+}
+
+
+def _every_delta_pair(old_status: str, new_status: str, claim_moves: bool) -> tuple[dict, dict]:
+    """One check pair in which the claim, the measurement and the operands all
+    move, so any entry carrying a subset of them is visible.
+
+    `fits` is the fixture's second check, so this is never read at the head of
+    the list. A check carrying BOTH a `measurement` and `operands` is not
+    something the runner emits — `_run_parameter_check` gives a `requires`
+    result no measurement — but the report schema permits it, and §2 rule 4 is
+    that the comparator does not get to assume it produced its own input."""
+    docs = (_doc(), _doc())
+    for doc, status, limit, value, b in (
+        (docs[0], old_status, 2.0, 2.9, 2.0),
+        (docs[1], new_status, 1.0 if claim_moves else 2.0, 2.1, 7.9),
+    ):
+        check = next(c for c in doc["checks"] if c["id"] == "fits")
+        check["status"] = status
+        check["limit"] = {"min": limit}
+        check["measurement"] = {"value": value, "unit": "mm"}
+        check["operands"] = {"a": 1.0, "b": b, "c": 4.0}
+        doc["verdict"] = "fail" if status == "fail" else "pass"
+    return docs
+
+
+@pytest.mark.parametrize("bucket", sorted(_BUCKETS))
+def test_no_bucket_carries_a_subset_of_what_moved(bucket: str):
+    """#330. Each branch returned as soon as it knew its own NAME, one delta
+    into a chain of three — so `limit_changed` shipped the contract edit
+    without the drift it was covering, and `drifted` shipped a moved
+    measurement without the operands beside it. Both were computed and thrown
+    away.
+
+    Over every bucket, because the defect is a property of the chain and not
+    of one branch: whichever entry a pair lands on, it carries every delta the
+    comparison computed. Presence AND absence are asserted, so a fix that
+    attaches deltas unconditionally fails here too."""
+    old_status, new_status, claim_moves = _BUCKETS[bucket]
+    old, new = _every_delta_pair(old_status, new_status, claim_moves)
+
+    entry = next(c for c in _diff(old, new)["checks"] if c["id"] == "fits")
+    assert entry["change"] == bucket
+    assert set(entry) - {"id", "kind", "change", "status"} == (
+        {"claim", "value", "operands"} if claim_moves else {"value", "operands"}
+    )
+    assert entry["value"] == {"old": 2.9, "new": 2.1}
+    assert entry["operands"]["old"]["b"] == 2.0
+    assert entry["operands"]["new"]["b"] == 7.9
+    if claim_moves:
+        assert entry["claim"] == {"old": {"limit": {"min": 2.0}}, "new": {"limit": {"min": 1.0}}}
+
+
+def test_an_entry_carries_only_what_actually_moved():
+    """The rule is that the bucket does not gate the deltas, not that every
+    entry gets all three: an entry naming a delta that did not move would
+    invent a difference, which is the mirror of the defect."""
+    old, new = _doc(), _doc()
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 1.0}
+    entry = next(c for c in _diff(old, new)["checks"] if c["id"] == "wall_gt_2")
+    assert entry["change"] == "limit_changed"
+    assert set(entry) - {"id", "kind", "change", "status"} == {"claim"}
+
+    old, new = _doc(), _doc()
+    next(c for c in new["checks"] if c["id"] == "fits")["operands"]["b"] = 2.5
+    entry = next(c for c in _diff(old, new)["checks"] if c["id"] == "fits")
+    assert entry["change"] == "drifted"
+    assert set(entry) - {"id", "kind", "change", "status"} == {"operands"}
+
+
+def test_a_drifted_entry_never_carries_a_claim():
+    """The one structural consequence §3 states, and not an exception to the
+    rule: a moved claim is exactly what would have made the entry
+    `limit_changed`, so `drifted` and `claim` cannot co-occur by construction.
+
+    Pinned as the ONE pair that differs — same movement, claim held on the
+    second — because asserting "no drifted entry carries a claim" over a
+    document with no drifted entry in it passes for the wrong reason."""
+    moved = next(c for c in _diff(*_every_delta_pair("pass", "pass", True))["checks"])
+    held = next(c for c in _diff(*_every_delta_pair("pass", "pass", False))["checks"])
+
+    assert (moved["change"], "claim" in moved) == ("limit_changed", True)
+    assert (held["change"], "claim" in held) == ("drifted", False)
+    # The bucket is the only thing the claim decided: both carry the rest.
+    assert moved["value"] == held["value"] == {"old": 2.9, "new": 2.1}
+    assert moved["operands"] == held["operands"]
+
+
 def _two_requires(status: str, operands: dict, other_status: str, other_operands: dict) -> dict:
     """A document with TWO `requires` checks, `clears` ahead of the fixture's
     own `fits`, so a rule about `requires` checks is observed somewhere other
@@ -841,6 +1218,85 @@ def test_cli_diff_on_two_real_runs(tmp_path: Path):
     assert entry["value"]["old"][2] == pytest.approx(4.0)
     assert entry["value"]["new"][2] == pytest.approx(8.0)
     assert doc["source"]["digest_changed"] is True
+
+
+@needs_scad_tier
+def test_cli_a_check_that_stopped_being_evaluated_is_not_reported_as_a_repair(
+    tmp_path: Path,
+):
+    """#325's own reproduction. A failing `envelope`, then a `requires`
+    precondition breaks so the geometry phase never runs — and the check that
+    stopped being evaluated was filed in the same bucket as a genuine repair,
+    with an unqualified `1 fixed` on the console."""
+    scad = tmp_path / "plate.scad"
+    # Both parameters are declared: partspec refuses a `-D` that matches no
+    # top-level variable rather than letting the engine drop it silently.
+    scad.write_text("bore_d = 8;\nplate_y = 30;\ncube([40, 30, 6]);\n")
+    contract = tmp_path / "spec.py"
+
+    def write(bore_d: float) -> None:
+        contract.write_text(
+            "from partspec import Part, openscad\n\n\n"
+            "def make() -> Part:\n"
+            f"    p = Part('plate', openscad('plate.scad', bore_d={bore_d}, plate_y=30.0))\n"
+            "    p.requires('bore_d <= plate_y')\n"
+            "    p.envelope(max=(40, 30, 4))\n"
+            "    return p\n"
+        )
+
+    target = f"{contract}:make"
+    write(8.0)
+    assert _run_cli("check", target, "--out", str(tmp_path / "a"), "--quiet")[0] == 1
+    write(48.0)  # breaks the precondition, so the geometry phase never runs
+    assert _run_cli("check", target, "--out", str(tmp_path / "b"), "--quiet")[0] == 1
+
+    code, out, err = _run_cli(
+        "diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")
+    )
+    assert code == 1, err
+    entry = next(c for c in json.loads(out)["checks"] if c["id"] == "envelope")
+    assert entry["change"] == "fixed"
+    assert entry["status"] == {"old": "fail", "new": "skipped"}
+    assert entry["answered"] == {"old": True, "new": False}
+    assert "1 fixed (1 not answered)" in err.splitlines()[0]
+
+
+@needs_scad_tier
+def test_cli_a_loosened_bound_shows_the_drift_it_was_covering(tmp_path: Path):
+    """#330, end to end and on the flagship shape. The bound is loosened and
+    the parameter it bounds moves toward it in the same edit; both sides pass,
+    so no status changes and the entry is `limit_changed`. Reporting the
+    contract edit alone tells the reader the bound moved and the part did not,
+    which is §1's second job dropped on the one entry where the two facts
+    explain each other."""
+    scad = tmp_path / "plate.scad"
+    scad.write_text("wall = 2.9;\ncube([40, 30, 6]);\n")
+    contract = tmp_path / "spec.py"
+
+    def write(wall: float, minimum: float) -> None:
+        contract.write_text(
+            "from partspec import Part, openscad\n\n\n"
+            "def make() -> Part:\n"
+            f"    p = Part('plate', openscad('plate.scad', wall={wall}))\n"
+            f"    p.param('wall', min={minimum})\n"
+            "    return p\n"
+        )
+
+    target = f"{contract}:make"
+    write(2.9, 2.0)
+    assert _run_cli("check", target, "--out", str(tmp_path / "a"), "--quiet")[0] == 0
+    write(2.1, 1.0)
+    assert _run_cli("check", target, "--out", str(tmp_path / "b"), "--quiet")[0] == 0
+
+    code, out, err = _run_cli(
+        "diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")
+    )
+    assert code == 1, err
+    entry = next(c for c in json.loads(out)["checks"] if c["id"] == "param:wall")
+    assert entry["change"] == "limit_changed"
+    assert entry["claim"] == {"old": {"limit": {"min": 2.0}}, "new": {"limit": {"min": 1.0}}}
+    assert entry["value"]["old"] == pytest.approx(2.9)
+    assert entry["value"]["new"] == pytest.approx(2.1)
 
 
 @needs_scad_tier

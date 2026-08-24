@@ -67,7 +67,11 @@ NON_CLAIM_FIELDS = {
         "bit-identical on the mesh tier, so run-to-run drift is NOT the reason "
         "— round-2 review of #207.)"
     ),
-    "phase": "structural, and cannot move without kind or expr moving with it",
+    "phase": (
+        "structural, and cannot move without kind or expr moving with it. Not inert, "
+        "though: it is the input deciding which tolerance `_value_delta` applies, so it "
+        "is read by this comparison without ever being a difference in it (#335)"
+    ),
     "requires": "which tier would answer a refusal — environment, like engine.version",
     "step": (
         "the STEP writer schema — tool-chosen, not author-declared, so not a claim. "
@@ -98,6 +102,24 @@ def exit_code_of(outcome: str) -> int:
     return comparison_exit_code(outcome)
 
 
+_CONCLUSIVE = frozenset({Status.PASS, Status.FAIL})
+"""The statuses that mean the check was evaluated to a conclusion.
+
+Named as a membership rather than as a list of the three it excludes, because
+enumerating them is how two drafts of #325 got the bound wrong — the first
+omitting `approximate`, the second admitting only transitions out of `fail`.
+`Status`'s own docstrings draw the line: `pass` is "evaluated and satisfied,
+conclusively" and `fail` is "evaluated and violated, conclusively", while
+`approximate` is "indeterminate ... the tool does not know", `unsupported` is
+"cannot evaluate this check ... at all", and `skipped` is "not evaluated".
+
+`_SEVERITY` is a different question and is untouched: its ordering is right
+for `verdict_of`, since a run with a skipped check is not worse than one with
+a failing check. What was wrong is `diff` reusing that ordering to name a
+DIRECTION of change without saying which kind of change it was.
+"""
+
+
 def _values_equal(old: Any, new: Any) -> bool:
     """Equality under the adjudication epsilon, old value as reference.
 
@@ -116,6 +138,50 @@ def _values_equal(old: Any, new: Any) -> bool:
     ):
         return abs(float(new) - float(old)) <= epsilon(float(old))
     return old == new
+
+
+def _value_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
+    """The movement in a check's recorded `measurement.value`, or None.
+
+    The twin of `_operands_delta`, and separate from it for the same reason
+    the two are separate fields: one is what the check measured, the other is
+    what its expression read, and an entry may carry both.
+
+    **The tolerance keys on `phase`** (§3, #335). A parameter-phase value is
+    read from the declared parameters before any engine runs, so it is the
+    same kind of number an operand is and compares exactly; a geometry-phase
+    value is measured off an exported artifact and gets `epsilon`.
+
+    Not keyed on `measurement.exactness`, which looks like the right field and
+    is not: `exact` distinguishes a point value from a bounded interval
+    (`bounds` is required iff not `exact`) and says nothing about
+    reproducibility. Measured on the mesh tier, `cube([120.3, 80.7, 40.1])`
+    reports `exactness: "exact"` beside `120.30000305175781` — ±3.052e-06 of
+    float32 quantisation, absorbed by `epsilon(120.3) = 1.303e-05`.
+    `SPEC-backend.md` §5.2 permits the mesh tier to collapse that quantisation
+    *because* this epsilon is wider than it, so keying here on `exactness`
+    would withdraw the tolerance that permission rests on and report a rebuild
+    of identical geometry as drift.
+
+    `parameter` on EITHER side is enough. The exact comparison can only report
+    more differences, never fewer, and §2's rule is that "no differences
+    found" is the positive claim — so a pair that disagrees about its own
+    provenance fails toward reporting. A report carrying no `phase` gets the
+    epsilon: silence is not evidence of parameter provenance, so a value this
+    comparison cannot place is treated as the kind that carries noise. Not a
+    migration path — `phase` is REQUIRED, has been emitted unconditionally
+    since the scaffolding commit, and `schema_version` has never left 1, so no
+    report partspec has written lacks it. It governs a hand-written or
+    third-party document, which is the same reason the id guards below exist:
+    the comparator does not get to assume it produced its own input.
+    """
+    old_value = (old.get("measurement") or {}).get("value")
+    new_value = (new.get("measurement") or {}).get("value")
+    if "parameter" in (old.get("phase"), new.get("phase")):
+        moved = old_value != new_value
+    else:
+        moved = not _values_equal(old_value, new_value)
+    return {"old": old_value, "new": new_value} if moved else None
 
 
 def _operands_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
@@ -172,52 +238,61 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
         if claim_fields
         else None
     )
-    old_value = (old.get("measurement") or {}).get("value")
-    new_value = (new.get("measurement") or {}).get("value")
-    value_moved = not _values_equal(old_value, new_value)
+    value = _value_delta(old, new)
     operands = _operands_delta(old, new)
+    # Every delta this comparison computed, in the order the artifact shows
+    # them. One mapping, built once and spread onto whichever entry is
+    # returned, so no branch can carry a subset of what was measured (§3).
+    deltas = {
+        name: delta
+        for name, delta in (("claim", claim), ("value", value), ("operands", operands))
+        if delta is not None
+    }
 
     if old["status"] != new["status"]:
         # A status change does not get to hide what else moved: loosening a
         # limit until a failing check passes is the flagship weakening move,
         # and an entry saying only "fixed" would report the attack as an
-        # improvement. The claim and value deltas ride along — and `operands`
-        # IS the value of a `requires` check (§3's `drifted` bullet says so),
-        # which this branch did not know: it returned above the operands
-        # comparison and so dropped them on exactly the entry that most needed
-        # them, `1 regressed` and not one of the numbers that regressed it
-        # (#326). Deltas beyond those two are out of scope here and not
-        # claimed to ride: `intrusion` and `components` are recorded and
-        # compared nowhere in this function, and `measurement.unit` is never
-        # compared at all.
+        # improvement (#326). That reason is about what a reader is told, so
+        # it never belonged to this branch alone — `deltas` above is the whole
+        # of it, spread here and on the entry below alike.
         worse = _SEVERITY[Status(new["status"])] > _SEVERITY[Status(old["status"])]
-        entry = {
+        # Keyed on the NEW status alone: whether this report answers the check
+        # is a fact about this report, and where it came from is already in
+        # `status`. So `unsupported` -> `skipped` is recorded though it was
+        # answered on neither side — the headline calls it `fixed` just the
+        # same — and `pass` -> `skipped` is recorded though it is bucketed
+        # `regressed`, because the fact is true of it (§3, #325).
+        answered = (
+            None
+            if Status(new["status"]) in _CONCLUSIVE
+            else {"old": Status(old["status"]) in _CONCLUSIVE, "new": False}
+        )
+        return {
             **base,
             "change": "regressed" if worse else "fixed",
             "status": {"old": old["status"], "new": new["status"]},
-        }
-        if claim is not None:
-            entry["claim"] = claim
-        if value_moved:
-            entry["value"] = {"old": old_value, "new": new_value}
-        if operands is not None:
-            entry["operands"] = operands
-        return entry
-
-    if claim is not None:
-        return {**base, "change": "limit_changed", "status": old["status"], "claim": claim}
-
-    if value_moved:
-        return {
-            **base,
-            "change": "drifted",
-            "status": old["status"],
-            "value": {"old": old_value, "new": new_value},
+            **({} if answered is None else {"answered": answered}),
+            **deltas,
         }
 
-    if operands is not None:
-        return {**base, "change": "drifted", "status": old["status"], "operands": operands}
-    return None
+    if not deltas:
+        return None
+
+    # The bucket names the most significant thing that changed; it does not
+    # decide what the entry may carry (§3). Written as one dict spread rather
+    # than as per-branch attachment because the per-branch version is what
+    # dropped things: each branch returned as soon as it knew its own NAME,
+    # one delta into a chain of three, so `limit_changed` shipped the contract
+    # edit without the drift it was covering and `drifted` shipped a moved
+    # measurement without the operands beside it — both computed above, both
+    # discarded (#330).
+    return {
+        **base,
+        "change": "limit_changed" if claim is not None else "drifted",
+        "status": old["status"],
+        **deltas,
+    }
 
 
 _IRREDUCIBLE_GAPS = frozenset({"native_reads"})
@@ -1500,14 +1575,24 @@ def summary_of(doc: dict[str, Any], new_report: dict[str, Any]) -> str:
             # claim moving, so the note restates the bucket's own name; a
             # `drifted` entry cannot carry a claim at all, `_check_entry`
             # returning `limit_changed` before it reaches that branch.
-            with_claim = (
-                sum(1 for c in entries if "claim" in c) if change in ("regressed", "fixed") else 0
-            )
-            # The bucket keeps its true total and the qualifier breaks it down,
-            # rather than splitting into two counts: `N fixed` is what the spec
-            # names and what a reader greps, and a split total would answer
-            # "how many were fixed?" with a number that is not the answer.
-            note = f" ({with_claim} with the claim changed)" if with_claim else ""
+            #
+            # `answered` is the second qualifier and not a widening of the
+            # first: such an entry carries no `claim` for the first to fire on,
+            # and the two answer different questions — whether the author moved
+            # the goalposts, and whether anyone was still keeping score (#325).
+            notes = []
+            if change in ("regressed", "fixed"):
+                if with_claim := sum(1 for c in entries if "claim" in c):
+                    notes.append(f"{with_claim} with the claim changed")
+                if unanswered := sum(1 for c in entries if "answered" in c):
+                    notes.append(f"{unanswered} not answered")
+            # The bucket keeps its true total and each qualifier is an
+            # independent tally over it, not a partition of it: the two count
+            # overlapping sets and may sum past the bucket. That is deliberate
+            # — `N fixed` is what the spec names and what a reader greps, and a
+            # split total would answer "how many were fixed?" with a number
+            # that is not the answer.
+            note = f" ({', '.join(notes)})" if notes else ""
             parts.append(f"{len(entries)} {change}{note}")
         headline = f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}{moved}"
     # Above the coverage block, because it is the one line the reader can act

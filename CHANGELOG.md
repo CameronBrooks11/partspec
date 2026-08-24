@@ -781,6 +781,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **reparents**, and a shape handed to a second compound leaves the first holding
   nothing — a row that then goes on reporting green while measuring nothing.
 
+- **A check that stopped being answered is no longer filed as a repair**
+  (#325, epic #305). `_SEVERITY` ranks `approximate`, `unsupported` and
+  `skipped` below `fail` — right for a verdict, since a run with a skipped
+  check is not worse than one with a failing check — and `diff` reused that
+  ordering to name a *direction* of change. So every transition into a status
+  the tool cannot draw a conclusion from landed in `fixed`. Measured: an
+  `envelope` failing at `max=(40,30,4)`, then a `requires` precondition
+  breaking so the geometry phase never runs, produced
+  `{"change": "fixed", "status": {"old": "fail", "new": "skipped"}}` under
+  `different: example-spacer — 2 regressed; 1 fixed`. That check did not get
+  better; it stopped being evaluated. It now reads
+  `2 regressed (1 not answered); 1 fixed (1 not answered)`, with
+  `"answered": {"old": true, "new": false}` on both entries.
+  **Keyed on the new status alone**, because whether this report answers the
+  check is a fact about this report and where it came from is already in
+  `status`. `pass` and `fail` are the two outcomes `Status` calls conclusive;
+  the other three are, in its own words, "indeterminate … the tool does not
+  know", "cannot evaluate this check … at all", and "not evaluated". Two
+  drafts of the issue got this bound wrong by enumerating pairs — the first
+  omitting `approximate`, the second admitting only transitions out of
+  `fail` — so the code names the conclusive set and the test sweeps all 20
+  ordered pairs of distinct statuses with the expectation derived from that
+  set rather than listed.
+  It follows that `unsupported` → `skipped` is recorded although it was
+  answered on neither side, since the headline calls it `fixed` just the same,
+  and that `pass` → `skipped` is recorded although it is bucketed `regressed`.
+  Both consequences are about the **headline**, so the headline is swept the
+  same way the record is — over every ordered pair, the qualifier appearing
+  exactly when the entry carries the record, in whichever bucket. Review found
+  the first version of this had given the artifact a derived sweep and the
+  headline enumerated coverage, every case a `fixed` entry that had been
+  `fail`; two mutants lived in the gap and one printed #325's original output
+  verbatim.
+  **The record rides a status-change entry and only those**, present there
+  exactly when the new side is unanswered. It corrects a bucket that names a
+  *direction*, and only `regressed` and `fixed` do; where the status held,
+  `status` is the single unchanged value a reader can already read. A census
+  holds the scoping to evidence, stated with its method so the next reader
+  re-checks it instead of re-deriving it: 135 check variants per side — 5
+  statuses × 3 claims × 3 measurement values × 3 operand sets — diffed against
+  each other is 135² = 18,225 ordered pairs, of which 2,106 hold their status
+  at an unanswered one and 0 carry the record. The dimensions are the three
+  fields this comparison compares, plus `status`; `phase` is held fixed and is
+  deliberately not one of them, since it picks a tolerance and is never itself
+  a difference — a grid that makes it a dimension also totals 18,225 and
+  answers 1,944, which is the shape of a number that is wrong until its method
+  travels with it.
+  **An additive field, not a fifth `change` value.** §4's compatibility rule
+  covers fields; it says nothing about enum values, and widening a closed
+  vocabulary breaks every consumer that switches on it. A console-only
+  qualifier was the other tempting shape and is not enough — it would leave
+  the artifact still calling the entry `fixed`, which is the complaint.
+  `verdict_of` and `_SEVERITY` are untouched.
+
+- **A `param_range` check's value compares exactly, because it is a contract
+  parameter and not a measurement** (#335, epic #305). `runner` reads it
+  straight from the declared parameters before any engine runs, so it is the
+  same kind of number a `requires` operand is — but `diff` gave it the
+  adjudication `epsilon`, which is sized for what a *measurement* survives.
+  Measured before the fix, end to end: `wall` moving `1.999999 → 1.999998`
+  against `min=2.0` flips `pass → fail`, and the entry read
+  `{id, kind, change, status}` with no value at all — a parameter crossing its
+  own limit, reported with neither number.
+  **The key is `phase`, which is where the report records the provenance.**
+  `checks[].phase` is REQUIRED and closed (`parameter` | `geometry`), and the
+  two parameter-phase kinds — `requires` and `param_range` — both take their
+  numbers from the contract's own inputs.
+  **Not `exactness`, which looks like the right field and would have broken
+  the mesh tier.** `exact` separates a point value from a bounded interval
+  (`bounds` is required iff not `exact`) and says nothing about
+  reproducibility: measured, `cube([120.3, 80.7, 40.1])` reports
+  `exactness: "exact"` beside `[120.30000305175781, 80.69999694824219,
+  40.099998474121094]` — ±3.052e-06 of float32 quantisation, absorbed by
+  `epsilon(120.3) = 1.303e-05`. `SPEC-backend.md` §5.2 permits that tier to
+  collapse the quantisation *because* this epsilon is wider than it, so a
+  comparison keyed on `exactness` would withdraw the tolerance that permission
+  rests on and report a rebuild of identical geometry as drift. A test pins
+  the two apart on one fixture with one field changed.
+  **This corrects §3's bound rather than reaching past it.** The rule was
+  justified by a conjunction — parameter provenance *and* exact adjudication —
+  and `param_range` satisfies only the first. The conjunction was wrong: an
+  adjudication tolerance decides a verdict and must forgive what the pipeline
+  could have perturbed, while a comparison tolerance suppresses noise, and a
+  number read from the declared parameters has none to suppress. A sub-epsilon
+  parameter move that changed no status is exactly the drift §1 exists to
+  report.
+  `parameter` on either side is enough, since exact comparison can only report
+  more and "no differences found" is the positive claim; a report recording no
+  `phase` keeps the tolerance, because silence is not evidence of provenance.
+
+- **A `diff` entry now carries every delta the comparison computed, whatever
+  bucket it landed in** (#330, epic #305). `_check_entry` was a chain of
+  returns and each branch returned as soon as it knew its own *name*, one
+  delta into a chain of three. So `limit_changed` reported a contract edit
+  and discarded the drift it was covering, and `drifted` reported a moved
+  measurement and discarded the operands beside it — both computed one line
+  earlier, both thrown away rather than merely omitted.
+  Measured on the flagship shape, end to end: a `min` bound loosened
+  2.0 → 1.0 while the parameter it bounds moved 2.9 → 2.1 in the same edit,
+  both sides passing so no status changed. The entry named the bound and not
+  the parameter, which tells a reader the bound moved and the part did not —
+  and a bound loosened over a value moving toward it is a different event
+  from either alone. That is §1's second job (`SPEC-report.md` §7.2) dropped
+  on the one entry where the two facts explain each other.
+  **The rule is that the bucket names the change and does not decide what the
+  entry carries**, which §3 now states once for all four buckets rather than
+  as a MUST scoped to status changes. The code says it the same way: the
+  deltas are built into one mapping above the branch and spread onto
+  whichever entry is returned, so no branch is able to ship a subset of what
+  was measured. Three deltas are computed and any may ride any entry —
+  `claim`, `value`, `operands` — with one structural consequence that is not
+  an exception: a `drifted` entry never carries a `claim`, because a moved
+  claim is what would have made it `limit_changed`.
+  Filed rather than folded into #326 when it was found, because §3's MUST was
+  scoped to status-change entries and genuinely did not reach this bucket —
+  so the spec sentence came first and the code followed it.
+
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).
   [`evals/run.py`](https://github.com/CameronBrooks11/partspec/blob/main/evals/run.py)
@@ -920,14 +1037,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bore_d = 26.0` and `26.000001`, and the entry emitted there was
   `{id, kind, change: "regressed", status}`, #326's own defect inside the fix
   for it, found in review.
-  §3 also names where the new rule stops (#335): a `param_range` check's value
-  has the same provenance and is still compared under the epsilon, which is
-  pre-existing, narrower, and filed rather than widened into this change.
-  `SPEC-diff.md` needed no change: §3's MUST already required this. The
-  headline qualifier §3 gives the status buckets still reads the claim and
-  nothing else — `operands` is a result, listed in `NON_CLAIM_FIELDS` as one —
-  so a part whose inputs moved is not accused of being a contract that was
-  edited.
+  §3's MUST already required this, so it needed no change; the *tolerance*
+  paragraph did, and gained the general rule that a comparison tolerance
+  belongs to the provenance of a value and not to its type.
+  The claim qualifier reads the claim and nothing else — `operands` is a
+  result, listed in `NON_CLAIM_FIELDS` as one — so a part whose inputs moved
+  is not accused of being a contract that was edited. (A second, independent
+  qualifier for checks the new report does not answer landed later in this
+  same cycle; see #325 above.)
+  This entry originally recorded #335 as the place the new rule stopped — a
+  `param_range` value having the same provenance and still being compared
+  under the epsilon. That is no longer true of the tree these notes ship
+  with: #335 was fixed later in the same unreleased cycle, and the sentence
+  is corrected here rather than left to contradict the entry above it,
+  because a released section is what this project's rule protects from
+  rewriting and an unreleased one is not.
 
 - **`partspec diff` refuses a payload that is not a report, rather than
   reporting two of them as identical** (#292, epic #305). Its only structural
@@ -1144,10 +1268,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`source.digest_changed: false`). The artifact carried
   `status: fail→pass` beside `limit.max: [40,30,4]→[40,30,8]`; the headline
   read `different: example-spacer — 1 fixed` and named neither.
-  The count keeps the bucket's true total and a qualifier breaks it down —
-  `1 fixed (1 with the claim changed)` — rather than splitting into two counts,
-  because `N fixed` is what §3 names and what a reader greps, and a split total
-  answers "how many were fixed?" with a number that is not the answer.
+  The count keeps the bucket's true total and the qualifier is an independent
+  tally over it — `1 fixed (1 with the claim changed)` — rather than splitting
+  into two counts, because `N fixed` is what §3 names and what a reader greps,
+  and a split total answers "how many were fixed?" with a number that is not
+  the answer. (Said as "breaks it down" when this entry was written, which was
+  true of the one qualifier that then existed; #325 later in this same cycle
+  added a second, and two independent tallies over one bucket can overlap and
+  sum past it.)
   Both status buckets take it: `1 regressed` alone cannot tell a part that got
   worse from a contract the author deliberately tightened, and only one of
   those is a defect. `limit_changed` does not — the claim moving *is* that
