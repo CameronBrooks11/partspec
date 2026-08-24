@@ -704,6 +704,69 @@ def test_the_generated_doc_blocks_are_current():
     )
 
 
+def _gen_docs():
+    """`scripts/gen_docs.py`, imported rather than shelled out to.
+
+    The test above runs it as a subprocess because it asks one yes/no question
+    about this tree. This one has to hand a function an input the tree does not
+    contain.
+    """
+    import importlib.util
+
+    path = ROOT / "scripts" / "gen_docs.py"
+    spec = importlib.util.spec_from_file_location("partspec_gen_docs", path)
+    assert spec is not None and spec.loader is not None, f"cannot load {path}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_layout_generator_counts_an_async_mcp_tool():
+    """`async def` is the idiomatic form for an MCP tool, and
+    `ast.AsyncFunctionDef` is **not** a subclass of `ast.FunctionDef`.
+
+    So a generator matching only the latter drops an async tool from
+    AGENTS.md's `mcp.py` row — and the drop is not inert. The prescribed remedy
+    is `just fmt`, which would then WRITE the shortened row: character for
+    character the falsehood #299 was filed about, with `gen-docs --check` green
+    afterwards and nothing left to notice. A guard whose failure mode is to
+    author its own defect class is worse than no guard, which is why the shape
+    is pinned here rather than left to the generator's own docstring
+    (PR #331 review, F2).
+
+    This is not the doc-versus-code diff the module docstring forbids: it
+    executes the generator against a fixed input and asserts what it returns.
+    There is no second copy of anything.
+    """
+    tool_names = _gen_docs().tool_names
+    source = (
+        "@server.tool()\n"
+        "def check(target): ...\n"
+        "@server.tool()\n"
+        "async def vdiff(old, new): ...\n"
+        "@server.tool\n"
+        "async def render(target): ...\n"
+        "@tool()\n"
+        "def measure(target): ...\n"
+        "@staticmethod\n"
+        "def not_a_tool(): ...\n"
+        "async def also_not_a_tool(): ...\n"
+        # The near-misses fence the LOOSENING direction, which the rest of this
+        # fixture does not: `call_tool` and `list_tools` are the low-level MCP
+        # SDK's own decorators, and a substring match would write both into the
+        # row as verbs. `toolset` is the prefix case — needed because the name
+        # matched is the decorator's TRAILING one, so `call_tool` does not
+        # start with "tool" and leaves `startswith` alive (PR #331 review, R2-3).
+        "@server.call_tool()\n"
+        "def ct(): ...\n"
+        "@server.list_tools()\n"
+        "def lt(): ...\n"
+        "@server.toolset()\n"
+        "def ts(): ...\n"
+    )
+    assert tool_names(source) == ["check", "vdiff", "render", "measure"]
+
+
 def test_every_spec_a_diagnostic_cites_is_locatable_from_the_tool():
     """A citation an installed user cannot follow is not a citation.
 

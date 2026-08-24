@@ -512,6 +512,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The eval harness stops calling a file "lint-clean" when three rules never
+  looked at it** (#317, epic #305).
+  [`evals/run.py`](https://github.com/CameronBrooks11/partspec/blob/main/evals/run.py)
+  branched on `counts.findings` alone and
+  [`evals/AUTHORING.md`](https://github.com/CameronBrooks11/partspec/blob/main/evals/AUTHORING.md)
+  reported that as "trials lint-clean" — the blind loop `docs/LINT.md` names in
+  its own words: "a `findings: 0` with `unsupported: 3` is not a clean file".
+  A trial on a machine with no OpenSCAD, or over a source whose `.csg` export
+  is refused, recorded zero and counted as clean while every tier-2 rule was
+  skipped. Reproduced directly: a three-line `.scad` carrying a string reports
+  `counts` `(findings 0, unsupported 3)` — clean under the old metric.
+  The harness now records `findings`, `unsupported` and a three-way
+  `lint_outcome`: `clean` only when both are zero, `findings` when every rule
+  ran and something was found, `incomplete` when any rule did not. Wholeness is
+  decided **first**, because nothing can be concluded from a findings count
+  taken over a partial pass — a trial with both findings and refusals is
+  `incomplete`, not `findings`. An absent `counts.unsupported` (a partspec
+  predating #316, where the key is additive) reads as `incomplete` rather than
+  as a zero. `results.json` gains a per-bucket `lint` tally beside `summary`,
+  so the figure `AUTHORING.md` reports by hand is one the harness computes
+  under a stated definition.
+  **The recorded figures are annotated, not restated.** They are a measurement
+  from a dated run that costs real agent calls to retake, so `AUTHORING.md`
+  keeps its numbers and gains the definition in force when they were taken:
+  every lint figure there is a **tier-1 count**. The runs are stamped
+  `20260808-133845` and `20260808-134127`, and tier 2 was not committed until
+  `1ac5807` at 17:27 the same day — so no tier-2 rule ran and none could
+  refuse. `counts.unsupported` did not exist in the payload at all until #316.
+  Reinterpreting those numbers under the new definition would report a
+  measurement nobody took.
+
+- **`just eval` runs the partspec it is meant to measure, and the result says
+  which one** (#304). `justfile:303` was the only place in the justfile running
+  Python outside `uv run`, so nothing put `.venv/bin` on PATH for the harness —
+  on this checkout `partspec` does not resolve on the bare PATH at all, so the
+  recipe as written failed its own guard rather than measuring the wrong build.
+  It goes through `uv run python` now.
+  `results.json` recorded `when`, `agent`, `arm`, `trials` and `summary`: no
+  version, no commit, no path to the binary it measured. The header now carries
+  `partspec` (an absolute path), `partspec_version` (what that binary reports)
+  and `harness_commit` (the checkout the driver ran from — a separate key
+  because `--partspec` may be an installed wheel from anywhere, and the two are
+  not one fact). The commit carries the working tree's state in the value —
+  `<sha>-dirty`, or `<sha>-unknown` when git could not be asked — because a
+  bare `HEAD` from a modified checkout names a commit that is not what ran,
+  which is the claim this header exists to refuse. A suffix rather than a
+  sibling boolean: the boolean is dropped the first time anyone quotes the
+  commit on its own. This is the class of defect the tool exists to prevent:
+  `report.json` carries `tool_version` and `diff` refuses a comparison without
+  one, while the directory arguing the tool works carried none — and a run costs
+  real agent calls, so a baseline that cannot name its build cannot be compared
+  to a later one.
+  **`--partspec` names one executable, resolved to an absolute path.** It was
+  split for `shutil.which` and passed whole as `argv[0]`, so
+  `PARTSPEC_BIN="uv run partspec"` cleared the guard and then failed in the
+  first trial — after the spend had started. `shutil.which` alone closes only
+  half of that: given a path containing a separator it returns the string
+  **unchanged** when it is executable relative to the CWD, so
+  `PARTSPEC_BIN=.venv/bin/partspec` — the natural thing to type from the repo
+  root — also cleared the guard, printed a reassuring version into the header
+  (`provenance` runs with no `cwd`), and then died in every trial, because
+  `run_check` runs with `cwd=work`, a temp copy. It is resolved once and made
+  absolute while the CWD it was typed against is still the CWD, and that
+  absolute path is what runs and what the header records. A path that exists
+  but is not executable now says so rather than reporting "not found".
+  `PARTSPEC_BIN` was documented nowhere;
+  [`evals/README.md`](https://github.com/CameronBrooks11/partspec/blob/main/evals/README.md)
+  documents it now.
+
+- **`AGENTS.md`'s layout tree is generated, so it can neither miss a module nor
+  keep describing one that moved** (#299). The `## Layout` fence is the map this
+  repo tells an agent to read first, and it had no generator and no test behind
+  it. It named 15 of the 21 modules in `src/partspec/`: `csg.py`, `imports.py`,
+  `raster.py` and `vdiff.py` — 1,874 of `src/`'s 16,722 lines — were absent.
+  Three of the four are named elsewhere in the file, so the damage is bounded;
+  **`raster.py` was not, and no shipped markdown named the file at all**, so an
+  agent looking for the OCCT tier's render path goes to `engines/`, where it is
+  not — `cli.py` and `vdiff.py` are the two modules that import it.
+  Two rows had also gone false. `mcp.py` read "check/measure/render" while the
+  module registers a fourth `@server.tool()`, `vdiff`; `refs/` read
+  "(iso15, nema17)" while `iso_metric_thread.py` sits beside them. (#299 reports
+  a third, `lint.py` as tier-1-only — #316 had already fixed that one.)
+  **A generator rather than a test**, which is this repo's own convention: a
+  test that reads the map and reads the tree is two copies of one fact with a
+  failure report attached, and it reports drift only after it has happened.
+  `scripts/gen_docs.py` gains a **seventh** block — it owned six, not the five
+  #299 counted — and a module added with no row fails `just fmt` and
+  `just check` alike, naming the module and the row that has to go with it.
+  The MCP tool list and the `refs/` contents are derived the same way, the
+  latter from `refs.__all__`, which is the question `cli.py`'s
+  `_refs_carried()` already asks and for the same reason: a glob over
+  `refs/*.py` would advertise a private helper as a cited reference table.
+  What stays hand-written is the one line saying what each module is FOR — a
+  judgement, not a projection of the code.
+  **The tool list counts an `async def`.** `ast.AsyncFunctionDef` is not a
+  subclass of `ast.FunctionDef`, and async is the idiomatic form for an MCP
+  tool, so a generator matching only the latter would have dropped one — and
+  the drop is not inert, because the prescribed remedy is `just fmt`, which
+  would then *write* the shortened row and leave `--check` green on it. A guard
+  whose failure mode is to author its own defect class is worse than no guard;
+  `tests/test_docs.py` pins the shape.
+  One fossil of the same enumeration lived outside every gate and is fixed with
+  it: `pyproject.toml`'s `mcp` extra comment said "check/measure/render" too,
+  the last place in the repo that did — `README.md` and `docs/AGENT-CONTRACT.md`
+  already named all four.
+
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry
   to carry the claim delta because "an entry saying only 'fixed' would report

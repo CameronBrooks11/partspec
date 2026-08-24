@@ -5,9 +5,12 @@ See evals/README.md. The three properties that make the answer mean something:
 the contract is frozen, the prompt carries no hints, and every trial runs in a
 throwaway copy of the case.
 
-    python evals/run.py --list
-    python evals/run.py --case bore-breach --trials 3
-    python evals/run.py                      # every case, one trial each
+    uv run python evals/run.py --list
+    uv run python evals/run.py --case bore-breach --trials 3
+    uv run python evals/run.py               # every case, one trial each
+
+Through `uv run`, because `--partspec` defaults to whatever `partspec` PATH
+resolves to and nothing else here puts `.venv/bin` on it (#304).
 """
 
 from __future__ import annotations
@@ -120,6 +123,8 @@ class Trial:
     note: str = ""
     loc: int | None = None
     lint_findings: int | None = None
+    lint_unsupported: int | None = None
+    lint_outcome: str | None = None
 
 
 def digests(root: Path, names: list[str]) -> dict[str, str]:
@@ -218,14 +223,103 @@ def source_loc(path: Path) -> int:
     return count
 
 
-def lint_count(work: Path, model: str, partspec: str) -> int | None:
+def lint_counts(work: Path, model: str, partspec: str) -> tuple[int | None, int | None]:
+    """`(findings, unsupported)` from one `partspec lint` run.
+
+    Both, because `findings` alone cannot tell the two apart. `.get` on the
+    second: it is an additive key (#316), so a partspec that predates it
+    answers `None` — which is "not known", not zero, and is not folded into
+    a clean result by `lint_outcome`.
+    """
     proc = subprocess.run(
         [partspec, "lint", model], cwd=work, capture_output=True, text=True, timeout=120
     )
     try:
-        return json.loads(proc.stdout)["counts"]["findings"]
+        counts = json.loads(proc.stdout)["counts"]
+        return counts["findings"], counts.get("unsupported")
     except (json.JSONDecodeError, KeyError):
-        return None
+        return None, None
+
+
+def lint_outcome(findings: int | None, unsupported: int | None) -> str:
+    """What the lint actually established — three answers, not two.
+
+    The harness branched on `counts.findings` alone and the write-up called
+    the result "lint-clean", which is the blind loop `docs/LINT.md` names:
+    a `findings: 0` with `unsupported: 3` is not a clean file, it is a file
+    three rules never looked at (#118, #288, #317).
+
+    Wholeness is decided FIRST, on purpose: nothing can be concluded from a
+    findings count taken over a partial pass, so a run that refused a rule is
+    `incomplete` whatever its findings count says. Only a run where every rule
+    ran and found nothing earns the word `clean`.
+    """
+    if findings is None:
+        return "unknown"
+    if unsupported is None or unsupported > 0:
+        return "incomplete"
+    return "clean" if findings == 0 else "findings"
+
+
+LINT_OUTCOMES = ("clean", "findings", "incomplete", "unknown")
+
+
+def provenance(partspec: str) -> dict[str, str | None]:
+    """Which build this run measured, for the header of `results.json`.
+
+    The payload recorded `when` and `agent` and nothing at all about the tool
+    under test, while `report.json` — the artifact this project ships — carries
+    `tool_version`, and `diff` refuses a comparison that cannot say what
+    produced each side. A baseline that costs real agent calls to take and
+    cannot name its own build cannot be compared to a later one (#304).
+
+    `harness_commit` describes the checkout `run.py` ran from, which is NOT
+    necessarily the build above it: `--partspec` may be an installed wheel from
+    anywhere. The absolute path and the version are what identify the binary;
+    the commit identifies the cases, the prompts and this driver.
+
+    A bare `HEAD` from a modified checkout names a commit that is not what ran,
+    which is the very claim this function exists to refuse, so the state of the
+    working tree is carried **in the value** — `<sha>-dirty`, or `<sha>-unknown`
+    when git could not be asked. A sibling boolean would be dropped the first
+    time someone quoted the commit on its own; a suffix cannot be read without
+    it (PR #331 review, F7c).
+    """
+
+    def captured(cmd: list[str]) -> str | None:
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return (proc.stdout.strip() or None) if proc.returncode == 0 else None
+
+    def modified() -> bool | None:
+        """Whether the checkout has uncommitted changes. `None` = cannot tell.
+
+        Its own runner, not `captured`: a clean tree prints nothing, and
+        `captured` maps empty output and a failed command to the same `None`.
+        """
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(ROOT), "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return bool(proc.stdout.strip()) if proc.returncode == 0 else None
+
+    commit = captured(["git", "-C", str(ROOT), "rev-parse", "HEAD"])
+    if commit is not None:
+        dirty = modified()
+        commit += "-dirty" if dirty else "" if dirty is False else "-unknown"
+
+    return {
+        "partspec": partspec,
+        "partspec_version": captured([partspec, "--version"]),
+        "harness_commit": commit,
+    }
 
 
 def run_trial(
@@ -316,7 +410,10 @@ def run_trial(
         model_file = work / cfg.get("model", "model.scad")
         if model_file.exists():
             t.loc = source_loc(model_file)
-            t.lint_findings = lint_count(work, cfg.get("model", "model.scad"), partspec)
+            t.lint_findings, t.lint_unsupported = lint_counts(
+                work, cfg.get("model", "model.scad"), partspec
+            )
+            t.lint_outcome = lint_outcome(t.lint_findings, t.lint_unsupported)
 
         # Preserve whatever the agent left behind, for post-hoc reading.
         keep = out_dir / f"{cfg['id']}-{arm}-t{trial_n}-final"
@@ -375,21 +472,56 @@ def main() -> int:
             print("no authoring cases to run under --arm skills", file=sys.stderr)
             return 64
 
-    if not shutil.which(args.partspec.split()[0]):
-        print(f"partspec not found: {args.partspec} (set PARTSPEC_BIN)", file=sys.stderr)
+    # ONE executable, resolved here and passed down resolved and ABSOLUTE.
+    # `run_check` uses this whole string as argv[0], so the earlier
+    # `.split()[0]` guard let PARTSPEC_BIN="uv run partspec" pass and then fail
+    # in the first trial, after the run had started (#304).
+    #
+    # `shutil.which` closes only half of that. Given a path with a separator it
+    # returns the string UNCHANGED when it is executable relative to the CWD —
+    # so `PARTSPEC_BIN=.venv/bin/partspec`, the natural thing to type from the
+    # repo root, cleared the guard, printed a reassuring version in the header
+    # (`provenance` runs with no `cwd`), and then died in every trial, because
+    # `run_check` runs with `cwd=work`, a temp copy. Absolute here, once, while
+    # the CWD the user typed it against is still the CWD (PR #331 review, F1).
+    resolved = shutil.which(args.partspec)
+    if resolved is None:
+        # `.exists()`, not `.is_file()`: a DIRECTORY exists, and `is_file`
+        # sent it down the "no such file" branch to be told it was not there.
+        # `shutil.which` refuses a directory correctly either way, so this is
+        # the sentence and not the behaviour — a false sentence shipped to a
+        # user is still shipped (PR #331 review, R2-1).
+        candidate = Path(args.partspec)
+        why = (
+            "it exists but is not executable"
+            if candidate.exists()
+            else "no such file, and no such name on PATH"
+        )
+        print(
+            f"partspec not usable: {args.partspec!r} — {why}. Set PARTSPEC_BIN "
+            "to ONE executable: a path, or a name on PATH; not a multi-word command.",
+            file=sys.stderr,
+        )
         return 64
+    partspec = str(Path(resolved).resolve())
 
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = RESULTS / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"agent:   {args.agent}\nresults: {out_dir}\n")
+    provenance_of_run = provenance(partspec)
+    print(
+        f"agent:    {args.agent}\n"
+        f"partspec: {provenance_of_run['partspec_version']}  ({partspec})\n"
+        f"commit:   {provenance_of_run['harness_commit']}\n"
+        f"results:  {out_dir}\n"
+    )
 
     trials: list[Trial] = []
     for d, cfg in cases:
         for n in range(1, args.trials + 1):
             print(f"-- {cfg['id']} trial {n}/{args.trials}", flush=True)
             try:
-                t = run_trial(d, cfg, n, args.agent, args.partspec, out_dir, args.arm)
+                t = run_trial(d, cfg, n, args.agent, partspec, out_dir, args.arm)
             except Exception as exc:  # noqa: BLE001 - a harness fault is data, not a crash
                 t = Trial(
                     case=cfg["id"], trial=n, outcome="error", note=f"{type(exc).__name__}: {exc}"
@@ -402,11 +534,15 @@ def main() -> int:
         "when": stamp,
         "agent": args.agent,
         "arm": args.arm,
+        **provenance_of_run,
         "trials": [asdict(t) for t in trials],
         "summary": {
             o: sum(1 for t in trials if t.outcome == o)
             for o in ("converged", "failed", "gamed", "regressed", "error")
         },
+        # Reported per bucket rather than as one "lint-clean" tally, because
+        # the tally cannot say which of the three a trial was (#317).
+        "lint": {o: sum(1 for t in trials if t.lint_outcome == o) for o in LINT_OUTCOMES},
     }
     (out_dir / "results.json").write_text(json.dumps(payload, indent=2))
 
@@ -414,6 +550,8 @@ def main() -> int:
     for o, n in payload["summary"].items():
         if n:
             print(f"  {o:<12} {n}")
+    if any(payload["lint"].values()):
+        print("  lint:        " + "  ".join(f"{o} {n}" for o, n in payload["lint"].items() if n))
     conv = [t.turns_to_converge for t in trials if t.turns_to_converge is not None]
     if conv:
         print(f"  turns to converge: {conv}  (mean {sum(conv) / len(conv):.1f})")

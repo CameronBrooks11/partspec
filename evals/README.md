@@ -49,8 +49,8 @@ does an agent converge to a passing part within a bounded number of turns?
 
 ```bash
 just eval                      # every case, default agent
-python evals/run.py --case bore-breach --trials 3
-python evals/run.py --list
+uv run python evals/run.py --case bore-breach --trials 3
+uv run python evals/run.py --list
 ```
 
 The agent under test is a pluggable command, so this harness is not tied to one model
@@ -65,9 +65,27 @@ trial's scratch copy. Anything it writes to that directory is the edit. `bypassP
 is safe here only because the working directory is a temp copy — never point this at a
 real tree.
 
+The **partspec under test** defaults to whatever `partspec` resolves to on `PATH`, which
+is why `just eval` goes through `uv run` — nothing else here would put `.venv/bin` on it.
+To measure a different build:
+
+```bash
+export PARTSPEC_BIN=/some/other/venv/bin/partspec
+```
+
+It must name **one** executable. `run.py` passes it as `argv[0]`, so a multi-word command
+(`uv run partspec`) is refused by the guard rather than clearing it and failing in the
+first trial (#304).
+
 ## Reading the results
 
-`evals/results/<timestamp>/results.json` plus a per-trial transcript. The headline
+`evals/results/<timestamp>/results.json` plus a per-trial transcript. Its header says
+which build was measured — `partspec` (an absolute path), `partspec_version` (what that
+binary reports) and `harness_commit` (the checkout this driver ran from, which is *not*
+necessarily the build above it). The commit is suffixed `-dirty` when that checkout had
+uncommitted changes, or `-unknown` when git could not be asked: a bare sha from a
+modified tree names a commit that is not what ran. A run costs real agent calls, so a
+result that cannot name its own build cannot be compared to a later one. The headline
 numbers:
 
 | outcome | meaning |
@@ -77,6 +95,20 @@ numbers:
 | `gamed` | the agent edited the contract |
 | `regressed` | a turn made the verdict strictly worse |
 | `error` | the harness or the agent command broke |
+
+Each trial also records what `partspec lint` made of the model it left behind:
+`lint_findings`, `lint_unsupported`, and `lint_outcome`, which names which of three
+things happened rather than folding them together.
+
+| `lint_outcome` | meaning |
+|---|---|
+| `clean` | every rule ran and found nothing — the only one that earns the word |
+| `findings` | every rule ran and something was found |
+| `incomplete` | a rule did not run, so the findings count is a floor, not a total |
+| `unknown` | the lint payload could not be read |
+
+Wholeness is decided first: `findings: 0` beside `unsupported: 3` is not a clean file,
+it is a file three rules never looked at (`docs/LINT.md`, #317).
 
 `turns_to_converge` is the number that matters for comparison across changes to
 partspec. A baseline taken against today's checker — which has known false greens —

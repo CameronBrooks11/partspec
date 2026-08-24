@@ -36,6 +36,10 @@ disagree on purpose. `docs/SPEC-contract.md` is how to author one.
 
 ## Layout
 
+The `src/` tree is generated from the package itself (`just fmt`), so a module cannot go
+missing from it and a row cannot outlive what it describes — four had, and two did (#299).
+
+<!-- BEGIN GENERATED: layout -->
 ```
 src/partspec/
   status.py       # statuses, verdicts, exit codes, epsilon, adjudication  <- the thesis
@@ -44,22 +48,32 @@ src/partspec/
   contract.py     # Part, Source, the closed check vocabulary
   region.py       # keep_out/keep_in region data + the canonical polyhedron both tiers materialize
   provenance.py   # Referenced values: numbers that carry their citation (SPEC-contract 10)
-  refs/           # cited reference tables + fragments (iso15, nema17) — SPEC-contract 10/11
+  refs/           # cited reference tables (iso15, iso_metric_thread, nema17) — SPEC-contract 10/11
   expectation.py  # the claims pin: --pin/--expect, weakening caught with no baseline (#31)
   expr.py         # restricted-AST evaluation for `requires`, with operand capture
   lint.py         # advisory source lint: tier 1 engine-free, tier 2 over the .csg (docs/LINT.md, #26, #118)
+  csg.py          # a reader for OpenSCAD's .csg export — the folded tree tier 2 walks (#118)
   target.py       # <module>[:<factory>] resolution
   install.py      # phrases install hints for the interpreter reading them (uv venvs have no pip)
+  imports.py      # source closure: what the build actually read, and how honestly (SPEC-report 8.3)
   runner.py       # phase orchestration: parameters -> build -> geometry -> report
   cli.py          # argparse entry point
   diff.py         # semantic comparison of two reports (SPEC-diff.md)
-  mcp.py          # MCP adapter: stateless tools over check/measure/render, subprocess per call (D18)
+  vdiff.py        # per-view pixel comparison of two runs' renders (SPEC-diff appendix, #21)
+  raster.py       # the OCCT tier's deterministic software rasterizer — its render path (#18)
+  mcp.py          # MCP adapter: stateless check/measure/render/vdiff, subprocess per call (D18)
   backends/
     mesh.py       # OpenSCAD tier — trimesh, measured as exported (D15, D17)
     occt.py       # build123d AND CadQuery, one implementation (D3)
   engines/
     openscad.py   # render to binstl; never parses --summary (D13)
     pycad.py      # import + call a Python model; the `.wrapped` adopt shim
+```
+<!-- END GENERATED: layout -->
+
+The rest of the repository:
+
+```
 tests/            # mirrors src; also asserts docs/SPEC-report.md's example conforms
 skills/           # teaching material for partspec USERS (contract-authoring, ...)
 examples/         # worked exemplars, each README stating what to imitate
@@ -129,7 +143,8 @@ Run the suite under both before touching `engines/openscad.py`.
   that is a bug in one of them — say which, do not silently pick.
 - **Mechanical enumerations inside the specs are GENERATED**, between
   `<!-- BEGIN GENERATED: name -->` markers: the vocabulary tables, the unit table,
-  `DIMENSIONAL_KINDS`, the backend protocol block, the README's exit codes. Edit the code
+  `DIMENSIONAL_KINDS`, the backend protocol block, the README's exit codes, and the `src/`
+  half of the Layout tree above. Edit the code
   and run `just fmt`; editing the block by hand is reverted on the next run and `just check`
   fails meanwhile. The prose around them is hand-written and stays normative — only the
   parts that are a projection of the code by definition are generated, because a generated

@@ -26,6 +26,10 @@ are a projection of the code by definition and carry no judgement: which methods
 exist, which kind each emits, which tier answers it. The arguments around them
 stay hand-written and stay normative.
 
+`AGENTS.md`'s layout tree follows the same rule: which modules exist is the
+package's own fact, so the set of rows is derived, while the one line saying
+what each module is FOR stays hand-written (#299).
+
 Usage (via uv, as `just fmt` and `scripts/check_ocp.py` are invoked — the
 shebang is decorative, this file is not committed executable):
     uv run python scripts/gen_docs.py            # rewrite the blocks in place
@@ -42,9 +46,10 @@ import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "src" / "partspec"
 sys.path.insert(0, str(ROOT / "src"))
 
-from partspec import backend, contract  # noqa: E402
+from partspec import backend, contract, refs  # noqa: E402
 from partspec.backends import mesh, occt  # noqa: E402
 from partspec.status import EXIT_USAGE, Verdict, exit_code  # noqa: E402
 
@@ -270,6 +275,188 @@ def render_protocol_block() -> str:
     return "```python\n" + "\n".join(lines).rstrip() + "\n```"
 
 
+# `refs/` is one row in the layout tree rather than four: it is a package of
+# reference tables, and the row names the tables inside it.
+_COLLAPSED = ("refs/",)
+
+
+def _decorator_name(node: ast.expr) -> str:
+    """The trailing name of a decorator, called or not: `tool` for all four of
+    `@server.tool()`, `@server.tool`, `@tool()` and `@tool`.
+    """
+    target = node.func if isinstance(node, ast.Call) else node
+    return getattr(target, "attr", None) or getattr(target, "id", None) or ""
+
+
+def tool_names(source: str) -> list[str]:
+    """The functions `source` registers as MCP tools, in source order.
+
+    **`async def` counts.** `ast.AsyncFunctionDef` is not a subclass of
+    `ast.FunctionDef`, and async is the idiomatic form for an MCP tool, so
+    matching only the latter drops one silently — and the drop is not inert:
+    the generator's own remedy, `just fmt`, would then WRITE the shortened row
+    into AGENTS.md, installing character-for-character the falsehood #299 was
+    filed about, after which `--check` exits 0 and the gate is green. A guard
+    whose failure mode is to author the defect is worse than no guard, which
+    is why this is pinned by a test (PR #331 review, F2).
+
+    Pure, and takes the source rather than reading the file, so that test can
+    put an `async def` in front of it without editing `src/`.
+    """
+    functions = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and any(_decorator_name(d) == "tool" for d in node.decorator_list)
+    ]
+    return [node.name for node in sorted(functions, key=lambda node: node.lineno)]
+
+
+def _mcp_tools() -> str:
+    """The verbs `mcp.py` registers, read off its decorators.
+
+    The hand-written row said "check/measure/render" for as long as `vdiff`
+    had been a fourth `@server.tool()` (#299). No comment can be made to
+    notice a fifth; this can.
+    """
+    tools = tool_names((SRC / "mcp.py").read_text(encoding="utf-8"))
+    if not tools:
+        raise SystemExit("mcp.py registers no tool decorator; the layout row would name nothing")
+    return "/".join(tools)
+
+
+def _refs_named() -> str:
+    """The reference tables `refs/` actually carries.
+
+    The row named two of the three for as long as `iso_metric_thread.py` had
+    existed (#299).
+
+    `refs.__all__`, not a glob over `refs/*.py`: the package already answers
+    this question — `cli.py`'s `_refs_carried()` asks it the same way, for the
+    same reason, after the same "iso15, nema17" went stale in #194 — and a glob
+    would advertise a private helper module as a cited reference table. The
+    `refs/` row is collapsed, so the module gate below never sees inside it
+    (PR #331 review, F5).
+    """
+    if not refs.__all__:
+        raise SystemExit("refs.__all__ is empty; the layout row would name nothing")
+    return ", ".join(sorted(refs.__all__))
+
+
+def _layout_rows() -> list[tuple[str, str]]:
+    """(path under `src/partspec/`, its one line), in reading order.
+
+    Ordered, not sorted: the tree opens on `status.py` because that is where
+    the thesis lives, and alphabetical order would bury it under `backend`.
+
+    The descriptions are hand-written and stay hand-written — what a module is
+    FOR is a judgement, not a projection of the code. What is derived is the
+    set of rows, which is the part that drifted.
+    """
+    return [
+        ("status.py", "statuses, verdicts, exit codes, epsilon, adjudication  <- the thesis"),
+        ("report.py", "the report artifact, serialisation, write semantics"),
+        ("backend.py", "GeometryBackend protocol + value types"),
+        ("contract.py", "Part, Source, the closed check vocabulary"),
+        (
+            "region.py",
+            "keep_out/keep_in region data + the canonical polyhedron both tiers materialize",
+        ),
+        (
+            "provenance.py",
+            "Referenced values: numbers that carry their citation (SPEC-contract 10)",
+        ),
+        ("refs/", f"cited reference tables ({_refs_named()}) — SPEC-contract 10/11"),
+        (
+            "expectation.py",
+            "the claims pin: --pin/--expect, weakening caught with no baseline (#31)",
+        ),
+        ("expr.py", "restricted-AST evaluation for `requires`, with operand capture"),
+        (
+            "lint.py",
+            "advisory source lint: tier 1 engine-free, tier 2 over the .csg "
+            "(docs/LINT.md, #26, #118)",
+        ),
+        ("csg.py", "a reader for OpenSCAD's .csg export — the folded tree tier 2 walks (#118)"),
+        ("target.py", "<module>[:<factory>] resolution"),
+        (
+            "install.py",
+            "phrases install hints for the interpreter reading them (uv venvs have no pip)",
+        ),
+        (
+            "imports.py",
+            "source closure: what the build actually read, and how honestly (SPEC-report 8.3)",
+        ),
+        ("runner.py", "phase orchestration: parameters -> build -> geometry -> report"),
+        ("cli.py", "argparse entry point"),
+        ("diff.py", "semantic comparison of two reports (SPEC-diff.md)"),
+        ("vdiff.py", "per-view pixel comparison of two runs' renders (SPEC-diff appendix, #21)"),
+        ("raster.py", "the OCCT tier's deterministic software rasterizer — its render path (#18)"),
+        ("mcp.py", f"MCP adapter: stateless {_mcp_tools()}, subprocess per call (D18)"),
+        ("backends/mesh.py", "OpenSCAD tier — trimesh, measured as exported (D15, D17)"),
+        ("backends/occt.py", "build123d AND CadQuery, one implementation (D3)"),
+        ("engines/openscad.py", "render to binstl; never parses --summary (D13)"),
+        ("engines/pycad.py", "import + call a Python model; the `.wrapped` adopt shim"),
+    ]
+
+
+def _assert_the_tree_names_every_module(named: set[str]) -> None:
+    """The set of rows is the set of modules on disk, `__init__`/`__main__` aside.
+
+    This is the gate #299 asks for, put where it prevents the drift rather
+    than reports it. The hand-written tree had lost `csg.py`, `imports.py`,
+    `raster.py` and `vdiff.py`; `raster.py`, the whole OCCT-tier render path,
+    was named in no shipped markdown at all, so an agent looking for it goes
+    to `engines/`, where it is not.
+    """
+    on_disk: set[str] = set()
+    for path in SRC.rglob("*.py"):
+        if path.name in ("__init__.py", "__main__.py"):
+            continue
+        rel = path.relative_to(SRC).as_posix()
+        on_disk.add(next((c for c in _COLLAPSED if rel.startswith(c)), rel))
+    # Both halves in one message. Raising on `missing` first reported a RENAME
+    # as an unexplained new module and hid the row that had to go with it —
+    # the commonest way this gate will ever fire (PR #331 review, F7b).
+    problems = []
+    if missing := on_disk - named:
+        problems.append(f"modules the layout tree does not name: {sorted(missing)}")
+    if phantom := named - on_disk:
+        problems.append(f"rows naming modules that do not exist: {sorted(phantom)}")
+    if problems:
+        raise SystemExit(
+            "the AGENTS.md layout tree disagrees with src/partspec:\n  "
+            + "\n  ".join(problems)
+            + "\nEdit _layout_rows() in scripts/gen_docs.py."
+        )
+
+
+def render_layout() -> str:
+    """AGENTS.md's navigation map of `src/partspec/`.
+
+    A whole fence, markers outside it: an HTML comment inside a code fence is
+    literal text and not a marker, so this block has to own the ``` lines the
+    way `render_protocol_block` does.
+    """
+    rows = _layout_rows()
+    _assert_the_tree_names_every_module({path for path, _ in rows})
+    entries: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+    for path, description in rows:
+        head, tail = ("", path) if path.endswith("/") else path.rpartition("/")[::2]
+        if head and head not in seen:
+            seen.add(head)
+            entries.append((f"  {head}/", None))
+        entries.append((f"{'    ' if head else '  '}{tail}", description))
+    # One comment column for the whole tree, nested rows included, which is
+    # what the hand-written version aligned to.
+    pad = max(len(prefix) for prefix, description in entries if description is not None) + 2
+    lines = ["src/partspec/"]
+    for prefix, description in entries:
+        lines.append(prefix if description is None else f"{prefix:<{pad}}# {description}")
+    return "```\n" + "\n".join(lines) + "\n```"
+
+
 def render_exit_codes() -> str:
     """A COMPLETE sentence, standing alone between blank lines.
 
@@ -298,6 +485,7 @@ BLOCKS: dict[str, tuple[Path, object]] = {
     "unit-table": (ROOT / "docs" / "SPEC-report.md", render_unit_table),
     "backend-protocol": (ROOT / "docs" / "SPEC-backend.md", render_protocol_block),
     "exit-codes": (ROOT / "README.md", render_exit_codes),
+    "layout": (ROOT / "AGENTS.md", render_layout),
 }
 
 

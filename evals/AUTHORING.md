@@ -25,13 +25,30 @@ transfer tasks. Future runs should re-dimension plate-bore.
 | metric | control | skills |
 |---|---|---|
 | converged (first write, no repair turn) | **6/6** | **6/6** |
-| lint findings, all tasks | 17 | 0 |
-| lint findings, **transfer tasks only** (motor-plate, sealed-box) | **6** | **0** |
-| trials lint-clean | 3/6 | 6/6 |
+| lint findings, all tasks † | 17 | 0 |
+| lint findings, **transfer tasks only** (motor-plate, sealed-box) † | **6** | **0** |
+| trials lint-clean † | 3/6 | 6/6 |
 | model LoC, mean | 8.0 | 16.8 |
 
 Per task (lint, control trials / skills trials): plate-bore 6+5 / 0+0 **[contaminated
 — retrieval]**; sealed-box 0+6 / 0+0; motor-plate 0+0 / 0+0.
+
+**† Every lint figure above is a TIER-1 count, and "lint-clean" meant `findings == 0`.**
+The numbers are left exactly as they were taken; this note says what they were taken
+under. The harness stamped these runs `20260808-133845` and `20260808-134127`, and
+lint tier 2 — the rules over the engine's `.csg` export — was not committed until
+`1ac5807`, 17:27 the same day. So no tier-2 rule ran, none could refuse, and these
+counts cover tier 1 and nothing else. The harness also had no way to notice a refusal
+even in principle: `counts.unsupported` is an additive key that did not exist in the
+lint payload until #316 (`651ce7a`, 2026-08-22), and `run.py` read `counts.findings`
+alone.
+
+The harness now records `findings`, `unsupported` and a three-way `lint_outcome` —
+`clean` only when both are zero, `incomplete` when any rule did not run, because a
+`findings: 0` beside an `unsupported: 3` is not a clean file but a file three rules
+never looked at (#317, and `docs/LINT.md`'s own doctrine). **A figure taken under that
+definition is not comparable to one above**, and re-taking these costs real agent
+calls — which is why they are annotated rather than restated.
 
 ## Findings
 
