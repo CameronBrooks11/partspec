@@ -53,7 +53,7 @@ def lock() -> Part:
    discovery mechanism (§2).
 3. Contract modules MUST be importable without the CAD engines installed. Importing
    `partspec` MUST NOT import build123d, CadQuery, trimesh or OCP — those load lazily in
-   the backend, so the parameter phase and `--list` stay fast.
+   the backend, so the parameter phase stays fast.
 
 ---
 
@@ -173,6 +173,92 @@ The word `empty` carries two unrelated meanings here and they are worth separati
 contract that declared nothing was the result. A part can be neither, either, or — for a
 `Part` carrying only `p.empty()` — not both, since that part has a declared check.
 
+### 4.2.3 What the both-tier v0 measurements mean
+
+The table names each kind's measurement **shape**; this says what the number **is**.
+It covers the seven v0 geometry kinds that carry a measurement on both tiers —
+`envelope`, `watertight`, `solid_count`, `cavities`, `genus`, `volume`, `area`. The
+other three v0 rows are specified elsewhere and not repeated here: `builds` and
+`empty` carry no measurement (above, and §4.12), and `topology` is OCCT-only (§4.2.2).
+These are the conventions an author has to get right, and a guessed one is silent:
+it produces a green run about a different claim rather than an error.
+
+**`envelope` — the axis-aligned bounding box's EXTENTS, not its corners.** The
+measurement is `(x, y, z)`: the part's size along each axis of the model's own
+coordinate frame, in `mm`, taken over the whole part — measured, two 10 mm cubes with
+a 10 mm gap between them report `(30, 10, 10)`. The box is axis-aligned rather than
+fitted, so it is the part's size only when the part is square to the frame: the same
+20 mm cube rotated 45° about z measures `(28.284271, 28.284271, 20.0)`. And it is
+**translation-invariant** — a 40 × 30 × 6 mm plate reports `(40, 30, 6)` whether it
+sits at the origin or at `(10000, 200, 300)` — so `envelope` never constrains *where*
+a part is.
+
+`min` and `max` therefore bound those extents. **The same API spells min/max the other
+way one section down**: `region.box(min=, max=)` (§4.4) takes the box's min and max
+*corners*. Carrying the corner reading into `envelope` writes a bound far looser than
+intended and nothing says so — measured, that 40 × 30 × 6 mm plate at `(100, 200,
+300)`, declared `p.envelope(max=(140, 230, 306))` from its far corner, passes, and the
+identical declaration passes again against a part 120 mm wide.
+
+A bound MAY be a bare scalar, which **broadcasts to every axis**: `p.envelope(max=45.0)`
+bounds all three. A tuple MUST carry one entry per axis; `None` in a position is no
+claim on that axis, and `checks[].components` then records only the axes actually
+constrained. A tuple of the wrong length is a `ContractError` — *"vector limit has 2
+components, measurement has 3"* — never a partial claim.
+
+**`watertight`** is the boolean *every edge is bounded by exactly two faces*. It takes
+no bound; `p.watertight()` claims True. It is a claim about the **surface**, not about
+what the part contains: measured, a tray with an open pocket is watertight, one solid,
+zero cavities and genus 0.
+
+**`solid_count(n)`** counts **solids** — closed, outward-oriented bodies — not surface
+components. A sealed void is not a second solid: measured, a 20 mm cube with a 10 mm
+cube void reports `solid_count 1` and `cavities 1`.
+
+**`cavities(n)`** counts those **sealed internal voids**, the quantity `solid_count` was
+once conflated with. `cavities(0)` is the claim that no void was left behind, which is
+worth declaring: a void nobody asked for is trapped powder or a boolean that never
+reached the surface.
+
+**`genus(n)`** counts **through-holes, and only through-holes**. Measured on a 20 mm
+cube: a Ø6 bore drilled through reports genus 1, the same bore drilled blind reports
+genus 0, and a sealed void reports genus 0 — a blind hole is `hole_diameter`'s claim
+(§4.5) or a region's (§4.4). It is read from the Euler characteristic, which is a
+number about **one closed body**, so a part that is not one MUST be refused rather
+than assumed. A part of more than one solid reports `unsupported` on both tiers, and
+so does a wholly open surface — the mesh tier by testing closedness directly, the
+OCCT tier because an open shell bounds no solid. Measured, the open surface says
+*"genus is defined for a closed surface; this mesh is open along 4 boundary edge(s)"*
+on the mesh tier and *"genus is defined per body; this part has 0 solids"* on the
+OCCT tier; either way the run lands `incomplete` rather than buying a pass with
+silence.
+
+A whole **class** of configurations escapes that on the OCCT tier, and it is a
+**defect rather than a convention** (#334). The guard there counts solids and never
+tests closedness, so any body that is not itself a solid rides along beside one
+without moving the count — a sheet, a stray edge, a lone vertex — and the
+characteristic is then summed over a shape that is not one closed body. Measured on a
+20 mm cube bored Ø6 through, honestly genus 1: beside a disjoint face, a stray edge,
+or a single vertex it reports `genus 0`, flagged `exact`. **The mesh tier goes wrong
+in none of the three** — it refuses the sheet outright, it answers the stray vertex
+correctly at genus 1 because it counts *referenced* vertices only, and a bodiless
+edge has no form there at all. One contract, two tiers, two answers.
+
+**No other check reliably catches it, and `watertight` in particular does not.** It
+reports `false` beside a face or an edge, but a vertex adds no edges, so
+manifoldness is unmoved and `watertight` stays `true` while `genus` is still wrong.
+Measured end to end, a contract declaring `genus(0)`, `watertight()`,
+`solid_count(1)` and `cavities(0)` on the bored cube fails honestly on `genus`; add
+one stray vertex and the same contract reports `PASS: 5 pass` and exits 0. Until
+#334 lands, a `genus` claim on the OCCT tier is only as good as the knowledge that
+the part is a lone solid, and nothing in the vocabulary establishes that for you.
+
+**`volume(min=, max=)`** is the **enclosed material** in `mm3`, voids excluded — the
+cube-with-a-void above measures 7000.0, not 8000.0. **`area(min=, max=)`** is the
+**total** surface in `mm2`, cavity walls included — the same part measures 3000.0, the
+2400 outside plus the 600 facing the void. Neither takes a tessellation tolerance, and
+§4.2.1 is why.
+
 ### 4.2.2 `topology` — the check that makes the tiers visible
 
 Every other v0 kind maps to a primitive both backends declare. `topology` is the exception,
@@ -262,6 +348,18 @@ CADGenBench scores "interface match". Regions are declared as pure data from
 `partspec.region` — `region.box(min=, max=)` and `region.cylinder(d=, h=, at=, axis=,
 segments=)` — because the contract layer imports no geometry library (§1.1); each backend
 materializes them via its `region_solid` primitive.
+
+**A box is given by its two CORNERS; a cylinder by its BASE.** `region.box` takes the
+min and max corners, in the model's own coordinates — the opposite reading to
+`envelope`'s extents (§4.2.3). `region.cylinder`'s `at` is the **centre of the base
+face**, not the centroid: the prism spans `h` from `at` in the named axis's POSITIVE
+direction, and `axis` is the string `'x'`, `'y'` or `'z'`, never a direction vector
+(#193, #199). Reading `at` as the centroid displaces the whole region by `h/2`, and
+the displacement is silent — measured on `examples/stepper-bracket`, moving the
+shipped `pilot-boss-clearance` region by ±h/2 along its own axis leaves both the
+`ok pilot-boss-clearance` line and the `PASS: 10 pass` verdict unchanged. A region
+that has drifted off its feature is still a region, so neither half of the paired
+claim below is a guard against this; the convention has to be read, not discovered.
 
 **The verification shell is mandatory, and it is the whole design.** The naive claims are
 both vacuous: "no material here" is satisfied perfectly by a part with the material
@@ -1283,8 +1381,9 @@ A fragment is a plain function that declares a mechanical interface's checks ont
 ```python
 from partspec.refs import iso15, iso_metric_thread, nema17
 
-nema17.mount(p)            # nema17:pilot + nema17:bolt_circle, pattern cited
-iso15.seat(p, 608)         # iso15:608:seat, nominal cited
+nema17.mount(p)                        # nema17:pilot + nema17:bolt_circle, pattern cited
+iso15.seat(p, 608)                     # iso15:608:seat, nominal cited
+iso_metric_thread.tapped_hole(p, 3)    # iso_metric_thread:M3:tapped, minor diameter cited
 ```
 
 No new machinery — a fragment is ordinary contract authoring, factored. Three rules:

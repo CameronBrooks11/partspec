@@ -308,6 +308,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`SPEC-contract` states the two geometry conventions that a wrong guess
+  passes on** (#283, epic #305). §4.2's normative prose reached five of its
+  ten rows, across three sites — `builds` and `empty` in the section body,
+  `topology` in §4.2.2, `volume` and `area`'s bound form in §4.2.1 — and the
+  measuring kinds an author reaches for first were not among them. `envelope`
+  had no definition anywhere: the generated vocabulary table, the §1 code
+  sample and two category lists, and nothing saying what the number is. §4.4
+  named
+  `region.cylinder(d=, h=, at=, axis=, segments=)` without ever saying where
+  `at` sits. Misreading either produces a **passing** run about a claim nobody
+  made.
+  **A new §4.2.3 says what the seven both-tier v0 measurements mean**, starting
+  with `envelope`: the axis-aligned bounding box's **extents**, per axis of the
+  model's own frame, taken over the whole part, translation-invariant, with a
+  bare scalar broadcasting to all three axes and a wrong-length tuple a
+  `ContractError` rather than a partial claim. The trap it exists for is that
+  the same API spells min/max the other way one section down —
+  `region.box(min=, max=)` takes **corners** — and the corner reading passes
+  silently: measured, a 40 × 30 × 6 mm plate at `(100, 200, 300)` declared
+  `p.envelope(max=(140, 230, 306))` from its far corner passes, and the
+  identical declaration passes again against a part 120 mm wide. **A test on
+  each tier pins the invariance that trap rests on** — one size measured at two
+  positions. Both tiers, because §4.2.3 is about the measurements both carry
+  and states the invariance without qualifying it.
+  Neither file had measured a box at more than one position, which cannot
+  separate an extent from a quantity that merely coincides with it at the
+  origin. Substituting `2.0 * max_corner` for the extents on a tier is correct
+  for every origin-centred fixture and wrong for a displaced one: on the mesh
+  tier that tripped 12 tests, and the only backend-level bbox assertion among
+  them was the new one; the same substitution on the OCCT tier fails the OCCT
+  copy while `test_closed_form_measurements` beside it still passes.
+  A third test pins the other half of the same sentence, that the box is
+  axis-aligned rather than FITTED. A 20 mm cube rotated 45° about z measures
+  `(28.284271, 28.284271, 20.0)` — the space it occupies, not its size — and
+  trimesh's fitted `bounding_box_oriented.primitive.extents` returns
+  `(20, 20, 20)` for it. That is the assertion that breaks on the PROPERTY.
+  Two other mesh assertions break under the same substitution but on axis
+  ORDER, because the fitted extents come back ASCENDING rather than in
+  model-frame x/y/z — `(30, 20, 10)` reads `(10, 20, 30)` and `(100, 50, 2)`
+  reads `(2, 50, 100)` — and neither says which property moved. Watch the
+  attribute: `bounding_box_oriented.extents` is the AABB *of* the fitted box
+  and agrees with the plain AABB, so only `.primitive.extents` measures the
+  fit.
+  The other six kinds get the same paragraph, each behind a measured number — a
+  20 mm cube with a 10 mm cube void is `solid_count 1`, `cavities 1`,
+  `genus 0`, `volume 7000.0` and `area 3000.0`, and the same cube bored through
+  is `genus 1` where the blind bore is `genus 0`. `genus` states the *reason*
+  it is refused rather than one instance of it — the Euler characteristic is a
+  number about one closed body — and then states, per tier, what is actually
+  shipped: a multi-solid part is `unsupported` on both, a wholly open surface
+  likewise, the mesh tier testing closedness directly and the OCCT tier because
+  an open shell bounds no solid. **A whole CLASS of configurations escapes that,
+  and it is a defect rather than a convention — now tracked as #334**: on the
+  OCCT tier the guard counts solids and never tests closedness, so any body
+  that is not itself a solid rides along beside one without moving the count.
+  Measured on a 20 mm cube bored through, honestly genus 1: beside a disjoint
+  face, a stray edge or a lone vertex it reports `genus 0` flagged `exact`.
+  **`watertight` catches only part of that** — `false` beside the face and the
+  edge, but a vertex adds no edges, so manifoldness is unmoved and a contract
+  declaring `genus(0)`, `watertight()`, `solid_count(1)` and `cavities(0)`
+  reports `PASS: 5 pass` and exits 0 on a part with a through-hole. The mesh
+  tier goes wrong on none of the three. The spec says all of this rather than
+  naming a mitigation that does not hold, and #334 carries the note that a fix
+  built on manifoldness alone would look like it worked. Found by this PR's own
+  review over two rounds: the first caught a sentence that was false on one
+  tier, the second caught the replacement recommending a mitigation that does
+  not cover the class the sentence describes.
+  **§4.4 now states that `at` is the centre of the base face**, not the
+  centroid, and `region.cylinder`'s *function* docstring — the one an author
+  reaches through `help()`, as against the class docstring that has said it all
+  along — says so too. Measured on `examples/stepper-bracket`, displacing the
+  shipped `pilot-boss-clearance` region by ±h/2 along its own axis leaves both
+  `ok pilot-boss-clearance` and `PASS: 10 pass` unchanged, in both directions:
+  a region that has drifted off its feature is still a region, so neither half
+  of the paired keep-out claim is a guard against the misreading.
+
 - **`--out` says where it writes when nobody tells it where to write** (#277,
   epic #305). With the flag absent, every verb that takes one resolves to
   `<contract dir>/outputs/<part-slug>` — beside the **contract**, not in the
@@ -689,6 +765,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under a Python type name for a diagnosis.
   This is the cheap half. The structural fix — a `payload` discriminator in
   the identity prefix — is #295 and is independent of it.
+
+- **`--list` is no longer cited as a CLI flag that does not exist** (#303,
+  epic #305). One sentence, copied to **three** files: the docstring at
+  `src/partspec/__init__.py:5` that `help(partspec)` shows, where the
+  lazy-import rule is justified; `SPEC-contract.md` §1.1 rule 3; and the
+  comment on `dependencies = []` in `pyproject.toml`, which ships in the sdist.
+  All three named a flag in the same clause, two of them word for word — "keeps
+  the parameter phase and `--list` fast" — and §1.1 rule 3 as "the parameter
+  phase and `--list` stay fast". There is no such flag: `partspec check --list
+  foo.py` exits 64 with *unrecognized arguments: --list*, and none of the six
+  verbs' `--help` mentions one. All three landed together in `34104ab`, the
+  commit that scaffolded the repo — the first commit, `c28973d`, is the LICENSE
+  and nothing else — and none was ever reconciled.
+  The third site is the finding worth recording, because #303's own evidence
+  grepped `src/ docs/ README.md AGENTS.md tests/` and called the result
+  repo-wide, so the fix inherited the undercount and the first commit's subject
+  said "two documents". The same divergence has bitten this tree before, the
+  other way round: `tests/test_packaging.py:394` records PR #155's review
+  finding two figures already corrected in `pyproject.toml` and not in the
+  test enforcing them. A build file that carries prose is a documentation site.
+  All three sentences keep their parameter-phase half, which was always the
+  argument, and `--pin LOCK` remains the nearest shipped thing to enumerating a
+  contract's declared claims — and it still builds.
+
+- **`iso_metric_thread.tapped_hole` is named in a document** (#285, epic #305).
+  It ships in the module's `__all__` and is a full §11 fragment — namespaced
+  ids, bound at the basic minor diameter D1 — and `grep -rn tapped_hole
+  --include='*.md'` returned nothing repo-wide. #247 added
+  `iso_metric_thread` to §11's example **import** line and never added the call
+  line, so the block imported a module its own example did not use. §11's
+  example gains `iso_metric_thread.tapped_hole(p, 3)`, and
+  `skills/contract-authoring/SKILL.md`'s fragment row — the second enumeration
+  site, carrying the same two-of-three list — names it beside `nema17.mount`
+  and `iso15.seat`. Verified before documenting: the call declares
+  `iso_metric_thread:M3:tapped`, `kind: hole_diameter`, limit
+  2.4087341226347263..2.508734122634726, cited to ISO 724:2023 / M3 /
+  `minor_diameter_internal`, and passes against a Ø2.459 bore.
 
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry

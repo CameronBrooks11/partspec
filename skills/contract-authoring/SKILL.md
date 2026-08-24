@@ -38,7 +38,7 @@ Navigate by what you need to prove; the kind vocabulary itself is normative in
 | the shape does not cross itself | `p.self_intersection_free()` (§4.9) | OCCT tier; the kernel's own pairwise analysis, faults inventoried |
 | the part survives its exchange format | `p.step_roundtrip(tol=)` (§4.10) | OCCT tier; topology drift fails at any tolerance |
 | every wall is thick enough | `p.min_wall(min=)` (§4.11) | OCCT tier; a guaranteed interval — a limit inside it adjudicates `approximate`, never a guess |
-| a whole interface standard | a fragment — `nema17.mount(p)`, `iso15.seat(p, n)` (§11) | one call, cited |
+| a whole interface standard | a fragment — `nema17.mount(p)`, `iso15.seat(p, n)`, `iso_metric_thread.tapped_hole(p, 3)` (§11) | one call, cited |
 | material amount / wall drift over time | `p.volume`, `p.area` (§4.2) | drift shows in `diff` even while both runs pass |
 | two parts do not interfere | `p.empty()` on an `intersection()` part (§4.12) | proves no positive-volume *interference* — NOT that they are separated. See below |
 
