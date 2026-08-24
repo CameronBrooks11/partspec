@@ -212,7 +212,7 @@ what the part contains: measured, a tray with an open pocket is watertight, one 
 zero cavities and genus 0. On the OCCT tier the phrase is `is_manifold`, and it counts
 **degenerate** edges — a sphere's poles are bounded by no area and used once each — so
 it reads **false** on a sphere, a cone and a filleted box, all three of them closed.
-`genus` (§4.2.3, below) asks the same question of its own body and skips those edges,
+`genus` (below) asks the same question of its own body and skips those edges,
 which is why the two can disagree on the same part and why `watertight` is not the
 closedness precondition `genus` uses.
 
@@ -263,15 +263,15 @@ What is checked instead, stated where the measurement is taken:
   nothing beside it, and it reported `genus 0` on a surface that has no genus. Every
   edge of a closed boundary is bounded by exactly two faces — counted as *uses*, not
   as distinct faces, and skipping degenerate edges, which is where `watertight`
-  differs (see below). Both directions are refused: measured, *"genus is defined for
+  differs (see above). Both directions are refused: measured, *"genus is defined for
   one closed body; it is not closed: 4 edge(s) not bounded by exactly two faces"*,
   on an open shell and equally on a solid whose partition edges are used by four
   faces.
 - **A genus that is not negative.** The characteristic sums the genera of the body's
   shells, so a closed body cannot produce a negative one, and a solid whose single
   shell encloses two disjoint boxes does: measured `-1, exact` at 2000 mm³, with
-  nothing beside the solid and every edge used exactly twice. Refused as *"the Euler
-  characteristic gives -1, which no closed body has"*.
+  nothing beside the solid and every edge used exactly twice. Refused as *"the
+  Euler-Poincare formula gives -1, which no closed body has"*.
 
 Neither refuses more than the mathematics requires: a compound wrapping exactly one
 solid still measures, and so does a solid with a sealed void — two shells, both the

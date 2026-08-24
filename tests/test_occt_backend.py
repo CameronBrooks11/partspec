@@ -646,7 +646,7 @@ def test_genus_is_refused_when_one_shell_encloses_two_bodies(backend: OcctBacken
 
     reason = refused(backend.genus(solid)).reason
     assert "one closed body" in reason
-    assert "the Euler characteristic gives -1" in reason
+    assert "the Euler-Poincare formula gives -1" in reason
 
 
 @pytest.mark.parametrize(
@@ -663,7 +663,8 @@ def test_genus_answers_for_closed_bodies_that_is_manifold_calls_open(
     """Why the closedness guard is not `is_manifold`, and what it does instead.
 
     `is_manifold` applies the same "used by exactly two faces" rule; it differs
-    only in which edges it skips as degenerate, and its test never fires.
+    only in which edges it skips as degenerate, and its test never fires on a
+    solid's boundary.
     Measured, a sphere carries 2 degenerate edges, a cone 1 and a filleted box
     8, each used once, so it reads False on all three — every one of them
     closed and genus 0. Building the precondition on it would have refused a

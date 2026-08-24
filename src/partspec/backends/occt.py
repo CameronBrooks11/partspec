@@ -148,9 +148,11 @@ def _not_closed(body: Any) -> str | None:
     `is_manifold` gets the first right and the second wrong, and that alone is
     why it cannot be this test. Measured, it applies the same `Extent() != 2`
     rule but skips an edge only when both its vertices are null and identical,
-    which never fires: a sphere has 2 degenerate edges, a cone 1 and a filleted
-    box 8, each used once, and `is_manifold` reads False on all three — all
-    three of them closed. Excluding the degenerate ones leaves no edge with a
+    which never fires on a solid's boundary — the predicate IS satisfiable, by an
+    unbounded-line edge, which OCCT does not call degenerate and which bounds no
+    face. So a sphere's 2 degenerate edges, a cone's 1 and a filleted box's 8 are
+    each counted, used once each, and `is_manifold` reads False on all three —
+    all three of them closed. Excluding the degenerate ones leaves no edge with a
     use count other than 2 on any of them.
 
     Deliberately the mesh tier's question in this tier's terms (`_not_closed` in
@@ -692,7 +694,7 @@ class OcctBackend:
             # beside the solid and every edge bounded by exactly two faces, so
             # neither guard above sees it.
             return Unsupported(
-                f"genus is defined for one closed body; the Euler characteristic gives "
+                f"genus is defined for one closed body; the Euler-Poincare formula gives "
                 f"{int(genus)}, which no closed body has -- its shells do not each "
                 f"enclose exactly one body"
             )
