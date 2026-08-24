@@ -1260,10 +1260,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`source.digest_changed: false`). The artifact carried
   `status: fail→pass` beside `limit.max: [40,30,4]→[40,30,8]`; the headline
   read `different: example-spacer — 1 fixed` and named neither.
-  The count keeps the bucket's true total and a qualifier breaks it down —
-  `1 fixed (1 with the claim changed)` — rather than splitting into two counts,
-  because `N fixed` is what §3 names and what a reader greps, and a split total
-  answers "how many were fixed?" with a number that is not the answer.
+  The count keeps the bucket's true total and the qualifier is an independent
+  tally over it — `1 fixed (1 with the claim changed)` — rather than splitting
+  into two counts, because `N fixed` is what §3 names and what a reader greps,
+  and a split total answers "how many were fixed?" with a number that is not
+  the answer. (Said as "breaks it down" when this entry was written, which was
+  true of the one qualifier that then existed; #325 later in this same cycle
+  added a second, and two independent tallies over one bucket can overlap and
+  sum past it.)
   Both status buckets take it: `1 regressed` alone cannot tell a part that got
   worse from a contract the author deliberately tightened, and only one of
   those is a defect. `limit_changed` does not — the claim moving *is* that
