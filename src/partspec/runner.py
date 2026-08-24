@@ -49,6 +49,7 @@ def run(
     out_dir: Path,
     argv: list[str] | None = None,
     contract_path: Path | None = None,
+    factory: str | None = None,
     timeout_s: float | None = None,
     expected_claims: dict[str, str] | None = None,
     artifact_out: list[Any] | None = None,
@@ -68,6 +69,10 @@ def run(
     one reviewed" must survive `--quiet` and MCP the same way `attribution`
     does. An empty dict means the pin does not vouch for this part at all.
 
+    `factory` is the symbol the invocation named, `None` when the module has a
+    single factory and none had to be named. It reaches `part.contract`; see
+    `identity`.
+
     `loaded_before` is `sys.modules` as it stood before this target's contract
     was resolved, and only the caller that owns the loop can take it — by the
     time this function runs, the contract has been imported and its imports
@@ -75,7 +80,7 @@ def run(
     true of every entry point but `check`'s batch loop.
     """
     started = time.perf_counter()
-    ident = identity(part, contract_path)
+    ident = identity(part, contract_path, factory=factory)
     report = Report(
         part_id=part.id,
         contract=ident["contract"],
@@ -360,6 +365,7 @@ def identity(
     part: Part,
     contract_path: Path | None,
     *,
+    factory: str | None = None,
     built: bool = False,
     engine_deps: Any = None,
 ) -> dict[str, Any]:
@@ -376,10 +382,22 @@ def identity(
     `built=True` after a Python-engine build swaps in the imports-derived
     closure, mirroring the runner's own post-build upgrade — a Python model's
     inputs are only knowable once it has run.
+
+    `factory` is the symbol the invocation named, and it is what keeps two
+    targets in one module apart (#297). Without it, two factories returning
+    Parts with the same id produced BYTE-IDENTICAL `part` blocks — same
+    module-scoped `contract_digest`, same source, same closure — so nothing in
+    either artifact recorded which one was invoked. The path stays in the frame
+    #45 fixed on: relative to the contract's own directory, which for the
+    contract itself is its filename. A module with a single factory needs no
+    name to resolve and reports none, so `<module>` and `<module>:<factory>`
+    are both well-formed values and a consumer MUST parse the suffix as
+    optional (SPEC-report.md 7.1).
     """
+    contract = _relative(contract_path, contract_path) if contract_path else "<in-memory>"
     out: dict[str, Any] = {
         "id": part.id,
-        "contract": _relative(contract_path, contract_path) if contract_path else "<in-memory>",
+        "contract": f"{contract}:{factory}" if factory else contract,
     }
     contract_digest = _digest(contract_path)
     if contract_digest:

@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from support import (
     decode_png,
+    needs_build123d,
     needs_openscad,
     needs_scad_tier,
     py_target,
@@ -35,6 +36,111 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def _measure(target: str, capsys) -> dict:
     assert main(["measure", target]) == 0, "measure never produces a verdict"
     return json.loads(capsys.readouterr().out)
+
+
+def _accounted_names(doc: dict) -> set[str]:
+    """Every name the measure payload accounts for, asserting the partition.
+
+    Read with `.get` on both optional blocks, which is the rule SPEC-report
+    §7.3 states and not a defensive tic: `refused` is absent on a part that
+    defeated nothing, and `unavailable` is absent on a tier that can answer
+    everything asked — which is the whole OCCT tier, so subscripting it here
+    would make this helper `KeyError` on exactly the tier it least covers.
+
+    `measurements` IS subscripted, and deliberately: §7.3 lets it be absent
+    too, but only from the failure shape, which carries `error` and reaches
+    this helper from nowhere — every caller measures a run that exited 0. A
+    successful measure that carried no `measurements` would be the silence
+    this project exists to prevent, so it should raise here rather than
+    default to empty and read as "nothing to report".
+    """
+    blocks = [
+        set(doc["measurements"]),
+        set(doc.get("refused", {})),
+        set(doc.get("unavailable", ())),
+    ]
+    union: set[str] = set().union(*blocks)
+    assert sum(len(b) for b in blocks) == len(union), (
+        "a name in two blocks at once says two different things about it"
+    )
+    return union
+
+
+# --------------------------------------------------------------------------
+# the payload discriminator (#295)
+# --------------------------------------------------------------------------
+
+
+@needs_scad_tier
+def test_each_payload_says_which_artifact_it_is(tmp_path: Path, capsys):
+    """#295. `check`, `measure` and `render` emit `schema_version: 1` under
+    `tool.name: "partspec"` and share the whole identity prefix, so a consumer
+    holding one of the three could not tell which it had — it had to guess from
+    the keys further down, and `diff` accepting a `render` payload at
+    `identical`/exit 0 is what that guessing costs.
+
+    Asserted as a SET of four distinct values, not four independent equalities:
+    the failure this guards against is two verbs agreeing, and four `==` checks
+    that each pass individually cannot see that.
+    """
+    target = scad_target(tmp_path, source="block_with_hole.scad", claims="    p.watertight()\n")
+    out = tmp_path / "out"
+    assert main(["check", target, "--quiet", "--out", str(out)]) == 0
+    capsys.readouterr()
+
+    seen = {"check": report_of(out)["payload"], "measure": _measure(target, capsys)["payload"]}
+    assert main(["render", target, "--out", str(tmp_path / "r")]) in (0, exit_code(Verdict.ERROR))
+    seen["render"] = json.loads(capsys.readouterr().out)["payload"]
+    assert main(["lint", str(tmp_path / "block_with_hole.scad")]) == 0
+    seen["lint"] = json.loads(capsys.readouterr().out)["payload"]
+
+    assert seen == {
+        "check": "report",
+        "measure": "measure",
+        "render": "render",
+        "lint": "lint",
+    }
+    assert len(set(seen.values())) == 4, "a discriminator that repeats discriminates nothing"
+
+
+@needs_scad_tier
+def test_every_verb_records_which_target_it_ran(tmp_path: Path, capsys):
+    """#297. The CLI knew the factory all along — it is in the `--out` slug,
+    and naming two colliding slugs is a refusal — but it reached neither the
+    report nor the `measure`/`render` payloads. Three verbs, three call sites,
+    and threading it through only one leaves the other two identity-blind.
+    """
+    shutil.copy(FIXTURES / "block_with_hole.scad", tmp_path / "block_with_hole.scad")
+    module = tmp_path / "same.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def imperial() -> Part:\n"
+        "    return Part('widget', openscad('block_with_hole.scad')).watertight()\n\n\n"
+        "def metric() -> Part:\n"
+        "    return Part('widget', openscad('block_with_hole.scad')).watertight()\n"
+    )
+    out = tmp_path / "out"
+    assert main(["check", f"{module}:imperial", "--quiet", "--out", str(out)]) == 0
+    capsys.readouterr()
+
+    seen = {"check": report_of(out)["part"]["contract"]}
+    seen["measure"] = _measure(f"{module}:imperial", capsys)["part"]["contract"]
+    assert main(["render", f"{module}:imperial", "--out", str(tmp_path / "r")]) in (
+        0,
+        exit_code(Verdict.ERROR),
+    )
+    seen["render"] = json.loads(capsys.readouterr().out)["part"]["contract"]
+    assert set(seen.values()) == {"same.py:imperial"}, seen
+
+    # The sibling factory is the whole point: same id, same source, same
+    # module-scoped digest, so the symbol is the only thing left to tell the
+    # two artifacts apart.
+    other = tmp_path / "out2"
+    assert main(["check", f"{module}:metric", "--quiet", "--out", str(other)]) == 0
+    capsys.readouterr()
+    first, second = report_of(out)["part"], report_of(other)["part"]
+    assert first["contract_digest"] == second["contract_digest"], "module-scoped (§7.1)"
+    assert first != second, "and the part blocks were byte-identical before #297"
 
 
 # --------------------------------------------------------------------------
@@ -101,6 +207,83 @@ def test_measure_separates_a_tier_gap_from_a_broken_part(tmp_path: Path, capsys)
         "blend_radii",
     ]
     assert "topology_counts" not in doc["refused"]
+
+
+@needs_scad_tier
+def test_the_three_measure_blocks_account_for_every_name(tmp_path: Path, capsys):
+    """SPEC-report §7.3: every name the verb asks about lands in exactly one of
+    `measurements`, `refused` and `unavailable`.
+
+    That is the property the three-block shape exists for — a name absent from
+    all three is a silence about a quantity the tool asked for, which is the
+    one thing this project says must never happen. Asserted over a sound part
+    AND a broken one on the same tier, because the partition is only
+    interesting if the SAME vocabulary is accounted for both times: `refused`
+    grows and `measurements` shrinks, and the union may not move.
+    """
+    docs = {}
+    for name, source in (("sound", "block_with_hole.scad"), ("broken", "open_box.scad")):
+        root = tmp_path / name
+        root.mkdir()
+        docs[name] = _measure(scad_target(root, source=source, claims=""), capsys)
+
+    unions = {name: _accounted_names(doc) for name, doc in docs.items()}
+    assert docs["sound"].get("refused") is None and docs["broken"]["refused"]
+    assert unions["sound"] == unions["broken"], (
+        "the vocabulary asked is the tier's, not the part's — so a name that "
+        "went missing from all three would show up here as a shrunken union"
+    )
+
+
+@needs_build123d
+def test_a_tier_that_answers_everything_omits_both_optional_blocks(tmp_path: Path, capsys):
+    """SPEC-report §7.3, the OCCT half — and the reason it is a MUST that a
+    consumer read the two optional blocks with a default.
+
+    The OCCT capability set covers all fourteen names the verb asks, so a
+    build123d payload carries neither `refused` nor `unavailable`: a consumer
+    following "read all three" by subscript gets a `KeyError` on its first
+    build123d part. That is the defect class #302 fixed for `partial`, and
+    §7.3 was written from mesh-tier runs alone, where `unavailable` is never
+    empty. The partition property itself is tier-independent, which is why it
+    is asserted here too rather than only on the tier that exercises all three.
+    """
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
+    )
+    doc = _measure(py_target(tmp_path), capsys)
+
+    assert "unavailable" not in doc and "refused" not in doc
+    assert list(doc) == [
+        "schema_version",
+        "payload",
+        "tool",
+        "part",
+        "engine",
+        "params",
+        "geometry",
+        "measurements",
+    ]
+    assert _accounted_names(doc) == set(doc["measurements"]), (
+        "with both optional blocks absent, `measurements` accounts for the whole ask"
+    )
+
+    # And the same eight keys are the MINIMAL shape, not a key set to validate
+    # against: §7.3 says `refused` and `artifact` each extend it, and both are
+    # reachable on THIS tier. Pinned here because the sentence above reads as
+    # an exact enumeration and would otherwise licence a strict validator that
+    # rejects valid payloads.
+    assert main(["measure", py_target(tmp_path), "--out", str(tmp_path / "art")]) == 0
+    with_out = json.loads(capsys.readouterr().out)
+    assert list(with_out) == [*doc, "artifact"], "`--out` extends the minimal shape"
+
+    (tmp_path / "two.py").write_text(
+        "from build123d import Box, Compound, Location\n\n\ndef make_part():\n"
+        "    return Compound(children=[Box(10, 10, 10), Location((50, 0, 0)) * Box(10, 10, 10)])\n"
+    )
+    two = _measure(py_target(tmp_path, model="two.py", part_id="two"), capsys)
+    assert list(two) == [*doc, "refused"], "a part that defeats a measurement extends it too"
+    assert "genus" in two["refused"] and "genus" not in two["measurements"]
 
 
 @needs_scad_tier
@@ -894,8 +1077,12 @@ def test_measure_carries_the_same_identity_as_the_report(tmp_path: Path, capsys)
     # both sides lost together (PR #102 review, mutant survivor).
     assert doc["part"]["contract_digest"].startswith("sha256:")
     assert doc["part"]["source_digest"].startswith("sha256:")
-    assert list(doc)[:7] == [
+    assert doc["payload"] == "measure" and report["payload"] == "report", (
+        "the shared prefix is what makes the two indistinguishable without it (#295)"
+    )
+    assert list(doc)[:8] == [
         "schema_version",
+        "payload",
         "tool",
         "part",
         "engine",
@@ -917,6 +1104,74 @@ def test_measure_records_the_parameters_that_produced_the_numbers(tmp_path: Path
     assert doc["params"] == {"hole": 4}
 
 
+@needs_build123d
+@needs_openscad
+def test_the_measure_failure_payload_carries_exactly_these_keys(tmp_path: Path, capsys):
+    """`AGENT-CONTRACT.md` §2.4 enumerates this key set as *Measured*, and an
+    agent reads that enumeration to learn there is no `origin` to branch on.
+
+    The list is hand-maintained and nothing gated it, so it went stale the
+    moment #295 added `payload` to the same payload — two PRs each correct
+    alone, a false composition, and a green CI because no test read the list.
+    That is #299's class, one document over. This is the gate: an enumeration
+    labelled "Measured" now has something that measures it.
+
+    Asserted as the exact SET, in BOTH failure modes, because the doc says
+    "exactly" and says "both". Not by parsing the document — that is the
+    doc-vs-code diff `AGENTS.md` forbids, and it would only prove two copies
+    of a list agree. This states the payload's shape directly; the doc cites
+    this test by name, so a reader who distrusts the prose has somewhere to
+    look.
+    """
+    expected = {
+        "engine",
+        "error",
+        "geometry",
+        "hint",
+        "params",
+        "part",
+        "payload",
+        "schema_version",
+        "tool",
+    }
+
+    # Mode 1: the build failed (exit 4). A `.scad` that is not there.
+    module = tmp_path / "spec.py"
+    module.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    return Part('subject', openscad('missing.scad'))\n"
+    )
+    assert main(["measure", f"{module}:make"]) == exit_code(Verdict.ERROR)
+    built = json.loads(capsys.readouterr().out)
+
+    # Mode 2: the ask was refused (exit 64). A filename `--out` on a tier that
+    # exports no artifact — a different code path to the same shape.
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
+    )
+    assert main(["measure", py_target(tmp_path), "--out", str(tmp_path / "x.stl")]) == 64
+    refused = json.loads(capsys.readouterr().out)
+
+    assert set(built) == expected, "the exit-4 failure payload"
+    assert set(refused) == expected, "the exit-64 refusal payload"
+
+    # The SET is what §2.4 claims, and the ORDER is what §8 rule 1 makes a MUST
+    # — "object keys MUST be emitted in the order given in §7" — with Scope
+    # fixing the identity prefix these payloads share. Nothing executed that
+    # second rule on this payload: moving `payload` to sit after `params`
+    # passes the whole suite. Both assertions stay, because neither implies the
+    # other.
+    prefix = ["schema_version", "payload", "tool", "part", "engine", "params"]
+    assert list(built)[:6] == prefix, "the identity prefix, in Scope's order"
+    assert list(refused)[:6] == prefix, "and the same order on the refusal path"
+    assert "origin" not in built and "origin" not in refused, (
+        "absent, not null — §2.4 tells an agent it cannot even read it as 'unknown'"
+    )
+    assert "measurements" not in built and "measurements" not in refused, (
+        "a run that measured nothing states no measurements (SPEC-report §7.3)"
+    )
+
+
 @needs_openscad
 def test_measure_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     """A caller parsing stdout used to get an empty string and a bare exit
@@ -932,7 +1187,7 @@ def test_measure_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     doc = json.loads(captured.out)
     assert doc["schema_version"] == 1
     assert doc["part"]["id"] == "subject"
-    assert doc["part"]["contract"].endswith("spec.py")
+    assert doc["part"]["contract"] == "spec.py:make", "the invoked symbol, not just the file"
     assert doc["engine"]["kind"] == "openscad"
     # The payload records what was ASKED; `error` says what happened. A
     # typo'd parameter stays visible rather than vanishing with the build.
@@ -2007,8 +2262,12 @@ def test_render_carries_the_same_identity_as_the_report(tmp_path: Path, capsys):
     # both sides lost together (PR #102 review, mutant survivor).
     assert payload["part"]["contract_digest"].startswith("sha256:")
     assert payload["part"]["source_digest"].startswith("sha256:")
-    assert list(payload)[:6] == [
+    assert payload["payload"] == "render" and report["payload"] == "report", (
+        "the shared prefix is what makes the two indistinguishable without it (#295)"
+    )
+    assert list(payload)[:7] == [
         "schema_version",
+        "payload",
         "tool",
         "part",
         "engine",
@@ -2032,7 +2291,7 @@ def test_render_failure_is_an_artifact_not_a_shrug(tmp_path: Path, capsys):
     doc = json.loads(captured.out)
     assert doc["schema_version"] == 1
     assert doc["part"]["id"] == "subject"
-    assert doc["part"]["contract"].endswith("spec.py")
+    assert doc["part"]["contract"] == "spec.py:make", "the invoked symbol, not just the file"
     assert doc["engine"]["kind"] == "openscad"
     # The payload records what was ASKED; `error` says what happened. A
     # typo'd parameter stays visible rather than vanishing with the build.

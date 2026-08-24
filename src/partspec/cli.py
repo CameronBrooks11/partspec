@@ -1113,6 +1113,7 @@ def _check_resolved(
         out_dir=out,
         argv=argv,
         contract_path=target.path,
+        factory=target.factory,
         timeout_s=timeout_s,
         expected_claims=expected_claims,
         artifact_out=built,
@@ -1226,8 +1227,9 @@ def _measure_failure(
 
     failed: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
+        "payload": "measure",
         "tool": {"name": "partspec", "version": tool_version()},
-        "part": identity(part, target.path),
+        "part": identity(part, target.path, factory=target.factory),
         "engine": engine_block(part, backend),
         "params": dict(part.source.params),
         # Empty rather than absent, mirroring the report's failure shape:
@@ -1422,13 +1424,19 @@ def _measure_resolved(
 
     measured: dict[str, object] = {
         # The identity prefix mirrors the report's field order exactly
-        # (schema_version, tool, part, engine, params, geometry), so a
-        # consumer of one artifact can orient in the other. `built=True`:
+        # (schema_version, payload, tool, part, engine, params, geometry), so a
+        # consumer of one artifact can orient in the other — and `payload` is
+        # what tells the two apart once it has (#295). `built=True`:
         # a Python model's imports are only knowable once it has run.
         "schema_version": SCHEMA_VERSION,
+        "payload": "measure",
         "tool": {"name": "partspec", "version": tool_version()},
         "part": identity(
-            part, target.path, built=True, engine_deps=engine_deps[0] if engine_deps else None
+            part,
+            target.path,
+            factory=target.factory,
+            built=True,
+            engine_deps=engine_deps[0] if engine_deps else None,
         ),
         "engine": engine_block(part, backend),
         "params": dict(part.source.params),
@@ -1578,6 +1586,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     unsupported_total = sum(len(f.get("unsupported", ())) for f in files)
     payload = {
         "schema_version": LINT_SCHEMA_VERSION,
+        "payload": "lint",
         "tool": {"name": "partspec-lint", "version": tool_version()},
         "files": files,
         "counts": {
@@ -1870,11 +1879,14 @@ def _render_resolved(
     # The identity prefix mirrors the report's field order (#103, the #47
     # pattern): render was the last verb whose payload named its part with a
     # bare id string — no digests, no closure — so its images could not be
-    # tied to the revision that produced them.
+    # tied to the revision that produced them. This `part` seeds the key
+    # ORDER: both branches below replace it with `_identity()` once the build
+    # has run, since a Python model's imports are only knowable then.
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
+        "payload": "render",
         "tool": {"name": "partspec", "version": tool_version()},
-        "part": identity(part, target.path),
+        "part": identity(part, target.path, factory=target.factory),
         "engine": engine,
         "params": dict(part.source.params),
     }
@@ -1896,6 +1908,7 @@ def _render_resolved(
         return identity(
             part,
             target.path,
+            factory=target.factory,
             built=True,
             engine_deps=render_deps[0] if render_deps else None,
         )

@@ -17,9 +17,12 @@ model-cache-invalidation MUST, and the `measure` identity-prefix scope; draft 7 
 references, and the §8.3 closure reversal
 **Scope:** the JSON artifact `partspec check` emits, and the process exit code that
 accompanies it. `partspec measure` and `partspec render` emit sibling payloads that MUST
-share the identity prefix — `schema_version`, `tool`, `part`, `engine`, `params`, built
+share the identity prefix — `schema_version`, `payload`, `tool`, `part`, `engine`,
+`params`, built
 by the same code (#47, #103) — followed by `geometry` for `measure` and by `renders` for
-`render`, which carries no `geometry` block. `render`'s engine block states what ran
+`render`, which carries no `geometry` block. Sharing that prefix is what makes `payload`
+(§7.1) load-bearing: it is the only field that says WHICH of the three a consumer is
+holding, the other five being identical by design. `render`'s engine block states what ran
 (#18): on the OCCT tier the part builds through the same backend `check` uses, so the
 block is §7's in full — `backend` included — and the payload carries
 `render_tessellation` after `renders` (`{tolerance_mm, triangles}`: under D15 the
@@ -516,18 +519,21 @@ so nothing needs reserving now.
 ## 7. Schema
 
 `schema_version` is an integer, incremented on any breaking change. Consumers MUST reject
-an unknown major version rather than best-effort parse it.
+an unknown major version rather than best-effort parse it. It says how to READ the
+document; `payload` (§7.1) says WHAT the document is, and a consumer needs both — the
+version alone cannot tell a report from a `measure` dump, the two carrying the same one.
 
 ```jsonc
 {
   "schema_version": 1,
+  "payload": "report",                                 // which artifact this is (7.1)
   "tool": { "name": "partspec", "version": "0.7.6" },  // whatever is installed; a
                                                        // consumer keys on `schema_version`
                                                        // above, never on this
 
   "part": {
     "id": "bayonet-lock-pin",
-    "contract": "parts/bayonet/spec.py:lock",
+    "contract": "spec.py:lock",           // the module in its own frame, then the symbol
     "contract_digest": "sha256:4a17...",
     "source": "vendor/bayonet_lock.scad",
     "source_digest": "sha256:9f2c...",
@@ -660,6 +666,52 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 
 ### 7.1 Field rules
 
+- **`payload`** — which artifact this document is. The three this specification governs
+  are `report`, `measure` and `render`; `lint` and `vdiff` name the sibling artifacts that
+  carry the same field. A consumer MUST key on it rather than on `tool.name` or on the
+  presence of a block: `check`, `measure` and `render` all emit `schema_version: 1` under
+  `tool.name: "partspec"` and share the whole identity prefix by design (Scope), so until
+  this field existed the three were told apart only by guessing from the keys further down
+  (#295). Additive (no schema bump), and therefore **optional to a reader**: an artifact of
+  one of those five kinds written before the field existed carries none, and its absence
+  there means "an older partspec wrote this", never "not a report". **That reading is
+  scoped to those five.** `partspec diff`'s own artifact does not carry the field at any
+  version yet (#345), so its absence from a `diff.json` says nothing about which release
+  wrote it. A consumer that must tell the two cases apart reads `tool.name`, which is
+  `partspec-diff` there and has been since that artifact existed.
+  The optionality is also why a structural test — does this document declare a `verdict`
+  and `counts`? — remains the right guard for "is this a report", and `partspec diff`
+  keeps that one: a guard keyed on `payload` would refuse every report the tool wrote
+  before this release, and a document that declares a verdict is a report whatever it
+  calls itself.
+- **`part.contract`** — the contract module, followed by `:<factory>` when the invocation
+  named one. The path is in the frame §8 rule 4 fixes and `_anchor` already uses —
+  relative to the contract's own directory, which for the contract file itself is its
+  filename (#45; the alternative, a CWD-relative path, makes two checkouts of one tree
+  produce different reports). The symbol is the rest of the identity, and it is not
+  decoration: two factories in one module returning parts with the same `id` otherwise
+  produce **byte-identical** `part` blocks — same module-scoped `contract_digest`, same
+  source, same closure — and nothing in either artifact says which target was invoked
+  (#297). A module declaring a single factory needs no name to resolve, so both
+  `<module>` and `<module>:<factory>` are well-formed and a consumer MUST parse the suffix
+  as optional. The corollary is that one run spelled two ways — `spec.py` and
+  `spec.py:spacer` for the same single-factory module — records two different strings for
+  one part, which is why this field is **provenance, not comparison identity**. What a
+  comparator pairs two reports on is `part.id`: `partspec diff` refuses a mismatch there
+  and reports `contract.digest_changed` as a field, which moves neither the outcome nor
+  the exit code — two reports with one `part.id` and different `contract_digest`s compare
+  `identical` at exit 0. So neither digest is a join key either, and a consumer wanting
+  the collision above surfaced as a difference has to read `part.contract` itself and
+  handle the two spellings.
+
+  Two forms of this field are **not** `<module>[:<factory>]`, and both are visible from
+  the artifact. The pre-resolution placeholder (§5 rule 2) is written before the target
+  resolves, so it can only echo the argument as typed — absolute path included — and its
+  `part.id` is `"unresolved"`. A library caller that invokes `run()` with no
+  `contract_path` records `"<in-memory>"`, there being no file to name — or
+  `"<in-memory>:make"` when it also names a factory, the suffix rule above applying to
+  that placeholder like any other module. The CLI cannot produce either `<in-memory>`
+  spelling; the placeholder above is a CLI artifact and the common case for one.
 - **`part.contract_digest` / `part.source_digest`** — sha256 of the contract module and of
   the source content. Digests give **identity**, and support **comparison-based** tamper
   evidence: two reports whose `contract_digest` differs were produced from different
@@ -667,9 +719,13 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 
   They do **not** make a weakened contract visible in a *single* report — "the digest
   changed" is a two-observation predicate, and D6 assigns that job to the semantic `diff`
-  that §9 defers. Two further limits, stated rather than glossed: the contract digest is
-  **module-scoped** while `part.contract` names a symbol, so an unrelated edit to the same
-  module also changes it; and `source_digest` covers only the named file, **not** anything
+  that §9 defers. Two further limits, stated rather than glossed. The contract digest is
+  **module-scoped** while the part it describes is one factory's output — narrower than
+  the module whatever `part.contract` happens to spell, since a module with several
+  factories resolves to one of them and a module with one is still not the same thing as
+  the function. So the digest **over-fires**: an unrelated edit anywhere in the module,
+  a sibling factory included, moves the digest of a part that did not change. And
+  `source_digest` covers only the named file, **not** anything
   it pulls in via `include <>` / `use <>`.
 
   > **The v0 gap, closed post-v0.1: silent contract weakening.** An agent that deletes a
@@ -864,6 +920,76 @@ checks whose pass/fail state did not change* — "drift the boolean can't see." 
 thinning from 2.9 mm to 2.1 mm against a 2.0 mm minimum is two passes and one very
 important trend, and nothing else in the system can see it.
 
+### 7.3 The `measure` payload — `measurements`, `refused`, `unavailable`
+
+**This section describes the payload of a run that measured.** A run whose build failed,
+or whose `--out` was refused, takes the failure shape Scope fixes instead — the identity
+prefix, an empty `geometry`, and `error`/`hint` — and carries **none** of the three blocks
+below, `measurements` included. The two shapes are told apart by `error`, which the
+failure shape always carries and this one never does.
+
+Within that payload, `measure` emits the identity prefix (Scope), then `geometry`, then
+the numbers. Those arrive in up to **three** blocks, and the distinction between them is
+the verb's product rather than bookkeeping. Every name the verb asks about lands in
+exactly one of them, so a consumer that reads all three has accounted for the whole
+vocabulary and a name missing from all three is a defect in this tool, not a silence about
+the part.
+
+**None of the three is unconditional, and a consumer MUST read all three with a default
+rather than by subscript.** They are not absent under the same condition, and the
+difference is worth knowing. `refused` is absent on a part that defeated nothing — the
+common case — and `unavailable` on a tier that can answer everything asked, which is
+**not** hypothetical: the OCCT tier's capability set covers all fourteen names the verb
+asks, so a build123d or CadQuery payload carries neither key. Those two are omitted
+whenever they would be empty, rather than emitted as `{}` or `[]`, for the same reason
+`partial` is (§8.3), and their absence carries the same obligation on the reader: it means
+"nothing to report", never "not asked". `measurements` is different — a run that measured
+nothing still emits it, as `{}` — and it is absent only from the failure shape above.
+Three keys, two conditions, one rule for the consumer.
+
+A **sound** part measured **without `--out`** on a tier that answers everything therefore
+has as its whole top level
+`schema_version, payload, tool, part, engine, params, geometry, measurements` — the
+minimal shape, stated so a consumer knows what it may see, and **not** a key set to
+validate against: `refused`, `unavailable` and `artifact` each extend it, and each is
+reachable on the same tier from the rules just above.
+
+- **`measurements`** — name → the §2 measurement shape: `value` (scalar or vector),
+  `unit`, `exactness` (`"exact"` | `"approximate"`), `bounds` when the backend gave an
+  interval, and `axes` on a vector. The interval is the honesty: an approximate value shown
+  without it reads more certain than it is, in the verb whose whole job is showing the
+  numbers.
+- **`refused`** — name → the reason this **part** could not be measured, in the reason's
+  own words: `"volume": "volume is the integral over a closed surface; this mesh is open
+  along 4 boundary edge(s)"`. The reason names the part's defect, so it is the finding and
+  not an apology. **Omitted entirely when nothing was refused** — a sound part carries no
+  `refused` key.
+- **`unavailable`** — the names this **tier** cannot answer for any part, so the same list
+  every time that backend measures anything. Listed in the fixed order the verb asks them
+  in, which is not alphabetical. **Omitted entirely when the tier can answer everything
+  asked**, which is the whole OCCT tier today.
+
+The two silences are separate because conflating them was a bug this verb had. `refused`
+is a property of the part and `unavailable` a property of the tier, and an author reading
+a measure dump to decide what to claim needs to know which one they are looking at: a
+refusal is something to fix in the model, a tier limit is something to claim on the other
+tier or not at all. Before D17 only the second kind existed and dropping the name silently
+was honest; it is not honest now, since an open mesh drops `volume`, `genus` and
+`center_of_mass` and a reader would conclude the part has no volume to claim.
+
+Emission order, among those present, is `measurements`, `refused`, `unavailable`, after
+`geometry`; `artifact` follows them when `--out` was passed, in the two states Scope fixes. The name vocabulary
+is the backend capability set, deliberately **not** enumerated here — it is a superset of
+the check vocabulary (`SPEC-contract.md` §7: `is_valid` and `topology_counts` are worth
+seeing while deciding what to claim and are not check kinds), and the report format must
+not need revising each time a backend can answer one more thing.
+
+A `measure` payload carries **no `verdict`, no `counts` and no `checks`**, and MUST NOT be
+read as a report: it states numbers and makes no claim about the part. That absence is
+what `partspec diff` tests to refuse one (`SPEC-diff.md` §2), since a comparison of two
+documents that declare nothing would answer `identical` for two files that never made a
+claim; `payload: "measure"` (§7.1) now says the same thing by name.
+
 ---
 
 ## 8. Determinism
@@ -946,6 +1072,13 @@ An OpenSCAD report therefore carries:
   a model that reads external data under a `complete` `engine_inputs` has
   `reads_external_data: true` and no gap, so it is not `partial`. Read the equivalence off
   `unseen`, never off the fields above it.
+  **Absent means complete: read it with `.get`.** A clean OpenSCAD closure carries no
+  `partial` key at all, and the field is never emitted as `false` anywhere in the tool, so
+  absence is the only encoding of "complete" — and that encoding occurs on one tier only,
+  the Python tier being unconditionally partial (`native_reads`, below). An agent that
+  learned the field on a build123d part, where it is always present and always `true`, is
+  exactly the reader who writes the bracket-index read and gets a `KeyError` on the first
+  OpenSCAD part it meets.
   It is stated positively so a consumer cannot read the *absence* of those fields as a
   completeness guarantee the closure never made. **A comparator MUST treat a `partial`
   closure as inconclusive evidence of sameness**, exactly as `unsupported` is treated for a

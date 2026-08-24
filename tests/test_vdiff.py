@@ -75,6 +75,21 @@ def test_identical_geometry_is_an_empty_diff(runs, tmp_path: Path, capsys):
 
 
 @needs_build123d
+def test_the_vdiff_document_names_its_version_the_way_every_sibling_does(
+    runs, tmp_path: Path, capsys
+):
+    """#295. This document spelled its version `vdiff_schema_version` and
+    nothing else, so a generic consumer reading `doc["schema_version"]` — the
+    key SPEC-report.md §7 tells it to key on — raised KeyError here and on no
+    other partspec artifact. Both spellings now carry the same integer for one
+    release, and `payload` says which artifact this is."""
+    _, doc = _vdiff(capsys, runs["base"], runs["again"], tmp_path / "d")
+    assert doc["schema_version"] == doc["vdiff_schema_version"]
+    assert doc["payload"] == "vdiff"
+    assert list(doc)[:4] == ["schema_version", "payload", "vdiff_schema_version", "tool"]
+
+
+@needs_build123d
 def test_a_moved_bore_is_a_nonzero_diff_where_it_moved(runs, tmp_path: Path, capsys):
     """The F16 regression arm: a real geometry change must not diff to zero
     — and it localises: the bore moved in x, so top and iso change while

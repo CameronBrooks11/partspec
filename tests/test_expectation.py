@@ -140,7 +140,7 @@ def test_pin_then_expect_round_trips_green(tmp_path: Path):
     assert main(["check", target, "--quiet", "--expect", str(lock), "--out", str(out)]) == 0
     report = report_of(out)
     assert report["expectation"] == {"claims": 2, "matched": True}
-    assert list(report)[7:10] == ["counts", "attribution", "expectation"]
+    assert list(report)[8:11] == ["counts", "attribution", "expectation"]
 
 
 @needs_scad_tier

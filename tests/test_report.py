@@ -23,7 +23,12 @@ DOCS = Path(__file__).resolve().parents[1] / "docs"
 
 
 def _report(**kw) -> Report:
-    return Report(part_id="p", contract="parts/p.py:main", tool_version="0.1.0", **kw)
+    # `p.py:main`, not `parts/p.py:main`: the emitted shape is the contract's
+    # own filename plus the invoked symbol (§7.1, #45's frame). This fixture
+    # carried a directory chain the production path cannot produce, so the
+    # spec, the dataclass and the suite all agreed and only the runner did not
+    # — which is why the suite could not see #297.
+    return Report(part_id="p", contract="p.py:main", tool_version="0.1.0", **kw)
 
 
 def _check(status: Status, **kw) -> CheckResult:
@@ -43,6 +48,7 @@ def test_field_order_is_fixed():
     doc = _report().to_json()
     assert list(doc) == [
         "schema_version",
+        "payload",
         "tool",
         "part",
         "engine",
@@ -401,6 +407,28 @@ def _spec_example() -> dict:
 
 def test_spec_example_is_valid_json():
     assert _spec_example()["schema_version"] == SCHEMA_VERSION
+
+
+def test_the_spec_examples_contract_is_a_shape_the_tool_can_emit():
+    """§7's example is what a consumer builds a parser from, and the field-order
+    test above reads key NAMES and order only — never values — so it could not
+    see that the example showed `parts/bayonet/spec.py:lock` while the runner
+    emitted `spec.py` (#297).
+
+    Not a doc-vs-code diff, which AGENTS.md forbids and which would be two
+    copies of one string: the documented value is *executed* — parsed by the
+    tool's own target parser — and checked against the two properties §7.1
+    states about the field. A directory chain fails the second, which is what
+    the example carried; a bare module fails the first, which is what the
+    runner emitted.
+    """
+    from partspec.target import Target
+
+    parsed = Target.parse(_spec_example()["part"]["contract"])
+    assert parsed.factory is not None, "the canonical example names a symbol (§7.1)"
+    assert parsed.path.parent == Path(), (
+        "and the module in the contract's own frame — never a directory chain (#45)"
+    )
 
 
 def test_spec_example_satisfies_its_own_counts_rule():

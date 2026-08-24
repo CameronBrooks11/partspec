@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`payload` — every artifact now says which artifact it is** (#295, epic
+  #305). `check`, `measure` and `render` all emit `schema_version: 1` under
+  `tool.name: "partspec"` and share the whole identity prefix by design, so a
+  consumer holding one of the three could not tell which it had. Each payload
+  now names itself — `report`, `measure`, `render`, `lint`, `vdiff` —
+  immediately after `schema_version`, where the two are read together: the
+  version says how to READ the document, `payload` says WHAT it is.
+  **`vdiff` spelled its version `vdiff_schema_version` and nothing else**, so
+  `doc["schema_version"]` — the key `SPEC-report.md` §7 tells a consumer to key
+  on — raised `KeyError` on that one artifact and on no other. It emits
+  `schema_version` as well now, both spellings taken from one constant so they
+  cannot drift; the old key stays for one release, and dropping it later is the
+  breaking change §7.1 says a removal is.
+  **Additive, so `schema_version` does not move** — §7.1: "adding a field is a
+  non-breaking change and MUST NOT bump `schema_version`". The same rule makes
+  the field optional to a *reader*: every artifact written before this release
+  carries none, and its absence means "an older partspec wrote this", never
+  "not a report". That is why `diff`'s "is this a report" guard (#292, #328)
+  keeps keying on `verdict` and `counts` being present rather than on the new
+  field — one keyed on `payload` would refuse every report the tool has written
+  to date, and a document that declares a verdict is a report whatever it calls
+  itself. The guard already refuses a `measure` or `render` payload by that
+  test, at exit 64; what the discriminator adds is that a consumer which is not
+  `diff` can now make the same distinction, by name, without reverse-engineering
+  it from the key set.
+  **Five of the six payloads #295 names, not six: `partspec diff`'s own output
+  carries no discriminator (#345)**, its module having belonged to another lane
+  this wave. §7.1's "absent means an older partspec wrote it" reading is
+  therefore scoped to the five that do carry the field — a `diff.json` from this
+  release has none, and `tool.name: "partspec-diff"` is what identifies it until
+  #345 lands.
+
 - **`csg-two-part-intersection`, an advisory lint rule** (#270). Fires when a
   file's entire top level is a single `intersection()` of exactly two children.
   A probe whose two parts are module calls matches too, since the export folds
@@ -308,6 +340,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **"Absent means complete — read it with `.get`", where the field is defined
+  and where an agent is told to read it** (#302, epic #305).
+  `AGENT-CONTRACT.md` lists `part.source_closure.partial` among four things to
+  confirm before believing a green run, and carried no absence caveat — while
+  the neighbouring bullet four lines down carries one for `imports`. On a clean
+  OpenSCAD run there is no `partial` key: the runner writes it only inside
+  `if unseen:`. The Python tier seeds `unseen` unconditionally
+  (`native_reads`), so the field is always present and always `true` there, and
+  it is emitted as `false` nowhere in the tool. **Absence is the only encoding
+  of "complete", and it exists on one tier only** — so an agent that learned
+  the field on a build123d part is exactly the reader who writes the
+  bracket-index read and gets a `KeyError` on the first OpenSCAD part it meets.
+  The same sentence is now in `SPEC-report.md` §8.3's `partial` bullet, where
+  the field is defined; the omission was previously stated once, 235 lines
+  later, inside a subsection about pre-0.7.5 reports.
+
+- **`SPEC-report` specifies the `measure` payload's body** (#296, epic #305).
+  `measurements`, `unavailable` and `refused` — the only part of that payload
+  carrying information, 9 and 5 and 3 entries on a real run — appeared nowhere
+  in `docs/` or `README.md`. The Scope paragraph described the payload as the
+  identity prefix "followed by `geometry`", which is where it stops being
+  true. A new §7.3 states the three blocks and the property that makes the
+  shape worth having: **every name the verb asks about lands in exactly one of
+  them**, so a name missing from all three is a silence about a quantity the
+  tool asked for. That claim is now executed by a test over a sound part and a
+  broken one on the same tier, where `refused` grows, `measurements` shrinks
+  and the union may not move.
+  **Two of the three are omitted when empty, and the section says so**, because
+  the first draft did not and would have reproduced for `measure` the exact
+  defect the `partial` fix below closes. `refused` is absent on a part that
+  defeated nothing; `unavailable` is absent on a tier that answers everything
+  asked — which is the whole OCCT tier, whose capability set covers all
+  fourteen names the verb asks, so a build123d payload's top level is exactly
+  `schema_version, payload, tool, part, engine, params, geometry,
+  measurements`. A consumer MUST read both with a default, and the test that
+  pins the partition now has a build123d arm, the property being
+  tier-independent while the section had been written from mesh-tier runs
+  alone.
+  **All three are optional, and the section is scoped to the run that
+  measured.** The first repair asserted `measurements` was always present,
+  which reproduced the same defect one field over: `measure`'s failure payload
+  carries none of the three, in both failure modes. §7.3 now opens by saying it
+  describes a run that measured and that a failed one takes Scope's failure
+  shape, tellable apart by `error`. The eight-key top level is likewise stated
+  as the **minimal** shape and explicitly not a key set to validate against —
+  `--out` adds `artifact` and a two-solid part adds `refused`, both reachable
+  on that same tier, both now pinned by the test rather than left to the
+  sentence.
+  The issue said `unavailable` was sorted. It is not, and the spec says what
+  it is: the fixed order the verb asks the quantities in, which is stable
+  between runs and is not alphabetical.
+  **`SPEC-contract` §7 said `measure` "emits nothing that would be
+  `unsupported`"** and that on a mesh `topology_counts` "is simply absent
+  rather than present-and-wrong" — while the shipped skill routes contract
+  authors to that very section, and `topology_counts` is right there in
+  `unavailable` on every mesh-tier run. The sentence dates from before the
+  two silences existed. It now says what the verb does instead: what it could
+  not answer it NAMES, in `refused` when the part defeated the measurement and
+  in `unavailable` when the tier cannot answer it at all — because an omission
+  reads as "this part has no topology to speak of" to exactly the author the
+  verb exists to serve.
+
 - **`SPEC-contract` states the two geometry conventions that a wrong guess
   passes on** (#283, epic #305). §4.2's normative prose reached five of its
   ten rows, across three sites — `builds` and `empty` in the section body,
@@ -587,6 +681,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   side effect of a policy PR.
 
 ### Fixed
+
+- **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
+  counts the field this release added to it** (#295, #340). §2.4 lists that
+  payload's keys as "Measured … exactly `engine`, `error`, `geometry`, `hint`,
+  `params`, `part`, `schema_version`, `tool` — in *both* failure modes", which
+  an agent reads to learn there is no `origin` to branch on. Adding `payload`
+  made it nine, and neither change was wrong alone: #340 measured the payload
+  correctly, and #295 extended it additively. **The composition was false and
+  no test could see it**, so CI stayed green over a document that had just been
+  measured.
+  That is #299's class in a second file, and the second time in one wave that a
+  hand-maintained list went stale where nothing gated it. The list is corrected
+  and now has a gate:
+  `tests/test_cli.py::test_the_measure_failure_payload_carries_exactly_these_keys`
+  asserts the exact key set in both failure modes — exit 4 from a build that
+  failed and exit 64 from a refused `--out` — and §2.4 cites it by name, so the
+  next such falsification is a red run rather than a shipped falsehood. The
+  test states the shape directly rather than parsing the document, which would
+  only prove two copies of one list agree.
+  **The same test pins the key ORDER**, which §8 rule 1 makes a MUST and which
+  nothing executed on this payload: moving `payload` to sit after `params`
+  passed the entire suite. Both assertions stay — §2.4 claims a set, §8 rule 1
+  claims an order, and neither implies the other.
 
 - **AGENT-CONTRACT's exit table covers only `check`, and routed the agent into
   the one case it does not cover** (#301, epic #305). §2 opens "Every evaluated
@@ -897,6 +1014,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Filed rather than folded into #326 when it was found, because §3's MUST was
   scoped to status-change entries and genuinely did not reach this bucket —
   so the spec sentence came first and the code followed it.
+
+- **`part.contract` names the factory that was invoked** (#297, epic #305).
+  `SPEC-report.md` §7 showed `"contract": "parts/bayonet/spec.py:lock"` and
+  §7.1 said normatively that "the contract digest is module-scoped while
+  `part.contract` names a symbol" — the whole justification for the
+  module-scoped digest. The runner passed the contract path as **both**
+  arguments to `_relative`, which always yields the bare basename: never the
+  directory, never the `:factory`.
+  **Two factories in one module returning parts with the same `id` therefore
+  produced byte-identical `part` blocks** — same module-scoped
+  `contract_digest`, same source, same closure — and nothing in either
+  artifact said which target ran. Measured, before: two `check` runs of
+  `same.py:imperial` and `same.py:metric` both wrote
+  `"contract": "same.py"` and the same digest; after, `same.py:imperial` and
+  `same.py:metric`. The code was wrong and the spec was right about the
+  symbol: the collision is a defect whichever document one prefers, and the
+  spec's stated reason for the over-firing digest rests on the field naming a
+  symbol.
+  The spec was wrong about the **path**, and its example is corrected to
+  `"spec.py:lock"`: #45 deliberately normalized this field to the contract's
+  own directory — the frame `_anchor` already resolves against, so that two
+  checkouts of one tree produce byte-identical `part` blocks — and a
+  CWD-relative chain is exactly what that closed. §7.1 now states both halves,
+  including that the suffix is **optional**: a module with one factory needs no
+  name to resolve and records none.
+  `tests/test_report.py`'s fixture asserted `parts/p.py:main`, a shape the
+  production path cannot emit, so the spec, the dataclass and the suite all
+  agreed and only the runner did not — which is why 1,203 tests could not see
+  this. The one spec-conformance test reads key names and order and never
+  values; a second now executes the documented value through the tool's own
+  target parser, where a directory chain and a missing symbol both fail.
+  **Compatibility, for consumers rather than for the schema.** The field stays
+  a string and the `<module>:<symbol>` form is what `SPEC-report.md` has shown
+  since scaffolding `34104ab`, so this brings the code to the schema rather than
+  changing the schema, and `schema_version` does not move. But the value
+  *shipped* to date was a bare filename, so anything that parsed it as one — a
+  consumer splitting on `.py`, or comparing it to `Path(target).name` — now sees
+  `spec.py:spacer` where it saw `spec.py`. The tool's own rule, worth copying
+  rather than approximating (`target.py`'s `Target.parse`): partition on the
+  LAST `:`, and treat the tail as a factory **only if it is an identifier** —
+  otherwise the whole string is the module. Both forms are emitted, since a
+  single-factory module needs no name to resolve and records none, and the
+  identifier guard is what stops a contract filename that contains a colon
+  (`rev2:spec.py`) from being read as module `rev2`.
+  **Not fixed here (#343):** `partspec diff` still answers `identical` at exit 0
+  for those two reports. It pairs two reports on `part.id` and never reads
+  `part.contract`; `contract_digest` is not the join either, and rides along as
+  `contract.digest_changed` — a reported field that moves neither the outcome
+  nor the exit code. The artifacts now record which target ran; teaching the
+  comparator to read it is `diff`'s own change.
 
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).

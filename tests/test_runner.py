@@ -506,6 +506,41 @@ def test_the_part_block_carries_no_absolute_path(tmp_path: Path):
         assert not any(str(v).startswith("/") or "\\" in str(v) for v in doc.values())
 
 
+def test_the_contract_records_which_factory_was_invoked(tmp_path: Path):
+    """#297. Two factories in one module returning parts with the same id
+    produced BYTE-IDENTICAL `part` blocks, and `partspec diff` called them
+    identical at exit 0.
+
+    The distinguishing case is the digest, asserted here rather than assumed:
+    it is module-scoped by design (§7.1), so it is EQUAL on both sides and
+    cannot be what separates them. Asserting only that the two blocks differ
+    would pass on a fixture where anything else differed too.
+    """
+    (tmp_path / "box.scad").write_text("cube([10, 10, 10]);\n")
+    (tmp_path / "same.py").write_text("# two factories, one module\n")
+
+    def block(factory: str | None) -> dict:
+        part = Part("widget", openscad(tmp_path / "box.scad")).watertight()
+        report = run(
+            part,
+            out_dir=tmp_path / "out",
+            contract_path=tmp_path / "same.py",
+            factory=factory,
+        )
+        return report.to_json()["part"]
+
+    imperial, metric = block("imperial"), block("metric")
+    assert imperial["contract"] == "same.py:imperial"
+    assert metric["contract"] == "same.py:metric"
+    assert imperial["contract_digest"] == metric["contract_digest"], (
+        "module-scoped by design — so it is not what tells the two apart"
+    )
+    assert imperial != metric, "and the symbol is what does"
+    assert block(None)["contract"] == "same.py", (
+        "a module with one factory needs no name to resolve and records none"
+    )
+
+
 def test_a_parameter_unit_does_not_depend_on_the_python_literal(tmp_path: Path):
     """`40` and `40.0` are the same dimension. `_unit_for` used to give the first
     "count" and the second "mm", so editing a declared parameter between the two

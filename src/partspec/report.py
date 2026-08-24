@@ -309,8 +309,15 @@ class Report:
         if self.source_closure:
             part["source_closure"] = self.source_closure
 
+        # `payload` names WHICH artifact this is (#295). `measure` and
+        # `render` share this identity prefix by design, so until this field
+        # existed the three were distinguishable only by guessing from the keys
+        # further down: same `tool.name`, same `schema_version`, three shapes.
+        # Additive, so every report written before it has none and a consumer
+        # MUST tolerate its absence (SPEC-report.md 7.1).
         doc: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
+            "payload": "report",
             "tool": {"name": "partspec", "version": self.tool_version},
             "part": part,
             "engine": self.engine,
