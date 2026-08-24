@@ -5,6 +5,10 @@
 green, **via the CLI**.
 **Scope:** how to act on partspec's output. How to *author* a contract is
 `SPEC-contract.md`; what the artifact means is `SPEC-report.md`.
+**If you are about to write one, start at `skills/contract-authoring/SKILL.md`** — it is
+the routing document, and it sends you to the source-side skill for your engine
+(`openscad-authoring`, or `build123d-authoring` for build123d and CadQuery). The spec is
+normative and closes the vocabulary; the skill is how to choose within it.
 
 **The `partspec-mcp` tools cannot execute this document.** They run the same CLI per call,
 but the four registered tools are `check` / `measure` / `render` / `vdiff`, and the check

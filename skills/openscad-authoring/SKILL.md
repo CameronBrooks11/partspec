@@ -171,4 +171,9 @@ Contract-side guidance is `skills/contract-authoring/SKILL.md`; the evidence bas
 `docs/FAILURE-MODES.md`; worked parts are under `examples/` (the `enclosure` and
 `bearing-block` exemplars are OpenSCAD).
 
+**This skill is OpenSCAD-only.** If the source you are writing is build123d or CadQuery,
+none of the rules above transfer — those engines fail by silent *selection* drift and
+ecosystem breakage rather than by silent geometry loss. Load
+`skills/build123d-authoring/SKILL.md` instead.
+
 [gaps]: https://github.com/CameronBrooks11/partspec/blob/main/notes/GAPS.md

@@ -289,6 +289,12 @@ their exact predicates are
 How to write a contract that proves something — check selection, limit provenance, the
 retrofit path — is
 [`skills/contract-authoring/`](https://github.com/CameronBrooks11/partspec/tree/main/skills/contract-authoring).
+The source-side rules are split by engine, and the contract skill routes you: OpenSCAD to
+[`skills/openscad-authoring/`](https://github.com/CameronBrooks11/partspec/tree/main/skills/openscad-authoring),
+build123d and CadQuery to
+[`skills/build123d-authoring/`](https://github.com/CameronBrooks11/partspec/tree/main/skills/build123d-authoring)
+— the Python engines fail by selection drift where OpenSCAD fails by silent geometry loss,
+so the two sets do not transfer.
 Worked exemplars beyond the spacer live in
 [`examples/`](https://github.com/CameronBrooks11/partspec/tree/main/examples) — a cited
 NEMA 17 bracket, a two-engine bearing-seat family, a sealed enclosure — each with a README

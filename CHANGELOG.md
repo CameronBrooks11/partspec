@@ -588,6 +588,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`skills/build123d-authoring` had zero inbound links, so every author was
+  handed the OpenSCAD rules** (#284, epic #305). Verified before and after:
+  `grep -rn "build123d-authoring" --include="*.md" .`, CHANGELOG excluded,
+  returned exactly two lines — a rationale string in `docs/LINT.md` and the
+  skill's own frontmatter `name:`. Nothing pointed at it. `README.md` says
+  "three authoring skills" in prose and linked one; `contract-authoring`, the
+  document that routing goes through, sent all source-side work to
+  `openscad-authoring`.
+  That is not a missing link, it is the wrong rules: the Python engines fail
+  by silent **selection** drift and ecosystem breakage where OpenSCAD fails by
+  silent geometry loss, so an agent writing build123d was reading advice that
+  does not transfer. `contract-authoring` now routes by the source constructor
+  the contract declares — `openscad(...)` to one skill, `build123d(...)` or
+  `cadquery(...)` to the other, which covers both Python engines. `README.md`
+  links all three. `AGENT-CONTRACT.md`'s scope note, which named only
+  `SPEC-contract.md`, now says to start at the routing skill and why the two
+  differ. And `openscad-authoring` gained the reverse pointer it lacked, since
+  its reader is exactly the agent who arrived with the wrong engine.
+
 - **The retrofit path's first command named the model file, and a model file
   fails with the same word twice** (#282, epic #305).
   `skills/contract-authoring/SKILL.md` step 1 of "The retrofit path" said
