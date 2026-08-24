@@ -1653,7 +1653,13 @@ def test_a_range_that_would_not_convert_is_not_a_defaulted_dimension(tmp_path: P
     default, nothing reaching geometry). Round-2 review; the sweep that should
     have caught it was run on 2021.01 alone, where the message does not exist.
 
-    Asserted on BOTH engines deliberately: the claim is that they now agree.
+    THIS TEST ONLY BITES ON 2026.08.01. On 2021.01 the engine says nothing for
+    either source, so `seen == []` holds however the carve-out is written and
+    the assertion is trivially true -- removing the entry fails two tests here
+    on the newer engine and one on the older. It is still run on both, because
+    a later engine gaining the 2021.01 silence back is a change worth failing
+    on; what pins the class on BOTH legs is the engine-free literal in
+    `test_the_substituted_value_markers_match_both_engine_spellings`.
     """
     for name, body in (
         (

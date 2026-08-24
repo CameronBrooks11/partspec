@@ -823,10 +823,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error beside a completely correct 272-facet part. `Unable to convert` is
   emitted only where a value actually reached geometry, so that part still
   passes at exit 0; asserted through the binary, not reasoned about.
-  **Two classes of conversion warning are carved out**, both true and both
-  about nothing that is exported. The **GUI camera**: `$vpt = [undef, 0, 0]`
-  prints the marker's exact words on both engines beside a cube that is exactly
-  right. And a **range or step built in an expression**: on 2026.08.01,
+  **Two classes of conversion warning are carved out.** The **GUI camera** is
+  unconditionally safe — `$vpt = [undef, 0, 0]` prints the marker's exact words
+  on both engines beside a cube that is exactly right, and no exported mesh can
+  depend on the camera. The second is a **trade with a remainder, stated here
+  rather than implied**: a **range or step built in an expression**. On
+  2026.08.01,
   `echo("holes:", [0 : holes])` with an optional module parameter left at
   `undef` prints `Unable to convert [0:...:undef] to a range` — head-anchored,
   so the anchor above does not exclude it — beside a part whose export is
@@ -839,6 +841,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `[`; every substitution begins with a module or field name, so the
   bracket separates the classes by the engine's grammar rather than by a list
   this repo would have to chase.
+  **What that carve-out costs** (#338): a failed range yields `undef` into the
+  expression, and that `undef` can reach geometry. On 2026.08.01, where this
+  line is the only stderr signal produced, `for (i = [1 : n])` with `n` unbound
+  drops the loop's geometry entirely — 6 facets against 76 — and
+  `n = undef; r = [0 : n]; linear_extrude(r[2])` exports a part 100 mm tall,
+  which is #308's own headline fault. Both pass at exit 0. The line cannot tell
+  an expression that reached geometry from one that did not, so correct parts
+  win the tie: matching it refused a byte-identical-export part in round-2
+  review, and `undefined operation` came off the success path for the same
+  reason with #332 holding its remainder. The trade is deliberate; the
+  remainder is filed, not waved away.
   **What is still uncovered, measured rather than supposed** (#332): a
   *scalar* dimension taking `undef` narrates nothing at all.
   `linear_extrude(undef)` and `cylinder(h=undef)` are silent on both engines,
@@ -866,32 +879,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the diagnosis now share one predicate, so what is refused and what is
   called a substitution cannot drift apart.
 
-  **Real library sources do trip this, and that is a behaviour change.** Swept
-  1503 third-party `.scad` files (BOSL, BOSL2, MCAD, NopSCADlib, YAPP_Box,
-  pathbuilder, Stemfie, lasercut and others) **on both pinned engines**, each
-  hit classified by the shipping predicate:
+  **Real library code does trip this, and that is a behaviour change.** Not a
+  count: three attempts at a corpus total were wrong three different ways — one
+  engine, then a 15 s render cap, then a corpus swept with the libraries hidden
+  from themselves, where the dominant marker was `Can't open include file` and
+  the conversion lines beneath it were knock-on `undef`s from a library that
+  never loaded. That is a #286 refusal, already exit 4 before this change. What
+  follows is therefore a **verified list, not a census**: each file rendered
+  with its own library root on `OPENSCADPATH`, under both pinned engines, at a
+  250 s cap, classified by the shipping predicate, and kept only where **no**
+  `#286` name marker accompanies the conversion line.
 
-  | | 2021.01 | 2026.08.01 |
+  | file | 2021.01 | 2026.08.01 |
   |---|---|---|
-  | OpenSCAD's own deliberately-broken test fixtures (578 files) | 18 | 18 |
-  | genuine library sources (925 files) | 9 | 14 |
+  | `MCAD/hardware.scad` (its own demo block) | 5 | 5 |
+  | `YAPP_Box/examples/GateAlarm_Sample_v30.scad` | 1 | 1 |
+  | `pathbuilder/demo/TwistedMesh.scad` | 1 | 68500 |
+  | `MCAD/trochoids.scad` | — | 120 |
+  | `openscad/examples/Old/example011.scad` (OpenSCAD's own) | — | 1 |
 
-  One file of the 925 is unmeasured on 2021.01 — `NopSCADlib/libtest.scad`
-  exceeds a 900 s CGAL render — so that 9 is a floor, not a total; every other
-  file completed on both engines.
+  Counts are conversion lines emitted. Every one is a **true** refusal:
+  `module bearing(position) … translate([0, 0, -position - bearingwidth/2])`
+  with `position` unbound really does lose the offset, and `faces = undef` into
+  `polyhedron()` really is a solid with no faces. So a user pointing
+  `partspec check` at one of these now gets exit 4 where they previously got a
+  build, and the report is about their library rather than their part.
 
-  The newer engine finds more because it narrates more: `points = undef` into
-  `polygon()` and `faces = undef` into `polyhedron()` are silent on 2021.01.
-  Every hit inspected is a **true** refusal — `translate([0, 0, undef])` really
-  does lose the offset, and `polygon(points=undef)` really is an empty shape —
-  and they are shipped demos: `MCAD/hardware.scad`'s demo block, three
-  `YAPP_Box` examples, `BOSL`/`BOSL2` `orientations.scad`, three `pathbuilder`
-  demos, `NopSCADlib`'s Gridfinity example. A user who points `partspec check`
-  at one of those now gets exit 4 where they previously got a build, and the
-  report is about their library rather than their part. Nothing partspec ships
-  trips it — all 25 in-repo `.scad` files are clean on both engines.
-  Both engines, because measuring one was how the range class below was missed:
-  on 2021.01 that message does not exist.
+  Files that look like hits and are not, since the difference is the whole
+  lesson: `BOSL`/`BOSL2` `orientations.scad` emit **zero** conversion lines
+  once BOSL is on the path; two of the three `pathbuilder` demos are likewise
+  clean once `pathbuilder/` is; `YAPP_Box`'s `RidgeExtDemo` and `HookTest`
+  carry `Ignoring unknown variable 'ridgeExtTop'` on both engines and so were
+  already exit 4; and `NopSCADlib`'s Gridfinity example is a 2021.01 hit
+  accompanied by `Ignoring unknown variable '$d'` — already exit 4 there — and
+  a clean **non**-hit on 2026.08.01, one more divergence in this family.
+
+  Nothing partspec ships trips it — all 25 in-repo `.scad` files are clean on
+  both engines.
 
   **The refusal says which of the two faults it is.** #286's guard had one
   sentence, and *the engine could not resolve a name* with a hint to check

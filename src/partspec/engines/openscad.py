@@ -1046,17 +1046,43 @@ _NON_GEOMETRY_CONVERSIONS = (
 )
 """Conversion warnings that are true and about nothing that is exported.
 
-Two classes, one rule. A viewport variable is the GUI camera; a range or step
-is an expression the engine could not build, which yields `undef` into the
-expression exactly as an unresolved function does and reaches geometry only if
-something else then puts it there. Neither is a module substituting its own
-default into a dimension, which is the whole of what this guard refuses.
+Two classes, and only the first is unconditionally irrelevant. A viewport
+variable is the GUI camera and no exported mesh can depend on it. A range or
+step is different, and the difference is a TRADE rather than a fact.
 
-Both are ANCHORED at the head of the engine's sentence, like the marker itself
--- see `_unresolved_lines`. The range class was found by an optional module
-parameter left at `undef` and printed in a debug echo, which is the protected
-case from PR #306 with a range where the string concat was: byte-identical
-export, exit 0 on 2021.01, and exit 4 on 2026.08.01 before this entry."""
+A failed range yields `undef` into the expression, exactly as an unresolved
+function does -- and an unresolved function's `undef` IS refused, on the
+reasoning `SPEC-report.md` §6.1 gives in as many words. What separates them is
+only that this line fires on a correct part often enough to matter and that one
+does not. So the honest statement is: **this line cannot distinguish an
+expression that reached geometry from one that did not**, correct parts win the
+tie, and there is a remainder.
+
+The remainder is real and measured on 2026.08.01, where this line is the ONLY
+stderr signal in each case:
+
+    module rail(n = undef) {                    // the loop's geometry vanishes
+      cube([40, 8, 6]);
+      for (i = [1 : n]) translate([i*8, 0, 6]) cube([6, 8, 4]);
+    }
+    rail();                                     // 6 facets against 76 for n=4
+
+    n = undef;  r = [0 : n];  h = r[2];         // #308's own headline shape
+    linear_extrude(h) square([40, 30]);         // exported bbox z 0..100
+
+The second is `linear_extrude` substituting its own default into a dimension --
+precisely the fault #308 exists to refuse -- passing at exit 0. Filed as #338.
+
+Carved out anyway, and the precedent is settled: matching this line refused
+CORRECT parts (round-2 review of PR #329 found the protected echo case from PR
+#306 with a range where the string concat was -- byte-identical export, exit 4
+on 2026.08.01 against exit 0 on 2021.01), and `undefined operation` came off
+the success path for exactly this reason with #332 holding its remainder. A
+loud false error on working code is the worse trade, and this repo has made it
+twice and reverted twice.
+
+Both entries are ANCHORED at the head of the engine's sentence, like the marker
+itself -- see `_unresolved_lines`."""
 
 _SUCCESS_PATH_MARKERS = (*_UNRESOLVED_NAME_MARKERS, *_SUBSTITUTED_VALUE_MARKERS)
 """What may be read off a render that SUCCEEDED: a name that did not resolve, or
@@ -1099,10 +1125,10 @@ def _unresolved_lines(
     `_SUCCESS_PATH_MARKERS` -- see `_UNRESOLVED_NAME_MARKERS` for the one that
     does not survive the move.
 
-    The viewport carve-out is applied to every set rather than folded into one,
-    because it is a statement about the LINE and not about the caller: a
-    `$vpt` conversion says nothing about the mesh whether the render succeeded
-    or produced nothing.
+    The non-geometry carve-out is applied to every set rather than folded into
+    one, because it is a statement about the LINE and not about the caller: a
+    `$vpt` or range conversion is read the same way whether the render
+    succeeded or produced nothing.
 
     A substitution marker is matched ANCHORED at the head of the engine's
     sentence, through `is_substituted_value`, and the name markers by
