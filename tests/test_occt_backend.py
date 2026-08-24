@@ -201,6 +201,23 @@ def test_a_plain_solid_has_no_cavities(backend: OcctBackend):
     assert measured(backend.cavities(bd.Box(10, 10, 10))).value == 0
 
 
+# Every case is a `lambda` that constructs its shapes fresh inside the
+# `Compound(...)` call, and that is load-bearing, not clutter (#337).
+# `Compound(children=[...])` REPARENTS what it is given: hand the same object to
+# a second compound and the first is left holding nothing, silently. Measured,
+# with one Box shared as a `children=` entry by two cases built at collection
+# time:
+#
+#     plain solid + stray sheet   solids 1 | shells 2   before the second exists
+#     plain solid + stray sheet   solids 0 | shells 1   after
+#
+# The row still wants `cavities == 0`, and an emptied compound answers 0 — green,
+# and measuring nothing. The `lambda` is what makes sharing survivable: each case
+# is built and measured before the next constructor can claim its children. Two
+# things that are safe on their own and are not the property to preserve: taking
+# the `lambda`s off while every case still builds its own shapes, and hoisting a
+# Box that is a `children=` entry in one case only. Both were executed and the
+# table stayed correct. Keep the shapes inside the builders.
 @pytest.mark.parametrize(
     ("name", "builder", "cavities"),
     [
