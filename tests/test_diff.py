@@ -21,7 +21,7 @@ from partspec.diff import (
     summary_of,
 )
 from partspec.report import CheckResult, Report
-from partspec.status import Limit, Measurement, Status
+from partspec.status import Limit, Measurement, Status, epsilon
 
 
 def _doc(part_id: str = "p", **overrides) -> dict:
@@ -155,6 +155,198 @@ def test_requires_checks_drift_on_operands():
     assert entry["operands"]["new"]["b"] == 2.5
 
 
+def _two_requires(status: str, operands: dict, other_status: str, other_operands: dict) -> dict:
+    """A document with TWO `requires` checks, `clears` ahead of the fixture's
+    own `fits`, so a rule about `requires` checks is observed somewhere other
+    than at the head of the list."""
+    doc = _doc()
+    fits = next(c for c in doc["checks"] if c["id"] == "fits")
+    fits["status"], fits["operands"] = other_status, other_operands
+    doc["checks"].insert(
+        0, {**fits, "id": "clears", "expr": "d <= h", "status": status, "operands": operands}
+    )
+    tally = {key: 0 for key in doc["counts"] if key != "total"}
+    for check in doc["checks"]:
+        tally[check["status"]] += 1
+    doc["counts"] = {"total": len(doc["checks"]), **tally}
+    doc["verdict"] = "fail" if tally["fail"] else "pass"
+    return doc
+
+
+def test_a_status_change_carries_the_operands_that_moved_with_it():
+    """#326. §3 names `operands` as the value of a `requires` check — it is
+    what `measurement.value` is for every other kind — and §3 says a
+    status-change entry MUST carry the value delta. The status branch
+    returned before reaching the operands comparison, so the delta was
+    recorded when the status held and dropped when it changed: `1 regressed`
+    and not one of the numbers that regressed it, though both reports carry
+    them.
+
+    Both directions of the severity order, two checks, and operands moving
+    up on one and down on the other, because a rule about status changes is
+    not pinned by one transition of one check in one direction."""
+    old = _two_requires("pass", {"d": 3.0, "h": 9.0}, "fail", {"a": 1.0, "b": 28.0, "c": 4.0})
+    new = _two_requires("fail", {"d": 12.0, "h": 9.0}, "pass", {"a": 1.0, "b": 2.0, "c": 4.0})
+
+    doc = _diff(old, new)
+    entries = {c["id"]: c for c in doc["checks"] if c["kind"] == "requires"}
+    assert {i: e["change"] for i, e in entries.items()} == {
+        "clears": "regressed",
+        "fits": "fixed",
+    }
+    # Both sides in full, unmoved operands included: the delta is the two maps
+    # the reports recorded, which is what makes `d` the answer to "which input
+    # changed?" rather than one of three numbers a reader must go and fetch.
+    assert entries["clears"]["operands"] == {
+        "old": {"d": 3.0, "h": 9.0},
+        "new": {"d": 12.0, "h": 9.0},
+    }
+    assert entries["fits"]["operands"] == {
+        "old": {"a": 1.0, "b": 28.0, "c": 4.0},
+        "new": {"a": 1.0, "b": 2.0, "c": 4.0},
+    }
+
+
+def test_operands_that_did_not_move_do_not_ride_a_status_change():
+    """The entry carries a delta, not a dump of whatever the new side holds:
+    a status that changed for a reason outside the expression must not be
+    given three numbers that did not move as its explanation."""
+    unmoved = {"a": 1.0, "b": 2.0, "c": 4.0}
+    old = _two_requires("pass", {"d": 3.0, "h": 9.0}, "pass", dict(unmoved))
+    new = _two_requires("fail", {"d": 12.0, "h": 9.0}, "fail", dict(unmoved))
+
+    entries = {c["id"]: c for c in _diff(old, new)["checks"] if c["kind"] == "requires"}
+    assert entries["fits"]["change"] == "regressed"
+    assert "operands" not in entries["fits"]
+    # The other check in the same document did move, so this is the comparison
+    # answering per pair and not answering "no" globally.
+    assert "operands" in entries["clears"]
+
+
+def test_an_operand_move_below_the_measurement_epsilon_is_still_a_move():
+    """Review round 1. `operands` were compared through `_values_equal`, and
+    its `epsilon(reference) = 1e-6 + 1e-7·|old|` is sized for a MEASUREMENT —
+    §3 justifies it by transform-order noise at ~1e-13 and `SPEC-report.md`
+    §3.3 sizes it for a binary-STL float32 round-trip. An operand is neither:
+    `expr.evaluate` reads the contract's declared parameters straight, before
+    any build, and adjudicates the predicate EXACTLY, with no epsilon
+    anywhere. So the borrowed tolerance opened a band — 3.6e-06 wide at
+    26 mm — in which the predicate flips and the comparison called the
+    operands unmoved, reproducing #326's own artifact on the branch that
+    fixed it.
+
+    The fixture proves it sits inside that band rather than asserting it: the
+    move is smaller than `epsilon` and the predicate `bore_d + 2 * wall <=
+    plate_y` still goes true → false across it."""
+    before, after = 26.0, 26.000001
+    assert abs(after - before) < epsilon(before)
+    assert (before + 2 * 2.0 <= 30.0) and not (after + 2 * 2.0 <= 30.0)
+
+    old = _two_requires("pass", {"d": 3.0}, "pass", {"bore_d": before, "wall": 2.0})
+    new = _two_requires("fail", {"d": 3.0}, "fail", {"bore_d": after, "wall": 2.0})
+
+    entries = {c["id"]: c for c in _diff(old, new)["checks"] if c["kind"] == "requires"}
+    assert entries["fits"]["operands"] == {
+        "old": {"bore_d": before, "wall": 2.0},
+        "new": {"bore_d": after, "wall": 2.0},
+    }
+    # And the same move with the status unchanged, so the exactness is a
+    # property of the comparison and not of the branch that reached it.
+    held_old = _two_requires("pass", {"d": 3.0}, "pass", {"bore_d": before, "wall": 2.0})
+    held_new = _two_requires("pass", {"d": 3.0}, "pass", {"bore_d": after, "wall": 2.0})
+    held = {c["id"]: c for c in _diff(held_old, held_new)["checks"]}
+    assert held["fits"]["change"] == "drifted"
+    assert held["fits"]["operands"]["new"]["bore_d"] == after
+
+
+def test_a_moved_value_and_moved_operands_are_independent_deltas():
+    """Round 1 left one mutant alive — suppress `operands` whenever the
+    measurement also moved — and it passes everything partspec itself emits,
+    because `_run_parameter_check` builds a `requires` result with no
+    measurement at all. That makes it unreachable from our own producer, not
+    equivalent: `diff` consumes the report schema as a product surface and
+    must not assume it produced its own input, which is the same reason the
+    duplicate-id guard exists. So the case is constructed rather than excused.
+
+    The two deltas answer different questions — what the check measured, and
+    what its expression read — and one arriving is never a reason to drop the
+    other."""
+    old = _two_requires("pass", {"d": 3.0}, "pass", {"a": 1.0})
+    new = _two_requires("fail", {"d": 3.0}, "fail", {"a": 2.0})
+    for doc, value in ((old, 2.9), (new, 2.1)):
+        next(c for c in doc["checks"] if c["id"] == "fits")["measurement"] = {
+            "value": value,
+            "unit": "mm",
+        }
+
+    entry = next(c for c in _diff(old, new)["checks"] if c["id"] == "fits")
+    assert entry["change"] == "regressed"
+    assert entry["value"] == {"old": 2.9, "new": 2.1}
+    assert entry["operands"] == {"old": {"a": 1.0}, "new": {"a": 2.0}}
+
+
+def test_a_predicate_edited_under_a_held_id_shows_the_claim_and_the_operands():
+    """Review round 1. `Part.requires(expr, id=...)` lets an author keep the
+    id while rewriting the predicate — §3's flagship weakening move, one
+    field over from the `limit` case #293 was about — and that produces
+    `claim` and `operands` on ONE entry. Every other case here moves one or
+    the other, so a fix suppressing either whenever the other is present
+    passed the whole suite.
+
+    Both halves are needed and neither substitutes: the claim says the author
+    rewrote the test, the operands say the inputs moved under it, and `fixed`
+    with only one of them is the reading §3 wrote the rule to prevent."""
+    old = _two_requires("pass", {"d": 3.0}, "fail", {"bore_d": 28.0, "plate_y": 30.0})
+    new = _two_requires("pass", {"d": 3.0}, "pass", {"bore_d": 26.0, "plate_y": 30.0})
+    next(c for c in old["checks"] if c["id"] == "fits")["expr"] = "bore_d <= plate_y - 4"
+    next(c for c in new["checks"] if c["id"] == "fits")["expr"] = "bore_d <= plate_y"
+
+    entry = next(c for c in _diff(old, new)["checks"] if c["id"] == "fits")
+    assert entry["change"] == "fixed"
+    assert entry["claim"] == {
+        "old": {"expr": "bore_d <= plate_y - 4"},
+        "new": {"expr": "bore_d <= plate_y"},
+    }
+    assert entry["operands"] == {
+        "old": {"bore_d": 28.0, "plate_y": 30.0},
+        "new": {"bore_d": 26.0, "plate_y": 30.0},
+    }
+    # The headline still qualifies on the claim alone (§3), and the entry
+    # carrying operands as well does not change that count.
+    assert summary_of(_diff(old, new), new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed)"
+    )
+
+
+def test_an_operand_that_stopped_being_recorded_is_a_moved_operand():
+    """The runner writes `operands: {}` for a `requires` check it skipped
+    (`runner.py`), so the map emptying is the real shape of a check that
+    stopped being evaluated — and an entry saying only `fixed` there hides
+    that the expression was never read. The reverse, a map that gained an
+    operand, is the same comparison and is pinned with it."""
+    recorded = {"a": 1.0, "b": 2.0, "c": 4.0}
+    old = _two_requires("pass", {"d": 3.0}, "pass", recorded)
+    new = _two_requires("skipped", {"d": 3.0, "h": 9.0}, "skipped", {})
+
+    entries = {c["id"]: c for c in _diff(old, new)["checks"] if c["kind"] == "requires"}
+    assert entries["fits"]["operands"] == {"old": recorded, "new": {}}
+    assert entries["clears"]["operands"] == {"old": {"d": 3.0}, "new": {"d": 3.0, "h": 9.0}}
+
+
+def test_moved_operands_are_not_counted_as_a_moved_claim_on_the_headline():
+    """§3 gives the `regressed`/`fixed` qualifier to a moved *claim* and to
+    nothing else: `operands` is a result, listed in `NON_CLAIM_FIELDS` as
+    such. A qualifier that counted them would report a part whose inputs
+    moved as a contract that was edited, which is #293's accusation aimed at
+    an innocent run."""
+    old = _two_requires("pass", {"d": 3.0, "h": 9.0}, "pass", {"a": 1.0, "b": 2.0, "c": 4.0})
+    new = _two_requires("fail", {"d": 12.0, "h": 9.0}, "fail", {"a": 1.0, "b": 28.0, "c": 4.0})
+
+    doc = _diff(old, new)
+    assert sum(1 for c in doc["checks"] if "operands" in c) == 2
+    assert summary_of(doc, new).splitlines()[0] == "different: p — 2 regressed"
+
+
 # --------------------------------------------------------------------------
 # the honest refusals
 # --------------------------------------------------------------------------
@@ -208,6 +400,76 @@ def test_an_unknown_report_schema_is_rejected_not_best_effort_parsed():
     bad["schema_version"] = 2
     with pytest.raises(DiffUsageError, match="schema_version"):
         _diff(_doc(), bad)
+
+
+def test_a_payload_that_declares_no_claim_is_not_a_report():
+    """#292. `schema_version` was the only structural gate, and `measure` and
+    `render` carry the same one — and the same `tool`/`part` identity prefix —
+    by design (SPEC-report.md's Scope). So such a payload walked through it, was
+    read as having no checks, skipped the `counts.total` invariant for want of
+    a `counts`, and came out `identical` at exit 0. "No differences found" is a
+    positive claim (§2); a document that declared nothing cannot support one.
+
+    Each discriminator alone and both together, on each side, because a guard
+    reading one field answers for every other cell and a guard reading one
+    side answers for the other. A null counts as absent: `"counts": null` used
+    to reach `.get("total")` on a `None`, and the `AttributeError` left this
+    function through the CLI's catch-all — the right exit under a Python type
+    name for a message."""
+    for absent in (("verdict",), ("counts",), ("verdict", "counts")):
+        for side in ("old", "new"):
+            for how in ("deleted", "nulled"):
+                docs = {"old": _doc(), "new": _doc()}
+                for field in absent:
+                    if how == "deleted":
+                        del docs[side][field]
+                    else:
+                        docs[side][field] = None
+
+                with pytest.raises(DiffUsageError) as excinfo:
+                    _diff(docs["old"], docs["new"])
+                message = str(excinfo.value)
+                assert message.startswith(f"the {side} input is not a check report")
+                for field in absent:
+                    assert f"`{field}`" in message
+                # And ONLY the missing one: a message naming both whatever is
+                # wrong tells the reader to go and look at a field that is fine.
+                for field in {"verdict", "counts"} - set(absent):
+                    assert f"`{field}`" not in message
+
+
+def test_the_refusal_states_the_inability_and_not_a_cause_it_does_not_know():
+    """Review round 1. §2 rule 3 makes this a rule about wording: state the
+    inability, do not state a cause. A genuine report with `verdict` stripped
+    is malformed — it still carries `checks`, `counts`, `error` and `hint`,
+    which this message's own field list prints — so telling its author it is
+    probably a `measure` or `render` payload is a confident diagnosis of the
+    wrong defect, contradicted inside the same sentence.
+
+    Both branches, because a message that never names the payloads is as
+    wrong as one that always does: the misrouted-artifact case is the one
+    this guard was written for and it must still say so."""
+    malformed = _doc()
+    del malformed["verdict"]
+    with pytest.raises(DiffUsageError) as excinfo:
+        _diff(_doc(), malformed)
+    assert "measure" not in str(excinfo.value)
+    assert "render" not in str(excinfo.value)
+    assert "cannot say" in str(excinfo.value)
+
+    payload = {"schema_version": _doc()["schema_version"], "part": {"id": "p"}, "renders": {}}
+    with pytest.raises(DiffUsageError) as excinfo:
+        _diff(_doc(), payload)
+    assert "a `measure` or `render` payload" in str(excinfo.value)
+
+
+def test_the_refusal_names_the_payload_it_was_handed():
+    """The failure this closes is a reader wired to the wrong artifact, so the
+    message has to let them see which artifact that was — naming the fields
+    the thing actually carries, rather than only the ones it does not."""
+    payload = {"schema_version": _doc()["schema_version"], "part": {"id": "p"}, "renders": {}}
+    with pytest.raises(DiffUsageError, match="renders"):
+        _diff(_doc(), payload)
 
 
 def test_environment_changes_explain_without_being_differences():
@@ -579,6 +841,88 @@ def test_cli_diff_on_two_real_runs(tmp_path: Path):
     assert entry["value"]["old"][2] == pytest.approx(4.0)
     assert entry["value"]["new"][2] == pytest.approx(8.0)
     assert doc["source"]["digest_changed"] is True
+
+
+@needs_scad_tier
+def test_cli_a_loosened_predicate_shows_the_claim_and_the_operands(tmp_path: Path):
+    """Review round 1, end to end. `Part.requires(expr, id=...)` lets an
+    author hold the id and rewrite the predicate, so the weakening move #293
+    is about reaches `requires` too — and there the numbers under the
+    predicate are `operands`. Production emits both halves on one entry; no
+    test observed it, which is how a fix suppressing either could have
+    passed."""
+    scad = tmp_path / "plate.scad"
+    scad.write_text("plate_y = 30;\nbore_d = 28;\nwall = 2;\ncube([40, plate_y, 6]);\n")
+    contract = tmp_path / "spec.py"
+
+    def write(bore_d: float, expr: str) -> None:
+        contract.write_text(
+            "from partspec import Part, openscad\n\n\n"
+            "def make() -> Part:\n"
+            "    p = Part('plate', openscad('plate.scad', plate_y=30.0, "
+            f"bore_d={bore_d}, wall=2.0))\n"
+            f"    p.requires({expr!r}, id='fits')\n"
+            "    return p\n"
+        )
+
+    target = f"{contract}:make"
+    # The bore grows past the wall the predicate protects, and the predicate is
+    # loosened until it passes anyway: the part got worse and the claim moved.
+    write(28.0, "bore_d + 2 * wall <= plate_y")
+    assert _run_cli("check", target, "--out", str(tmp_path / "a"), "--quiet")[0] == 1
+    write(34.0, "bore_d + 2 * wall <= 2 * plate_y")
+    assert _run_cli("check", target, "--out", str(tmp_path / "b"), "--quiet")[0] == 0
+
+    code, out, err = _run_cli(
+        "diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")
+    )
+    assert code == 1, err
+    entry = next(c for c in json.loads(out)["checks"] if c["id"] == "fits")
+    assert entry["change"] == "fixed"
+    assert entry["claim"]["old"] == {"expr": "bore_d + 2 * wall <= plate_y"}
+    assert entry["claim"]["new"] == {"expr": "bore_d + 2 * wall <= 2 * plate_y"}
+    assert entry["operands"]["old"]["bore_d"] == pytest.approx(28.0)
+    assert entry["operands"]["new"]["bore_d"] == pytest.approx(34.0)
+    # `builds` was skipped behind the failing precondition on the old side and
+    # runs on the new one, so the bucket holds two — and the qualifier still
+    # counts the one entry whose claim moved.
+    assert err.splitlines()[0] == "different: plate — 2 fixed (1 with the claim changed)"
+
+
+@needs_scad_tier
+def test_cli_diff_refuses_two_measure_payloads_instead_of_calling_them_identical(
+    tmp_path: Path,
+):
+    """#292's reproduction, end to end. The two runs are of genuinely
+    different geometry — a plate that grew 4mm — and `measure` records the
+    difference in the payloads it writes. Compared, they used to answer
+    `identical` at exit 0, which is what a CI gate reads."""
+    scad = tmp_path / "plate.scad"
+    scad.write_text("cube([30, 20, 4]);\n")
+    contract = tmp_path / "spec.py"
+    contract.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def make() -> Part:\n"
+        "    p = Part('plate', openscad('plate.scad'))\n"
+        "    p.envelope(max=(40, 30, 10))\n"
+        "    return p\n"
+    )
+    target = f"{contract}:make"
+
+    code, first, _ = _run_cli("measure", target)
+    assert code == 0
+    scad.write_text("cube([30, 20, 8]);\n")
+    code, second, _ = _run_cli("measure", target)
+    assert code == 0
+    # The payloads really do differ, so a refusal here is not a comparison
+    # that found nothing.
+    assert json.loads(first) != json.loads(second)
+
+    for name, text in (("m1.json", first), ("m2.json", second)):
+        (tmp_path / name).write_text(text)
+    code, _, err = _run_cli("diff", str(tmp_path / "m1.json"), str(tmp_path / "m2.json"))
+    assert code == 64, err
+    assert "not a check report" in err
 
 
 def test_cli_diff_usage_errors(tmp_path: Path):

@@ -118,6 +118,38 @@ def _values_equal(old: Any, new: Any) -> bool:
     return old == new
 
 
+def _operands_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
+    """The movement in a `requires` check's recorded operands, or None.
+
+    Lifted out of the `drifted` branch so both callers share one comparison.
+    `SPEC-diff.md` §3 names `operands` as *the* value of a `requires` check —
+    it is what `measurement.value` is for every other kind — so it is subject
+    to the same rule, and a second implementation of "did the operands move"
+    is how the two branches would drift apart again (#326).
+
+    **Compared exactly, and deliberately not through `_values_equal`.** The
+    adjudication epsilon is sized for a measurement: §3 justifies it by
+    transform-order noise at ~1e-13 and `SPEC-report.md` §3.3 sizes it for a
+    binary-STL float32 round-trip. An operand is neither. `runner` builds
+    these straight out of the contract's declared parameters
+    (`expr.evaluate`'s namespace is `params[name]`), before any build, so two
+    runs of one contract reproduce them bit for bit — and the predicate over
+    them is adjudicated **exactly**, with no epsilon anywhere in `expr`.
+    Borrowing the measurement tolerance therefore opened a dead band never
+    narrower than seven orders of magnitude, and unbounded above, in which the
+    predicate flips and the operands are called unmoved. Measured against that
+    ~1e-13: `epsilon` is 1e-06 at the floor (7.0 orders), 3.6e-06 at 26 (7.6),
+    1.01e-04 at 1000 (9.0) — the expression is minimised at 0, so seven is the
+    floor and no operand magnitude falls below it. And the flip itself:
+    `bore_d + 2 * wall <= plate_y` goes true -> false between `bore_d=26.0`
+    and `26.000001`, inside `epsilon(26.0)`, and the entry printed the status
+    change with none of the numbers — the very artifact #326 calls the defect
+    (review round 1).
+    """
+    old_ops, new_ops = old.get("operands") or {}, new.get("operands") or {}
+    return {"old": old.get("operands"), "new": new.get("operands")} if old_ops != new_ops else None
+
+
 def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | None:
     """The difference one joined check pair contributes, or None."""
     base = {"id": new["id"], "kind": new["kind"]}
@@ -143,12 +175,21 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
     old_value = (old.get("measurement") or {}).get("value")
     new_value = (new.get("measurement") or {}).get("value")
     value_moved = not _values_equal(old_value, new_value)
+    operands = _operands_delta(old, new)
 
     if old["status"] != new["status"]:
         # A status change does not get to hide what else moved: loosening a
         # limit until a failing check passes is the flagship weakening move,
         # and an entry saying only "fixed" would report the attack as an
-        # improvement. The claim and value deltas ride along.
+        # improvement. The claim and value deltas ride along — and `operands`
+        # IS the value of a `requires` check (§3's `drifted` bullet says so),
+        # which this branch did not know: it returned above the operands
+        # comparison and so dropped them on exactly the entry that most needed
+        # them, `1 regressed` and not one of the numbers that regressed it
+        # (#326). Deltas beyond those two are out of scope here and not
+        # claimed to ride: `intrusion` and `components` are recorded and
+        # compared nowhere in this function, and `measurement.unit` is never
+        # compared at all.
         worse = _SEVERITY[Status(new["status"])] > _SEVERITY[Status(old["status"])]
         entry = {
             **base,
@@ -159,6 +200,8 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
             entry["claim"] = claim
         if value_moved:
             entry["value"] = {"old": old_value, "new": new_value}
+        if operands is not None:
+            entry["operands"] = operands
         return entry
 
     if claim is not None:
@@ -172,17 +215,8 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
             "value": {"old": old_value, "new": new_value},
         }
 
-    old_ops, new_ops = old.get("operands"), new.get("operands")
-    if (old_ops or new_ops) and (
-        set(old_ops or {}) != set(new_ops or {})
-        or any(not _values_equal(v, (new_ops or {}).get(k)) for k, v in (old_ops or {}).items())
-    ):
-        return {
-            **base,
-            "change": "drifted",
-            "status": old["status"],
-            "operands": {"old": old_ops, "new": new_ops},
-        }
+    if operands is not None:
+        return {**base, "change": "drifted", "status": old["status"], "operands": operands}
     return None
 
 
@@ -835,6 +869,54 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"the {label} report has schema_version {report.get('schema_version')!r}; "
                 f"this diff understands report schema {SCHEMA_VERSION} and must not "
                 f"best-effort parse anything else (SPEC-report.md 7.1)"
+            )
+
+        # `schema_version` says the document is readable, not that it is a
+        # report: `measure` and `render` deliberately carry the same version
+        # and the same `tool`/`part` identity prefix (SPEC-report.md's Scope
+        # names them), so both walked through that check, read `checks` as
+        # `[]`, and skipped the `counts.total` invariant for want of a
+        # `counts` — and two `measure` payloads of a genuinely different part
+        # compared clean at exit 0. "No differences found" is a positive claim (SPEC-diff.md 2)
+        # and a document that declares nothing cannot support it; being
+        # parseable is not being a report (#292).
+        #
+        # Keyed on what a report HAS rather than on what the other payloads
+        # are, because the set of things carrying this prefix is open and a
+        # guard naming today's two members would pass tomorrow's third.
+        #
+        # A null counts as absent, and that is not tidiness: `"counts": null`
+        # reached `report.get("counts", {}).get("total")` and raised
+        # `AttributeError: 'NoneType' object has no attribute 'get'`. The CLI's
+        # catch-all turned that into exit 64, so the code was right and the
+        # diagnosis was a Python type name — `these inputs are not well-formed
+        # reports (AttributeError: 'NoneType' object has no attribute 'get')`.
+        # Naming the defect is this guard's job, the same way the `status`
+        # guard below took one off the catch-all.
+        if missing := [field for field in ("verdict", "counts") if report.get(field) is None]:
+            absent = ", ".join(
+                f"no `{field}`" if field not in report else f"a null `{field}`" for field in missing
+            )
+            # The measure/render sentence is a CAUSE, and §2 rule 3's wording
+            # rule applies to it: state the inability, do not state a cause you
+            # do not know. A genuine report with `verdict` stripped still
+            # carries `checks`, `counts`, `error`, `hint` — and telling its
+            # author it is probably a `measure` payload is a confident
+            # diagnosis of the wrong defect, contradicted by the field list in
+            # the same sentence. That is the shape the id-less-check guard
+            # below already carries a comment about (round-1 review).
+            cause = (
+                "a `measure` or `render` payload carries the same schema_version and "
+                "declares no claim, so comparing it would answer `identical` for two "
+                "files that never made one"
+                if "checks" not in report
+                else "a report carries them and this one does not; what it is instead, "
+                "this comparison cannot say"
+            )
+            raise DiffUsageError(
+                f"the {label} input is not a check report: {absent}. `diff` compares "
+                f"two `partspec check` reports; {cause}. Its top-level fields: "
+                f"{', '.join(sorted(report)) or 'none at all'}"
             )
         # `or []` so a literal `"checks": null` reaches the branches below
         # rather than raising `TypeError: object of type 'NoneType' has no

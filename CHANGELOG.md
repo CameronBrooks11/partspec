@@ -618,6 +618,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the last place in the repo that did — `README.md` and `docs/AGENT-CONTRACT.md`
   already named all four.
 
+- **A `requires` check that regresses now carries the operands that moved with
+  it** (#326, epic #305). `SPEC-diff.md` §3 makes `operands` the value of a
+  `requires` check — "`measurement.value` … or `operands` for a `requires`
+  check (`SPEC-contract.md` §5 records them for exactly this)" — and the same
+  section requires a status-change entry to carry the value delta.
+  `_check_entry` attached `claim` and the `measurement`-based `value` on the
+  status branch and returned there, one branch above the operands comparison,
+  so the delta was recorded when the status *held* and dropped when it
+  changed. Measured end to end over `examples/spacer` with `BORE_D` moved
+  8.0 → 28.0, which breaks `bore_d + 2 * wall <= plate_y`: the artifact's
+  entry was `{id, kind, change: "regressed", status}` — a precondition
+  reported broken with none of the three numbers that broke it, though both
+  reports record all three. It now carries
+  `operands: {old: {bore_d: 8.0, …}, new: {bore_d: 28.0, …}}`, both maps in
+  full, so "which input changed?" is answered by the comparison rather than
+  only by the two files it compared.
+  One helper, called by both branches, because the defect was two branches
+  disagreeing about a question with one answer.
+  **Operands compare exactly, and that is a domain judgement, not a
+  shortcut.** The adjudication `epsilon(reference)` is sized for a
+  measurement — §3 justifies it by transform-order noise at ~1e-13 and
+  `SPEC-report.md` §3.3 sizes it for a binary-STL float32 round-trip — while
+  an operand is a declared contract parameter that `expr.evaluate` reads
+  before any build and adjudicates **exactly**, with no epsilon anywhere.
+  Borrowing the measurement tolerance left a dead band never narrower than
+  seven orders of magnitude, and unbounded above: measured against the ~1e-13
+  the epsilon is justified by, it is `1e-06` at the floor (7.0 orders),
+  `3.6e-06` at 26 mm (7.6) and `1.01e-04` at 1000 mm (9.0), the expression
+  being minimised at zero. Inside it the predicate flips and the operands are
+  called unmoved — `bore_d + 2 * wall <= plate_y` goes true → false between
+  `bore_d = 26.0` and `26.000001`, and the entry emitted there was
+  `{id, kind, change: "regressed", status}`, #326's own defect inside the fix
+  for it, found in review.
+  §3 also names where the new rule stops (#335): a `param_range` check's value
+  has the same provenance and is still compared under the epsilon, which is
+  pre-existing, narrower, and filed rather than widened into this change.
+  `SPEC-diff.md` needed no change: §3's MUST already required this. The
+  headline qualifier §3 gives the status buckets still reads the claim and
+  nothing else — `operands` is a result, listed in `NON_CLAIM_FIELDS` as one —
+  so a part whose inputs moved is not accused of being a contract that was
+  edited.
+
+- **`partspec diff` refuses a payload that is not a report, rather than
+  reporting two of them as identical** (#292, epic #305). Its only structural
+  gate was `schema_version`, and `measure` and `render` carry the same one —
+  and the same `tool`/`part` identity prefix — by design, so such a payload
+  parsed, was read as carrying no checks, and skipped the `counts.total`
+  invariant for want of a `counts`. Measured: two `measure` payloads of
+  `examples/spacer` with `plate_z` moved 6 → 9 in the `.scad` printed
+  `identical: example-spacer — no semantic differences` at exit `0`, on an
+  artifact that recorded `source.digest_changed: true` in the same object —
+  and exit `0` is what a CI gate reads. The reverse pairing was already
+  refused as a difference (`8 check(s) removed`, exit `1`), which is the
+  asymmetry that made it a bug rather than a policy.
+  The guard requires what a report has — `verdict` and `counts` — rather than
+  naming the payloads it is not, because the set of documents sharing that
+  prefix is open and a guard listing today's two members would pass
+  tomorrow's third. The message names the top-level fields the input actually
+  carries, since the failure it closes is a reader wired to the wrong
+  artifact — and it names the `measure`/`render` cause only where the payload
+  actually lacks report shape. §2 rule 3's wording rule reaches this message
+  too: a genuine report with `verdict` stripped is malformed, still carrying
+  `checks`, `counts`, `error` and `hint`, and telling its author it is
+  probably a `measure` payload is a confident diagnosis of the wrong defect,
+  contradicted by the field list in the same sentence. A null field counts as absent, which also takes
+  `"counts": null` off the CLI's catch-all — it reached `.get("total")` on a
+  `None` and reported `these inputs are not well-formed reports
+  (AttributeError: 'NoneType' object has no attribute 'get')`, the right exit
+  under a Python type name for a diagnosis.
+  This is the cheap half. The structural fix — a `payload` discriminator in
+  the identity prefix — is #295 and is independent of it.
+
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry
   to carry the claim delta because "an entry saying only 'fixed' would report
