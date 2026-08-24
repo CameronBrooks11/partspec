@@ -635,8 +635,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full, so "which input changed?" is answered by the comparison rather than
   only by the two files it compared.
   One helper, called by both branches, because the defect was two branches
-  disagreeing about a question with one answer — including its tolerance, so
-  operands wobbling at 1e-13 across a status change are still not a movement.
+  disagreeing about a question with one answer.
+  **Operands compare exactly, and that is a domain judgement, not a
+  shortcut.** The adjudication `epsilon(reference)` is sized for a
+  measurement — §3 justifies it by transform-order noise at ~1e-13 and
+  `SPEC-report.md` §3.3 sizes it for a binary-STL float32 round-trip — while
+  an operand is a declared contract parameter that `expr.evaluate` reads
+  before any build and adjudicates **exactly**, with no epsilon anywhere.
+  Borrowing the measurement tolerance left a dead band four to seven orders
+  of magnitude wide in which the predicate flips and the operands are called
+  unmoved: measured, `epsilon(26.0)` is 3.6e-06 while
+  `bore_d + 2 * wall <= plate_y` goes true → false between `bore_d = 26.0`
+  and `26.000001`, and the entry emitted there was `{id, kind, change:
+  "regressed", status}` — #326's own defect, inside the fix for it, found in
+  review.
   `SPEC-diff.md` needed no change: §3's MUST already required this. The
   headline qualifier §3 gives the status buckets still reads the claim and
   nothing else — `operands` is a result, listed in `NON_CLAIM_FIELDS` as one —
@@ -660,7 +672,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prefix is open and a guard listing today's two members would pass
   tomorrow's third. The message names the top-level fields the input actually
   carries, since the failure it closes is a reader wired to the wrong
-  artifact. A null field counts as absent, which also takes
+  artifact — and it names the `measure`/`render` cause only where the payload
+  actually lacks report shape. §2 rule 3's wording rule reaches this message
+  too: a genuine report with `verdict` stripped is malformed, still carrying
+  `checks`, `counts`, `error` and `hint`, and telling its author it is
+  probably a `measure` payload is a confident diagnosis of the wrong defect,
+  contradicted by the field list in the same sentence. A null field counts as absent, which also takes
   `"counts": null` off the CLI's catch-all — it reached `.get("total")` on a
   `None` and reported `these inputs are not well-formed reports
   (AttributeError: 'NoneType' object has no attribute 'get')`, the right exit

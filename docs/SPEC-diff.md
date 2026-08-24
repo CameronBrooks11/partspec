@@ -1,11 +1,14 @@
 # SPEC — `partspec diff`
 
 **Status:** draft 5 · 2026-08-23 · §2 states that being parseable is not being a report,
-two `measure` payloads of a changed part having compared `identical` at exit `0` (#292);
-draft 4 bound the §1 headline to the claim delta a status-change entry already carried,
-the console having reported a loosened limit as `1 fixed` (#293); draft 3 keyed §2 rule 3 on the class of a **named** gap rather than on
-the `partial` boolean and compared the closure's `imports` map (#190); draft 2 put `kind`
-and `expr` in the claim fields and stated the digests as recorded-not-outcome-bearing
+two `measure` payloads of a changed part having compared `identical` at exit `0` (#292),
+and §3 scopes the comparison tolerance to measured values, a status change over operands
+inside the adjudication epsilon having been reported with none of them (#326);
+draft 4 bound the §1 headline to the claim delta a status-change entry already carried, the
+console having reported a loosened limit as `1 fixed` (#293); draft 3 keyed §2 rule 3 on the
+class of a **named** gap rather than on the `partial` boolean and compared the closure's
+`imports` map (#190); draft 2 put `kind` and `expr` in the claim fields and stated the
+digests as recorded-not-outcome-bearing
 **Scope:** the semantic comparison of two reports of one part, its artifact, and its exit
 codes. Written before the implementation, like the other specs.
 **Normative:** MUST / SHOULD / MAY per RFC 2119.
@@ -59,7 +62,7 @@ that requires comparable, fully-identified inputs — not a fallthrough.
 | `0` | `identical` | compared conclusively; no semantic difference |
 | `1` | `different` | compared; at least one semantic difference found |
 | `2` | `indeterminate` | the comparison could not be made conclusively |
-| `64` | — | unusable input: unreadable file, unknown `schema_version` (§7.1 requires rejection, not best-effort parsing), a report violating its own `counts.total` invariant, a report carrying two checks under one `id` (SPEC-report.md §7.1 makes uniqueness a MUST NOT, and the comparison joins on it), a payload that is not a report at all — one carrying no `verdict` and no `counts`, since `measure` and `render` share this document's `schema_version` and identity prefix by design (SPEC-report.md's Scope names them) and so parse cleanly while declaring nothing for a comparison to be about — or otherwise malformed, or two reports that do not describe the same part. A forgotten argument is also `64` — argparse's default usage exit is `2`, which would read as `indeterminate` |
+| `64` | — | unusable input: unreadable file, unknown `schema_version` (§7.1 requires rejection, not best-effort parsing), a report violating its own `counts.total` invariant, a report carrying two checks under one `id` (SPEC-report.md §7.1 makes uniqueness a MUST NOT, and the comparison joins on it), a payload that is not a report at all — one carrying no `verdict` **or** no `counts` (a null counts as absent), since `measure` and `render` share the report's `schema_version` and identity prefix by design (SPEC-report.md's Scope names them) and so parse cleanly while declaring nothing for a comparison to be about — or otherwise malformed, or two reports that do not describe the same part. A forgotten argument is also `64` — argparse's default usage exit is `2`, which would read as `indeterminate` |
 
 Rules:
 
@@ -256,10 +259,22 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   detection (#31 owns adjudicating *within* a run; `diff` only reports the change, both
   sides shown, and takes no view on direction).
 
-**Tolerance.** Numeric comparison uses the same `epsilon(reference)` as adjudication
-(`SPEC-report.md` §3.3), with the old value as reference: rebuilding identical geometry
-through a different transform order perturbs coordinates at ~1e-13, and exact float
-equality would bury signal under noise. Non-numeric values compare exactly.
+**Tolerance.** A **measured** value compares under the same `epsilon(reference)` as
+adjudication (`SPEC-report.md` §3.3), with the old value as reference: rebuilding identical
+geometry through a different transform order perturbs coordinates at ~1e-13, and exact
+float equality would bury signal under noise. Non-numeric values compare exactly.
+
+**`operands` compare exactly too, and the reason scopes the tolerance rather than
+excepting them from it.** The epsilon is sized for what a *measurement* survives — a binary
+STL round-trip through float32 — and an operand survives nothing: it is a declared contract
+parameter, read before any build and bit-reproducible across two runs of one contract, and
+the predicate over it is adjudicated **exactly**, with no epsilon anywhere. A measurement
+tolerance applied there is a dead band, four to seven orders of magnitude wider than the
+noise it was sized against, in which the predicate flips and the comparison reports the
+flip carrying none of the numbers that caused it — measured, `epsilon(26.0)` is `3.6e-06`
+while `bore_d + 2 * wall <= plate_y` goes true → false between `bore_d = 26.0` and
+`26.000001`. The general rule this states, for a field added later: a comparison tolerance
+belongs to the *provenance* of the value, not to its type.
 
 Also compared, at the top level, and **outcome-bearing**: `verdict` and `counts.total` (a
 shrink is named, not implied).
