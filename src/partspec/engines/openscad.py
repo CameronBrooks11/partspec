@@ -1006,13 +1006,14 @@ silently defaulted dimension.
 `Problem converting rotate(a=undef) parameter` -- identical on both engines,
 same class, deliberately not added here (#333).
 
-`_VIEWPORT_ONLY_CONVERSIONS` carves out the one shape measured to say this and
-mean nothing about the mesh."""
+`_NON_GEOMETRY_CONVERSIONS` carves out the two shapes measured to say this and
+mean nothing about the exported mesh: the GUI camera, and a range or step built
+in an expression."""
 
-_VIEWPORT_ONLY_CONVERSIONS = (
-    # `$vpt`/`$vpr`/`$vpd`/`$vpf` are the GUI camera, and no exported mesh
-    # depends on any of them. Measured beside a cube that is exactly right, all
-    # four variables in both shapes, on both engines:
+_NON_GEOMETRY_CONVERSIONS = (
+    # THE GUI CAMERA. `$vpt`/`$vpr`/`$vpd`/`$vpf`, and no exported mesh depends
+    # on any of them. Measured beside a cube that is exactly right, all four
+    # variables in both shapes, on both engines:
     #   $vpt = [undef, 0, 0]   Unable to convert $vpt=[undef, 0, 0] to a vec3
     #                          or vec2 of numbers        -- BOTH engines
     #   $vpt = undef           Unable to convert $vpt=undef to a vec3 or vec2
@@ -1021,18 +1022,41 @@ _VIEWPORT_ONLY_CONVERSIONS = (
     # The engine split is SCALAR vs VECTOR, not which variable: every vector
     # form warns on both engines, every scalar form is silent on 2021.01. A
     # round-1 review caught this comment claiming the split was `$vpd`/`$vpf`,
-    # which was two measurements read as four.
-    #
-    # No file, no line, on either engine -- the assignment is not a module
-    # call. Matching these refuses a correct part on evidence about a camera,
-    # exactly the false refusal that took `undefined operation` off the success
-    # path. The prefix is `$vp` rather than eight spellings because the scalar
-    # forms arriving in a later engine is precisely what happened between the
-    # two pinned here.
+    # which was two measurements read as four. No file, no line, on either
+    # engine -- the assignment is not a module call.
     "Unable to convert $vp",
+    # A RANGE OR STEP THE ENGINE COULD NOT BUILD, which happens in expression
+    # evaluation and not in a module assembling geometry -- the same place
+    # `len() parameter could not be converted` fires, which this guard has
+    # excluded from the start. 2026.08.01 ONLY; the message does not exist on
+    # 2021.01, which is why a corpus sweep run on one engine could not see it
+    # (round-2 review):
+    #   echo("at:", [0 : undef])    Unable to convert [0:...:undef] to a range
+    #   echo("at:", [0 : undef : 10])
+    #                               Unable to convert [...:undef:...] to a
+    #                               step value
+    # Both from `core/Expression.cc`; counted in that source, they are the ONLY
+    # two of the 21 distinct `Unable to convert` templates that begin with `[`.
+    # Every substitution template begins with a module name or a field name --
+    # `cube(`, `square(`, `translate(`, `mirror(`, `scale(`, `import(`,
+    # `points`, `points[`, `faces`, `faces[`, `paths`, `paths[` -- so the `[`
+    # separates the two classes exactly, and does so by the engine's own
+    # grammar rather than by a list this file would have to chase.
+    "Unable to convert [",
 )
-"""Conversion warnings that are true and irrelevant: they name a viewport
-variable, which no exported geometry depends on."""
+"""Conversion warnings that are true and about nothing that is exported.
+
+Two classes, one rule. A viewport variable is the GUI camera; a range or step
+is an expression the engine could not build, which yields `undef` into the
+expression exactly as an unresolved function does and reaches geometry only if
+something else then puts it there. Neither is a module substituting its own
+default into a dimension, which is the whole of what this guard refuses.
+
+Both are ANCHORED at the head of the engine's sentence, like the marker itself
+-- see `_unresolved_lines`. The range class was found by an optional module
+parameter left at `undef` and printed in a debug echo, which is the protected
+case from PR #306 with a range where the string concat was: byte-identical
+export, exit 0 on 2021.01, and exit 4 on 2026.08.01 before this entry."""
 
 _SUCCESS_PATH_MARKERS = (*_UNRESOLVED_NAME_MARKERS, *_SUBSTITUTED_VALUE_MARKERS)
 """What may be read off a render that SUCCEEDED: a name that did not resolve, or
@@ -1120,7 +1144,7 @@ def _unresolved_lines(
             any(m in line for m in name_like)
             or (wants_substitutions and is_substituted_value(line))
         )
-        and not _is_viewport_only(line)
+        and not _reaches_no_geometry(line)
     )
 
 
@@ -1138,9 +1162,9 @@ def _message(line: str) -> str:
     return message
 
 
-def _is_viewport_only(line: str) -> bool:
-    """Whether a conversion warning is about the GUI camera and nothing else."""
-    return _message(line).startswith(_VIEWPORT_ONLY_CONVERSIONS)
+def _reaches_no_geometry(line: str) -> bool:
+    """Whether a conversion warning is true and about nothing that is exported."""
+    return _message(line).startswith(_NON_GEOMETRY_CONVERSIONS)
 
 
 def is_substituted_value(line: str) -> bool:

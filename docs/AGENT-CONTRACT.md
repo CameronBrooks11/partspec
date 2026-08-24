@@ -123,10 +123,14 @@ Read the non-`pass` statuses in `checks[]`:
 - **`error` says a variable list is INCOMPLETE** (`build_origin: "environment"`) → an
   `include` did not open, so partspec could not finish reading which names `-D` can bind
   and will not judge your parameter either way. `error` names the file. **This is the one
-  exit-4 shape where a model edit may be the fix**, against the table above: the include
-  path can be misspelt in the source exactly as easily as the library can be missing from
-  the machine, and partspec cannot tell those apart — `environment` is the nearer of the
-  two values it can carry, not a finding. Check the path in the source first, then the
+  `build_origin: "environment"` shape where a model edit may be the fix**, against the
+  table above: the include path can be misspelt in the source exactly as easily as the
+  library can be missing from the machine, and partspec cannot tell those apart —
+  `environment` is the nearer of the two values it can carry, not a finding. The two
+  `build_origin: null` shapes below — a name that did not resolve, and a value the engine
+  could not convert — are model edits too, but they never claimed the machine's origin, so
+  the tension this bullet exists to flag is not theirs. Said "the one exit-4 shape" until
+  it was one of three. Check the path in the source first, then the
   machine. Do not touch the contract: the parameter has not been judged, so nothing has
   been said about it.
 - **`error` mentions the claims pin** → the contract does not match its committed lock.

@@ -823,10 +823,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error beside a completely correct 272-facet part. `Unable to convert` is
   emitted only where a value actually reached geometry, so that part still
   passes at exit 0; asserted through the binary, not reasoned about.
-  **The viewport is carved out.** `$vpt = [undef, 0, 0]` prints the marker's
-  exact words on both engines beside a cube that is exactly right — it is the
-  GUI camera, nothing exported depends on it, and matching it would refuse
-  correct code, which is the one trade this guard must not make.
+  **Two classes of conversion warning are carved out**, both true and both
+  about nothing that is exported. The **GUI camera**: `$vpt = [undef, 0, 0]`
+  prints the marker's exact words on both engines beside a cube that is exactly
+  right. And a **range or step built in an expression**: on 2026.08.01,
+  `echo("holes:", [0 : holes])` with an optional module parameter left at
+  `undef` prints `Unable to convert [0:...:undef] to a range` — head-anchored,
+  so the anchor above does not exclude it — beside a part whose export is
+  **byte-identical** to the same source with the echo deleted. That is PR
+  #306's protected echo case with a range where the string concat was, and
+  matching it gave exit 4 on 2026.08.01 against exit 0 on 2021.01, with a
+  diagnosis whose every clause was false: no module, no default, nothing
+  reaching geometry. Counted in OpenSCAD's own source, the two range templates
+  are the only two of its 21 distinct `Unable to convert` messages that begin
+  with `[`; every substitution begins with a module or field name, so the
+  bracket separates the classes by the engine's grammar rather than by a list
+  this repo would have to chase.
   **What is still uncovered, measured rather than supposed** (#332): a
   *scalar* dimension taking `undef` narrates nothing at all.
   `linear_extrude(undef)` and `cylinder(h=undef)` are silent on both engines,
@@ -834,8 +846,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `undefined operation` and no conversion line, so it still passes. There is
   no stderr signal to guard on, so #308 stays open. `rotate(a=undef)` is a
   sibling with a different spelling, `Problem converting`, left out to keep
-  this change to one guard (#333). The docstring in `engines/openscad.py`
-  says both, rather than implying the shape closed.
+  this change to one guard (#333) — and pinned as a negative, since adding it
+  to the marker set otherwise left the whole suite green, which is a deferral
+  with nothing holding it. The docstring in `engines/openscad.py` says both,
+  rather than implying the shape closed.
   **The marker is anchored at the head of the engine's sentence**, and that is
   the whole of its safety. Two measured reasons. OpenSCAD echoes string
   literals verbatim into the warning, so an unanchored test let a source turn
@@ -854,16 +868,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Real library sources do trip this, and that is a behaviour change.** Swept
   1503 third-party `.scad` files (BOSL, BOSL2, MCAD, NopSCADlib, YAPP_Box,
-  Stemfie, lasercut and others) on 2021.01: 27 files match, 18 of them inside
-  the OpenSCAD source tree's own deliberately-broken regression fixtures, and
-  **8 distinct genuine library sources** — `MCAD/hardware.scad`'s own demo
-  block, three `YAPP_Box` examples, `BOSL`/`BOSL2`'s `orientations.scad`, a
-  `BOSL` test, and `NopSCADlib/examples/Gridfinity`. Every one inspected is a
-  **true** refusal: `translate([0, 0, undef])` really does lose the offset. But
-  a user who points `partspec check` at one of those examples now gets exit 4
-  where they previously got a build, and the report is about their library
-  rather than their part. Nothing partspec ships trips it — all 25 in-repo
-  `.scad` files are clean on both engines.
+  pathbuilder, Stemfie, lasercut and others) **on both pinned engines**, each
+  hit classified by the shipping predicate:
+
+  | | 2021.01 | 2026.08.01 |
+  |---|---|---|
+  | OpenSCAD's own deliberately-broken test fixtures (578 files) | 18 | 18 |
+  | genuine library sources (925 files) | 9 | 14 |
+
+  One file of the 925 is unmeasured on 2021.01 — `NopSCADlib/libtest.scad`
+  exceeds a 900 s CGAL render — so that 9 is a floor, not a total; every other
+  file completed on both engines.
+
+  The newer engine finds more because it narrates more: `points = undef` into
+  `polygon()` and `faces = undef` into `polyhedron()` are silent on 2021.01.
+  Every hit inspected is a **true** refusal — `translate([0, 0, undef])` really
+  does lose the offset, and `polygon(points=undef)` really is an empty shape —
+  and they are shipped demos: `MCAD/hardware.scad`'s demo block, three
+  `YAPP_Box` examples, `BOSL`/`BOSL2` `orientations.scad`, three `pathbuilder`
+  demos, `NopSCADlib`'s Gridfinity example. A user who points `partspec check`
+  at one of those now gets exit 4 where they previously got a build, and the
+  report is about their library rather than their part. Nothing partspec ships
+  trips it — all 25 in-repo `.scad` files are clean on both engines.
+  Both engines, because measuring one was how the range class below was missed:
+  on 2021.01 that message does not exist.
 
   **The refusal says which of the two faults it is.** #286's guard had one
   sentence, and *the engine could not resolve a name* with a hint to check

@@ -1531,6 +1531,21 @@ def test_the_substituted_value_markers_match_both_engine_spellings():
         "WARNING: Unable to convert $vpr=undef to a vec3 or vec2 of numbers",
         "WARNING: Unable to convert $vpd=undef to a number",
         "WARNING: Unable to convert $vpf=undef to a number",
+        # A RANGE or STEP the engine could not build. Head-anchored like a
+        # substitution, and not one: it comes from expression evaluation, so it
+        # yields `undef` into the expression and reaches geometry only if
+        # something else puts it there. 2026.08.01 ONLY -- 2021.01 has no such
+        # message, which is why a sweep run on one engine could not see it.
+        # `core/Expression.cc` holds both, and they are the only two of that
+        # source's 21 `Unable to convert` templates beginning with `[`.
+        "WARNING: Unable to convert [0:...:undef] to a range in file q.scad, line 2",
+        "WARNING: Unable to convert [...:undef:...] to a step value in file q.scad, line 2",
+        # `rotate()` words its substitution differently and is deliberately NOT
+        # guarded (#333). Without this line, adding `Problem converting` to the
+        # marker set leaves the whole suite green -- so the deferral is a claim
+        # with nothing holding it (round-2 review).
+        "WARNING: Problem converting rotate(a=undef) parameter in file q.scad, line 2",
+        "WARNING: Problem converting rotate(a=[undef, 0, 0]) parameter in file q.scad, line 2",
     ):
         assert not openscad._unresolved_lines(benign, openscad._SUCCESS_PATH_MARKERS), benign
 
@@ -1620,6 +1635,42 @@ def test_a_defaulted_dimension_is_read_where_a_debug_echos_type_error_is_not(tmp
     ok = openscad.render(OpenSCADSource(path=echoed), tmp_path / "echoed.stl", unresolved_out=quiet)
     assert not isinstance(ok, BuildError), ok
     assert quiet == [], "a type error in a debug echo reached no geometry"
+
+
+@needs_openscad
+def test_a_range_that_would_not_convert_is_not_a_defaulted_dimension(tmp_path: Path):
+    """The protected echo case from PR #306, with a range instead of a concat.
+
+    An optional module parameter left at `undef` and printed in a debug echo.
+    The part is completely correct -- the export is byte-identical to the same
+    source with the echo deleted -- and only 2026.08.01 says anything at all:
+
+        WARNING: Unable to convert [0:...:undef] to a range
+
+    Head-anchored, so the CGAL anchor does not exclude it; matched, it refused
+    a correct part at exit 4 on 2026.08.01 and exit 0 on 2021.01 -- one source,
+    two verdicts, with a diagnosis whose every clause was false (no module, no
+    default, nothing reaching geometry). Round-2 review; the sweep that should
+    have caught it was run on 2021.01 alone, where the message does not exist.
+
+    Asserted on BOTH engines deliberately: the claim is that they now agree.
+    """
+    for name, body in (
+        (
+            "range.scad",
+            "module p(w, h, holes = undef) {\n"
+            '  echo("holes:", [0 : holes]);\n'
+            "  cube([w, h, 6], center=true);\n}\np(40, 30);\n",
+        ),
+        ("step.scad", 's = undef;\necho("steps:", [0 : s : 10]);\ncube([40, 30, 6]);\n'),
+    ):
+        src = _scad(tmp_path, name, body)
+        seen: list[str] = []
+        result = openscad.render(
+            OpenSCADSource(path=src), tmp_path / f"{src.stem}.stl", unresolved_out=seen
+        )
+        assert not isinstance(result, BuildError), result
+        assert seen == [], f"{name}: an expression that built no geometry is not a substitution"
 
 
 @needs_openscad
