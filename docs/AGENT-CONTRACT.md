@@ -316,7 +316,9 @@ On the first `pass` for an unfamiliar part, confirm in `report.json`:
    `attributed` counts citations present, not pertinent; and arithmetic on a
    `Referenced` value deliberately sheds the citation (a derived number is the
    author's), so cite the un-derived bound, not an expression over it;
-3. `part.source_closure.partial` — a partial closure means "nothing *we looked at*
+3. `part.source_closure.partial` — **absent means complete, so read it with `.get`**: a
+   clean OpenSCAD closure carries no `partial` key at all, and the field is never emitted
+   as `false` anywhere. A partial closure means "nothing *we looked at*
    changed"; treat identity claims accordingly. `unseen` says *which* gaps, from a closed
    vocabulary, and `imports` says which distributions the model loaded and whether their
    bytes were read or their installer taken at its word (SPEC-report §8.3). An unrecognised

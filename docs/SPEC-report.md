@@ -1027,6 +1027,13 @@ An OpenSCAD report therefore carries:
   a model that reads external data under a `complete` `engine_inputs` has
   `reads_external_data: true` and no gap, so it is not `partial`. Read the equivalence off
   `unseen`, never off the fields above it.
+  **Absent means complete: read it with `.get`.** A clean OpenSCAD closure carries no
+  `partial` key at all, and the field is never emitted as `false` anywhere in the tool, so
+  absence is the only encoding of "complete" — and that encoding occurs on one tier only,
+  the Python tier being unconditionally partial (`native_reads`, below). An agent that
+  learned the field on a build123d part, where it is always present and always `true`, is
+  exactly the reader who writes the bracket-index read and gets a `KeyError` on the first
+  OpenSCAD part it meets.
   It is stated positively so a consumer cannot read the *absence* of those fields as a
   completeness guarantee the closure never made. **A comparator MUST treat a `partial`
   closure as inconclusive evidence of sameness**, exactly as `unsupported` is treated for a

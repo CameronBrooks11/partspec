@@ -335,6 +335,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **"Absent means complete — read it with `.get`", where the field is defined
+  and where an agent is told to read it** (#302, epic #305).
+  `AGENT-CONTRACT.md` lists `part.source_closure.partial` among four things to
+  confirm before believing a green run, and carried no absence caveat — while
+  the neighbouring bullet four lines down carries one for `imports`. On a clean
+  OpenSCAD run there is no `partial` key: the runner writes it only inside
+  `if unseen:`. The Python tier seeds `unseen` unconditionally
+  (`native_reads`), so the field is always present and always `true` there, and
+  it is emitted as `false` nowhere in the tool. **Absence is the only encoding
+  of "complete", and it exists on one tier only** — so an agent that learned
+  the field on a build123d part is exactly the reader who writes the
+  bracket-index read and gets a `KeyError` on the first OpenSCAD part it meets.
+  The same sentence is now in `SPEC-report.md` §8.3's `partial` bullet, where
+  the field is defined; the omission was previously stated once, 235 lines
+  later, inside a subsection about pre-0.7.5 reports.
+
 - **`SPEC-report` specifies the `measure` payload's body** (#296, epic #305).
   `measurements`, `unavailable` and `refused` — the only part of that payload
   carrying information, 9 and 5 and 3 entries on a real run — appeared nowhere
