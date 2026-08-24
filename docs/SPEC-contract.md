@@ -1350,8 +1350,9 @@ A fragment is a plain function that declares a mechanical interface's checks ont
 ```python
 from partspec.refs import iso15, iso_metric_thread, nema17
 
-nema17.mount(p)            # nema17:pilot + nema17:bolt_circle, pattern cited
-iso15.seat(p, 608)         # iso15:608:seat, nominal cited
+nema17.mount(p)                        # nema17:pilot + nema17:bolt_circle, pattern cited
+iso15.seat(p, 608)                     # iso15:608:seat, nominal cited
+iso_metric_thread.tapped_hole(p, 3)    # iso_metric_thread:M3:tapped, minor diameter cited
 ```
 
 No new machinery — a fragment is ordinary contract authoring, factored. Three rules:

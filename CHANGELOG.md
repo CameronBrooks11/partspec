@@ -720,6 +720,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This is the cheap half. The structural fix — a `payload` discriminator in
   the identity prefix — is #295 and is independent of it.
 
+- **`iso_metric_thread.tapped_hole` is named in a document** (#285, epic #305).
+  It ships in the module's `__all__` and is a full §11 fragment — namespaced
+  ids, bound at the basic minor diameter D1 — and `grep -rn tapped_hole
+  --include='*.md'` returned nothing repo-wide. #247 added
+  `iso_metric_thread` to §11's example **import** line and never added the call
+  line, so the block imported a module its own example did not use. §11's
+  example gains `iso_metric_thread.tapped_hole(p, 3)`, and
+  `skills/contract-authoring/SKILL.md`'s fragment row — the second enumeration
+  site, carrying the same two-of-three list — names it beside `nema17.mount`
+  and `iso15.seat`. Verified before documenting: the call declares
+  `iso_metric_thread:M3:tapped`, `kind: hole_diameter`, limit
+  2.4087341226347263..2.508734122634726, cited to ISO 724:2023 / M3 /
+  `minor_diameter_internal`, and passes against a Ø2.459 bore.
+
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry
   to carry the claim delta because "an entry saying only 'fixed' would report
