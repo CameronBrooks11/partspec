@@ -13,10 +13,13 @@ normative and closes the vocabulary; the skill is how to choose within it.
 **The `partspec-mcp` tools cannot execute this document.** They run the same CLI per call,
 but the four registered tools are `check` / `measure` / `render` / `vdiff`, and the check
 tool builds only `["check", target, "--quiet"]` plus `--out` and `--render`. There is no
-`--expect`, no `--pin`, no `--timeout`, and **no `diff` tool at all** — so §1 step 1's
-claims pin and §4's `diff` remedy are both unreachable from MCP. An MCP-driven agent is
-running a weaker loop than the one specified here, and should be told so rather than
-assumed to be following it. (Tracked: the flags are plumbing, not design.)
+`--expect`, no `--pin`, no `--timeout`, and **no `diff` tool and no `lint` tool** — so §1
+step 1's claims pin and §4's `diff` remedy are both unreachable from MCP, and so is the
+advisory source read. An MCP-driven agent is running a weaker loop than the one specified
+here, and should be told so rather than assumed to be following it. (Tracked: the flags
+are plumbing, not design.) The MCP server's own `instructions` now say all of this, which
+is the only place an MCP client can learn it: that client has a tool list and nothing
+else, and the sole doc pointer the package otherwise ships is the CLI epilog.
 
 The one rule everything below serves: **the report artifact is the ground truth, and
 only `pass` is green.** Read `report.json`, not the console — the console is a courtesy

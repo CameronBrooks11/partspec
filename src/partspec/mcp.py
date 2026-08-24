@@ -54,6 +54,18 @@ could not be evaluated — unproven, not failing. `empty` means the contract
 asserts nothing. `error` means the tool or environment failed and says nothing
 about the part. Never weaken a contract to make it pass: a green report on a
 weakened contract proves nothing, and the report records enough to detect it.
+
+These four tools are the whole surface, and it is a WEAKER loop than the one
+partspec specifies for an agent. `--expect` and `--pin` (the claims pin, which
+is what catches a contract that shrank), `--timeout`, and the `diff` and `lint`
+verbs are CLI-only and unreachable from here — so the pin-and-compare remedy
+cannot be run through these tools and needs a shell. Read the report artifact
+rather than this return value's console text; the CLI is invoked with
+`--quiet`.
+
+The documents these tools cite by section — AGENT-CONTRACT.md for the repair
+loop, SPEC-contract.md for authoring, SPEC-report.md for the artifact — are at
+https://github.com/CameronBrooks11/partspec/tree/main/docs
 """
 
 

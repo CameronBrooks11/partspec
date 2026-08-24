@@ -588,6 +588,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The MCP surface now tells its agent it is the weaker loop, which
+  AGENT-CONTRACT already said it must** (#298, epic #305). That document's §0
+  states the MCP tools cannot execute it — no `--expect`, no `--pin`, no
+  `--timeout`, no `diff` — and concludes an MCP-driven agent "should be told so
+  rather than assumed to be following it". `mcp.py`'s `_INSTRUCTIONS` said none
+  of it, and carried no pointer to any partspec document.
+  Measured, that gap is total for this consumer:
+  `grep -rn "github.com/CameronBrooks11/partspec" src/` returns **one** hit,
+  `cli.py`'s epilog, which an MCP client never sees — it has a tool list and
+  nothing else. `_INSTRUCTIONS` now names the four tools as the whole surface,
+  says which flags and verbs are CLI-only and that the pin-and-compare remedy
+  therefore needs a shell, and gives the documents' URL.
+  `lint` joins `diff` in §0's gap list: `git log -S` dates that paragraph to
+  2026-08-09, one day after `lint` shipped, so it named the gap that existed
+  when it was written.
+  Two tests, both against the code rather than against the sentence. One pins
+  the surface — `tool_names(mcp.py)` is exactly
+  `["check", "measure", "render", "vdiff"]`, reusing #331's parser rather than
+  writing a second one that could forget `async def`; registering a `lint` tool
+  fails it. The other pins that the instructions' URL resolves to a directory
+  that exists, so moving `docs/` fails here instead of shipping a dead pointer.
+
 - **`skills/build123d-authoring` had zero inbound links, so every author was
   handed the OpenSCAD rules** (#284, epic #305). Verified before and after:
   `grep -rn "build123d-authoring" --include="*.md" .`, CHANGELOG excluded,

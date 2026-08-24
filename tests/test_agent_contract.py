@@ -97,3 +97,52 @@ def test_the_requires_tier_token_matches_the_runner():
     assert "`requires` names the tier" in DOC
     assert '"occt"' in DOC
     assert 'requires="occt"' in (SRC / "runner.py").read_text()
+
+
+def test_the_mcp_surface_is_the_four_tools_the_doc_says_it_is():
+    """The doc's §0 caveat rests on a property of `mcp.py`: the surface is
+    four tools, and `diff` and `lint` are not among them.
+
+    Asserted against the CODE, not against the doc's sentence — a test that
+    read both and compared them would be two copies of one fact. What is
+    pinned here is the fact the sentence depends on: add a `lint` or `diff`
+    tool and this fails, which is the moment the caveat stops being true.
+
+    `tool_names` is `scripts/gen_docs.py`'s, reused rather than reimplemented
+    — it already counts `async def`, which a second parser written here would
+    be free to forget (PR #331 review, F2).
+    """
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "gen_docs.py"
+    spec = importlib.util.spec_from_file_location("partspec_gen_docs", path)
+    assert spec is not None and spec.loader is not None, f"cannot load {path}"
+    gen_docs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen_docs)
+
+    registered = gen_docs.tool_names((SRC / "mcp.py").read_text())
+    assert registered == ["check", "measure", "render", "vdiff"], (
+        "the MCP surface moved; AGENT-CONTRACT's caveat and mcp.py's "
+        "instructions both describe the old one"
+    )
+    for absent in ("diff", "lint"):
+        assert absent not in registered, (
+            f"`{absent}` is now an MCP tool, so the doc is wrong to say it is CLI-only"
+        )
+
+
+def test_the_mcp_instructions_carry_a_doc_pointer():
+    """The MCP client is the one consumer that cannot reach the CLI epilog.
+
+    Not a phrase search: the assertion is that the instructions string
+    contains a URL that actually resolves to a path in this repository, so a
+    reorganisation that moves `docs/` fails here rather than shipping an
+    agent a dead pointer (#298).
+    """
+    from partspec.mcp import _INSTRUCTIONS
+
+    urls = re.findall(r"https://github\.com/[\w./-]*partspec/tree/main/([\w./-]+)", _INSTRUCTIONS)
+    assert urls, "the MCP instructions ship no pointer to the documents"
+    root = Path(__file__).resolve().parents[1]
+    for path in urls:
+        assert (root / path).is_dir(), f"the instructions point at {path}, which does not exist"
