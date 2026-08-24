@@ -33,8 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   itself. The guard already refuses a `measure` or `render` payload by that
   test, at exit 64; what the discriminator adds is that a consumer which is not
   `diff` can now make the same distinction, by name, without reverse-engineering
-  it from the key set. `partspec diff`'s own output does not carry the field
-  yet.
+  it from the key set.
+  **Five of the six payloads #295 names, not six: `partspec diff`'s own output
+  carries no discriminator (#345)**, its module having belonged to another lane
+  this wave. §7.1's "absent means an older partspec wrote it" reading is
+  therefore scoped to the five that do carry the field — a `diff.json` from this
+  release has none, and `tool.name: "partspec-diff"` is what identifies it until
+  #345 lands.
 
 - **`csg-two-part-intersection`, an advisory lint rule** (#270). Fires when a
   file's entire top level is a single `intersection()` of exactly two children.
@@ -1007,9 +1012,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this. The one spec-conformance test reads key names and order and never
   values; a second now executes the documented value through the tool's own
   target parser, where a directory chain and a missing symbol both fail.
-  **Not fixed here:** `partspec diff` still answers `identical` at exit 0 for
-  those two reports, because it joins on `contract_digest` and never compares
-  `part.contract`. The artifacts now record which target ran; teaching the
+  **Compatibility, for consumers rather than for the schema.** The field stays
+  a string and the `<module>:<symbol>` form is what `SPEC-report.md` has shown
+  since scaffolding `34104ab`, so this brings the code to the schema rather than
+  changing the schema, and `schema_version` does not move. But the value
+  *shipped* to date was a bare filename, so anything that parsed it as one — a
+  consumer splitting on `.py`, or comparing it to `Path(target).name` — now sees
+  `spec.py:spacer` where it saw `spec.py`. Split on the LAST `:` and treat the
+  suffix as optional; both forms are emitted, since a single-factory module
+  needs no name to resolve and records none.
+  **Not fixed here (#343):** `partspec diff` still answers `identical` at exit 0
+  for those two reports. It pairs two reports on `part.id` and never reads
+  `part.contract`; `contract_digest` is not the join either, and rides along as
+  `contract.digest_changed` — a reported field that moves neither the outcome
+  nor the exit code. The artifacts now record which target ran; teaching the
   comparator to read it is `diff`'s own change.
 
 - **The eval harness stops calling a file "lint-clean" when three rules never

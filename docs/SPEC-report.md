@@ -672,13 +672,18 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   presence of a block: `check`, `measure` and `render` all emit `schema_version: 1` under
   `tool.name: "partspec"` and share the whole identity prefix by design (Scope), so until
   this field existed the three were told apart only by guessing from the keys further down
-  (#295). Additive (no schema bump), and therefore **optional to a reader**: every artifact
-  written before it existed carries none, and its absence means "an older partspec wrote
-  this", never "not a report". That is also why a structural test — does this document
-  declare a `verdict` and `counts`? — remains the right guard for "is this a report", and
-  `partspec diff` keeps that one: a guard keyed on `payload` would refuse every report the
-  tool wrote before this release, and a document that declares a verdict is a report
-  whatever it calls itself.
+  (#295). Additive (no schema bump), and therefore **optional to a reader**: an artifact of
+  one of those five kinds written before the field existed carries none, and its absence
+  there means "an older partspec wrote this", never "not a report". **That reading is
+  scoped to those five.** `partspec diff`'s own artifact does not carry the field at any
+  version yet (#345), so its absence from a `diff.json` says nothing about which release
+  wrote it. A consumer that must tell the two cases apart reads `tool.name`, which is
+  `partspec-diff` there and has been since that artifact existed.
+  The optionality is also why a structural test — does this document declare a `verdict`
+  and `counts`? — remains the right guard for "is this a report", and `partspec diff`
+  keeps that one: a guard keyed on `payload` would refuse every report the tool wrote
+  before this release, and a document that declares a verdict is a report whatever it
+  calls itself.
 - **`part.contract`** — the contract module, followed by `:<factory>` when the invocation
   named one. The path is in the frame §8 rule 4 fixes and `_anchor` already uses —
   relative to the contract's own directory, which for the contract file itself is its
@@ -691,11 +696,20 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   `<module>` and `<module>:<factory>` are well-formed and a consumer MUST parse the suffix
   as optional. The corollary is that one run spelled two ways — `spec.py` and
   `spec.py:spacer` for the same single-factory module — records two different strings for
-  one part, which is why this field is **provenance and not comparison identity**:
-  `contract_digest` is what a comparator joins on. One exception, and it is visible: the
-  pre-resolution placeholder (§5 rule 2) is written before the target resolves, so it can
-  only echo the argument as typed — absolute path included. Its `part.id` is
-  `"unresolved"`, which is what tells a consumer it is holding one.
+  one part, which is why this field is **provenance, not comparison identity**. What a
+  comparator pairs two reports on is `part.id`: `partspec diff` refuses a mismatch there
+  and reports `contract.digest_changed` as a field, which moves neither the outcome nor
+  the exit code — two reports with one `part.id` and different `contract_digest`s compare
+  `identical` at exit 0. So neither digest is a join key either, and a consumer wanting
+  the collision above surfaced as a difference has to read `part.contract` itself and
+  handle the two spellings.
+
+  Two forms of this field are **not** `<module>[:<factory>]`, and both are visible from
+  the artifact. The pre-resolution placeholder (§5 rule 2) is written before the target
+  resolves, so it can only echo the argument as typed — absolute path included — and its
+  `part.id` is `"unresolved"`. A library caller that invokes `run()` with no
+  `contract_path` records `"<in-memory>"`, there being no file to name; the CLI cannot
+  produce that one.
 - **`part.contract_digest` / `part.source_digest`** — sha256 of the contract module and of
   the source content. Digests give **identity**, and support **comparison-based** tamper
   evidence: two reports whose `contract_digest` differs were produced from different
@@ -703,10 +717,12 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 
   They do **not** make a weakened contract visible in a *single* report — "the digest
   changed" is a two-observation predicate, and D6 assigns that job to the semantic `diff`
-  that §9 defers. Two further limits, stated rather than glossed: the contract digest is
-  **module-scoped** while `part.contract` may name a symbol within that module, so an
-  unrelated edit to the same module also changes it — and, in the other direction, an edit
-  to a *sibling* factory moves the digest of a part that did not change; and
+  that §9 defers. Two further limits, stated rather than glossed. The contract digest is
+  **module-scoped** while the part it describes is one factory's output — narrower than
+  the module whatever `part.contract` happens to spell, since a module with several
+  factories resolves to one of them and a module with one is still not the same thing as
+  the function. So the digest **over-fires**: an unrelated edit anywhere in the module,
+  a sibling factory included, moves the digest of a part that did not change. And
   `source_digest` covers only the named file, **not** anything
   it pulls in via `include <>` / `use <>`.
 
