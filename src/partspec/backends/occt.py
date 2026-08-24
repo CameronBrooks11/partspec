@@ -134,6 +134,49 @@ _EULER_ENTITIES = {
 }
 
 
+def _not_closed(body: Any) -> str | None:
+    """Why this solid's boundary is not closed, or None if it is.
+
+    Every edge of a closed boundary is used by exactly two faces. Counted as
+    **occurrences** rather than distinct ancestor faces, because a seam edge is
+    used twice by the SAME face — which is why `is_manifold` cannot be the
+    closedness test here: measured, it reads False on a sphere, a cone and a
+    filleted box, all three of them closed. Degenerate edges (a sphere's poles)
+    are bounded by no area and are skipped.
+
+    Deliberately the mesh tier's question in this tier's terms (`_not_closed` in
+    mesh.py): a solid built over an open shell is one solid carrying nothing
+    beside it, so the stray-geometry guard alone let it through to a genus taken
+    over an open body (`Solid(Shell(box.faces()[1:]))` -- reported 0 on a shape
+    with no genus at all).
+
+    One count, not the mesh tier's boundary/non-manifold split, because an edge
+    used by MORE than two faces could not be constructed here to test the wording
+    it would get: OCCT fuses two edge-touching boxes into two solids, sewing two
+    stacked boxes yields a compound of shells, and `Shell` de-duplicates a face
+    listed twice. Both defects are refused; only the phrasing is pooled.
+    """
+    from OCP.BRep import BRep_Tool  # type: ignore[attr-defined]
+    from OCP.TopAbs import TopAbs_ShapeEnum  # type: ignore[attr-defined]
+    from OCP.TopExp import TopExp  # type: ignore[attr-defined]
+    from OCP.TopoDS import TopoDS
+    from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape  # type: ignore[attr-defined]
+
+    uses = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(
+        body.wrapped, TopAbs_ShapeEnum.TopAbs_EDGE, TopAbs_ShapeEnum.TopAbs_FACE, uses
+    )
+    unshared = 0
+    for i in range(1, uses.Extent() + 1):
+        if BRep_Tool.Degenerated_s(TopoDS.Edge_s(uses.FindKey(i))):
+            continue
+        if uses.FindFromIndex(i).Extent() != 2:
+            unshared += 1
+    if unshared:
+        return f"it is not closed: {unshared} edge(s) not bounded by exactly two faces"
+    return None
+
+
 def _stray_geometry(a: Any, body: Any) -> str | None:
     """What `a` carries beyond the single solid `body`, phrased, or None.
 
@@ -582,23 +625,28 @@ class OcctBackend:
         Refused for multi-body parts for the same reason as the mesh tier: genus
         is defined per body.
 
-        Refused too when the shape carries anything at all beside that one
-        solid, whatever its dimensionality. The formula is a statement about
-        **one closed body**, and the solid count alone does not establish one:
-        a stray face, a bodiless edge or a lone `Vertex` is not a solid, so it
-        rode past the count and was summed into the characteristic anyway. On a
-        20 mm cube bored 6 mm through — honestly genus 1 — each of the three
-        produced `0, exact`, and a contract declaring `genus(0)`, `watertight()`,
+        Refused too when the shape carries anything **the formula would read**
+        beside that one solid — a vertex, edge, wire, face or shell of its own,
+        whatever its dimensionality. (A duplicate reference to geometry the
+        solid already owns adds nothing to those counts and is still measured;
+        refusing it would refuse more than the mathematics requires.) The
+        solid count does not establish one closed body: a stray face, a
+        bodiless edge or a lone `Vertex` is not a solid, so it rode past the
+        count and was summed into the characteristic anyway. On a 20 mm cube
+        bored 6 mm through — honestly genus 1 — each of the three produced
+        `0, exact`, and a contract declaring `genus(0)`, `watertight()`,
         `solid_count(1)` and `cavities(0)` reported `PASS: 5 pass` at exit 0 on a
         part with a through-hole (#334). `watertight` catches only part of the
         class: a `Vertex` contributes no edge, so `is_manifold` stays true.
 
-        The precondition is therefore "one solid and nothing else", tested as
-        the five counts the formula reads being that solid's own — which is
-        exactly what the formula assumes when it is applied. `cavities` above
-        names the same configuration as the shape PR #147 was rewritten to
-        survive; this is that guard, five lines further down, where it was
-        never given.
+        The precondition is therefore "one solid, nothing else it would read,
+        and that solid closed" — the first two tested as the five counts the
+        formula reads being the solid's own, which is exactly what the formula
+        assumes when it is applied, and the third by `_not_closed`, because one
+        solid over an open shell carries nothing beside itself and still has no
+        genus. `cavities` above names the same configuration as the shape PR
+        #147 was rewritten to survive; this is that guard, five lines further
+        down, where it was never given.
         """
         solids = a.solids()
         if len(solids) != 1:
@@ -613,6 +661,9 @@ class OcctBackend:
                 f"genus is defined for one closed body; this shape carries {stray} "
                 f"beside its one solid (drop the stray geometry, or measure the solid alone)"
             )
+        open_along = _not_closed(body)
+        if open_along is not None:
+            return Unsupported(f"genus is defined for one closed body; {open_along}")
         v, e, f, w = (
             len(body.vertices()),
             len(body.edges()),

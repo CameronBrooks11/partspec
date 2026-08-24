@@ -455,6 +455,16 @@ def _cube_beside_a_shell_over_its_own_faces():
     return bd.Compound(children=[part, bd.Shell(part.faces())])
 
 
+def _cube_beside_a_wire_over_its_own_edges():
+    """The stray that moves ONLY the wire count. The characteristic goes odd
+    and the old code's `int()` truncated the half — `int(1.5)`, which happens
+    to land on the honest 1. A rounded corruption is still a corruption: it is
+    the same arithmetic that reported 0 and 2 on the rows above."""
+    part = _bored_cube()
+    top = part.faces().sort_by(bd.Axis.Z)[-1]
+    return bd.Compound(children=[part, bd.Wire(top.edges().filter_by(bd.GeomType.LINE))])
+
+
 # Each case builds its shapes fresh inside the `Compound(...)` call, behind a
 # `lambda` — the discipline #337 records, for the reason given at the `cavities`
 # table above.
@@ -466,7 +476,7 @@ def _cube_beside_a_shell_over_its_own_faces():
             lambda: bd.Compound(
                 children=[_bored_cube(), bd.Pos(60, 0, 0) * bd.Rectangle(10, 10).face()]
             ),
-            "1 face",
+            "4 vertices, 4 edges, 1 wire, 1 face",
             False,
         ),
         (
@@ -489,6 +499,12 @@ def _cube_beside_a_shell_over_its_own_faces():
             "1 shell",
             True,
         ),
+        (
+            "a wire over the solid's own edges",
+            _cube_beside_a_wire_over_its_own_edges,
+            "1 wire",
+            False,
+        ),
     ],
 )
 def test_genus_is_refused_when_the_shape_carries_more_than_its_one_solid(
@@ -498,12 +514,18 @@ def test_genus_is_refused_when_the_shape_carries_more_than_its_one_solid(
 
     Anything that is not itself a solid rides beside one without moving
     `len(a.solids())`, and was then summed into the Euler-Poincare
-    characteristic anyway. Measured on the bored cube — genus 1 — the four
-    strays below reported `0`, `0`, `0` and `2`, every one of them `exact`.
+    characteristic anyway. Measured on the bored cube — genus 1 — the five
+    strays below reported `0`, `0`, `0`, `2` and a truncated `int(1.5)`, every
+    one of them `exact`.
 
-    `watertight` cannot stand in for the guard: two of the four leave
+    `watertight` cannot stand in for the guard: two of the five leave
     `is_manifold` true, which is why the precondition is "one solid and
     nothing else" and not "one solid and it is manifold".
+
+    The expected fragment is the refusal's whole enumeration for the first row
+    and the entity in question for the rest — a guard that stopped counting one
+    of the five kinds would still refuse some of these, and would stop naming
+    what it found.
     """
     shape = builder()
     assert measured(backend.genus(_bored_cube())).value == 1, "the solid alone is genus 1"
@@ -513,6 +535,63 @@ def test_genus_is_refused_when_the_shape_carries_more_than_its_one_solid(
     reason = refused(backend.genus(shape)).reason
     assert "one closed body" in reason, name
     assert stray in reason, name
+
+
+@pytest.mark.parametrize(
+    ("name", "builder", "boundary"),
+    [
+        ("a shell missing one face", lambda: bd.Solid(bd.Shell(bd.Box(20, 20, 20).faces()[1:])), 4),
+        (
+            "a shell missing two opposite faces",
+            lambda: bd.Solid(
+                bd.Shell(
+                    bd.ShapeList(f for f in bd.Box(20, 20, 20).faces() if abs(f.center().Z) < 9)
+                )
+            ),
+            8,
+        ),
+    ],
+)
+def test_genus_is_refused_for_a_solid_built_over_an_open_shell(
+    backend: OcctBackend, name, builder, boundary
+):
+    """One solid, nothing beside it — and no closed body to have a genus.
+
+    `Solid(Shell(...))` over an open shell is two lines of public API, and a
+    STEP import reaches the same state. The stray-geometry guard cannot see it:
+    the solid IS the whole shape. Measured, the formula answered 0 for the
+    first and 1 for the second, both `exact`, on a shape with no genus at all.
+
+    The second is why an integrality test is not enough on its own: its
+    characteristic is even (V - E + 2F - W = 0), so the genus comes out a whole
+    number and nothing about the arithmetic looks wrong. Counting the edges that
+    are not bounded by exactly two faces catches both, and says how many, as the
+    mesh tier does.
+    """
+    reason = refused(backend.genus(builder())).reason
+    assert "one closed body" in reason, name
+    assert f"{boundary} edge(s) not bounded by exactly two faces" in reason, name
+
+
+@pytest.mark.parametrize(
+    ("name", "shape"),
+    [
+        ("sphere", bd.Sphere(10)),
+        ("cone", bd.Cone(10, 0, 20)),
+        ("filleted box", bd.fillet(bd.Box(20, 20, 20).edges(), 2)),
+    ],
+)
+def test_genus_answers_for_closed_bodies_that_is_manifold_calls_open(
+    backend: OcctBackend, name, shape
+):
+    """Why the closedness guard counts edge USES and not distinct faces.
+
+    A seam edge is used twice by the same face, so `is_manifold` reads False on
+    these three — all of them closed, all of them genus 0. Building the
+    precondition on it would have refused a sphere.
+    """
+    assert shape.is_manifold is False, f"{name}: the premise of this test"
+    assert measured(backend.genus(shape)).value == 0, name
 
 
 def test_genus_still_answers_for_a_compound_holding_nothing_but_its_solid(backend: OcctBackend):
