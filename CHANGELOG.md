@@ -551,19 +551,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It goes through `uv run python` now.
   `results.json` recorded `when`, `agent`, `arm`, `trials` and `summary`: no
   version, no commit, no path to the binary it measured. The header now carries
-  `partspec` (the resolved absolute path), `partspec_version` (what that binary
-  reports) and `harness_commit` (the checkout the driver ran from — a separate
-  key because `--partspec` may be an installed wheel from anywhere, and the two
-  are not one fact). This is the class of defect the tool exists to prevent:
+  `partspec` (an absolute path), `partspec_version` (what that binary reports)
+  and `harness_commit` (the checkout the driver ran from — a separate key
+  because `--partspec` may be an installed wheel from anywhere, and the two are
+  not one fact). The commit carries the working tree's state in the value —
+  `<sha>-dirty`, or `<sha>-unknown` when git could not be asked — because a
+  bare `HEAD` from a modified checkout names a commit that is not what ran,
+  which is the claim this header exists to refuse. A suffix rather than a
+  sibling boolean: the boolean is dropped the first time anyone quotes the
+  commit on its own. This is the class of defect the tool exists to prevent:
   `report.json` carries `tool_version` and `diff` refuses a comparison without
   one, while the directory arguing the tool works carried none — and a run costs
   real agent calls, so a baseline that cannot name its build cannot be compared
   to a later one.
-  **`--partspec` names one executable, and the guard says so.** It was split for
-  `shutil.which` and passed whole as `argv[0]`, so `PARTSPEC_BIN="uv run
-  partspec"` cleared the guard and then failed in the first trial — after the
-  spend had started. It is resolved once, refused at the guard when it does not
-  resolve, and the resolved path is what runs and what the header records.
+  **`--partspec` names one executable, resolved to an absolute path.** It was
+  split for `shutil.which` and passed whole as `argv[0]`, so
+  `PARTSPEC_BIN="uv run partspec"` cleared the guard and then failed in the
+  first trial — after the spend had started. `shutil.which` alone closes only
+  half of that: given a path containing a separator it returns the string
+  **unchanged** when it is executable relative to the CWD, so
+  `PARTSPEC_BIN=.venv/bin/partspec` — the natural thing to type from the repo
+  root — also cleared the guard, printed a reassuring version into the header
+  (`provenance` runs with no `cwd`), and then died in every trial, because
+  `run_check` runs with `cwd=work`, a temp copy. It is resolved once and made
+  absolute while the CWD it was typed against is still the CWD, and that
+  absolute path is what runs and what the header records. A path that exists
+  but is not executable now says so rather than reporting "not found".
   `PARTSPEC_BIN` was documented nowhere;
   [`evals/README.md`](https://github.com/CameronBrooks11/partspec/blob/main/evals/README.md)
   documents it now.
@@ -584,12 +597,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **A generator rather than a test**, which is this repo's own convention: a
   test that reads the map and reads the tree is two copies of one fact with a
   failure report attached, and it reports drift only after it has happened.
-  `scripts/gen_docs.py` gains a sixth block, and a module added with no row
-  fails `just fmt` and `just check` alike, naming the module and the function to
-  add it to. The MCP tool list and the `refs/` contents are derived the same
-  way. What stays hand-written is the one line saying what each module is FOR —
-  that is a judgement, not a projection of the code, and the generator holds it
-  as prose rather than deriving it from a docstring.
+  `scripts/gen_docs.py` gains a **seventh** block — it owned six, not the five
+  #299 counted — and a module added with no row fails `just fmt` and
+  `just check` alike, naming the module and the row that has to go with it.
+  The MCP tool list and the `refs/` contents are derived the same way, the
+  latter from `refs.__all__`, which is the question `cli.py`'s
+  `_refs_carried()` already asks and for the same reason: a glob over
+  `refs/*.py` would advertise a private helper as a cited reference table.
+  What stays hand-written is the one line saying what each module is FOR — a
+  judgement, not a projection of the code.
+  **The tool list counts an `async def`.** `ast.AsyncFunctionDef` is not a
+  subclass of `ast.FunctionDef`, and async is the idiomatic form for an MCP
+  tool, so a generator matching only the latter would have dropped one — and
+  the drop is not inert, because the prescribed remedy is `just fmt`, which
+  would then *write* the shortened row and leave `--check` green on it. A guard
+  whose failure mode is to author its own defect class is worse than no guard;
+  `tests/test_docs.py` pins the shape.
+  One fossil of the same enumeration lived outside every gate and is fixed with
+  it: `pyproject.toml`'s `mcp` extra comment said "check/measure/render" too,
+  the last place in the repo that did — `README.md` and `docs/AGENT-CONTRACT.md`
+  already named all four.
 
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry

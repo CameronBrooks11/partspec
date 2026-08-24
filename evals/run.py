@@ -275,8 +275,15 @@ def provenance(partspec: str) -> dict[str, str | None]:
 
     `harness_commit` describes the checkout `run.py` ran from, which is NOT
     necessarily the build above it: `--partspec` may be an installed wheel from
-    anywhere. The path and the version are what identify the binary; the commit
-    identifies the cases, the prompts and this driver.
+    anywhere. The absolute path and the version are what identify the binary;
+    the commit identifies the cases, the prompts and this driver.
+
+    A bare `HEAD` from a modified checkout names a commit that is not what ran,
+    which is the very claim this function exists to refuse, so the state of the
+    working tree is carried **in the value** — `<sha>-dirty`, or `<sha>-unknown`
+    when git could not be asked. A sibling boolean would be dropped the first
+    time someone quoted the commit on its own; a suffix cannot be read without
+    it (PR #331 review, F7c).
     """
 
     def captured(cmd: list[str]) -> str | None:
@@ -286,10 +293,32 @@ def provenance(partspec: str) -> dict[str, str | None]:
             return None
         return (proc.stdout.strip() or None) if proc.returncode == 0 else None
 
+    def modified() -> bool | None:
+        """Whether the checkout has uncommitted changes. `None` = cannot tell.
+
+        Its own runner, not `captured`: a clean tree prints nothing, and
+        `captured` maps empty output and a failed command to the same `None`.
+        """
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(ROOT), "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return bool(proc.stdout.strip()) if proc.returncode == 0 else None
+
+    commit = captured(["git", "-C", str(ROOT), "rev-parse", "HEAD"])
+    if commit is not None:
+        dirty = modified()
+        commit += "-dirty" if dirty else "" if dirty is False else "-unknown"
+
     return {
         "partspec": partspec,
         "partspec_version": captured([partspec, "--version"]),
-        "harness_commit": captured(["git", "-C", str(ROOT), "rev-parse", "HEAD"]),
+        "harness_commit": commit,
     }
 
 
@@ -443,19 +472,33 @@ def main() -> int:
             print("no authoring cases to run under --arm skills", file=sys.stderr)
             return 64
 
-    # ONE executable, resolved here and passed down resolved. `run_check` uses
-    # this whole string as argv[0], so the earlier `.split()[0]` guard let
-    # PARTSPEC_BIN="uv run partspec" pass and then fail in the first trial —
-    # after the run had started. A multi-word command now fails the guard,
-    # where the message can say so (#304).
-    partspec = shutil.which(args.partspec)
-    if partspec is None:
+    # ONE executable, resolved here and passed down resolved and ABSOLUTE.
+    # `run_check` uses this whole string as argv[0], so the earlier
+    # `.split()[0]` guard let PARTSPEC_BIN="uv run partspec" pass and then fail
+    # in the first trial, after the run had started (#304).
+    #
+    # `shutil.which` closes only half of that. Given a path with a separator it
+    # returns the string UNCHANGED when it is executable relative to the CWD —
+    # so `PARTSPEC_BIN=.venv/bin/partspec`, the natural thing to type from the
+    # repo root, cleared the guard, printed a reassuring version in the header
+    # (`provenance` runs with no `cwd`), and then died in every trial, because
+    # `run_check` runs with `cwd=work`, a temp copy. Absolute here, once, while
+    # the CWD the user typed it against is still the CWD (PR #331 review, F1).
+    resolved = shutil.which(args.partspec)
+    if resolved is None:
+        candidate = Path(args.partspec)
+        why = (
+            "it exists but is not executable"
+            if candidate.is_file()
+            else "no such file, and no such name on PATH"
+        )
         print(
-            f"partspec not found: {args.partspec!r}. Set PARTSPEC_BIN to ONE "
-            "executable — a path, or a name on PATH; not a multi-word command.",
+            f"partspec not usable: {args.partspec!r} — {why}. Set PARTSPEC_BIN "
+            "to ONE executable: a path, or a name on PATH; not a multi-word command.",
             file=sys.stderr,
         )
         return 64
+    partspec = str(Path(resolved).resolve())
 
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = RESULTS / stamp

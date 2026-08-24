@@ -49,7 +49,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src" / "partspec"
 sys.path.insert(0, str(ROOT / "src"))
 
-from partspec import backend, contract  # noqa: E402
+from partspec import backend, contract, refs  # noqa: E402
 from partspec.backends import mesh, occt  # noqa: E402
 from partspec.status import EXIT_USAGE, Verdict, exit_code  # noqa: E402
 
@@ -280,6 +280,38 @@ def render_protocol_block() -> str:
 _COLLAPSED = ("refs/",)
 
 
+def _decorator_name(node: ast.expr) -> str:
+    """The trailing name of a decorator, called or not: `tool` for all four of
+    `@server.tool()`, `@server.tool`, `@tool()` and `@tool`.
+    """
+    target = node.func if isinstance(node, ast.Call) else node
+    return getattr(target, "attr", None) or getattr(target, "id", None) or ""
+
+
+def tool_names(source: str) -> list[str]:
+    """The functions `source` registers as MCP tools, in source order.
+
+    **`async def` counts.** `ast.AsyncFunctionDef` is not a subclass of
+    `ast.FunctionDef`, and async is the idiomatic form for an MCP tool, so
+    matching only the latter drops one silently — and the drop is not inert:
+    the generator's own remedy, `just fmt`, would then WRITE the shortened row
+    into AGENTS.md, installing character-for-character the falsehood #299 was
+    filed about, after which `--check` exits 0 and the gate is green. A guard
+    whose failure mode is to author the defect is worse than no guard, which
+    is why this is pinned by a test (PR #331 review, F2).
+
+    Pure, and takes the source rather than reading the file, so that test can
+    put an `async def` in front of it without editing `src/`.
+    """
+    functions = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and any(_decorator_name(d) == "tool" for d in node.decorator_list)
+    ]
+    return [node.name for node in sorted(functions, key=lambda node: node.lineno)]
+
+
 def _mcp_tools() -> str:
     """The verbs `mcp.py` registers, read off its decorators.
 
@@ -287,22 +319,10 @@ def _mcp_tools() -> str:
     had been a fourth `@server.tool()` (#299). No comment can be made to
     notice a fifth; this can.
     """
-    tree = ast.parse((SRC / "mcp.py").read_text(encoding="utf-8"))
-    tools = sorted(
-        (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef)
-            and any(
-                isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "tool"
-                for d in node.decorator_list
-            )
-        ),
-        key=lambda node: node.lineno,
-    )
+    tools = tool_names((SRC / "mcp.py").read_text(encoding="utf-8"))
     if not tools:
-        raise SystemExit("mcp.py registers no @server.tool(); the layout row would name nothing")
-    return "/".join(t.name for t in tools)
+        raise SystemExit("mcp.py registers no tool decorator; the layout row would name nothing")
+    return "/".join(tools)
 
 
 def _refs_named() -> str:
@@ -310,11 +330,17 @@ def _refs_named() -> str:
 
     The row named two of the three for as long as `iso_metric_thread.py` had
     existed (#299).
+
+    `refs.__all__`, not a glob over `refs/*.py`: the package already answers
+    this question — `cli.py`'s `_refs_carried()` asks it the same way, for the
+    same reason, after the same "iso15, nema17" went stale in #194 — and a glob
+    would advertise a private helper module as a cited reference table. The
+    `refs/` row is collapsed, so the module gate below never sees inside it
+    (PR #331 review, F5).
     """
-    names = sorted(p.stem for p in (SRC / "refs").glob("*.py") if p.name != "__init__.py")
-    if not names:
-        raise SystemExit("refs/ holds no reference tables; the layout row would name nothing")
-    return ", ".join(names)
+    if not refs.__all__:
+        raise SystemExit("refs.__all__ is empty; the layout row would name nothing")
+    return ", ".join(sorted(refs.__all__))
 
 
 def _layout_rows() -> list[tuple[str, str]]:
@@ -389,13 +415,20 @@ def _assert_the_tree_names_every_module(named: set[str]) -> None:
             continue
         rel = path.relative_to(SRC).as_posix()
         on_disk.add(next((c for c in _COLLAPSED if rel.startswith(c)), rel))
+    # Both halves in one message. Raising on `missing` first reported a RENAME
+    # as an unexplained new module and hid the row that had to go with it —
+    # the commonest way this gate will ever fire (PR #331 review, F7b).
+    problems = []
     if missing := on_disk - named:
-        raise SystemExit(
-            f"src/partspec modules the AGENTS.md layout tree does not name: {sorted(missing)}\n"
-            "Add a row to _layout_rows() in scripts/gen_docs.py."
-        )
+        problems.append(f"modules the layout tree does not name: {sorted(missing)}")
     if phantom := named - on_disk:
-        raise SystemExit(f"the layout tree names modules that do not exist: {sorted(phantom)}")
+        problems.append(f"rows naming modules that do not exist: {sorted(phantom)}")
+    if problems:
+        raise SystemExit(
+            "the AGENTS.md layout tree disagrees with src/partspec:\n  "
+            + "\n  ".join(problems)
+            + "\nEdit _layout_rows() in scripts/gen_docs.py."
+        )
 
 
 def render_layout() -> str:
