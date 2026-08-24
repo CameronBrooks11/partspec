@@ -710,7 +710,8 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   `part.id` is `"unresolved"`. A library caller that invokes `run()` with no
   `contract_path` records `"<in-memory>"`, there being no file to name — or
   `"<in-memory>:make"` when it also names a factory, the suffix rule above applying to
-  that placeholder like any other module. The CLI cannot produce either.
+  that placeholder like any other module. The CLI cannot produce either `<in-memory>`
+  spelling; the placeholder above is a CLI artifact and the common case for one.
 - **`part.contract_digest` / `part.source_digest`** — sha256 of the contract module and of
   the source content. Digests give **identity**, and support **comparison-based** tamper
   evidence: two reports whose `contract_digest` differs were produced from different
@@ -934,16 +935,17 @@ exactly one of them, so a consumer that reads all three has accounted for the wh
 vocabulary and a name missing from all three is a defect in this tool, not a silence about
 the part.
 
-**Every one of the three is omitted when it would be empty, and a consumer MUST read all
-three with a default rather than by subscript.** `refused` is absent on a part that
-defeated nothing — the common case. `unavailable` is absent on a tier that can answer
-everything asked, which is **not** hypothetical: the OCCT tier's capability set covers all
-fourteen names the verb asks, so a build123d or CadQuery payload carries neither key. And
-`measurements` itself is absent from the failure shape above, so no block here is
-unconditional. An empty
-block is omitted rather than emitted as `{}` or `[]` for the same reason `partial` is
-(§8.3), and it carries the same obligation on the reader: absence here means "nothing to
-report", never "not asked".
+**None of the three is unconditional, and a consumer MUST read all three with a default
+rather than by subscript.** They are not absent under the same condition, and the
+difference is worth knowing. `refused` is absent on a part that defeated nothing — the
+common case — and `unavailable` on a tier that can answer everything asked, which is
+**not** hypothetical: the OCCT tier's capability set covers all fourteen names the verb
+asks, so a build123d or CadQuery payload carries neither key. Those two are omitted
+whenever they would be empty, rather than emitted as `{}` or `[]`, for the same reason
+`partial` is (§8.3), and their absence carries the same obligation on the reader: it means
+"nothing to report", never "not asked". `measurements` is different — a run that measured
+nothing still emits it, as `{}` — and it is absent only from the failure shape above.
+Three keys, two conditions, one rule for the consumer.
 
 A **sound** part measured **without `--out`** on a tier that answers everything therefore
 has as its whole top level
