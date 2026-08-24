@@ -347,67 +347,6 @@ def test_the_skills_retrofit_probe_measures(tmp_path: Path):
         assert {"bbox", "volume", "genus"} <= set(payload["measurements"]), where
 
 
-def test_the_refusal_locates_the_type_it_got(tmp_path: Path):
-    """`SPEC-contract.md` §7 says the refusal MUST locate the returned type.
-
-    Nothing held the code to it: reverting the message to the pre-#282
-    wording — `returned Part, not a Part` — passed the whole suite (PR #340
-    review, F2). §298's own argument is that a document naming an obligation
-    the code never discharges is the gap worth closing, so it is closed here.
-
-    Asserted as a PROPERTY, not as wording: the message must contain the
-    returned class's own `__module__`, read off the class rather than typed
-    in. Rephrase the sentence and this still passes; drop the qualifier and it
-    does not.
-    """
-    import importlib
-
-    from partspec.target import TargetError, resolve
-
-    # (a) a foreign LIBRARY class — the build123d/CadQuery collision #282 is
-    #     about. Stood in for locally so the test needs no engine extra.
-    #     The module is named so that it cannot appear incidentally in the
-    #     message: a first draft called it `lib` and the contract `uses_lib`,
-    #     so `"lib" in message` was satisfied by the PATH and the pre-#282
-    #     wording passed the mutation. The assertion is the full dotted form.
-    lib = tmp_path / "vendorpkg.py"
-    lib.write_text("class Part:\n    pass\n")
-    contract = tmp_path / "consumer.py"
-    contract.write_text("from vendorpkg import Part\n\n\ndef thing() -> Part:\n    return Part()\n")
-
-    sys.path.insert(0, str(tmp_path))
-    try:
-        with pytest.raises(TargetError) as exc:
-            resolve(f"{contract}:thing")
-        # Imported dynamically: the module is written by this test, so a
-        # static import statement is unresolvable to the type checker.
-        vendorpkg = importlib.import_module("vendorpkg")
-        klass = vendorpkg.Part  # the class the factory actually returned
-
-        qualified = f"{klass.__module__}.{klass.__qualname__}"
-        assert qualified in str(exc.value), (
-            f"the refusal must locate the returned type; expected {qualified!r} in "
-            f"{str(exc.value)!r}"
-        )
-    finally:
-        sys.path.remove(str(tmp_path))
-        sys.modules.pop("vendorpkg", None)
-
-    # (b) a class defined in the CONTRACT itself — #282's own `ann2.py`
-    #     reproduction. Here `__module__` is `_load`'s synthesised name, which
-    #     embeds a per-process hash, so the locus must be the file instead.
-    own = tmp_path / "ann2.py"
-    own.write_text("class Part:\n    pass\n\n\ndef thing() -> Part:\n    return Part()\n")
-    with pytest.raises(TargetError) as exc:
-        resolve(f"{own}:thing")
-    message = str(exc.value)
-    assert "ann2.py" in message, "the locus for a contract-defined class is the file"
-    assert "_partspec_contract_" not in message, (
-        "the synthesised module name is per-process; printing it promises a locus "
-        "and delivers a different string every run"
-    )
-
-
 def test_the_skills_pointers_resolve():
     for path in (
         "docs/PLAN.md",

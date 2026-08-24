@@ -1255,7 +1255,9 @@ type — `build123d.topology.composite.Part`, not `Part` — since the unqualifi
 the collision as though it were a contradiction. Where the class is defined in the
 contract file itself, the locus is that **file**: modules loaded this way are synthesised
 under a per-process name, so qualifying by module there would print a different string on
-every run.
+every run. Both halves are pinned by
+`tests/test_cli.py::test_the_refusal_locates_the_type_it_got`, which reads the expected
+module off the returned class rather than restating this sentence.
 
 `measure` deliberately reports a **superset** of the check vocabulary. `is_valid` and
 `topology_counts` appear here and are not kinds (§4.3) — the first because its meaning

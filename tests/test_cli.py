@@ -1022,6 +1022,62 @@ def test_an_unresolvable_target_is_a_usage_error_not_a_crash(tmp_path: Path):
     assert main(["measure", str(tmp_path / "nope.py")]) == 64
 
 
+def test_the_refusal_locates_the_type_it_got(tmp_path: Path, capsys):
+    """A factory returning some OTHER library's `Part` is told which one.
+
+    build123d and CadQuery each export a `Part`, and `_load` compiles and
+    execs, which leaves every annotation a string — so a MODEL annotated
+    `-> Part` is discovered as a factory, called, and refused only on what it
+    returned. Unqualified, that refusal read `returned Part, not a Part`: the
+    same word twice, naming no way forward (#282).
+
+    Asserted as a PROPERTY, not as wording: the message must contain the
+    returned class's own `__module__`, read off the class rather than typed
+    in. Rephrase the sentence and this still passes; drop the qualifier and it
+    does not. `SPEC-contract.md` §7 states the obligation; this is what holds
+    the code to it.
+    """
+    import importlib
+
+    # (a) a foreign LIBRARY class — the build123d/CadQuery collision, stood in
+    #     for locally so this needs no engine extra. The module is named so it
+    #     cannot appear incidentally in the message: a first draft called it
+    #     `lib` inside a contract called `uses_lib.py`, and the substring was
+    #     satisfied by the PATH, so the unqualified message passed (PR #340
+    #     review, F2). The assertion is the full dotted form.
+    (tmp_path / "vendorpkg.py").write_text("class Part:\n    pass\n")
+    consumer = tmp_path / "consumer.py"
+    consumer.write_text("from vendorpkg import Part\n\n\ndef thing() -> Part:\n    return Part()\n")
+
+    sys.path.insert(0, str(tmp_path))
+    try:
+        assert main(["measure", f"{consumer}:thing"]) == 64
+        # Imported dynamically: this test writes the module, so a static
+        # import statement is unresolvable to the type checker.
+        klass = importlib.import_module("vendorpkg").Part
+        qualified = f"{klass.__module__}.{klass.__qualname__}"
+        message = capsys.readouterr().err
+        assert qualified in message, (
+            f"the refusal must locate the returned type; expected {qualified!r} in {message!r}"
+        )
+    finally:
+        sys.path.remove(str(tmp_path))
+        sys.modules.pop("vendorpkg", None)
+
+    # (b) a class defined in the CONTRACT itself — #282's own `ann2.py`
+    #     reproduction. There `__module__` is `_load`'s synthesised name,
+    #     which embeds a per-process hash, so the locus must be the file.
+    own = tmp_path / "ann2.py"
+    own.write_text("class Part:\n    pass\n\n\ndef thing() -> Part:\n    return Part()\n")
+    assert main(["measure", f"{own}:thing"]) == 64
+    message = capsys.readouterr().err
+    assert "ann2.py" in message, "the locus for a contract-defined class is the file"
+    assert "_partspec_contract_" not in message, (
+        "the synthesised module name is per-process; printing it promises a locus "
+        "and delivers a different string every run"
+    )
+
+
 @pytest.mark.parametrize("verb", ["check", "measure"])
 def test_a_contract_that_raises_does_not_exit_as_a_failing_part(tmp_path: Path, verb: str):
     """Found by mistyping a keyword argument while writing a real contract.

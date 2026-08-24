@@ -206,15 +206,27 @@ here.** On these two verbs, decide whose fault it is first:
   model where a missing binary or package is the machine. Or run `check` on the same
   target, whose report does carry `build_origin`.
 
-**Two states fall outside both branches, and neither is about the part.** If the exit is
-`4` and **stdout is empty** — no payload at all, not a payload without `origin` — the
-contract raised before either verb had anything to describe: measured, a factory that
-raises gives `measure` and `render` exit `4` and zero bytes on stdout, with the traceback
-and *"the contract is wrong, not the part"* on stderr. That is §2.3's last bullet, and it
-applies here in full; §2.4 narrows the table's *rows*, not §2.3's diagnosis of a contract
-that would not run. And exit `64` still means what the table says it means — a malformed
-invocation, stdout empty, e.g. a target naming a file that does not exist. Read stderr in
-both cases; there is no artifact to read.
+**States fall outside both branches, and none of them is about the part.** If the exit is
+`4` and **stdout is empty** — no payload at all, not a payload without `origin` — then
+either the contract raised **or partspec itself failed**, before the verb had anything to
+describe. **stderr says which**, in one line, and the two are distinct:
+
+- *"the contract is wrong, not the part"* → the contract raised. That is §2.3's last
+  bullet and it applies here in full; §2.4 narrows the table's *rows*, not §2.3's
+  diagnosis of a contract that would not run. Measured, a factory that raises gives both
+  verbs exit `4` and zero bytes on stdout, with the traceback above that line.
+- *"this is a partspec failure, not a verdict on the part"* → partspec's own failure, and
+  an **escalation** (§3) rather than a contract repair. Measured, `render --out` pointed
+  at an existing **file** gives exit `4` and zero bytes with a `NotADirectoryError`, on a
+  contract that is entirely correct. Proposing a one-line fix to that contract is the
+  wrong move; nothing in it is wrong.
+
+**The two verbs are not symmetric here, so do not infer one from the other**: that same
+bad `--out` leaves `measure` emitting a payload rather than an empty stdout.
+
+And exit `64` still means what the table says it means — a malformed invocation, stdout
+empty, e.g. a target naming a file that does not exist. Read stderr in every one of these
+cases; there is no artifact to read.
 
 That asymmetry is a gap rather than a design. `check`'s report has carried `build_origin`
 since #47 and `render`'s payload gained `origin` in #191; `measure` was given neither, and

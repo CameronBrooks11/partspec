@@ -608,10 +608,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does carry one: `"model"` for the broken `.scad`, `"environment"` under
   `PARTSPEC_OPENSCAD=/nope/openscad`.
   So §2.4 says to branch on `render`'s `origin` and to fall back to `error` and
-  `hint` on `measure` — and names the state that fits neither branch, since
-  narrowing the table could otherwise leave it uncovered: exit 4 with **stdout
-  empty** is a contract that raised, diagnosed on stderr by §2.3's last bullet,
-  and exit 64 still means a malformed invocation. Measured on both verbs.
+  `hint` on `measure` — and names the states that fit neither branch, since
+  narrowing the table could otherwise leave them uncovered. Exit 4 with
+  **stdout empty** is two different things, and **stderr is the discriminator**:
+  *"the contract is wrong, not the part"* is a contract that raised (§2.3's last
+  bullet), while *"this is a partspec failure, not a verdict on the part"* is
+  partspec's own failure and an escalation. Measured, `render --out` pointed at
+  an existing **file** takes the second branch on a contract that is entirely
+  correct — so attributing every empty stdout to the contract would have
+  prescribed a repair to a file with nothing wrong in it. The verbs are not
+  symmetric there either, and the section says so: the same bad `--out` leaves
+  `measure` emitting a payload. Exit 64 still means a malformed invocation.
   It records the asymmetry as a gap rather than a design:
   `check`'s report has carried `build_origin` since #47, `render`'s payload
   gained `origin` in #191, `measure` was given neither, and the two that exist
@@ -636,7 +643,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `check` passes `--quiet`, which is not merely unpassed on the other three but
   not a valid flag — `measure ... --quiet` exits 64, unrecognized. A test pins
   that by parsing, since a sentence generalising over a tool list is exactly
-  what drifts.
+  what drifts. The same clause says what `render` *does* leave — `render.json`,
+  the view PNGs its payload names by path, the exported artifact on the
+  OpenSCAD tier — because `vdiff` consumes exactly those, and a blanket "do not
+  look for a file" would have told an agent chaining render into vdiff not to
+  seek the input it needs.
   `lint` joins `diff` in §0's gap list: `git log -S` dates that paragraph to
   2026-08-09, one day after `lint` shipped, so it named the gap that existed
   when it was written.
@@ -691,9 +702,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `..._6872466290535898064.Part`, measured across three processes. A test pins
   the property rather than the sentence, reading the expected module off the
   class: reverting to the old wording fails it, and so does dropping the
-  file-name fallback. The skill's step 1 and `SPEC-contract.md` §7 both now
-  open the retrofit by writing that contract: a `Part` with an id and a source
-  and no checks, which is the smallest thing `measure` accepts. Measured on
+  file-name fallback. It lives in `tests/test_cli.py` beside the other
+  resolve-failure paths, not in `test_docs.py` — it never reads the document,
+  so filing it under "docs held to code" would have claimed a link it does not
+  make; §7 carries the pointer to it instead.
+  The skill's step 1 and `SPEC-contract.md` §7 both now open the retrofit by
+  writing that contract: a `Part` with an id and a source and no checks, which
+  is the smallest thing `measure` accepts. Measured on
   `examples/spacer/spacer.scad`, it reads `bbox (40, 30, 6)`,
   `volume 6898.891440076026`, `genus 1` and names five unavailable primitives.
   **Both copies of that block are executed** — the skill's, which an agent
