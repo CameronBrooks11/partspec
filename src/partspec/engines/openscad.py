@@ -1065,10 +1065,16 @@ stderr signal in each case:
       cube([40, 8, 6]);
       for (i = [1 : n]) translate([i*8, 0, 6]) cube([6, 8, 4]);
     }
-    rail();                                     // 6 facets against 76 for n=4
+    rail();                                     // `Facets: 6` against 76 for n=4
 
     n = undef;  r = [0 : n];  h = r[2];         // #308's own headline shape
     linear_extrude(h) square([40, 30]);         // exported bbox z 0..100
+
+`Facets:` is OpenSCAD's own summary vocabulary, quoted rather than measured: the
+exported STL carries 12 triangles for the defaulted part and 76 for `n = 4`, so
+a reader cross-checking against `partspec measure` sees 12 where the engine says
+6. The engine's number is the one printed beside the warning, which is why it is
+the one shown; the mesh is what partspec measures (D15).
 
 The second is `linear_extrude` substituting its own default into a dimension --
 precisely the fault #308 exists to refuse -- passing at exit 0. Filed as #338.

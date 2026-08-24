@@ -844,7 +844,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **What that carve-out costs** (#338): a failed range yields `undef` into the
   expression, and that `undef` can reach geometry. On 2026.08.01, where this
   line is the only stderr signal produced, `for (i = [1 : n])` with `n` unbound
-  drops the loop's geometry entirely — 6 facets against 76 — and
+  drops the loop's geometry entirely — the engine's summary line reads
+  `Facets: 6` against 76 for `n = 4`, and the exported STL carries 12 triangles
+  against 76, the engine's own vocabulary rather than the measured mesh — and
   `n = undef; r = [0 : n]; linear_extrude(r[2])` exports a part 100 mm tall,
   which is #308's own headline fault. Both pass at exit 0. The line cannot tell
   an expression that reached geometry from one that did not, so correct parts
