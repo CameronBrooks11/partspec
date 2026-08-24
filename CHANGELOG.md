@@ -643,6 +643,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a part whose inputs moved is not accused of being a contract that was
   edited.
 
+- **`partspec diff` refuses a payload that is not a report, rather than
+  reporting two of them as identical** (#292, epic #305). Its only structural
+  gate was `schema_version`, and `measure` and `render` carry the same one —
+  and the same `tool`/`part` identity prefix — by design, so such a payload
+  parsed, was read as carrying no checks, and skipped the `counts.total`
+  invariant for want of a `counts`. Measured: two `measure` payloads of
+  `examples/spacer` with `plate_z` moved 6 → 9 in the `.scad` printed
+  `identical: example-spacer — no semantic differences` at exit `0`, on an
+  artifact that recorded `source.digest_changed: true` in the same object —
+  and exit `0` is what a CI gate reads. The reverse pairing was already
+  refused as a difference (`8 check(s) removed`, exit `1`), which is the
+  asymmetry that made it a bug rather than a policy.
+  The guard requires what a report has — `verdict` and `counts` — rather than
+  naming the payloads it is not, because the set of documents sharing that
+  prefix is open and a guard listing today's two members would pass
+  tomorrow's third. The message names the top-level fields the input actually
+  carries, since the failure it closes is a reader wired to the wrong
+  artifact. A null field counts as absent, which also takes
+  `"counts": null` off the CLI's catch-all — it reached `.get("total")` on a
+  `None` and reported `these inputs are not well-formed reports
+  (AttributeError: 'NoneType' object has no attribute 'get')`, the right exit
+  under a Python type name for a diagnosis.
+  This is the cheap half. The structural fix — a `payload` discriminator in
+  the identity prefix — is #295 and is independent of it.
+
 - **`partspec diff`'s headline now says when a status change moved the claim
   with it** (#293, epic #305). `SPEC-diff.md` §3 requires a status-change entry
   to carry the claim delta because "an entry saying only 'fixed' would report

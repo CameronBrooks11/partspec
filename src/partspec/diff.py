@@ -853,6 +853,40 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
                 f"this diff understands report schema {SCHEMA_VERSION} and must not "
                 f"best-effort parse anything else (SPEC-report.md 7.1)"
             )
+
+        # `schema_version` says the document is readable, not that it is a
+        # report: `measure` and `render` deliberately carry the same version
+        # and the same `tool`/`part` identity prefix (SPEC-report.md's Scope
+        # names them), so both walked through that check, read `checks` as
+        # `[]`, and skipped the `counts.total` invariant for want of a
+        # `counts` — and two `measure` payloads of a genuinely different part
+        # compared clean at exit 0. "No differences found" is a positive claim (SPEC-diff.md 2)
+        # and a document that declares nothing cannot support it; being
+        # parseable is not being a report (#292).
+        #
+        # Keyed on what a report HAS rather than on what the other payloads
+        # are, because the set of things carrying this prefix is open and a
+        # guard naming today's two members would pass tomorrow's third.
+        #
+        # A null counts as absent, and that is not tidiness: `"counts": null`
+        # reached `report.get("counts", {}).get("total")` and raised
+        # `AttributeError: 'NoneType' object has no attribute 'get'`. The CLI's
+        # catch-all turned that into exit 64, so the code was right and the
+        # diagnosis was a Python type name — `these inputs are not well-formed
+        # reports (AttributeError: 'NoneType' object has no attribute 'get')`.
+        # Naming the defect is this guard's job, the same way the `status`
+        # guard below took one off the catch-all.
+        if missing := [field for field in ("verdict", "counts") if report.get(field) is None]:
+            absent = ", ".join(
+                f"no `{field}`" if field not in report else f"a null `{field}`" for field in missing
+            )
+            raise DiffUsageError(
+                f"the {label} input is not a check report: {absent}. `diff` compares "
+                f"two `partspec check` reports; a `measure` or `render` payload carries "
+                f"the same schema_version and declares no claim, so comparing it would "
+                f"answer `identical` for two files that never made one. Its top-level "
+                f"fields: {', '.join(sorted(report)) or 'none at all'}"
+            )
         # `or []` so a literal `"checks": null` reaches the branches below
         # rather than raising `TypeError: object of type 'NoneType' has no
         # len()` out of the counts check. Bound once, above the first reader,

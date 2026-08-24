@@ -314,6 +314,47 @@ def test_an_unknown_report_schema_is_rejected_not_best_effort_parsed():
         _diff(_doc(), bad)
 
 
+def test_a_payload_that_declares_no_claim_is_not_a_report():
+    """#292. `schema_version` was the only structural gate, and `measure` and
+    `render` carry the same one — and the same `tool`/`part` identity prefix —
+    by design (SPEC-report.md's Scope). So such a payload walked through it, was
+    read as having no checks, skipped the `counts.total` invariant for want of
+    a `counts`, and came out `identical` at exit 0. "No differences found" is a
+    positive claim (§2); a document that declared nothing cannot support one.
+
+    Each discriminator alone and both together, on each side, because a guard
+    reading one field answers for every other cell and a guard reading one
+    side answers for the other. A null counts as absent: `"counts": null` used
+    to reach `.get("total")` on a `None`, and the `AttributeError` left this
+    function through the CLI's catch-all — the right exit under a Python type
+    name for a message."""
+    for absent in (("verdict",), ("counts",), ("verdict", "counts")):
+        for side in ("old", "new"):
+            for how in ("deleted", "nulled"):
+                docs = {"old": _doc(), "new": _doc()}
+                for field in absent:
+                    if how == "deleted":
+                        del docs[side][field]
+                    else:
+                        docs[side][field] = None
+
+                with pytest.raises(DiffUsageError) as excinfo:
+                    _diff(docs["old"], docs["new"])
+                message = str(excinfo.value)
+                assert message.startswith(f"the {side} input is not a check report")
+                for field in absent:
+                    assert f"`{field}`" in message
+
+
+def test_the_refusal_names_the_payload_it_was_handed():
+    """The failure this closes is a reader wired to the wrong artifact, so the
+    message has to let them see which artifact that was — naming the fields
+    the thing actually carries, rather than only the ones it does not."""
+    payload = {"schema_version": _doc()["schema_version"], "part": {"id": "p"}, "renders": {}}
+    with pytest.raises(DiffUsageError, match="renders"):
+        _diff(_doc(), payload)
+
+
 def test_environment_changes_explain_without_being_differences():
     """An engine upgrade that moved nothing measurable is context, not a
     semantic difference — but it must be visible, because it is what
@@ -683,6 +724,42 @@ def test_cli_diff_on_two_real_runs(tmp_path: Path):
     assert entry["value"]["old"][2] == pytest.approx(4.0)
     assert entry["value"]["new"][2] == pytest.approx(8.0)
     assert doc["source"]["digest_changed"] is True
+
+
+@needs_scad_tier
+def test_cli_diff_refuses_two_measure_payloads_instead_of_calling_them_identical(
+    tmp_path: Path,
+):
+    """#292's reproduction, end to end. The two runs are of genuinely
+    different geometry — a plate that grew 4mm — and `measure` records the
+    difference in the payloads it writes. Compared, they used to answer
+    `identical` at exit 0, which is what a CI gate reads."""
+    scad = tmp_path / "plate.scad"
+    scad.write_text("cube([30, 20, 4]);\n")
+    contract = tmp_path / "spec.py"
+    contract.write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def make() -> Part:\n"
+        "    p = Part('plate', openscad('plate.scad'))\n"
+        "    p.envelope(max=(40, 30, 10))\n"
+        "    return p\n"
+    )
+    target = f"{contract}:make"
+
+    code, first, _ = _run_cli("measure", target)
+    assert code == 0
+    scad.write_text("cube([30, 20, 8]);\n")
+    code, second, _ = _run_cli("measure", target)
+    assert code == 0
+    # The payloads really do differ, so a refusal here is not a comparison
+    # that found nothing.
+    assert json.loads(first) != json.loads(second)
+
+    for name, text in (("m1.json", first), ("m2.json", second)):
+        (tmp_path / name).write_text(text)
+    code, _, err = _run_cli("diff", str(tmp_path / "m1.json"), str(tmp_path / "m2.json"))
+    assert code == 64, err
+    assert "not a check report" in err
 
 
 def test_cli_diff_usage_errors(tmp_path: Path):

@@ -1,8 +1,9 @@
 # SPEC — `partspec diff`
 
-**Status:** draft 4 · 2026-08-23 · §3 binds the §1 headline to the claim delta a
-status-change entry already carried, the console having reported a loosened limit as
-`1 fixed` (#293); draft 3 keyed §2 rule 3 on the class of a **named** gap rather than on
+**Status:** draft 5 · 2026-08-23 · §2 states that being parseable is not being a report,
+two `measure` payloads of a changed part having compared `identical` at exit `0` (#292);
+draft 4 bound the §1 headline to the claim delta a status-change entry already carried,
+the console having reported a loosened limit as `1 fixed` (#293); draft 3 keyed §2 rule 3 on the class of a **named** gap rather than on
 the `partial` boolean and compared the closure's `imports` map (#190); draft 2 put `kind`
 and `expr` in the claim fields and stated the digests as recorded-not-outcome-bearing
 **Scope:** the semantic comparison of two reports of one part, its artifact, and its exit
@@ -58,7 +59,7 @@ that requires comparable, fully-identified inputs — not a fallthrough.
 | `0` | `identical` | compared conclusively; no semantic difference |
 | `1` | `different` | compared; at least one semantic difference found |
 | `2` | `indeterminate` | the comparison could not be made conclusively |
-| `64` | — | unusable input: unreadable file, unknown `schema_version` (§7.1 requires rejection, not best-effort parsing), a report violating its own `counts.total` invariant, a report carrying two checks under one `id` (SPEC-report.md §7.1 makes uniqueness a MUST NOT, and the comparison joins on it), or otherwise malformed, or two reports that do not describe the same part. A forgotten argument is also `64` — argparse's default usage exit is `2`, which would read as `indeterminate` |
+| `64` | — | unusable input: unreadable file, unknown `schema_version` (§7.1 requires rejection, not best-effort parsing), a report violating its own `counts.total` invariant, a report carrying two checks under one `id` (SPEC-report.md §7.1 makes uniqueness a MUST NOT, and the comparison joins on it), a payload that is not a report at all — one carrying no `verdict` and no `counts`, since `measure` and `render` share this document's `schema_version` and identity prefix by design (SPEC-report.md's Scope names them) and so parse cleanly while declaring nothing for a comparison to be about — or otherwise malformed, or two reports that do not describe the same part. A forgotten argument is also `64` — argparse's default usage exit is `2`, which would read as `indeterminate` |
 
 Rules:
 
