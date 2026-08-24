@@ -1154,6 +1154,16 @@ def test_the_measure_failure_payload_carries_exactly_these_keys(tmp_path: Path, 
 
     assert set(built) == expected, "the exit-4 failure payload"
     assert set(refused) == expected, "the exit-64 refusal payload"
+
+    # The SET is what §2.4 claims, and the ORDER is what §8 rule 1 makes a MUST
+    # — "object keys MUST be emitted in the order given in §7" — with Scope
+    # fixing the identity prefix these payloads share. Nothing executed that
+    # second rule on this payload: moving `payload` to sit after `params`
+    # passes the whole suite. Both assertions stay, because neither implies the
+    # other.
+    prefix = ["schema_version", "payload", "tool", "part", "engine", "params"]
+    assert list(built)[:6] == prefix, "the identity prefix, in Scope's order"
+    assert list(refused)[:6] == prefix, "and the same order on the refusal path"
     assert "origin" not in built and "origin" not in refused, (
         "absent, not null — §2.4 tells an agent it cannot even read it as 'unknown'"
     )

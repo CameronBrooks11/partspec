@@ -700,6 +700,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   next such falsification is a red run rather than a shipped falsehood. The
   test states the shape directly rather than parsing the document, which would
   only prove two copies of one list agree.
+  **The same test pins the key ORDER**, which §8 rule 1 makes a MUST and which
+  nothing executed on this payload: moving `payload` to sit after `params`
+  passed the entire suite. Both assertions stay — §2.4 claims a set, §8 rule 1
+  claims an order, and neither implies the other.
 
 - **AGENT-CONTRACT's exit table covers only `check`, and routed the agent into
   the one case it does not cover** (#301, epic #305). §2 opens "Every evaluated
