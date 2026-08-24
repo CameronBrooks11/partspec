@@ -715,38 +715,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pastes, and §7's, which carries the normative MUST and which nothing in the
   suite had run.
 
-- **OCCT `genus` measures one closed body, or refuses** (#334). The guard
-  counted solids and nothing else, so any body that is *not* a solid rode along
-  beside one without moving `len(a.solids())` — and its vertices, edges, faces
-  and wires were then summed into the Euler-Poincaré characteristic anyway.
-  Measured on a 20 mm cube bored Ø6 through, honestly genus **1**: a disjoint
-  face, a bodiless edge and a lone `Vertex` each reported `0, exact`, and a
-  `Shell` over the solid's own faces reported `2, exact`. End to end, a contract
-  declaring `genus(0)`, `watertight()`, `solid_count(1)` and `cavities(0)`
-  reported `PASS: 5 pass` at exit 0 on a part with a through-hole; it now reports
-  `INCOMPLETE: 4 pass, 1 unsupported` at exit 2.
-  **`watertight` could not have been the precondition.** Two of those four leave
+- **OCCT `genus` measures one closed body, or refuses** (#334). The guard counted
+  solids and nothing else, so any body that is *not* a solid rode along beside one
+  without moving `len(a.solids())` — and its vertices, edges, faces and wires were
+  then summed into the Euler-Poincaré characteristic anyway. Measured on a 20 mm
+  cube bored Ø6 through, honestly genus **1**:
+
+  | stray beside the solid | reported | `solid_count` | `watertight` |
+  | --- | --- | --- | --- |
+  | a disjoint face | `0` exact | 1 | false |
+  | a bodiless edge | `0` exact | 1 | false |
+  | a lone `Vertex` | `0` exact | 1 | **true** |
+  | a `Shell` over the solid's own faces | `2` exact | 1 | **true** |
+  | a `Wire` over the solid's own edges | `int(1.5)` exact | 1 | false |
+
+  End to end, a contract declaring `genus(0)`, `watertight()`, `solid_count(1)` and
+  `cavities(0)` reported `PASS: 5 pass` at exit 0 on a part with a through-hole; it
+  now reports `INCOMPLETE: 4 pass, 1 unsupported` at exit 2.
+  **`watertight` could not have been the precondition.** Two of those five leave
   `is_manifold` **true** — a `Vertex` contributes no edge, and a shell over the
-  solid's own faces shares them — so a guard built on closedness would have
-  fixed the sheet and the edge and looked like it had fixed the class. The
-  precondition is *one solid and nothing else*, tested as the five entity counts
-  the formula reads being that solid's own, which is exactly what the formula
-  assumes when it is applied. Counted from the topology and not from
-  `a.children`, because the runner never sees children: `adopt` rewraps the
-  TopoDS handle, and the stray sheet reaches `genus` with `children == ()`.
-  **Nothing legitimate is newly refused**, measured rather than assumed:
-  eighteen single-solid shapes taken before and after — a `BuildPart` part, a
-  compound wrapping one solid, a sealed cavity (two shells, neither of them
-  stray), a torus, a chamfered box, a CadQuery bored plate among them — plus
-  this repo's two build123d examples, `block.py` at genus 1 and `bracket.py` at
-  genus 5, all answer exactly as before. `cavities` above already named this configuration as the
-  shape PR #147 was rewritten to survive; this is that guard, five lines further
-  down, where it had never been given.
+  solid's own faces shares them — so a guard built on it would have fixed the sheet
+  and the edge and looked like it had fixed the class. The precondition is *one
+  solid, nothing else the formula would read*, tested as the five entity counts
+  being that solid's own, which is exactly what the formula assumes when it is
+  applied. Counted from the topology and not from `a.children`, because the runner
+  never sees children: `adopt` rewraps the TopoDS handle, and the stray sheet
+  reaches `genus` with `children == ()`.
+  **And the solid itself must be closed**, which the count test does not establish:
+  `Solid(Shell(box.faces()[1:]))` is one solid carrying nothing beside it, and
+  reported `genus 0` on a surface with no genus. Closedness is every edge being
+  bounded by exactly two faces, counted as *uses* rather than distinct faces —
+  a seam edge is used twice by the same face, which is why `is_manifold` cannot
+  serve here either: measured, it reads `false` on a sphere, a cone and a filleted
+  box, all three closed. An integrality test on the genus alone would not have
+  done it: a shell missing two opposite faces has an even characteristic and comes
+  out a whole `1`.
+  **Nothing legitimate is newly refused**, measured rather than assumed: eighteen
+  single-solid shapes taken before and after — a `BuildPart` part, a compound
+  wrapping one solid, a sealed cavity (two shells, both the solid's own), a torus,
+  a sphere, a chamfered box, a shelled box, a CadQuery bored plate among them —
+  plus this repo's two build123d examples, `block.py` at genus 1 and `bracket.py`
+  at genus 5, all answer exactly as before.
+  `cavities`, the primitive immediately preceding `genus` in the same file, already
+  named this configuration as the shape PR #147 was rewritten to survive; this is
+  that guard, where it had never been given. `SPEC-contract.md` §4.2.3 described
+  the defect in the present tense and told authors not to trust a `genus` claim
+  until this landed; it now describes what ships, including the one member of the
+  class where the tiers still disagree on purpose — a stray vertex, which the mesh
+  tier answers correctly at genus 1 by counting *referenced* vertices only, and
+  which OCCT refuses. `volume` and `area` double on the `Shell` row above and are
+  **not** fixed here; that is #344.
   The `cavities` fixture table also gains the comment #337 asks for: its cases
   build their shapes inside a `lambda` because `Compound(children=[...])`
-  **reparents**, and a shape handed to a second compound leaves the first
-  holding nothing — a row that then goes on reporting green while measuring
-  nothing.
+  **reparents**, and a shape handed to a second compound leaves the first holding
+  nothing — a row that then goes on reporting green while measuring nothing.
 
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).
