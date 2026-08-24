@@ -588,6 +588,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The retrofit path's first command named the model file, and a model file
+  fails with the same word twice** (#282, epic #305).
+  `skills/contract-authoring/SKILL.md` step 1 of "The retrofit path" said
+  `partspec measure model.py:factory`. Both verbs resolve a target that must
+  return a `partspec.Part`, so naming the model exits 64 — and a build123d or
+  CadQuery model annotated `-> Part` is annotated with **its** library's
+  `Part`, which produced *"returned Part, not a Part"*: no way forward, and it
+  reads as a tool bug rather than a user error.
+  The model gets that far because `target._load` compiles and execs, which
+  leaves every annotation a **string** — measured, the `bracket` factory in
+  `examples/stepper-bracket/bracket.py` arrives as `'Part'`, and so does every
+  shipped contract's, while a normal import of the same contract gives the
+  class. So the `hints is Part` half of the discovery test cannot fire under
+  `_load` at all, the comparison is purely lexical, and the model is discovered
+  as a factory, called, and refused only on what it returned.
+  The refusal now names the defining module — `returned
+  build123d.topology.composite.Part, not partspec.Part` — with a second line
+  saying to write a contract declaring the model as its source. The skill's
+  step 1 and `SPEC-contract.md` §7 both now open the retrofit by writing that
+  contract: a `Part` with an id and a source and no checks, which is the
+  smallest thing `measure` accepts. Measured on `examples/spacer/spacer.scad`,
+  it reads `bbox (40, 30, 6)`, `volume 6898.891440076026`, `genus 1` and names
+  five unavailable primitives.
+
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).
   [`evals/run.py`](https://github.com/CameronBrooks11/partspec/blob/main/evals/run.py)

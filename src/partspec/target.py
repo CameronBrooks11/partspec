@@ -158,9 +158,22 @@ def resolve(spec: str) -> tuple[Part, Target]:
     # Called with its own defaults — a factory's defaults are the master design.
     part = factory()
     if not isinstance(part, Part):
+        # QUALIFIED with the defining module, because the collision is the
+        # common case rather than an exotic one: build123d and CadQuery each
+        # export a `Part` too, so an author who points `check` or `measure` at
+        # the MODEL used to be told it "returned Part, not a Part" -- the same
+        # word twice, naming no way forward and reading as a tool bug (#282).
+        # The second line says what to do, because the model IS discovered as
+        # a factory here: `_load` compiles and execs, which leaves every
+        # annotation a string, so `-> Part` in a build123d model is
+        # indistinguishable from a contract's by the annotation alone.
+        got = type(part)
         raise TargetError(
             f"{target.path}:{getattr(factory, '__name__', '?')} returned "
-            f"{type(part).__name__}, not a Part"
+            f"{got.__module__}.{got.__qualname__}, not partspec.Part"
+            f"\n  hint: check and measure take the CONTRACT, not the model it "
+            f"builds. Write a contract declaring this model as its source "
+            f"(SPEC-contract.md 3), then name that file."
         )
     part.source = _anchor(part.source, target.path.resolve().parent)
     return part, target
