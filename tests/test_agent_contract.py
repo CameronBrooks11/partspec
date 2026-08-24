@@ -9,8 +9,13 @@ same way.
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
 from pathlib import Path
+
+from support import needs_scad_tier
 
 from partspec.status import EXIT_USAGE, Verdict, exit_code
 
@@ -146,3 +151,46 @@ def test_the_mcp_instructions_carry_a_doc_pointer():
     root = Path(__file__).resolve().parents[1]
     for path in urls:
         assert (root / path).is_dir(), f"the instructions point at {path}, which does not exist"
+
+
+@needs_scad_tier
+def test_measure_and_render_exit_4_on_a_model_origin_failure(tmp_path: Path):
+    """§2.4's two claims, executed.
+
+    The table in §2 governs `check`, and its exit-3 row sends the agent to
+    `measure` — where a model-origin build failure lands on exit 4, the one
+    case the table has no row for. §2.4 exists to cover that, and it rests on
+    two properties of the payloads: `render` carries an `origin` to branch on
+    and `measure` does not carry one at all.
+
+    Pinned because both are silent if they drift. If `measure` gains the
+    field — which §2.4 says is the real fix — this fails, and the paragraph
+    saying "there is nothing to branch on" is what has to change.
+    """
+    (tmp_path / "broken.scad").write_text("cube([1,1,\n")
+    (tmp_path / "spec.py").write_text(
+        "from partspec import Part, openscad\n\n\n"
+        'def thing() -> Part:\n    return Part("thing", openscad("broken.scad"))\n'
+    )
+
+    def run(verb: str) -> tuple[int, dict]:
+        result = subprocess.run(
+            [sys.executable, "-m", "partspec", verb, "spec.py:thing", "--out", verb],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode, json.loads(result.stdout)
+
+    code, payload = run("render")
+    assert code == 4, "render exits 4 on a build failure, model-origin included"
+    assert payload["origin"] == "model", "render's payload is what §2.4 says to branch on"
+
+    code, payload = run("measure")
+    assert code == 4, "measure exits 4 on a build failure, model-origin included"
+    assert "origin" not in payload, (
+        "measure's failure payload gained an origin; §2.4 tells the agent there is "
+        "none and to read the hint prose instead, so that paragraph is now wrong"
+    )
+    assert payload["error"] and payload["hint"], "the prose §2.4 falls back on must exist"

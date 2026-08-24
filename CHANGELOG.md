@@ -588,6 +588,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AGENT-CONTRACT's exit table covers only `check`, and routed the agent into
+  the one case it does not cover** (#301, epic #305). §2 opens "Every evaluated
+  `check` run", the exit-3 row says to run `measure`, and `measure` has no
+  verdict — so a model-origin build failure lands there on exit 4, where the
+  table's own exit-4 row says "editing the model on exit 4 is noise", which is
+  the opposite of the right response.
+  The routing is reachable, measured end to end: a checkless contract over a
+  `.scad` with a syntax error gives `check` exit `3`, `verdict: "empty"`,
+  `checks[0]` = `("builds", "fail")` — `empty` outranks `fail` per
+  `SPEC-report.md` §6.1 — and the prescribed `measure` then exits `4`.
+  A new §2.4 covers `measure` and `render`. Both of the issue's own corrections
+  were re-measured and hold. `lint` is out of scope: it exits 0 whatever it
+  finds and `LINT.md` already says its exit 0 is not this table's exit-0 row.
+  And "read `build_origin`" is unimplementable for `measure`: its failure
+  payload carries exactly `engine`, `error`, `geometry`, `hint`, `params`,
+  `part`, `schema_version`, `tool` — in **both** failure modes, with `origin`
+  **absent** rather than null, so it cannot even be read as "unknown". `render`
+  does carry one: `"model"` for the broken `.scad`, `"environment"` under
+  `PARTSPEC_OPENSCAD=/nope/openscad`.
+  So §2.4 says to branch on `render`'s `origin` and to fall back to `error` and
+  `hint` on `measure`, and records the asymmetry as a gap rather than a design:
+  `check`'s report has carried `build_origin` since #47, `render`'s payload
+  gained `origin` in #191, `measure` was given neither, and the two that exist
+  do not share a key name. A test pins both payload shapes, so giving `measure`
+  the field — the real fix — fails the assertion that tells the agent there is
+  none.
+
 - **The MCP surface now tells its agent it is the weaker loop, which
   AGENT-CONTRACT already said it must** (#298, epic #305). That document's §0
   states the MCP tools cannot execute it — no `--expect`, no `--pin`, no

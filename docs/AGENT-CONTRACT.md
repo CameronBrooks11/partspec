@@ -179,6 +179,43 @@ Read the non-`pass` statuses in `checks[]`:
   placeholder recurs, read the console before escalating — the fix is usually a
   one-line contract repair to propose.
 
+### 2.4 `measure` and `render` — the table above is `check`'s
+
+§2 opens "Every evaluated `check` run", and that is exact: the table governs `check`.
+`measure` and `render` reach no verdict, so they exit `0` or, on **any** build failure,
+`4` — model-origin included, which is the case the table has no row for.
+
+**The table routes you into it.** The exit-3 row says to run `measure`, and a contract
+that asserts nothing over a model that does not build is exactly the shape that produces
+exit 3: measured, a checkless contract over a `.scad` with a syntax error gives `check`
+exit `3`, `verdict: "empty"`, `checks[0]` = `("builds", "fail")` — `empty` outranks
+`fail` (`SPEC-report.md` §6.1) — and the `measure` that row prescribes then exits `4`.
+
+**So "editing the model on exit 4 is noise" is a rule about `check`, and does not carry
+here.** On these two verbs, decide whose fault it is first:
+
+- **`render` carries the answer.** Its failure payload has an `origin`, `"model"` or
+  `"environment"`; branch on it exactly as §2.3 branches on `build_origin`. Measured, that
+  same syntax-error `.scad` gives `origin: "model"`, and the same contract run under
+  `PARTSPEC_OPENSCAD=/nope/openscad` gives `origin: "environment"`.
+- **`measure` has no such field, so there is nothing to branch on.** Measured, its
+  failure payload carries exactly `engine`, `error`, `geometry`, `hint`, `params`,
+  `part`, `schema_version`, `tool` — in *both* failure modes. `origin` is **absent**, not
+  null, so a consumer cannot even read it as "unknown". Fall back to the prose: `error`
+  and `hint` quote the engine, and a parser error naming a line in your source is the
+  model where a missing binary or package is the machine. Or run `check` on the same
+  target, whose report does carry `build_origin`.
+
+That asymmetry is a gap rather than a design. `check`'s report has carried `build_origin`
+since #47 and `render`'s payload gained `origin` in #191; `measure` was given neither, and
+the two that exist do not even share a key name. Giving `measure` the same field is the
+real fix; until it has one, the prose is what there is.
+
+`lint` is not part of this gap, and is documented where it belongs. It exits `0` whatever
+it finds — the findings are data in its payload, `64` is reserved for input it cannot lint
+at all, and `LINT.md` says both, and says in as many words that its exit 0 is not this
+table's exit-0 row.
+
 ## 3. Escalation
 
 Emit exactly this line — it is the greppable surface a harness watches:
