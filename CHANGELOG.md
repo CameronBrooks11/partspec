@@ -334,13 +334,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and states the invariance without qualifying it.
   Neither file had measured a box at more than one position, which cannot
   separate an extent from a quantity that merely coincides with it at the
-  origin: `2.0 * max_corner` passes every bbox assertion that predates these
-  two and fails both of them. A third pins the other half of the same
-  sentence, that the box is axis-aligned rather than FITTED — measured, a
-  20 mm cube rotated 45° about z is `(28.284271, 28.284271, 20.0)`, and
-  substituting trimesh's fitted `bounding_box_oriented.primitive.extents`,
-  which returns `(20, 20, 20)`, leaves all four other bbox assertions passing
-  and fails only that one.
+  origin. Substituting `2.0 * max_corner` for the extents on a tier is correct
+  for every origin-centred fixture and wrong for a displaced one: on the mesh
+  tier that tripped 12 tests, and the only backend-level bbox assertion among
+  them was the new one; the same substitution on the OCCT tier fails the OCCT
+  copy while `test_closed_form_measurements` beside it still passes.
+  A third test pins the other half of the same sentence, that the box is
+  axis-aligned rather than FITTED. A 20 mm cube rotated 45° about z measures
+  `(28.284271, 28.284271, 20.0)` — the space it occupies, not its size — and
+  trimesh's fitted `bounding_box_oriented.primitive.extents` returns
+  `(20, 20, 20)` for it. That is the assertion that breaks on the PROPERTY.
+  Two other mesh assertions break under the same substitution but on axis
+  ORDER, because the fitted extents come back ASCENDING rather than in
+  model-frame x/y/z — `(30, 20, 10)` reads `(10, 20, 30)` and `(100, 50, 2)`
+  reads `(2, 50, 100)` — and neither says which property moved. Watch the
+  attribute: `bounding_box_oriented.extents` is the AABB *of* the fitted box
+  and agrees with the plain AABB, so only `.primitive.extents` measures the
+  fit.
   The other six kinds get the same paragraph, each behind a measured number — a
   20 mm cube with a 10 mm cube void is `solid_count 1`, `cavities 1`,
   `genus 0`, `volume 7000.0` and `area 3000.0`, and the same cube bored through

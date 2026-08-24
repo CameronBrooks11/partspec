@@ -120,11 +120,19 @@ def test_bbox_is_axis_aligned_not_fitted(backend: MeshBackend):
     Pinned because the honest-looking substitute is one attribute away:
     `bounding_box_oriented.primitive.extents` FITS the box to the part and
     returns (20, 20, 20) here — the part's own size, and not what `envelope`
-    claims. Every other bbox assertion on either tier uses an axis-aligned
-    fixture, where the two agree: measured, that substitution leaves all four
-    of them passing and fails this one alone. (It does not pass the SUITE —
-    20 tests fail, nearly all end-to-end. What no other *bbox* assertion does
-    is say which property broke.)
+    claims. This fixture is ROTATED, so the two genuinely disagree about what
+    the measurement means, and this is the assertion that fails on that
+    property.
+
+    Other assertions do break under the same substitution, and none of them
+    breaks on the property. trimesh returns fitted extents in ASCENDING order
+    rather than in model-frame x/y/z, so any fixture whose extents are not
+    already ascending disagrees on axis ORDER alone: measured, (30, 20, 10)
+    comes back (10, 20, 30) and (100, 50, 2) comes back (2, 50, 100), which
+    is what fails `test_block_with_hole_matches_closed_form` and
+    `test_parameters_reach_the_engine`. An axis-aligned fixture whose extents
+    are already ascending — this file's (10, 20, 30) — agrees with the fitted
+    box exactly and catches nothing either way.
 
     Watch the attribute, not the property name: `bounding_box_oriented.extents`
     is the AABB *of* the fitted box, and measured it returns the same
