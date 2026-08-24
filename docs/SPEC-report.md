@@ -708,8 +708,9 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   the artifact. The pre-resolution placeholder (§5 rule 2) is written before the target
   resolves, so it can only echo the argument as typed — absolute path included — and its
   `part.id` is `"unresolved"`. A library caller that invokes `run()` with no
-  `contract_path` records `"<in-memory>"`, there being no file to name; the CLI cannot
-  produce that one.
+  `contract_path` records `"<in-memory>"`, there being no file to name — or
+  `"<in-memory>:make"` when it also names a factory, the suffix rule above applying to
+  that placeholder like any other module. The CLI cannot produce either.
 - **`part.contract_digest` / `part.source_digest`** — sha256 of the contract module and of
   the source content. Digests give **identity**, and support **comparison-based** tamper
   evidence: two reports whose `contract_digest` differs were produced from different

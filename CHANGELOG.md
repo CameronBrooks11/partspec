@@ -1047,9 +1047,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changing the schema, and `schema_version` does not move. But the value
   *shipped* to date was a bare filename, so anything that parsed it as one — a
   consumer splitting on `.py`, or comparing it to `Path(target).name` — now sees
-  `spec.py:spacer` where it saw `spec.py`. Split on the LAST `:` and treat the
-  suffix as optional; both forms are emitted, since a single-factory module
-  needs no name to resolve and records none.
+  `spec.py:spacer` where it saw `spec.py`. The tool's own rule, worth copying
+  rather than approximating (`target.py`'s `Target.parse`): partition on the
+  LAST `:`, and treat the tail as a factory **only if it is an identifier** —
+  otherwise the whole string is the module. Both forms are emitted, since a
+  single-factory module needs no name to resolve and records none, and the
+  identifier guard is what stops a contract filename that contains a colon
+  (`rev2:spec.py`) from being read as module `rev2`.
   **Not fixed here (#343):** `partspec diff` still answers `identical` at exit 0
   for those two reports. It pairs two reports on `part.id` and never reads
   `part.contract`; `contract_digest` is not the join either, and rides along as
