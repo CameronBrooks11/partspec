@@ -67,7 +67,11 @@ NON_CLAIM_FIELDS = {
         "bit-identical on the mesh tier, so run-to-run drift is NOT the reason "
         "— round-2 review of #207.)"
     ),
-    "phase": "structural, and cannot move without kind or expr moving with it",
+    "phase": (
+        "structural, and cannot move without kind or expr moving with it. Not inert, "
+        "though: it is the input deciding which tolerance `_value_delta` applies, so it "
+        "is read by this comparison without ever being a difference in it (#335)"
+    ),
     "requires": "which tier would answer a refusal — environment, like engine.version",
     "step": (
         "the STEP writer schema — tool-chosen, not author-declared, so not a claim. "
@@ -163,9 +167,13 @@ def _value_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
     more differences, never fewer, and §2's rule is that "no differences
     found" is the positive claim — so a pair that disagrees about its own
     provenance fails toward reporting. A report carrying no `phase` gets the
-    epsilon, reproducing what it received before the field was read here:
-    silence is not evidence of parameter provenance, and reading it as such
-    would report float32 noise as drift for every pre-`phase` report.
+    epsilon: silence is not evidence of parameter provenance, so a value this
+    comparison cannot place is treated as the kind that carries noise. Not a
+    migration path — `phase` is REQUIRED, has been emitted unconditionally
+    since the scaffolding commit, and `schema_version` has never left 1, so no
+    report partspec has written lacks it. It governs a hand-written or
+    third-party document, which is the same reason the id guards below exist:
+    the comparator does not get to assume it produced its own input.
     """
     old_value = (old.get("measurement") or {}).get("value")
     new_value = (new.get("measurement") or {}).get("value")
@@ -1578,10 +1586,12 @@ def summary_of(doc: dict[str, Any], new_report: dict[str, Any]) -> str:
                     notes.append(f"{with_claim} with the claim changed")
                 if unanswered := sum(1 for c in entries if "answered" in c):
                     notes.append(f"{unanswered} not answered")
-            # The bucket keeps its true total and the qualifiers break it down,
-            # rather than splitting into two counts: `N fixed` is what the spec
-            # names and what a reader greps, and a split total would answer
-            # "how many were fixed?" with a number that is not the answer.
+            # The bucket keeps its true total and each qualifier is an
+            # independent tally over it, not a partition of it: the two count
+            # overlapping sets and may sum past the bucket. That is deliberate
+            # — `N fixed` is what the spec names and what a reader greps, and a
+            # split total would answer "how many were fixed?" with a number
+            # that is not the answer.
             note = f" ({', '.join(notes)})" if notes else ""
             parts.append(f"{len(entries)} {change}{note}")
         headline = f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}{moved}"

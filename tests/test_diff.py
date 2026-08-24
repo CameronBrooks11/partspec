@@ -216,6 +216,57 @@ def test_a_check_that_was_never_answered_is_recorded_too():
     assert stopped["answered"] == {"old": True, "new": False}
 
 
+def test_the_headline_qualifier_follows_the_record_over_every_transition():
+    """Review round 1, F1. The artifact got a derived sweep and the headline
+    got enumeration-shaped coverage: every headline case here used a `fixed`
+    entry whose old status was `fail`. Two mutants lived in the gap — one
+    qualifying only the `fixed` bucket, one counting only checks that
+    *stopped* being answered — and the second printed #325's original output
+    verbatim for `unsupported` → `skipped`.
+
+    So the headline is swept the same way the record is: over every ordered
+    pair of distinct statuses, the qualifier appears exactly when the entry
+    carries the record, in whichever bucket the entry landed. Asserted as the
+    whole line, since a substring check cannot see a qualifier that should be
+    absent."""
+    for old_status in Status:
+        for new_status in Status:
+            if old_status is new_status:
+                continue
+            old, new = _status_pair(old_status, new_status)
+            doc = _diff(old, new)
+            entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+
+            qualifier = " (1 not answered)" if "answered" in entry else ""
+            assert summary_of(doc, new).splitlines()[0] == (
+                f"different: p — 1 {entry['change']}{qualifier}"
+            ), (old_status.value, new_status.value)
+
+
+def test_answered_rides_a_status_change_and_only_those():
+    """Review round 1, F3. §3 scopes the record to status-change entries: it
+    exists to correct a bucket that names a DIRECTION, and only `regressed`
+    and `fixed` do. On an entry whose status held, `status` is the single
+    unchanged value a reader can already read.
+
+    Pinned over every unanswered status and both status-holding buckets,
+    because §3 read without the scope makes each of these a violation — a
+    grid of 18,225 pairs holds 2,106 of them — and a mutant obeying that
+    reading passed the whole suite."""
+    for status in (s for s in Status if s not in {Status.PASS, Status.FAIL}):
+        claim_moved, value_moved = _status_pair(status, status), _status_pair(status, status)
+        next(c for c in claim_moved[1]["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 1.0}
+        next(c for c in value_moved[1]["checks"] if c["id"] == "wall_gt_2")["measurement"][
+            "value"
+        ] = 9.9
+
+        for pair, bucket in ((claim_moved, "limit_changed"), (value_moved, "drifted")):
+            entry = next(c for c in _diff(*pair)["checks"] if c["id"] == "wall_gt_2")
+            assert entry["change"] == bucket, status.value
+            assert entry["status"] == status.value
+            assert "answered" not in entry, (status.value, bucket)
+
+
 def test_the_headline_counts_the_checks_the_new_report_does_not_answer():
     """The artifact carrying the fact is half of it: the headline is the
     surface a human reads in a terminal or a PR check, and `1 fixed` there is

@@ -807,6 +807,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It follows that `unsupported` → `skipped` is recorded although it was
   answered on neither side, since the headline calls it `fixed` just the same,
   and that `pass` → `skipped` is recorded although it is bucketed `regressed`.
+  Both consequences are about the **headline**, so the headline is swept the
+  same way the record is — over every ordered pair, the qualifier appearing
+  exactly when the entry carries the record, in whichever bucket. Review found
+  the first version of this had given the artifact a derived sweep and the
+  headline enumerated coverage, every case a `fixed` entry that had been
+  `fail`; two mutants lived in the gap and one printed #325's original output
+  verbatim.
+  **The record rides a status-change entry and only those**, present there
+  exactly when the new side is unanswered. It corrects a bucket that names a
+  *direction*, and only `regressed` and `fixed` do; where the status held,
+  `status` is the single unchanged value a reader can already read. A grid of
+  18,225 pairs holds 2,106 entries that hold their status at an unanswered one
+  and carry no record, so the scoping is stated rather than left implied.
   **An additive field, not a fifth `change` value.** §4's compatibility rule
   covers fields; it says nothing about enum values, and widening a closed
   vocabulary breaks every consumer that switches on it. A console-only
@@ -1016,14 +1029,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bore_d = 26.0` and `26.000001`, and the entry emitted there was
   `{id, kind, change: "regressed", status}`, #326's own defect inside the fix
   for it, found in review.
-  §3 also names where the new rule stops (#335): a `param_range` check's value
-  has the same provenance and is still compared under the epsilon, which is
-  pre-existing, narrower, and filed rather than widened into this change.
-  `SPEC-diff.md` needed no change: §3's MUST already required this. The
-  headline qualifier §3 gives the status buckets still reads the claim and
-  nothing else — `operands` is a result, listed in `NON_CLAIM_FIELDS` as one —
-  so a part whose inputs moved is not accused of being a contract that was
-  edited.
+  §3's MUST already required this, so it needed no change; the *tolerance*
+  paragraph did, and gained the general rule that a comparison tolerance
+  belongs to the provenance of a value and not to its type.
+  The claim qualifier reads the claim and nothing else — `operands` is a
+  result, listed in `NON_CLAIM_FIELDS` as one — so a part whose inputs moved
+  is not accused of being a contract that was edited. (A second, independent
+  qualifier for checks the new report does not answer landed later in this
+  same cycle; see #325 above.)
+  This entry originally recorded #335 as the place the new rule stopped — a
+  `param_range` value having the same provenance and still being compared
+  under the epsilon. That is no longer true of the tree these notes ship
+  with: #335 was fixed later in the same unreleased cycle, and the sentence
+  is corrected here rather than left to contradict the entry above it,
+  because a released section is what this project's rule protects from
+  rewriting and an unreleased one is not.
 
 - **`partspec diff` refuses a payload that is not a report, rather than
   reporting two of them as identical** (#292, epic #305). Its only structural

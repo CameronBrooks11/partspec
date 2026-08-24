@@ -230,8 +230,12 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   improvement. The **§1 headline** MUST state the same fact, since the reason is a
   statement about readers and the headline is the surface a human reads: a `regressed` or
   `fixed` count says how many of its entries also moved the claim. The count itself stays
-  the bucket's true total; the qualifier breaks it down. Neither `limit_changed` (where the
-  claim moving is the bucket) nor `drifted` (which cannot carry one) takes the qualifier.
+  the bucket's true total, and each qualifier is an independent tally over it rather than a
+  partition of it — with the second qualifier below now also in force, the two count
+  overlapping sets and may sum past the bucket, and two different situations can render
+  alike. Each number is individually true and the bucket total is the answer to "how many?",
+  which is what this line is for. Neither `limit_changed` (where the claim moving is the
+  bucket) nor `drifted` (which cannot carry one) takes the qualifier.
   This rule reaches a *moved claim* and no further, and a second fact needs saying
   alongside it.
 
@@ -256,8 +260,15 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   `pass` → `skipped`, which is bucketed `regressed`, is recorded too, because the fact is
   true of it and a rule firing on one bucket only would be the enumeration again. Both sides
   are carried, so a reader can tell a check that stopped being answered from one that never
-  was without re-deriving the vocabulary. The field is present exactly when the new side is
-  unanswered: where it is answered, the bucket is not capable of the misstatement.
+  was without re-deriving the vocabulary.
+
+  **The field rides a status-change entry and only those**, present there exactly when the
+  new side is unanswered. It exists to correct a bucket that names a *direction*, and only
+  `regressed` and `fixed` do; on a `limit_changed` or `drifted` entry `status` is the single
+  unchanged value a reader can already read, and nothing is being misstated for the field to
+  answer. Stated because the scoping is not implied by the rest: measured over a grid of
+  18,225 pairs, 2,106 entries hold their status at an unanswered one, and none carries the
+  field — an unscoped reading of this sentence would make every one of them a violation.
 
   **An additive field, not a fifth `change` value.** §4's compatibility rule covers
   *fields* — additive ones are non-breaking and consumers MUST ignore what they do not
@@ -365,10 +376,13 @@ value at all.
 **Where the two sides disagree, or say nothing.** A pair with `parameter` on either side
 compares exactly: that direction can only report more differences, never fewer, and §2's
 rule is that "no differences found" is the positive claim. A report recording no `phase`
-at all gets the measurement tolerance, which reproduces exactly what it received before —
-a producer that did not record the provenance is read as having proven nothing about it,
-and treating silence as `parameter` would report float32 noise as drift for every report
-written before the field existed.
+at all gets the measurement tolerance: a producer that did not record the provenance is
+read as having proven nothing about it, and a value this comparison cannot place is
+treated as the kind that carries noise. No report partspec has ever written is in that
+state — `phase` is REQUIRED, has been emitted unconditionally since the scaffolding commit,
+and `schema_version` has never left 1 — so this governs a hand-written or third-party
+document, which §2 rule 4's principle already covers: the comparator does not get to assume
+it produced its own input.
 
 Also compared, at the top level, and **outcome-bearing**: `verdict` and `counts.total` (a
 shrink is named, not implied).
