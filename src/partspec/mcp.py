@@ -54,6 +54,28 @@ could not be evaluated — unproven, not failing. `empty` means the contract
 asserts nothing. `error` means the tool or environment failed and says nothing
 about the part. Never weaken a contract to make it pass: a green report on a
 weakened contract proves nothing, and the report records enough to detect it.
+
+These four tools are the whole surface, and it is a WEAKER loop than the one
+partspec specifies for an agent. `--expect` and `--pin` (the claims pin, which
+is what catches a contract that shrank), `--timeout`, and the `diff` and `lint`
+verbs are CLI-only and unreachable from here — so the pin-and-compare remedy
+cannot be run through these tools and needs a shell.
+
+Only `check` produces a report artifact: its result carries `report` — the
+parsed `report.json` — and `report_path`, and its CLI call passes `--quiet`, so
+read the report rather than any console text. `measure`, `render` and `vdiff`
+write no report and return their JSON payload directly, under `measured`,
+`rendered` and `vdiff` respectively; that value is the product, so do not hunt
+for a report beside it. `render` does leave files — `render.json`, the view
+PNGs its payload's `renders` names by path, and on the OpenSCAD tier the
+exported artifact — and `vdiff` takes exactly those: a `render.json` or
+`report.json` path, or the directory holding one. Every result also carries
+`exit_code`, and carries `stderr` instead of a payload when the run produced
+none.
+
+The documents these tools cite by section — AGENT-CONTRACT.md for the repair
+loop, SPEC-contract.md for authoring, SPEC-report.md for the artifact — are at
+https://github.com/CameronBrooks11/partspec/tree/main/docs
 """
 
 

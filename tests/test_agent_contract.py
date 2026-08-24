@@ -9,8 +9,13 @@ same way.
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
 from pathlib import Path
+
+from support import needs_scad_tier
 
 from partspec.status import EXIT_USAGE, Verdict, exit_code
 
@@ -97,3 +102,169 @@ def test_the_requires_tier_token_matches_the_runner():
     assert "`requires` names the tier" in DOC
     assert '"occt"' in DOC
     assert 'requires="occt"' in (SRC / "runner.py").read_text()
+
+
+def test_the_mcp_surface_is_the_four_tools_the_doc_says_it_is():
+    """The doc's §0 caveat rests on a property of `mcp.py`: the surface is
+    four tools, and `diff` and `lint` are not among them.
+
+    Asserted against the CODE, not against the doc's sentence — a test that
+    read both and compared them would be two copies of one fact. What is
+    pinned here is the fact the sentence depends on: add a `lint` or `diff`
+    tool and this fails, which is the moment the caveat stops being true.
+
+    `tool_names` is `scripts/gen_docs.py`'s, reused rather than reimplemented
+    — it already counts `async def`, which a second parser written here would
+    be free to forget (PR #331 review, F2).
+    """
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "gen_docs.py"
+    spec = importlib.util.spec_from_file_location("partspec_gen_docs", path)
+    assert spec is not None and spec.loader is not None, f"cannot load {path}"
+    gen_docs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen_docs)
+
+    registered = gen_docs.tool_names((SRC / "mcp.py").read_text())
+    assert registered == ["check", "measure", "render", "vdiff"], (
+        "the MCP surface moved; AGENT-CONTRACT's caveat and mcp.py's "
+        "instructions both describe the old one"
+    )
+    for absent in ("diff", "lint"):
+        assert absent not in registered, (
+            f"`{absent}` is now an MCP tool, so the doc is wrong to say it is CLI-only"
+        )
+
+
+def test_the_mcp_instructions_carry_a_doc_pointer():
+    """The MCP client is the one consumer that cannot reach the CLI epilog.
+
+    Not a phrase search: the assertion is that the instructions string
+    contains a URL that actually resolves to a path in this repository, so a
+    reorganisation that moves `docs/` fails here rather than shipping an
+    agent a dead pointer (#298).
+    """
+    from partspec.mcp import _INSTRUCTIONS
+
+    urls = re.findall(r"https://github\.com/[\w./-]*partspec/tree/main/([\w./-]+)", _INSTRUCTIONS)
+    assert urls, "the MCP instructions ship no pointer to the documents"
+    root = Path(__file__).resolve().parents[1]
+    for path in urls:
+        assert (root / path).is_dir(), f"the instructions point at {path}, which does not exist"
+
+
+@needs_scad_tier
+def test_measure_and_render_exit_4_on_a_model_origin_failure(tmp_path: Path):
+    """§2.4's two claims, executed.
+
+    The table in §2 governs `check`, and its exit-3 row sends the agent to
+    `measure` — where a model-origin build failure lands on exit 4, the one
+    case the table has no row for. §2.4 exists to cover that, and it rests on
+    two properties of the payloads: `render` carries an `origin` to branch on
+    and `measure` does not carry one at all.
+
+    Pinned because both are silent if they drift. If `measure` gains the
+    field — which §2.4 says is the real fix — this fails, and the paragraph
+    saying "there is nothing to branch on" is what has to change.
+    """
+    (tmp_path / "broken.scad").write_text("cube([1,1,\n")
+    (tmp_path / "spec.py").write_text(
+        "from partspec import Part, openscad\n\n\n"
+        'def thing() -> Part:\n    return Part("thing", openscad("broken.scad"))\n'
+    )
+
+    def run(verb: str) -> tuple[int, dict]:
+        result = subprocess.run(
+            [sys.executable, "-m", "partspec", verb, "spec.py:thing", "--out", verb],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode, json.loads(result.stdout)
+
+    code, payload = run("render")
+    assert code == 4, "render exits 4 on a build failure, model-origin included"
+    assert payload["origin"] == "model", "render's payload is what §2.4 says to branch on"
+
+    code, payload = run("measure")
+    assert code == 4, "measure exits 4 on a build failure, model-origin included"
+    assert "origin" not in payload, (
+        "measure's failure payload gained an origin; §2.4 tells the agent there is "
+        "none and to read the hint prose instead, so that paragraph is now wrong"
+    )
+    assert payload["error"] and payload["hint"], "the prose §2.4 falls back on must exist"
+
+
+def test_a_raising_contract_gives_measure_and_render_exit_4_and_no_payload(tmp_path: Path):
+    """§2.4's third state: exit 4 with nothing on stdout.
+
+    The section offers two branches — `render`'s `origin`, `measure`'s
+    `error`/`hint` — and a contract that RAISES satisfies neither: there is no
+    payload to read either from. It is neither the model nor the machine, and
+    §2.3's last bullet is the diagnosis, which §2.4 now says explicitly
+    (PR #340 review, F3).
+
+    Pinned because the clause is only true while the payload really is empty:
+    if either verb starts emitting one on this path, the sentence telling the
+    agent to read stderr becomes the wrong advice.
+    """
+    (tmp_path / "raises.py").write_text(
+        "from partspec import Part\n\n\n"
+        'def thing() -> Part:\n    raise RuntimeError("the contract itself is broken")\n'
+    )
+
+    for verb in ("measure", "render"):
+        result = subprocess.run(
+            [sys.executable, "-m", "partspec", verb, "raises.py:thing", "--out", verb],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 4, f"{verb} on a raising contract exits 4"
+        assert result.stdout.strip() == "", (
+            f"{verb} emitted a payload on a raising contract; §2.4 tells the agent "
+            f"an empty stdout is how this state is recognised"
+        )
+        assert "the contract is wrong, not the part" in result.stderr, (
+            f"{verb} must put the diagnosis on stderr, which is where §2.4 sends the agent"
+        )
+
+
+def test_quiet_is_a_check_only_flag():
+    """`mcp.py`'s instructions tell the agent that `check` runs `--quiet` and
+    the other three return their payload directly.
+
+    The first draft of that paragraph said it of all four, and `--quiet` is
+    not merely unpassed elsewhere — `partspec measure ... --quiet` is exit 64,
+    unrecognized. A sentence generalising over a tool list is worth pinning
+    against the parser that defines the list (PR #340 review, F1).
+
+    Asserted through parsing rather than argparse internals: what the agent
+    would hit is the refusal, so that is what is checked.
+    """
+    import contextlib
+    import io
+
+    from partspec.cli import build_parser
+
+    def accepts(argv: list[str]) -> bool:
+        parser = build_parser()
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                parser.parse_args(argv)
+            except SystemExit:
+                return False
+        return True
+
+    assert accepts(["check", "spec.py", "--quiet"]), "check must accept --quiet; mcp.py passes it"
+    for verb, argv in (
+        ("measure", ["measure", "spec.py", "--quiet"]),
+        ("render", ["render", "spec.py", "--quiet"]),
+        ("vdiff", ["vdiff", "a", "b", "--quiet"]),
+    ):
+        assert not accepts(argv), (
+            f"{verb} now accepts --quiet, so mcp.py's instructions — which say only "
+            f"check passes it — understate the surface"
+        )

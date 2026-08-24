@@ -28,9 +28,11 @@ building it — and are marked accordingly.
 from __future__ import annotations
 
 import ast
+import json
 import re
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -40,6 +42,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 README = ROOT / "README.md"
 EXAMPLE = ROOT / "examples" / "spacer" / "spec.py"
+SPACER_SCAD = ROOT / "examples" / "spacer" / "spacer.scad"
 
 
 def _check_calls(source: str) -> list[str]:
@@ -284,6 +287,64 @@ def test_the_skills_region_example_executes():
     # And the thing the example warns about is really refused.
     with pytest.raises(ContractError):
         region.cylinder(d=22.0, h=2.0, at=(0.0, 0.0, 0.0), axis=(0, 0, 1))  # type: ignore[arg-type]
+
+
+@needs_scad_tier
+def test_the_skills_retrofit_probe_measures(tmp_path: Path):
+    """Step 1 of the retrofit path, executed.
+
+    The skill's first retrofit instruction used to be
+    `partspec measure model.py:factory`, which cannot work: both verbs resolve
+    a target that must return a `partspec.Part`, so naming the model exits 64
+    (#282). The replacement instruction is to write a checkless contract and
+    measure THAT, and the claim worth pinning is that such a contract is
+    accepted at all — a `Part` with an id and a source and nothing else is the
+    smallest input `measure` takes.
+
+    Selected by CONTENT, following the lesson recorded above: the block is the
+    one that names probe.py, not whichever block happens to come first.
+
+    BOTH copies are executed. The skill's is the one an agent pastes, but
+    `SPEC-contract.md` §7's is the NORMATIVE one, and nothing else in this
+    suite executes a fence from that file — so running only the skill's would
+    leave the copy that carries the MUST unguarded (PR #340 review).
+    """
+    import subprocess
+
+    sources = {
+        "skills/contract-authoring/SKILL.md": SKILL,
+        "docs/SPEC-contract.md": (DOCS / "SPEC-contract.md").read_text(),
+    }
+    for where, text in sources.items():
+        blocks = re.findall(r"```python\n(.*?)```", text, re.S)
+        matching = [b for b in blocks if "# probe.py" in b]
+        assert len(matching) == 1, f"{where} must show the retrofit probe exactly once"
+
+        # The block cites a stand-in vendor path; point it at a source that
+        # exists. Dedented: the skill's copy sits inside a numbered list, so
+        # its fence and body carry the list's indentation and will not
+        # compile as written.
+        body = textwrap.dedent(matching[0]).replace("../vendor/bracket.scad", str(SPACER_SCAD))
+        probe = tmp_path / "probe.py"
+        probe.write_text(body)
+
+        namespace: dict = {}
+        exec(body, namespace)  # noqa: S102 - executing the doc is the point
+        part = namespace["probe"]()
+        assert not part.checks, f"{where}: the probe declares no checks — that is the point"
+        assert part.source.path.name == SPACER_SCAD.name
+
+        result = subprocess.run(
+            [sys.executable, "-m", "partspec", "measure", f"{probe}:probe", "--out", str(tmp_path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, f"{where}: {result.stdout}{result.stderr}"
+        payload = json.loads(result.stdout)
+        # A checkless contract still yields the numbers the retrofit reads.
+        assert {"bbox", "volume", "genus"} <= set(payload["measurements"]), where
 
 
 def test_the_skills_pointers_resolve():

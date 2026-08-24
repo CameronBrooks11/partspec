@@ -209,7 +209,23 @@ is yours. Cite the un-derived bound.
 quantity the backend can honestly produce, with no verdict, so you can see the numbers
 *before* deciding which are intent.
 
-1. `partspec measure model.py:factory` — read what the part is.
+1. **Write a contract that declares only the source, and measure that.** A `Part`
+   with an id and a source and no checks at all is the smallest thing `measure`
+   accepts, and it reads every quantity the backend can produce:
+
+   ```python
+   # probe.py
+   from partspec import Part, openscad
+
+   def probe() -> Part:
+       return Part("probe", openscad("../vendor/bracket.scad"))
+   ```
+
+   `partspec measure probe.py:probe` — read what the part is. **Name the contract,
+   never the model.** `measure` and `check` both resolve a target that must return a
+   `partspec.Part`, so pointing either at the model file fails at exit 64; a
+   build123d or CadQuery model annotated `-> Part` is returning *its* `Part`, not
+   partspec's. The id is positional and required — `Part(source=...)` alone raises.
 2. For each number, ask: **what fixes this?** A standard → cite it (path 1 above). A
    datasheet or drawing → its number, in a comment naming the source. Nothing → do not
    assert it yet; `examples/enclosure/` shows the honest topology-only position.
@@ -228,7 +244,12 @@ quantity the backend can honestly produce, with no verdict, so you can see the n
   with review (`docs/AGENT-CONTRACT.md` §4).
 - Shared claims across implementations assert **only what the requirement fixes**
   (FAILURE-MODES entry 6; `examples/bearing-block/claims.py` is the worked form).
-- The source-side rules live in `skills/openscad-authoring/SKILL.md`.
+- The source-side rules live in **two** skills, one per engine family — load the one
+  matching the source your contract declares. `openscad(...)` →
+  `skills/openscad-authoring/SKILL.md`. `build123d(...)` or `cadquery(...)` →
+  `skills/build123d-authoring/SKILL.md`, which covers both: the Python engines fail
+  by silent *selection* drift and ecosystem breakage rather than by silent geometry
+  loss, so the OpenSCAD rules do not transfer.
 - The worked exemplars under `examples/` are the imitation set: the exemplar
   READMEs (`stepper-bracket`, `bearing-block`, `enclosure`) each say what to copy and
   why.

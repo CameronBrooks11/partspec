@@ -588,6 +588,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **AGENT-CONTRACT's exit table covers only `check`, and routed the agent into
+  the one case it does not cover** (#301, epic #305). §2 opens "Every evaluated
+  `check` run", the exit-3 row says to run `measure`, and `measure` has no
+  verdict — so a model-origin build failure lands there on exit 4, where the
+  table's own exit-4 row says "editing the model on exit 4 is noise", which is
+  the opposite of the right response.
+  The routing is reachable, measured end to end: a checkless contract over a
+  `.scad` with a syntax error gives `check` exit `3`, `verdict: "empty"`,
+  `checks[0]` = `("builds", "fail")` — `empty` outranks `fail` per
+  `SPEC-report.md` §6.1 — and the prescribed `measure` then exits `4`.
+  A new §2.4 covers `measure` and `render`. Both of the issue's own corrections
+  were re-measured and hold. `lint` is out of scope: it exits 0 whatever it
+  finds and `LINT.md` already says its exit 0 is not this table's exit-0 row.
+  And "read `build_origin`" is unimplementable for `measure`: its failure
+  payload carries exactly `engine`, `error`, `geometry`, `hint`, `params`,
+  `part`, `schema_version`, `tool` — in **both** failure modes, with `origin`
+  **absent** rather than null, so it cannot even be read as "unknown". `render`
+  does carry one: `"model"` for the broken `.scad`, `"environment"` under
+  `PARTSPEC_OPENSCAD=/nope/openscad`.
+  So §2.4 says to branch on `render`'s `origin` and to fall back to `error` and
+  `hint` on `measure` — and names the states that fit neither branch, since
+  narrowing the table could otherwise leave them uncovered. Exit 4 with
+  **stdout empty** is two different things, and **stderr is the discriminator**:
+  *"the contract is wrong, not the part"* is a contract that raised (§2.3's last
+  bullet), while *"this is a partspec failure, not a verdict on the part"* is
+  partspec's own failure and an escalation. Measured, `render --out` pointed at
+  an existing **file** takes the second branch on a contract that is entirely
+  correct — so attributing every empty stdout to the contract would have
+  prescribed a repair to a file with nothing wrong in it. The verbs are not
+  symmetric there either, and the section says so: the same bad `--out` leaves
+  `measure` emitting a payload. Exit 64 still means a malformed invocation.
+  It records the asymmetry as a gap rather than a design:
+  `check`'s report has carried `build_origin` since #47, `render`'s payload
+  gained `origin` in #191, `measure` was given neither, and the two that exist
+  do not share a key name. A test pins both payload shapes, so giving `measure`
+  the field — the real fix — fails the assertion that tells the agent there is
+  none.
+
+- **The MCP surface now tells its agent it is the weaker loop, which
+  AGENT-CONTRACT already said it must** (#298, epic #305). That document's §0
+  states the MCP tools cannot execute it — no `--expect`, no `--pin`, no
+  `--timeout`, no `diff` — and concludes an MCP-driven agent "should be told so
+  rather than assumed to be following it". `mcp.py`'s `_INSTRUCTIONS` said none
+  of it, and carried no pointer to any partspec document.
+  Measured, that gap is total for this consumer:
+  `grep -rn "github.com/CameronBrooks11/partspec" src/` returns **one** hit,
+  `cli.py`'s epilog, which an MCP client never sees — it has a tool list and
+  nothing else. `_INSTRUCTIONS` now names the four tools as the whole surface,
+  says which flags and verbs are CLI-only and that the pin-and-compare remedy
+  therefore needs a shell, and gives the documents' URL. It also says which
+  tool produces an artifact and which return their payload directly, **scoped
+  to the tool it is true of**: only `check` writes a `report.json` and only
+  `check` passes `--quiet`, which is not merely unpassed on the other three but
+  not a valid flag — `measure ... --quiet` exits 64, unrecognized. A test pins
+  that by parsing, since a sentence generalising over a tool list is exactly
+  what drifts. The same clause says what `render` *does* leave — `render.json`,
+  the view PNGs its payload names by path, the exported artifact on the
+  OpenSCAD tier — because `vdiff` consumes exactly those, and a blanket "do not
+  look for a file" would have told an agent chaining render into vdiff not to
+  seek the input it needs.
+  `lint` joins `diff` in §0's gap list: `git log -S` dates that paragraph to
+  2026-08-09, one day after `lint` shipped, so it named the gap that existed
+  when it was written.
+  Two tests, both against the code rather than against the sentence. One pins
+  the surface — `tool_names(mcp.py)` is exactly
+  `["check", "measure", "render", "vdiff"]`, reusing #331's parser rather than
+  writing a second one that could forget `async def`; registering a `lint` tool
+  fails it. The other pins that the instructions' URL resolves to a directory
+  that exists, so moving `docs/` fails here instead of shipping a dead pointer.
+
+- **`skills/build123d-authoring` had zero inbound links, so every author was
+  handed the OpenSCAD rules** (#284, epic #305). Verified before and after:
+  `grep -rn "build123d-authoring" --include="*.md" .`, CHANGELOG excluded,
+  returned exactly two lines — a rationale string in `docs/LINT.md` and the
+  skill's own frontmatter `name:`. Nothing pointed at it. `README.md` says
+  "three authoring skills" in prose and linked one; `contract-authoring`, the
+  document that routing goes through, sent all source-side work to
+  `openscad-authoring`.
+  That is not a missing link, it is the wrong rules: the Python engines fail
+  by silent **selection** drift and ecosystem breakage where OpenSCAD fails by
+  silent geometry loss, so an agent writing build123d was reading advice that
+  does not transfer. `contract-authoring` now routes by the source constructor
+  the contract declares — `openscad(...)` to one skill, `build123d(...)` or
+  `cadquery(...)` to the other, which covers both Python engines. `README.md`
+  links all three. `AGENT-CONTRACT.md`'s scope note, which named only
+  `SPEC-contract.md`, now says to start at the routing skill and why the two
+  differ. And `openscad-authoring` gained the reverse pointer it lacked, since
+  its reader is exactly the agent who arrived with the wrong engine.
+
+- **The retrofit path's first command named the model file, and a model file
+  fails with the same word twice** (#282, epic #305).
+  `skills/contract-authoring/SKILL.md` step 1 of "The retrofit path" said
+  `partspec measure model.py:factory`. Both verbs resolve a target that must
+  return a `partspec.Part`, so naming the model exits 64 — and a build123d or
+  CadQuery model annotated `-> Part` is annotated with **its** library's
+  `Part`, which produced *"returned Part, not a Part"*: no way forward, and it
+  reads as a tool bug rather than a user error.
+  The model gets that far because `target._load` compiles and execs, which
+  leaves every annotation a **string** — measured, the `bracket` factory in
+  `examples/stepper-bracket/bracket.py` arrives as `'Part'`, and so does every
+  shipped contract's, while a normal import of the same contract gives the
+  class. So the `hints is Part` half of the discovery test cannot fire under
+  `_load` at all, the comparison is purely lexical, and the model is discovered
+  as a factory, called, and refused only on what it returned.
+  The refusal now LOCATES the returned type — `returned
+  build123d.topology.composite.Part, not partspec.Part` — with a second line
+  saying to write a contract declaring the model as its source. Where the class
+  is defined in the contract file itself, which is the shape #282 filed its
+  reproduction on, the locus is that **file**: `_load` synthesises a module
+  name embedding `hash()`, so qualifying by module there printed a different
+  string every run — `_partspec_contract_691635311308020508.Part`, then
+  `..._6872466290535898064.Part`, measured across three processes. A test pins
+  the property rather than the sentence, reading the expected module off the
+  class: reverting to the old wording fails it, and so does dropping the
+  file-name fallback. It lives in `tests/test_cli.py` beside the other
+  resolve-failure paths, not in `test_docs.py` — it never reads the document,
+  so filing it under "docs held to code" would have claimed a link it does not
+  make; §7 carries the pointer to it instead.
+  The skill's step 1 and `SPEC-contract.md` §7 both now open the retrofit by
+  writing that contract: a `Part` with an id and a source and no checks, which
+  is the smallest thing `measure` accepts. Measured on
+  `examples/spacer/spacer.scad`, it reads `bbox (40, 30, 6)`,
+  `volume 6898.891440076026`, `genus 1` and names five unavailable primitives.
+  **Both copies of that block are executed** — the skill's, which an agent
+  pastes, and §7's, which carries the normative MUST and which nothing in the
+  suite had run.
+
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).
   [`evals/run.py`](https://github.com/CameronBrooks11/partspec/blob/main/evals/run.py)

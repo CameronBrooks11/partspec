@@ -1232,6 +1232,33 @@ OpenSCAD libraries": measure, read, decide which numbers are *intent* rather tha
 *incident*, and write those as checks. The judgement stays with the author; the arithmetic
 does not.
 
+**`<target>` is a contract, never a model.** `measure` resolves its target exactly as
+`check` does (§2) — a module declaring a factory annotated `-> Part` that returns a
+`partspec.Part` — so the first step of a retrofit is to *write* one. A `Part` carrying an
+id and a source and no checks at all is the smallest contract `measure` accepts, and it
+reads every quantity the backend can produce:
+
+```python
+# probe.py — the whole contract
+from partspec import Part, openscad
+
+def probe() -> Part:
+    return Part("probe", openscad("../vendor/bracket.scad"))
+```
+
+Naming the **model** instead exits `64`. That it gets as far as being called is worth
+stating, because it decides what the diagnostic can say: a build123d or CadQuery model
+annotated `-> Part` is annotated with *its* library's `Part`, and target resolution
+compares the annotation by name, so such a model is discovered as a factory like any
+other and refused only on what it returns. The refusal therefore MUST locate the returned
+type — `build123d.topology.composite.Part`, not `Part` — since the unqualified form states
+the collision as though it were a contradiction. Where the class is defined in the
+contract file itself, the locus is that **file**: modules loaded this way are synthesised
+under a per-process name, so qualifying by module there would print a different string on
+every run. Both halves are pinned by
+`tests/test_cli.py::test_the_refusal_locates_the_type_it_got`, which reads the expected
+module off the returned class rather than restating this sentence.
+
 `measure` deliberately reports a **superset** of the check vocabulary. `is_valid` and
 `topology_counts` appear here and are not kinds (§4.3) — the first because its meaning
 differs by tier, the second because only one tier can answer it. Both are worth *seeing*

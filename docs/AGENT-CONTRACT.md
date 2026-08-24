@@ -5,14 +5,21 @@
 green, **via the CLI**.
 **Scope:** how to act on partspec's output. How to *author* a contract is
 `SPEC-contract.md`; what the artifact means is `SPEC-report.md`.
+**If you are about to write one, start at `skills/contract-authoring/SKILL.md`** — it is
+the routing document, and it sends you to the source-side skill for your engine
+(`openscad-authoring`, or `build123d-authoring` for build123d and CadQuery). The spec is
+normative and closes the vocabulary; the skill is how to choose within it.
 
 **The `partspec-mcp` tools cannot execute this document.** They run the same CLI per call,
 but the four registered tools are `check` / `measure` / `render` / `vdiff`, and the check
 tool builds only `["check", target, "--quiet"]` plus `--out` and `--render`. There is no
-`--expect`, no `--pin`, no `--timeout`, and **no `diff` tool at all** — so §1 step 1's
-claims pin and §4's `diff` remedy are both unreachable from MCP. An MCP-driven agent is
-running a weaker loop than the one specified here, and should be told so rather than
-assumed to be following it. (Tracked: the flags are plumbing, not design.)
+`--expect`, no `--pin`, no `--timeout`, and **no `diff` tool and no `lint` tool** — so §1
+step 1's claims pin and §4's `diff` remedy are both unreachable from MCP, and so is the
+advisory source read. An MCP-driven agent is running a weaker loop than the one specified
+here, and should be told so rather than assumed to be following it. (Tracked: the flags
+are plumbing, not design.) The MCP server's own `instructions` now say all of this, which
+is the only place an MCP client can learn it: that client has a tool list and nothing
+else, and the sole doc pointer the package otherwise ships is the CLI epilog.
 
 The one rule everything below serves: **the report artifact is the ground truth, and
 only `pass` is green.** Read `report.json`, not the console — the console is a courtesy
@@ -171,6 +178,65 @@ Read the non-`pass` statuses in `checks[]`:
   here a placeholder exists where that one leaves no report at all. Re-run once; if the
   placeholder recurs, read the console before escalating — the fix is usually a
   one-line contract repair to propose.
+
+### 2.4 `measure` and `render` — the table above is `check`'s
+
+§2 opens "Every evaluated `check` run", and that is exact: the table governs `check`.
+`measure` and `render` reach no verdict, so they exit `0` or, on **any** build failure,
+`4` — model-origin included, which is the case the table has no row for.
+
+**The table routes you into it.** The exit-3 row says to run `measure`, and a contract
+that asserts nothing over a model that does not build is exactly the shape that produces
+exit 3: measured, a checkless contract over a `.scad` with a syntax error gives `check`
+exit `3`, `verdict: "empty"`, `checks[0]` = `("builds", "fail")` — `empty` outranks
+`fail` (`SPEC-report.md` §6.1) — and the `measure` that row prescribes then exits `4`.
+
+**So "editing the model on exit 4 is noise" is a rule about `check`, and does not carry
+here.** On these two verbs, decide whose fault it is first:
+
+- **`render` carries the answer.** Its failure payload has an `origin`, `"model"` or
+  `"environment"`; branch on it exactly as §2.3 branches on `build_origin`. Measured, that
+  same syntax-error `.scad` gives `origin: "model"`, and the same contract run under
+  `PARTSPEC_OPENSCAD=/nope/openscad` gives `origin: "environment"`.
+- **`measure` has no such field, so there is nothing to branch on.** Measured, its
+  failure payload carries exactly `engine`, `error`, `geometry`, `hint`, `params`,
+  `part`, `schema_version`, `tool` — in *both* failure modes. `origin` is **absent**, not
+  null, so a consumer cannot even read it as "unknown". Fall back to the prose: `error`
+  and `hint` quote the engine, and a parser error naming a line in your source is the
+  model where a missing binary or package is the machine. Or run `check` on the same
+  target, whose report does carry `build_origin`.
+
+**States fall outside both branches, and none of them is about the part.** If the exit is
+`4` and **stdout is empty** — no payload at all, not a payload without `origin` — then
+either the contract raised **or partspec itself failed**, before the verb had anything to
+describe. **stderr says which**, in one line, and the two are distinct:
+
+- *"the contract is wrong, not the part"* → the contract raised. That is §2.3's last
+  bullet and it applies here in full; §2.4 narrows the table's *rows*, not §2.3's
+  diagnosis of a contract that would not run. Measured, a factory that raises gives both
+  verbs exit `4` and zero bytes on stdout, with the traceback above that line.
+- *"this is a partspec failure, not a verdict on the part"* → partspec's own failure, and
+  an **escalation** (§3) rather than a contract repair. Measured, `render --out` pointed
+  at an existing **file** gives exit `4` and zero bytes with a `NotADirectoryError`, on a
+  contract that is entirely correct. Proposing a one-line fix to that contract is the
+  wrong move; nothing in it is wrong.
+
+**The two verbs are not symmetric here, so do not infer one from the other**: that same
+bad `--out` leaves `measure` emitting a payload rather than an empty stdout.
+
+And exit `64` still means what the table says it means — a malformed invocation, stdout
+empty, e.g. a target naming a file that does not exist. Read stderr in every one of these
+cases; there is no artifact to read.
+
+That asymmetry is a gap rather than a design. `check`'s report has carried `build_origin`
+since #47 and `render`'s payload gained `origin` in #191; `measure` was given neither, and
+the two that exist do not even share a key name. Giving `measure` the same field is the
+real fix; until it has one, the prose is what there is.
+
+`lint` is not part of this gap, and is documented where it belongs. It exits `0` whatever
+it finds — the findings are data in its payload, `64` is reserved for input it cannot lint
+at all, and `LINT.md` says both, and says in as many words that its exit 0 is not this
+table's exit-0 row.
 
 ## 3. Escalation
 
