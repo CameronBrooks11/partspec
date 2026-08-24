@@ -156,6 +156,109 @@ def test_requires_checks_drift_on_operands():
 
 
 # --------------------------------------------------------------------------
+# a check that stopped being answered is not a repair (#325)
+# --------------------------------------------------------------------------
+
+
+def _status_pair(old_status: Status, new_status: Status) -> tuple[dict, dict]:
+    docs = (_doc(), _doc())
+    for doc, status in zip(docs, (old_status, new_status), strict=True):
+        next(c for c in doc["checks"] if c["id"] == "wall_gt_2")["status"] = status.value
+    return docs
+
+
+def test_the_answered_record_keys_on_the_new_status_over_every_transition():
+    """#325. `_SEVERITY` ranks `approximate`, `unsupported` and `skipped`
+    below `fail` — right for a verdict — so a check that is not answered on
+    the new side lands in `fixed` and is filed as one that was answered
+    better.
+
+    Asserted over EVERY ordered pair of distinct statuses, with the
+    expectation derived from the vocabulary rather than listed: a check is
+    answered iff `Status` calls its outcome conclusive. Enumerating pairs is
+    how two drafts of the issue got the bound wrong — the first omitting
+    `approximate`, the second admitting only transitions out of `fail` — and a
+    hand-written table of cases here would be the same mistake with a green
+    suite on top."""
+    conclusive = {Status.PASS, Status.FAIL}
+    seen = set()
+    for old_status in Status:
+        for new_status in Status:
+            if old_status is new_status:
+                continue
+            entry = next(
+                c
+                for c in _diff(*_status_pair(old_status, new_status))["checks"]
+                if c["id"] == "wall_gt_2"
+            )
+            assert entry["change"] in ("regressed", "fixed")
+            where = (old_status.value, new_status.value)
+            if new_status in conclusive:
+                assert "answered" not in entry, where
+            else:
+                assert entry["answered"] == {"old": old_status in conclusive, "new": False}, where
+            seen.add(where)
+
+    # The sweep really covered the whole vocabulary, not a subset of it.
+    assert len(seen) == len(Status) * (len(Status) - 1) == 20
+
+
+def test_a_check_that_was_never_answered_is_recorded_too():
+    """`unsupported` → `skipped` was answered on neither side, so nothing
+    *stopped* being answerable — and the headline calls it `fixed` just the
+    same, which is why the record keys on the new status and not on the
+    transition. Both sides are carried so the two cases stay distinguishable."""
+    never = next(c for c in _diff(*_status_pair(Status.UNSUPPORTED, Status.SKIPPED))["checks"])
+    stopped = next(c for c in _diff(*_status_pair(Status.FAIL, Status.SKIPPED))["checks"])
+
+    assert never["change"] == stopped["change"] == "fixed"
+    assert never["answered"] == {"old": False, "new": False}
+    assert stopped["answered"] == {"old": True, "new": False}
+
+
+def test_the_headline_counts_the_checks_the_new_report_does_not_answer():
+    """The artifact carrying the fact is half of it: the headline is the
+    surface a human reads in a terminal or a PR check, and `1 fixed` there is
+    the whole of #325's complaint.
+
+    Three entries, so the count is neither zero nor the bucket total and the
+    qualified entry is not the only one — a qualifier printing the bucket
+    total reads identically at one entry."""
+    old, new = _doc(), _doc()
+    for doc, statuses in (
+        (old, {"wall_gt_2": "fail", "envelope": "fail", "fits": "fail"}),
+        (new, {"wall_gt_2": "pass", "envelope": "skipped", "fits": "unsupported"}),
+    ):
+        for check in doc["checks"]:
+            if check["id"] in statuses:
+                check["status"] = statuses[check["id"]]
+        doc["verdict"] = "fail"
+
+    doc = _diff(old, new)
+    assert {c["id"]: "answered" in c for c in doc["checks"]} == {
+        "wall_gt_2": False,  # fail -> pass is the genuine repair
+        "envelope": True,
+        "fits": True,
+    }
+    assert summary_of(doc, new).splitlines()[0] == "different: p — 3 fixed (2 not answered)"
+
+
+def test_both_qualifiers_are_stated_where_both_apply():
+    """A second qualifier, not a widening of the first. They answer different
+    questions — whether the author moved the goalposts, and whether anyone was
+    still keeping score — and an entry can earn both."""
+    old, new = _status_pair(Status.FAIL, Status.SKIPPED)
+    next(c for c in new["checks"] if c["id"] == "wall_gt_2")["limit"] = {"min": 1.0}
+
+    doc = _diff(old, new)
+    entry = next(c for c in doc["checks"] if c["id"] == "wall_gt_2")
+    assert "claim" in entry and "answered" in entry
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — 1 fixed (1 with the claim changed, 1 not answered)"
+    )
+
+
+# --------------------------------------------------------------------------
 # the comparison tolerance keys on recorded provenance, not on type (#335)
 # --------------------------------------------------------------------------
 
@@ -1055,6 +1158,47 @@ def test_cli_diff_on_two_real_runs(tmp_path: Path):
     assert entry["value"]["old"][2] == pytest.approx(4.0)
     assert entry["value"]["new"][2] == pytest.approx(8.0)
     assert doc["source"]["digest_changed"] is True
+
+
+@needs_scad_tier
+def test_cli_a_check_that_stopped_being_evaluated_is_not_reported_as_a_repair(
+    tmp_path: Path,
+):
+    """#325's own reproduction. A failing `envelope`, then a `requires`
+    precondition breaks so the geometry phase never runs — and the check that
+    stopped being evaluated was filed in the same bucket as a genuine repair,
+    with an unqualified `1 fixed` on the console."""
+    scad = tmp_path / "plate.scad"
+    # Both parameters are declared: partspec refuses a `-D` that matches no
+    # top-level variable rather than letting the engine drop it silently.
+    scad.write_text("bore_d = 8;\nplate_y = 30;\ncube([40, 30, 6]);\n")
+    contract = tmp_path / "spec.py"
+
+    def write(bore_d: float) -> None:
+        contract.write_text(
+            "from partspec import Part, openscad\n\n\n"
+            "def make() -> Part:\n"
+            f"    p = Part('plate', openscad('plate.scad', bore_d={bore_d}, plate_y=30.0))\n"
+            "    p.requires('bore_d <= plate_y')\n"
+            "    p.envelope(max=(40, 30, 4))\n"
+            "    return p\n"
+        )
+
+    target = f"{contract}:make"
+    write(8.0)
+    assert _run_cli("check", target, "--out", str(tmp_path / "a"), "--quiet")[0] == 1
+    write(48.0)  # breaks the precondition, so the geometry phase never runs
+    assert _run_cli("check", target, "--out", str(tmp_path / "b"), "--quiet")[0] == 1
+
+    code, out, err = _run_cli(
+        "diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")
+    )
+    assert code == 1, err
+    entry = next(c for c in json.loads(out)["checks"] if c["id"] == "envelope")
+    assert entry["change"] == "fixed"
+    assert entry["status"] == {"old": "fail", "new": "skipped"}
+    assert entry["answered"] == {"old": True, "new": False}
+    assert "1 fixed (1 not answered)" in err.splitlines()[0]
 
 
 @needs_scad_tier

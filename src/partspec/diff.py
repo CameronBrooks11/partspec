@@ -98,6 +98,24 @@ def exit_code_of(outcome: str) -> int:
     return comparison_exit_code(outcome)
 
 
+_CONCLUSIVE = frozenset({Status.PASS, Status.FAIL})
+"""The statuses that mean the check was evaluated to a conclusion.
+
+Named as a membership rather than as a list of the three it excludes, because
+enumerating them is how two drafts of #325 got the bound wrong — the first
+omitting `approximate`, the second admitting only transitions out of `fail`.
+`Status`'s own docstrings draw the line: `pass` is "evaluated and satisfied,
+conclusively" and `fail` is "evaluated and violated, conclusively", while
+`approximate` is "indeterminate ... the tool does not know", `unsupported` is
+"cannot evaluate this check ... at all", and `skipped` is "not evaluated".
+
+`_SEVERITY` is a different question and is untouched: its ordering is right
+for `verdict_of`, since a run with a skipped check is not worse than one with
+a failing check. What was wrong is `diff` reusing that ordering to name a
+DIRECTION of change without saying which kind of change it was.
+"""
+
+
 def _values_equal(old: Any, new: Any) -> bool:
     """Equality under the adjudication epsilon, old value as reference.
 
@@ -231,10 +249,22 @@ def _check_entry(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] | N
         # it never belonged to this branch alone — `deltas` above is the whole
         # of it, spread here and on the entry below alike.
         worse = _SEVERITY[Status(new["status"])] > _SEVERITY[Status(old["status"])]
+        # Keyed on the NEW status alone: whether this report answers the check
+        # is a fact about this report, and where it came from is already in
+        # `status`. So `unsupported` -> `skipped` is recorded though it was
+        # answered on neither side — the headline calls it `fixed` just the
+        # same — and `pass` -> `skipped` is recorded though it is bucketed
+        # `regressed`, because the fact is true of it (§3, #325).
+        answered = (
+            None
+            if Status(new["status"]) in _CONCLUSIVE
+            else {"old": Status(old["status"]) in _CONCLUSIVE, "new": False}
+        )
         return {
             **base,
             "change": "regressed" if worse else "fixed",
             "status": {"old": old["status"], "new": new["status"]},
+            **({} if answered is None else {"answered": answered}),
             **deltas,
         }
 
@@ -1537,14 +1567,22 @@ def summary_of(doc: dict[str, Any], new_report: dict[str, Any]) -> str:
             # claim moving, so the note restates the bucket's own name; a
             # `drifted` entry cannot carry a claim at all, `_check_entry`
             # returning `limit_changed` before it reaches that branch.
-            with_claim = (
-                sum(1 for c in entries if "claim" in c) if change in ("regressed", "fixed") else 0
-            )
-            # The bucket keeps its true total and the qualifier breaks it down,
+            #
+            # `answered` is the second qualifier and not a widening of the
+            # first: such an entry carries no `claim` for the first to fire on,
+            # and the two answer different questions — whether the author moved
+            # the goalposts, and whether anyone was still keeping score (#325).
+            notes = []
+            if change in ("regressed", "fixed"):
+                if with_claim := sum(1 for c in entries if "claim" in c):
+                    notes.append(f"{with_claim} with the claim changed")
+                if unanswered := sum(1 for c in entries if "answered" in c):
+                    notes.append(f"{unanswered} not answered")
+            # The bucket keeps its true total and the qualifiers break it down,
             # rather than splitting into two counts: `N fixed` is what the spec
             # names and what a reader greps, and a split total would answer
             # "how many were fixed?" with a number that is not the answer.
-            note = f" ({with_claim} with the claim changed)" if with_claim else ""
+            note = f" ({', '.join(notes)})" if notes else ""
             parts.append(f"{len(entries)} {change}{note}")
         headline = f"different: {doc['part']} — {'; '.join(parts) or 'verdict changed'}{moved}"
     # Above the coverage block, because it is the one line the reader can act

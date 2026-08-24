@@ -1,8 +1,13 @@
 # SPEC — `partspec diff`
 
-**Status:** draft 5 · 2026-08-23 · §2 states that being parseable is not being a report,
+**Status:** draft 6 · 2026-08-24 · §3 states three rules the reasons behind draft 5 already
+implied: an entry carries every delta the comparison computed whatever bucket it landed in
+(#330), the comparison tolerance keys on `phase` because that is where the report records a
+value's provenance (#335), and a status-change entry says when the new report does not
+answer the check, the headline counting those as it counts a moved claim (#325);
+draft 5 stated that being parseable is not being a report,
 two `measure` payloads of a changed part having compared `identical` at exit `0` (#292),
-and §3 scopes the comparison tolerance to measured values, a status change over operands
+and §3 scoped the comparison tolerance to measured values, a status change over operands
 inside the adjudication epsilon having been reported with none of them (#326);
 draft 4 bound the §1 headline to the claim delta a status-change entry already carried, the
 console having reported a loosened limit as `1 fixed` (#293); draft 3 keyed §2 rule 3 on the
@@ -227,21 +232,47 @@ Checks join on `id` (`SPEC-report.md` §7.1 fixes `id` as the join key). Per che
   `fixed` count says how many of its entries also moved the claim. The count itself stays
   the bucket's true total; the qualifier breaks it down. Neither `limit_changed` (where the
   claim moving is the bucket) nor `drifted` (which cannot carry one) takes the qualifier.
-  This rule reaches a *moved claim* and no further, and the gap that leaves is stated here
-  rather than left to be inferred from the reason given for the rule. `pass` is the only
-  status in the severity order that means the check was answered and held, so **every**
-  transition into `approximate`, `unsupported` or `skipped` from a status ranked above it
-  is bucketed `fixed` — a check that is not answered on the new side, filed as one that was
-  answered better. Not only when it left `fail`, and not always a check that *stopped* being
-  answerable: `unsupported` → `skipped` was not answered on either side. Within a status
-  bucket the qualifier reads the claim and nothing else, so where the claim did not move it
-  does not fire and the headline reports the transition as a repair. Such an entry is
-  usually not otherwise empty — a check that stops being evaluated normally loses its
-  measurement with it, and all four `skipped`/`unsupported` sites in the runner build the
-  result without one — so a `value` delta is generally present and is not what the qualifier
-  reads. Generally, not always: `fail` → `approximate` over an unchanged measurement, and
-  any transition between two unmeasured statuses, carry nothing but the status. That is
-  #325, and unfixed.
+  This rule reaches a *moved claim* and no further, and a second fact needs saying
+  alongside it.
+
+  **A status-change entry MUST say when the new report does not answer the check, and the
+  headline MUST count those the way it counts a moved claim** (#325). `pass` and `fail` are
+  the two statuses meaning the check was evaluated to a conclusion, which the vocabulary
+  states of itself rather than needing a list of the rest: `approximate` is "indeterminate
+  … the tool does not know", `unsupported` is "cannot evaluate this check … at all",
+  `skipped` is "not evaluated". The severity order ranks all three below `fail` — correctly,
+  for a verdict — so a check that is not answered on the new side lands in `fixed` and is
+  filed as one that was answered better. Measured: an `envelope` failing at `max=(40,30,4)`,
+  then a `requires` precondition breaking so the geometry phase never runs, produced
+  `{"change": "fixed", "status": {"old": "fail", "new": "skipped"}}` under a headline
+  reading `2 regressed; 1 fixed`. That check did not get better. It stopped being evaluated.
+
+  **The record keys on the new status alone.** Whether this report answers the check is a
+  fact about this report; where it came from is already in `status`. Keying on the
+  transition is how two drafts of #325 got the bound wrong, each by enumerating pairs — the
+  first omitting `approximate`, the second admitting only transitions out of `fail`. Two
+  consequences follow and neither is an exception: `unsupported` → `skipped`, answered on
+  neither side, is recorded, because the headline calls it `fixed` just the same; and
+  `pass` → `skipped`, which is bucketed `regressed`, is recorded too, because the fact is
+  true of it and a rule firing on one bucket only would be the enumeration again. Both sides
+  are carried, so a reader can tell a check that stopped being answered from one that never
+  was without re-deriving the vocabulary. The field is present exactly when the new side is
+  unanswered: where it is answered, the bucket is not capable of the misstatement.
+
+  **An additive field, not a fifth `change` value.** §4's compatibility rule covers
+  *fields* — additive ones are non-breaking and consumers MUST ignore what they do not
+  recognise — and says nothing about enum values, so a fifth `change` would break every
+  consumer that switches on the four. Nor is a console-only qualifier enough: it would
+  leave the artifact still calling the entry `fixed`, which is the complaint. This is a
+  second qualifier rather than a widening of the first, because such an entry carries no
+  `claim` for the first to fire on and the two answer different questions; where both
+  apply, the headline states both.
+
+  `_SEVERITY` is untouched. Its ordering is right for `verdict_of` — a run with a skipped
+  check is not worse than one with a failing check, and the exit code must not say it is —
+  and the question here was only whether this comparison may reuse that ordering to name a
+  direction of change without saying which kind of change it was.
+
 - **`drifted`** — status unchanged, but a recorded value moved beyond tolerance:
   `measurement.value` (per component for vectors), or `operands` for a `requires` check
   (`SPEC-contract.md` §5 records them for exactly this).
@@ -463,6 +494,16 @@ It does not change the outcome: an old report that predates the field still diff
     {
       "id": "genus", "kind": "genus", "change": "regressed",
       "status": { "old": "pass", "new": "fail" }
+    },
+    {
+      "id": "watertight", "kind": "watertight", "change": "fixed",
+      "status": { "old": "fail", "new": "skipped" },
+      "answered": { "old": true, "new": false }
+                                    // present only when the NEW side is not
+                                    // answered: `fixed` here is the severity
+                                    // order, not a repair. Both sides shown so
+                                    // a check that stopped being answered is
+                                    // distinguishable from one that never was
     }
   ],
   "environment": {

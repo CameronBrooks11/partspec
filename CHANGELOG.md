@@ -781,6 +781,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **reparents**, and a shape handed to a second compound leaves the first holding
   nothing — a row that then goes on reporting green while measuring nothing.
 
+- **A check that stopped being answered is no longer filed as a repair**
+  (#325, epic #305). `_SEVERITY` ranks `approximate`, `unsupported` and
+  `skipped` below `fail` — right for a verdict, since a run with a skipped
+  check is not worse than one with a failing check — and `diff` reused that
+  ordering to name a *direction* of change. So every transition into a status
+  the tool cannot draw a conclusion from landed in `fixed`. Measured: an
+  `envelope` failing at `max=(40,30,4)`, then a `requires` precondition
+  breaking so the geometry phase never runs, produced
+  `{"change": "fixed", "status": {"old": "fail", "new": "skipped"}}` under
+  `different: example-spacer — 2 regressed; 1 fixed`. That check did not get
+  better; it stopped being evaluated. It now reads
+  `2 regressed (1 not answered); 1 fixed (1 not answered)`, with
+  `"answered": {"old": true, "new": false}` on both entries.
+  **Keyed on the new status alone**, because whether this report answers the
+  check is a fact about this report and where it came from is already in
+  `status`. `pass` and `fail` are the two outcomes `Status` calls conclusive;
+  the other three are, in its own words, "indeterminate … the tool does not
+  know", "cannot evaluate this check … at all", and "not evaluated". Two
+  drafts of the issue got this bound wrong by enumerating pairs — the first
+  omitting `approximate`, the second admitting only transitions out of
+  `fail` — so the code names the conclusive set and the test sweeps all 20
+  ordered pairs of distinct statuses with the expectation derived from that
+  set rather than listed.
+  It follows that `unsupported` → `skipped` is recorded although it was
+  answered on neither side, since the headline calls it `fixed` just the same,
+  and that `pass` → `skipped` is recorded although it is bucketed `regressed`.
+  **An additive field, not a fifth `change` value.** §4's compatibility rule
+  covers fields; it says nothing about enum values, and widening a closed
+  vocabulary breaks every consumer that switches on it. A console-only
+  qualifier was the other tempting shape and is not enough — it would leave
+  the artifact still calling the entry `fixed`, which is the complaint.
+  `verdict_of` and `_SEVERITY` are untouched.
+
 - **A `param_range` check's value compares exactly, because it is a contract
   parameter and not a measurement** (#335, epic #305). `runner` reads it
   straight from the declared parameters before any engine runs, so it is the
