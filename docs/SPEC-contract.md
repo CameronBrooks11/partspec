@@ -53,7 +53,7 @@ def lock() -> Part:
    discovery mechanism (§2).
 3. Contract modules MUST be importable without the CAD engines installed. Importing
    `partspec` MUST NOT import build123d, CadQuery, trimesh or OCP — those load lazily in
-   the backend, so the parameter phase and `--list` stay fast.
+   the backend, so the parameter phase stays fast.
 
 ---
 

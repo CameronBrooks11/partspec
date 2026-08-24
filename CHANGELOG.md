@@ -720,6 +720,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This is the cheap half. The structural fix — a `payload` discriminator in
   the identity prefix — is #295 and is independent of it.
 
+- **`--list` is no longer cited as a CLI flag that does not exist** (#303,
+  epic #305). `src/partspec/__init__.py`'s module docstring — what
+  `help(partspec)` shows, and the one place the lazy-import rule is justified —
+  said the rule
+  "keeps the parameter phase and `--list` fast", and `SPEC-contract.md` §1.1
+  rule 3 repeated it. There is no such flag: `partspec check --list foo.py`
+  exits 64 with *unrecognized arguments: --list*, and none of the six verbs'
+  `--help` mentions one. Present since the repo's first commit and never
+  reconciled. Both sentences keep their parameter-phase half, which was always
+  the argument; nothing else changes, and `--pin LOCK` remains the nearest
+  shipped thing to enumerating a contract's declared claims — and it still
+  builds.
+
 - **`iso_metric_thread.tapped_hole` is named in a document** (#285, epic #305).
   It ships in the module's `__all__` and is a full §11 fragment — namespaced
   ids, bound at the basic minor diameter D1 — and `grep -rn tapped_hole

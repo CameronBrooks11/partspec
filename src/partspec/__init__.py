@@ -2,8 +2,8 @@
 
 Importing this package MUST NOT pull in a CAD engine. build123d, CadQuery,
 trimesh, manifold3d and OCP are all imported lazily inside their backends, which
-keeps the parameter phase and `--list` fast and makes the rule structural rather
-than a convention someone has to remember (SPEC-contract.md 1.1).
+keeps the parameter phase fast and makes the rule structural rather than a
+convention someone has to remember (SPEC-contract.md 1.1).
 """
 
 from __future__ import annotations
