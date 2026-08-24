@@ -642,13 +642,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SPEC-report.md` §3.3 sizes it for a binary-STL float32 round-trip — while
   an operand is a declared contract parameter that `expr.evaluate` reads
   before any build and adjudicates **exactly**, with no epsilon anywhere.
-  Borrowing the measurement tolerance left a dead band four to seven orders
-  of magnitude wide in which the predicate flips and the operands are called
-  unmoved: measured, `epsilon(26.0)` is 3.6e-06 while
-  `bore_d + 2 * wall <= plate_y` goes true → false between `bore_d = 26.0`
-  and `26.000001`, and the entry emitted there was `{id, kind, change:
-  "regressed", status}` — #326's own defect, inside the fix for it, found in
-  review.
+  Borrowing the measurement tolerance left a dead band never narrower than
+  seven orders of magnitude, and unbounded above: measured against the ~1e-13
+  the epsilon is justified by, it is `1e-06` at the floor (7.0 orders),
+  `3.6e-06` at 26 mm (7.6) and `1.01e-04` at 1000 mm (9.0), the expression
+  being minimised at zero. Inside it the predicate flips and the operands are
+  called unmoved — `bore_d + 2 * wall <= plate_y` goes true → false between
+  `bore_d = 26.0` and `26.000001`, and the entry emitted there was
+  `{id, kind, change: "regressed", status}`, #326's own defect inside the fix
+  for it, found in review.
+  §3 also names where the new rule stops (#335): a `param_range` check's value
+  has the same provenance and is still compared under the epsilon, which is
+  pre-existing, narrower, and filed rather than widened into this change.
   `SPEC-diff.md` needed no change: §3's MUST already required this. The
   headline qualifier §3 gives the status buckets still reads the claim and
   nothing else — `operands` is a result, listed in `NON_CLAIM_FIELDS` as one —

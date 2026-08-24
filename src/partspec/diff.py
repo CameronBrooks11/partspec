@@ -135,12 +135,16 @@ def _operands_delta(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any] 
     (`expr.evaluate`'s namespace is `params[name]`), before any build, so two
     runs of one contract reproduce them bit for bit — and the predicate over
     them is adjudicated **exactly**, with no epsilon anywhere in `expr`.
-    Borrowing the measurement tolerance therefore opened a dead band four to
-    seven orders of magnitude wide in which the predicate flips and the
-    operands are called unmoved: measured, `epsilon(26.0)` is 3.6e-06 while
+    Borrowing the measurement tolerance therefore opened a dead band never
+    narrower than seven orders of magnitude, and unbounded above, in which the
+    predicate flips and the operands are called unmoved. Measured against that
+    ~1e-13: `epsilon` is 1e-06 at the floor (7.0 orders), 3.6e-06 at 26 (7.6),
+    1.01e-04 at 1000 (9.0) — the expression is minimised at 0, so seven is the
+    floor and no operand magnitude falls below it. And the flip itself:
     `bore_d + 2 * wall <= plate_y` goes true -> false between `bore_d=26.0`
-    and `26.000001`, and the entry printed the status change with none of the
-    numbers — the very artifact #326 calls the defect (review round 1).
+    and `26.000001`, inside `epsilon(26.0)`, and the entry printed the status
+    change with none of the numbers — the very artifact #326 calls the defect
+    (review round 1).
     """
     old_ops, new_ops = old.get("operands") or {}, new.get("operands") or {}
     return {"old": old.get("operands"), "new": new.get("operands")} if old_ops != new_ops else None

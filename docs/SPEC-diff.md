@@ -269,12 +269,27 @@ excepting them from it.** The epsilon is sized for what a *measurement* survives
 STL round-trip through float32 — and an operand survives nothing: it is a declared contract
 parameter, read before any build and bit-reproducible across two runs of one contract, and
 the predicate over it is adjudicated **exactly**, with no epsilon anywhere. A measurement
-tolerance applied there is a dead band, four to seven orders of magnitude wider than the
-noise it was sized against, in which the predicate flips and the comparison reports the
-flip carrying none of the numbers that caused it — measured, `epsilon(26.0)` is `3.6e-06`
-while `bore_d + 2 * wall <= plate_y` goes true → false between `bore_d = 26.0` and
-`26.000001`. The general rule this states, for a field added later: a comparison tolerance
-belongs to the *provenance* of the value, not to its type.
+tolerance applied there is a dead band never narrower than seven orders of magnitude, and
+unbounded above, in which the predicate flips and the comparison reports the flip carrying
+none of the numbers that caused it. Measured against the ~1e-13 the epsilon is justified
+by: `1e-06` at the floor (7.0 orders), `3.6e-06` at 26 mm (7.6), `1.01e-04` at 1000 mm
+(9.0) — `epsilon` is minimised at zero, so seven is the floor and no operand magnitude
+falls below it. And the flip: `bore_d + 2 * wall <= plate_y` goes true → false between
+`bore_d = 26.0` and `26.000001`, inside `epsilon(26.0)`. The general rule this states, for
+a field added later: a comparison tolerance belongs to the *provenance* of the value, not
+to its type.
+
+**Where that rule currently stops: #335.** The justification above is a *conjunction* —
+contract-parameter provenance **and** exact adjudication — and only `requires` satisfies
+both. A `param_range` check's `measurement.value` is read straight from the declared
+parameters too (`runner.py` builds it from `params[expr]`, and the artifact labels it
+`"exactness": "exact"`), but it is adjudicated against a limit under `epsilon(lo)`, and
+this comparison still gives it `epsilon(old value)`. So the same dead band exists there,
+narrower — it needs the parameter already within roughly `epsilon(limit)` of its own
+limit — and reachable: measured, `wall` moving `1.999999 → 1.999998` against `min=2.0`
+flips `pass → fail` and is reported as `{id, kind, change, status}` with no value. Naming
+the boundary here rather than leaving it inferred, because a rule stated without its
+exception is read as covering the exception.
 
 Also compared, at the top level, and **outcome-bearing**: `verdict` and `counts.total` (a
 shrink is named, not implied).
