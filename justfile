@@ -1,5 +1,4 @@
 # Python (uv) task runner
-# See https://github.com/CameronBrooks11/dev-toolbox/blob/main/docs/just-conventions.md
 
 set dotenv-load := false
 
@@ -10,9 +9,9 @@ default:
 # Install dependencies and set up environment.
 #
 # ALL extras, deliberately. The lighter `uv sync --extra mesh` was tempting —
-# OCCT is ~1.8GB — but it produced exactly the CI drift dev-toolbox warns about:
-# pyright resolved build123d locally and not in CI, so `just check` gave two
-# different answers. One environment, one answer.
+# OCCT is ~1.8GB — but it produced exactly the CI drift the shared conventions
+# warn about: pyright resolved build123d locally and not in CI, so `just check`
+# gave two different answers. One environment, one answer.
 #
 # It also means the OCP resolution is exercised everywhere rather than only on
 # the machine that happens to have both engines. See `just ocp-guard`.
