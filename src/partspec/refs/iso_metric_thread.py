@@ -38,9 +38,17 @@ part that does not assemble under a citation saying the standard blessed it. So
 the fit stays the designer's, the same way `iso15` carries a bearing's boundary
 envelope and leaves `tol=` to the author.
 
-The grades and deviations that ruling does license are #260, deliberately not
-shipped here: their formulae are not sourced anywhere in this repo, and this
-module's own history is the argument for not writing them from memory.
+That ruling turned out to license nothing here either. #260 sourced
+ISO 965-1:2013 and measured its clause-10 formulae against its own tables:
+48 of 197 cells disagree under the best of fifteen rounding models, and the
+standard itself says the tables govern where they differ. So a grade or
+deviation table cannot execute its formula in the sense §10.1 requires, and
+neither the tabulated nor the computed values may ship. `es_g = -(15 + 11P)`
+— the formula #246 cited when it narrowed the exclusion — reproduces 24 of
+25 cells and misses at P = 0.75, which is the shape the exception exists to
+catch: right often enough that the reader stops checking. The exclusion
+stands, and this module's history is why nobody wrote the numbers down
+before the document was open.
 
 ## Why the derived diameters still carry a citation
 

@@ -1568,6 +1568,45 @@ derives it and states the derivation in the citation's `note` (§11 rule 3). A t
 cannot execute the formula ships nothing: the exception is the test, not the subject
 matter.
 
+**ISO 965-1 was tested against this exception and does not meet it — recorded so the work
+is not repeated.** Its clause 10 states the deviation and grade formulae the exception
+anticipated, and its §10.1 also states that "in order to reproduce a smooth progression,
+the rules of rounding off are not always used" and that "when the tolerance values
+calculated from the formulae are different from the values specified by the tolerance
+tables, the values in the tolerance tables shall be used". Measured against
+ISO 965-1:2013 Table 1, executing every clause-10.2 formula with the R40 rounding §10.1
+prescribes: **149 of 197 cells agree and 48 do not**. That is the *best* of fifteen
+rounding models swept; the standard rounds half-to-even, which its own tables give away —
+the images only half-up can produce (13, 27, 43) appear nowhere in Tables 1–5, while the
+images only half-even can produce (26, 42) appear five times in Table 1 alone.
+
+The divergence is not a rounding artefact. `es_d = −(65 + 19P)` at P = 8 gives −217 raw
+and −212 rounded against a tabulated −180 — 32 µm that no model bridges, and column `d`
+carries −105, −110, −115, −130, −135 and −155, none of which is the rounded image of any
+R40 member. So both routes fail: the tabulated values cannot execute the formula, and the
+computed values are ones the standard says shall not be used.
+
+**The near miss was considered and rejected.** `EI_G` and `es_g` each reproduce 24 of 25
+cells, missing only at P = 0.75, and all 15 cells at P ≥ 0.8 — the 6g/6G deviations,
+which would cover every coarse thread from M5 up. (At P = 8 the formula lands on 103,
+exactly between the R40 members 100 and 106. Table 1 resolves that tie downward, while
+Table 2 resolves the same kind of tie at `TD1(6)`, P = 1 upward — so not even the tie
+rule is constant, and under the upward reading `es_g` is 23 of 25 and the P ≥ 0.8 set is
+14 of 15.) It is still out, for three reasons.
+
+The bound P ≥ 0.8 is chosen *after* seeing where the formula fails, which is the sampling
+bias this exception exists to forbid. It excludes ten of Table 1's twenty-five pitches,
+and with them **thirteen of the forty coarse sizes `iso_metric_thread` ships** — M1
+through M4.5, including M3 and M4. M3 is one of the two sizes all three fleet-01 arm-C
+replicates hand-wrote 6g/6H data for before they could state a limit (#194), so the narrow
+table would omit half the demand that motivated the exception — and it would do so at
+pitches the formula gets *right*. Of the ten it discards, nine agree, M3's own 0.5
+among them; only P = 0.75 does not. The bound sheds nine correct pitches to hide one
+wrong cell. And §10.1 of that standard says its tables govern at every pitch,
+so a column that happens to agree is agreeing by coincidence rather than by construction —
+which is the entire distinction the exception draws. The exception is unchanged and may
+still reach a standard whose formulae are normative; it does not reach this one (#260).
+
 ### 10.2 `build_input` — forcing byte identity for a named distribution
 
 A second, separate declaration on the same axis, and it declares **provenance rather than a
