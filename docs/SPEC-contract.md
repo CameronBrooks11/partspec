@@ -1599,8 +1599,10 @@ bias this exception exists to forbid. It excludes ten of Table 1's twenty-five p
 and with them **thirteen of the forty coarse sizes `iso_metric_thread` ships** — M1
 through M4.5, including M3 and M4. M3 is one of the two sizes all three fleet-01 arm-C
 replicates hand-wrote 6g/6H data for before they could state a limit (#194), so the narrow
-table would omit half the demand that motivated the exception, at exactly the pitches
-where the formula fails. And §10.1 of that standard says its tables govern at every pitch,
+table would omit half the demand that motivated the exception — and it would do so at
+pitches the formula gets *right*. Of the ten it discards, nine agree, M3's own 0.5
+among them; only P = 0.75 does not. The bound sheds nine correct pitches to hide one
+wrong cell. And §10.1 of that standard says its tables govern at every pitch,
 so a column that happens to agree is agreeing by coincidence rather than by construction —
 which is the entire distinction the exception draws. The exception is unchanged and may
 still reach a standard whose formulae are normative; it does not reach this one (#260).
