@@ -51,10 +51,9 @@ quietly-wrong part shows you.
   needs neither. **`render` refuses on the same evidence** (#307): the guard is asked
   before the first view is drawn, so a hollowed part yields `origin: null` and exit `4`
   rather than four pictures of a part the source does not describe. Alongside that:
-  `PARTSPEC_OPENSCAD`
-  pins the binary; the version is recorded in every
-  report because it changes the artifact; bounds derived from theory, not measured off
-  the part (see `docs/SPEC-contract.md` §10 on reference-derived limits).
+  `PARTSPEC_OPENSCAD` pins the binary; the version is recorded in every report because it
+  changes the artifact; bounds derived from theory, not measured off the part (see
+  `docs/SPEC-contract.md` §10 on reference-derived limits).
 
 ## 2. The default backend emits a broken mesh and certifies it valid **[corpus]**
 

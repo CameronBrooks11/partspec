@@ -2062,6 +2062,13 @@ def test_the_refusal_leaves_an_earlier_set_of_views_untouched(tmp_path: Path):
     for view, before in keep.items():
         assert (out / "renders" / f"{view}.png").read_bytes() == before
 
+    # And what the refusal DOES write, stated because "nothing is written" was
+    # the first draft's claim and it is false (#354 review, M4). The STL is how
+    # the fault is detected at all, so it lands: the guard reads the stderr of
+    # the render that produced it. `render.json` is the caller's business and is
+    # removed there on every failing render, so it is not asserted here.
+    assert (out / "um.stl").is_file(), "the export the guard reads still lands in --out"
+
 
 @needs_openscad
 def test_the_render_refusal_names_the_same_cause_check_would(tmp_path: Path):
@@ -2082,3 +2089,25 @@ def test_the_render_refusal_names_the_same_cause_check_would(tmp_path: Path):
     cause, hint = _unresolved_diagnosis(result.unresolved[0])
     assert result.message.startswith(cause)
     assert result.hint == hint
+
+
+@needs_openscad
+def test_render_refuses_the_defaulted_value_arm_too(tmp_path: Path):
+    """SPEC-report §6.1 says `render` refuses on BOTH arrivals it can see, and
+    publishes `origin: null` for each. The second was asserted in prose with no
+    test behind it (#354 review, L5).
+
+    `cube(size=[o, 30, 6])` with `o = undef` exports a 1x1x1 unit cube, clean
+    and watertight, at exit 0 — a dimension nobody wrote. The cause must read as
+    a defaulted value and not as an unresolved name: the remedies differ (#308).
+    """
+    src = tmp_path / "u.scad"
+    src.write_text("o = undef;\ncube(size=[o, 30, 6]);\n")
+    out = tmp_path / "out"
+
+    result = openscad.render_views(OpenSCADSource(src), out)
+
+    assert isinstance(result, BuildError)
+    assert result.origin is None
+    assert "could not convert a value" in result.message
+    assert not (out / "renders").exists(), "no view of a part built from a default"

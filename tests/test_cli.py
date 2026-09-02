@@ -2577,6 +2577,14 @@ def test_render_refuses_a_hollowed_part_and_says_it_cannot_attribute_it(tmp_path
     assert "bore_hole" in doc["error"]
     assert not list(out.glob("renders/*.png")), "no view of a part the source does not describe"
 
+    # What a refusing `render` DOES leave, pinned because the first draft said
+    # "nothing is written" and that is false (#354 review, M4). The STL export
+    # is how the fault is detected, so it lands; `render.json` is removed as it
+    # is on every failing render (#21), and a consumer reads its absence as
+    # "this run wrote no payload" rather than as the last one surviving.
+    assert (out / "um.stl").is_file()
+    assert not (out / "render.json").exists()
+
 
 @needs_scad_tier
 def test_check_render_is_unaffected_by_the_render_refusal(tmp_path: Path):

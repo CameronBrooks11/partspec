@@ -1346,9 +1346,12 @@ def render_views(
         # batch, so a guard asked after `_render_files` returns leaves four
         # PNGs of the wrong part on disk -- measured during #306's review. This
         # is the seam the docstring's "before any view moves" constraint
-        # already names, reached one step earlier: nothing has been rendered
-        # yet at all, so the refusal writes nothing and leaves any previous set
-        # of views untouched.
+        # already names, reached one step earlier: no view has been rendered
+        # yet at all, so a previous run's four PNGs are byte-for-byte untouched.
+        # Not "writes nothing" -- the STL above IS written, and is how the fault
+        # was detected; measured, it replaces the previous run's export. The
+        # caller separately removes a stale `render.json`, as it does on every
+        # failing render (`cli.py`, #21).
         #
         # A picture is the one output a reader trusts without checking, which
         # is why `render` could not keep the exemption #286 gave it.

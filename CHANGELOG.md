@@ -743,7 +743,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **before the first view is drawn** — not in the caller, because the four views
   are rendered to a scratch directory and moved into place as a batch, so a guard
   bolted on afterwards leaves four wrong PNGs on disk (measured during #306's
-  review). Nothing is written, and an earlier run's views are left untouched.
+  review). **No view is rendered and an earlier run's four PNGs are
+  byte-for-byte untouched** — measured. Not "nothing is written": the STL export
+  is how the fault is detected, so it lands in `--out` and replaces the previous
+  run's, and the stale `render.json` is removed as it is on every failing render
+  (#21). A consumer reads its absence as "this run wrote no payload".
   **`BuildError.origin` gains a third state, `None`.** `render`'s failure payload
   publishes `origin` (#191) and the field was `Literal["environment", "model"]`,
   so this refusal would have shipped the default `"model"` — asserting the DESIGN

@@ -418,8 +418,12 @@ reported as one. It is `verdict: "error"`, exit `4`, with every declared check `
 and `builds` never `fail`. A CI run on a machine with no OpenSCAD installed must not
 report the design as disproven.
 
-The distinction is carried in `BuildError.origin` (`"environment"` or `"model"`) and
-surfaced in the report as a field a consumer can branch on — not as prose in `detail`.
+The distinction is carried in `BuildError.origin` and surfaced in the report as a field a
+consumer can branch on — not as prose in `detail`. It has **three** values, not two:
+`"environment"`, `"model"`, and `null` for a failure partspec cannot attribute to either.
+The third is not a gap in the enumeration but a claim of its own, and the paragraphs below
+on a build that succeeded are where it is earned — a reader must not treat `null` as a
+missing answer, nor as a licence to assume `"model"`.
 
 A third case reaches `error` by neither route: the build **succeeded** and the engine
 built something other than what the source describes, so what the contract names is not
@@ -467,12 +471,28 @@ given.
 
 **A sibling payload that refuses for one of these reasons attributes it the same way.**
 `measure` and `render` produce no verdict, so they carry the refusal as their own
-`error`/`hint` and exit `4`. `render` additionally publishes an `origin`, and on the
-name-did-not-resolve case that field is `null` for the reason just given — a defaulted
-`"model"` there would assert the very attribution the report declines to make. `render`
-MUST NOT write a view of a part it refused, and MUST NOT disturb the views a previous run
-left: nothing is rendered at all. (`check --render` is unaffected, because it never
-reaches the render path — the run has already errored.)
+`error`/`hint` and exit `4`. This holds today for the first two arrivals — a name that did
+not resolve and a value that was defaulted, which share one stderr signal. The third is
+`check`-only so far: `measure` and `render` do not yet read `engine_inputs.missing`, and
+until they do a reader MUST NOT infer one verb's answer from another's on that arrival
+(#355).
+
+`render` additionally publishes an `origin`, and on both arrivals it refuses for that
+field is `null` — a defaulted `"model"` would assert the very attribution the report
+declines to make.
+
+**What a refusing `render` leaves on disk**, stated positively because "nothing is
+written" is not true and a consumer would plan around it: no view is rendered, and the
+views a previous run left are byte-for-byte untouched. Two things do move, and both are
+pre-existing rules rather than consequences of the refusal. The engine's STL export is how
+the fault is detected at all, so it lands in `--out` and replaces whatever was there. And
+`render.json` is **removed**, as it is on every failing render, so a later `vdiff` cannot
+read the previous run's payload as this one's (§8 rule 4). A consumer must therefore read
+the *absence* of `render.json` as "this run wrote no payload", never as "the run left the
+last one intact".
+
+(`check --render` is unaffected by any of this, because it never reaches the render path —
+the run has already errored.)
 
 | verdict | condition |
 |---|---|
@@ -1359,10 +1379,13 @@ the report speaks for the part, the exit code for the run. (The `render` verb's 
 sibling payload is the opposite by design — its failure artifact carries `renders: {}`
 beside an `error`, per the Scope above — because there the empty map sits next to the
 error that explains it, while in a report it would sit next to a verdict it has nothing
-to do with.) That payload MUST also carry `origin`, `"model"` or `"environment"`, on the
-same §6.1 grounds every other engine-side failure does: a degenerate solid the kernel
-cannot mesh and an OCCT library that will not load are different facts, and a consumer
-that cannot tell them apart will read the second as a statement about the part (#191).
+to do with.) That payload MUST also carry `origin` — `"model"`, `"environment"`, or
+`null` — on the same §6.1 grounds every other engine-side failure does: a degenerate solid
+the kernel cannot mesh and an OCCT library that will not load are different facts, and a
+consumer that cannot tell them apart will read the second as a statement about the part
+(#191). `null` is the third of those grounds and carries the same weight as the other two:
+§6.1 records that a build which succeeded and lost geometry is attributable to neither, so
+a payload refusing for that reason MUST spell it `null` rather than default to `"model"`.
 Additive; `SCHEMA_VERSION` does not move.
 
 `render_bbox` MUST sit beside `renders` whenever they are present (#21): `{min, max}`

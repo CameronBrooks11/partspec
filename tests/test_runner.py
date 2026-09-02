@@ -1411,3 +1411,77 @@ def test_a_data_file_that_is_present_is_still_judged(tmp_path: Path):
 
     assert report.verdict is not Verdict.ERROR
     assert _status(report, "builds") is Status.PASS
+
+
+# --------------------------------------------------------------------------
+# an origin partspec cannot attribute (#307)
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_an_unattributable_build_error_is_not_adjudicated_as_the_model(tmp_path: Path, monkeypatch):
+    """`BuildError.origin is None` MUST NOT reach the `builds: fail` arm.
+
+    The branch this pins is the whole reason widening the type was not a
+    one-liner. `runner.py` adjudicated `if origin == "environment": … else:
+    builds fail`, so a `None` fell through to the arm that says the DESIGN is
+    disproven — the exact misattribution `origin` exists to prevent
+    (SPEC-report §6.1).
+
+    Monkeypatched because the only producer today is `_hollowed_views`, inside
+    `render_views`, which the runner never calls: the branch is otherwise
+    unreachable from here and its mutant survives the whole suite. What is
+    asserted is the adjudication, not the producer — reverting the branch to
+    `== "environment"` turns this red with `FAIL is not ERROR`.
+    """
+    from partspec.backend import BuildError
+    from partspec.backends.mesh import MeshBackend
+
+    monkeypatch.setattr(
+        MeshBackend,
+        "build",
+        lambda *a, **k: BuildError("cannot say whose fault this is", origin=None),
+    )
+
+    src = tmp_path / "probe.scad"
+    src.write_text("cube([40,30,6], center=true);\n")
+    p = Part("probe", openscad(src))
+    p.watertight()
+    p.solid_count(1)
+
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "an unattributable fault is not a failing part"
+    assert report.exit_code == 4
+    assert report.build_origin is None, "the null must survive into the report"
+    assert _status(report, "builds") is Status.SKIPPED, "`builds: fail` would blame the design"
+    assert _status(report, "watertight") is Status.SKIPPED
+    assert report.error == "cannot say whose fault this is"
+
+
+@needs_openscad
+def test_the_environment_arm_is_unchanged_by_the_widening(tmp_path: Path, monkeypatch):
+    """The control for the branch above: `"environment"` still lands the same
+    way, and `"model"` still fails `builds`. Without these two the negation
+    could be replaced by an unconditional skip and nothing would notice."""
+    from partspec.backend import BuildError
+    from partspec.backends.mesh import MeshBackend
+
+    src = tmp_path / "probe.scad"
+    src.write_text("cube([40,30,6], center=true);\n")
+
+    def _report(origin):
+        monkeypatch.setattr(MeshBackend, "build", lambda *a, **k: BuildError("nope", origin=origin))
+        p = Part("probe", openscad(src))
+        p.watertight()
+        return run(p, out_dir=tmp_path)
+
+    env = _report("environment")
+    assert env.verdict is Verdict.ERROR
+    assert _status(env, "builds") is Status.SKIPPED
+    assert env.build_origin == "environment"
+
+    model = _report("model")
+    assert model.verdict is Verdict.FAIL, "a design that does not compile IS a statement"
+    assert _status(model, "builds") is Status.FAIL
+    assert model.build_origin == "model"
