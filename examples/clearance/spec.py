@@ -23,6 +23,14 @@ against one assembly whose poses live in `assembly.scad`. Face contact is a
 zero-thickness result and the kernels disagree about it; the README measures
 the disagreement and #314 is what would let a report state which behaviour was
 in force.
+
+**The clearance probe intersects against a GROWN part.** `lid() n post()` is
+empty for any gap at all, including a gap of nothing, so `empty` over it states
+only that the two do not interpenetrate. Grown by the standoff the fit
+requires, the same `empty` states the standoff -- and a violation of it is a
+solid with positive volume on every kernel rather than the zero-thickness
+result the kernels disagree about. This is the remedy `partspec lint`'s own
+`csg-two-part-intersection` finding names.
 """
 
 from partspec import Part, openscad
@@ -53,12 +61,18 @@ def interference() -> Part:
 
 
 def clearance() -> Part:
-    """They share no space: the lid passes over the tallest component.
+    """They share no space: the lid stands off the tallest component.
 
     This is the outcome that had no grade at all before `empty` (#237). An
     empty build is otherwise a hard failure before any claim is evaluated, so
     `volume(max=0)` was skipped rather than satisfied and the *good* answer
     was the one that could not be stated.
+
+    The probe intersects the lid against the post grown by CLEAR, so a passing
+    `empty` says the standoff is **at least CLEAR** and not merely that the two
+    do not interpenetrate. `empty` carries no bound, so unlike the volume band
+    above, that number lives in `assembly.scad` and not here — the cost of
+    grading a clearance with the check that has nothing to grade.
 
     Declared alone, as `SPEC-contract.md` §4.12 requires: an empty part has no
     mesh, so any other geometry check on it would be skipped.

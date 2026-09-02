@@ -9,7 +9,12 @@ RAIL  = [40, 12, 8];   // extruded rail, front lower corner at the origin
 FOOT  = [20, 10, 6];   // clips onto the rail's far flank
 COVER = [16, 12, 3];   // lies flat on the rail's top face
 POST  = [6, 4, 3];     // the tallest thing standing on the rail
+LID   = [40, 12, 3];   // spans the rail, 2.0 mm above the post
 CRUSH = 0.2;           // designed interference, on the flank, per fit
+CLEAR = 1.5;           // required standoff, lid to post, per fit
+
+POST_AT = [30, 4, RAIL[2]];
+LID_AT  = [0, 0, 13];
 
 module rail() {
     cube(RAIL);
@@ -32,10 +37,18 @@ module cover() {
 }
 
 module post() {
-    translate([30, 4, RAIL[2]]) cube(POST);
+    translate(POST_AT) cube(POST);
+}
+
+// The post plus the standoff the fit requires around it. The clearance probe
+// intersects the lid against THIS rather than against `post()`, so a lid that
+// comes closer than CLEAR leaves a solid of positive volume on every kernel
+// instead of the zero-thickness result the kernels disagree about.
+module post_envelope() {
+    translate(POST_AT - [CLEAR, CLEAR, CLEAR]) cube(POST + 2 * [CLEAR, CLEAR, CLEAR]);
 }
 
 // The lid the post has to clear.
 module lid() {
-    translate([0, 0, 20]) cube([40, 12, 3]);
+    translate(LID_AT) cube(LID);
 }

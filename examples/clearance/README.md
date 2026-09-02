@@ -18,22 +18,83 @@ rather than recommending it:
 | the two parts | the probe builds to | the claim | measured here |
 |---|---|---|---|
 | interpenetrate | a solid | `p.volume(min=, max=)` | 24.0 mm³ |
-| share no space | nothing | `p.empty()` | pass |
+| stand off by a stated amount | nothing | `p.empty()` over a **grown** part | pass |
 | touch on a face | a sheet | `p.area(min=)` | **kernel-dependent — see below** |
 
 Run them:
 
 ```
-partspec check examples/clearance/spec.py:interference
-partspec check examples/clearance/spec.py:clearance
+$ partspec check examples/clearance/spec.py:interference
+  ok   builds
+  ok   volume
+  ok   solid_count
+
+PASS: 3 pass
+  every dimensional limit on 'clearance-interference' is unattributed: …
+
+$ partspec check examples/clearance/spec.py:clearance
+  ok   builds
+  ok   empty
+
+PASS: 2 pass
+  hint: Current top level object is empty.
 ```
+
+Both exit 0. The interference probe's limits come off this example's own
+drawing rather than a standard, so §10's attribution warning fires and is
+correct — it is elided above for width, not omitted.
+
+## Grow the part you are clearing
+
+`intersection() { lid(); post(); }` declared `empty()` says the lid and the post
+do not **interpenetrate**. It says nothing about how much room is between them:
+it is equally empty at 9 mm of standoff, at 0.01 mm, and at exact contact on the
+engine that drops a zero-thickness sheet. A clearance is a number, and that
+probe carries none.
+
+So the probe intersects the lid against `post_envelope()` — the post grown by
+the standoff the fit requires:
+
+```openscad
+CLEAR = 1.5;           // required standoff, lid to post, per fit
+
+module post_envelope() {
+    translate(POST_AT - [CLEAR, CLEAR, CLEAR]) cube(POST + 2 * [CLEAR, CLEAR, CLEAR]);
+}
+```
+
+Now `empty` is a numeric claim — *nothing comes within 1.5 mm of the post* — and
+a violation of it is a **solid with positive volume**, which every kernel agrees
+about. The design leaves 2.0 mm, so the probe is empty with 0.5 mm to spare.
+
+Measured, by dropping the lid to a 1.0 mm standoff and running both probes on
+both pinned engines:
+
+| probe at 1.0 mm standoff | 2021.01 | 2026.08.01 |
+|---|---|---|
+| `lid() ∩ post_envelope()` — grown | **exit 1**, `empty` fails, 31.5 mm³ | **exit 1**, `empty` fails, 31.5 mm³ |
+| `lid() ∩ post()` — ungrown | exit 0, `empty` **passes** | exit 0, `empty` **passes** |
+
+Both engines agree in both rows, and the ungrown probe passes a standoff that is
+a third of what the fit requires. That is the whole reason to grow.
+
+**Where the number lives.** `empty` carries no bound, so unlike the volume band
+on the interference probe, `CLEAR` lives in `assembly.scad` and not in the
+contract. That is the cost of grading a clearance with the check that has
+nothing to grade; the contract's docstring names it rather than hiding it.
+
+**The interference probe is not grown, and does not need to be.** Its claim is
+already a numeric band on positive volume — 0.1 to 0.3 mm of crush over a
+20 × 6 mm flank, so 12.0 to 36.0 mm³ — and it measures 24.0 mm³ on both engines.
+Growing has nothing to add to a claim whose violation already has volume.
 
 ## What the files are for
 
-- **`assembly.scad`** — the parts, each at the pose it occupies in the product,
-  and nothing else. Poses live here so that an interference number is the
-  *assembly's* interference rather than a number about geometry sitting at the
-  origin. Move a part by editing this file and every probe follows it.
+- **`assembly.scad`** — the parts, each at the pose it occupies in the product.
+  Poses live here so that an interference number is the *assembly's* interference
+  rather than a number about geometry sitting at the origin. Move a part by
+  editing this file and every probe follows it. `post_envelope()` lives here too,
+  for the same reason: it is placed geometry.
 - **`interference.scad`**, **`clearance.scad`** — one probe each, both of them
   two module calls inside an `intersection()`.
 - **`spec.py`** — the two contracts.
@@ -46,11 +107,36 @@ contract deliberately does not declare `empty` and fails its build if the
 flanks ever stop touching. And declare `empty` alone: an empty part has no
 mesh, so every other geometry check on it is skipped (§4.12).
 
+**`partspec lint` flags both probes, and the finding is correct.**
+
+```
+$ partspec lint examples/clearance/clearance.scad examples/clearance/interference.scad
+  csg-two-part-intersection  examples/clearance/clearance.scad:0     the whole file is an
+    intersection of two parts — … To assert a numeric clearance, intersect against a part
+    grown by it … If this intersection is how the part is BUILT rather than a probe, the
+    finding does not apply (LINT.md)
+  csg-two-part-intersection  examples/clearance/interference.scad:0  … (the same message)
+$ echo $?
+0
+```
+
+(One finding per file, wrapped and elided here; the JSON payload on stdout
+carries them in full.)
+
+The rule's predicate is the **shape** — one top-level node, an `intersection()`
+of exactly two children — and every part-versus-part probe has that shape by
+construction, grown or not. It is advisory, exits 0, and is a statement about
+the source rather than a verdict on the part. Read it, satisfy yourself that the
+clearance you mean is the clearance you wrote, and accept it: on `clearance.scad`
+its own remedy is already taken, and on `interference.scad` the claim is a volume
+band whose violation has volume anyway.
+
 ## What the pattern costs
 
 One extra source and one extra target per pair, the pair modelled at assembly
-pose, and no automatic all-pairs sweep — you write the pairs you care about.
-That is the whole of it; #236 is the issue that measured it.
+pose, a grown module for every clearance you want stated numerically, and no
+automatic all-pairs sweep — you write the pairs you care about. That is the
+whole of it; #236 is the issue that measured it.
 
 ## The third outcome, and why it is not here
 

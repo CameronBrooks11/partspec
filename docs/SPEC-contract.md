@@ -998,6 +998,12 @@ what the kernel keeps. Not "the parts do not touch", not "there is clearance", a
 interference whatsoever": that last qualifier is load-bearing, and §4.11 states
 `min_wall`'s interval for the same reason.
 
+**So `empty` over a bare pair is not a clearance**, and a contract that wants one MUST
+intersect against a part **grown by the clearance it requires**: a violation then encloses
+positive volume, which puts it above every floor tabulated below and makes the claim
+numeric. §9.1 rule 3 is the worked form, and `partspec lint`'s `csg-two-part-intersection`
+is the finding that says so at the source.
+
 **Why it cannot mean more, and why it sometimes means less.** Past the unresolved-name
 guard above, the check adjudicates on one thing: *did the engine produce anything*. That
 coincides with "no interference" only where the kernel both refuses to represent a contact
@@ -1353,7 +1359,7 @@ section recommends; the third does not and MUST NOT be declared as if it did:**
 | the two parts | the probe builds to | the claim | in the example |
 |---|---|---|---|
 | interpenetrate | a solid | `volume(min=, max=)` | 24.0 mm3 |
-| share no space | nothing | `empty()` | pass |
+| stand off by a stated amount | nothing | `empty()` over a **grown** part | pass |
 | touch on a face | a sheet | `area(min=)` | not portable — see below |
 
 **Both recommended rows are recent, and one was a hard failure before its own fix.** A
@@ -1378,17 +1384,32 @@ report can state which behaviour was in force, an `area` claim over a contact pa
 whichever engine ran it. An author who needs bearing area SHOULD give the seat a
 deliberate interference and grade the volume.
 
-**Two rules the pattern depends on.**
+**Three rules the pattern depends on.**
 
 1. **Poses live in one file.** The probe intersects two modules *as placed*, so an
    interference number is the assembly's and not a number about geometry at the origin.
 2. **`empty` goes on the probe that should be empty and on no other.** On an interference
    probe an empty build is the *loose joint* — the failure — so declaring `empty` there
    would grade the fault as the pass. And declare it alone (§4.12).
+3. **A clearance probe MUST intersect against a part grown by the clearance.** `empty()`
+   over a bare `intersection() { A; B; }` says only that the two do not interpenetrate:
+   it is equally satisfied at 9 mm of standoff, at 0.01 mm, and — on a kernel that drops
+   a zero-thickness sheet — at exact contact. A clearance is a number and that probe
+   carries none. Grow one part by the standoff the fit requires and a violation is a
+   **solid with positive volume**, which every kernel agrees about. Measured in
+   `examples/clearance/` by dropping the lid to a 1.0 mm standoff against a required
+   1.5 mm: the grown probe fails on both pinned engines at 31.5 mm3, and the ungrown one
+   passes on both. This is the remedy `partspec lint`'s `csg-two-part-intersection`
+   names, and the rule fires on the probe either way — its predicate is the shape, which
+   every part-versus-part probe has by construction (`docs/LINT.md`).
+
+   `empty` carries no bound, so the clearance number lives in the model rather than in
+   the contract. That is the one place this pattern is weaker than a bound-carrying
+   check, and an author should know it rather than discover it.
 
 **What it costs, stated plainly**, because this is a pattern and not a feature: one extra
-source and one extra target per pair, the pair modelled at assembly pose, and no automatic
-all-pairs sweep. A first-class verb taking N sources and reporting pairwise shared volume
+source and one extra target per pair, the pair modelled at assembly pose, a grown module
+for every clearance stated numerically, and no automatic all-pairs sweep. A first-class verb taking N sources and reporting pairwise shared volume
 needs `intersect_volume` and nothing else — no offsetting, no shell, no bisection — and is
 what the problem actually is. It is an assemblies feature, so it lands after 1.0 under D19.
 

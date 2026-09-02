@@ -117,12 +117,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   works now, and what was missing was that nothing said so.
   **Two of the three outcomes grade portably, and each on a different
   measurand.** Measured on the new example: parts that interpenetrate build a
-  solid and `volume` grades it at **24.0 mm3**; parts that share no space build
+  solid and `volume` grades it at **24.0 mm3**; parts that stand off build
   nothing, which was a hard failure before any claim was evaluated and is now
   `empty()`'s passing result (#237). Documented in `SPEC-contract.md` §9.1 and
   executed by `tests/test_examples.py`, parameterised so a regression names the
   outcome that broke rather than reporting one failure for two unrelated
   mechanisms.
+  **The clearance probe intersects against a GROWN part, and §9.1 makes that a
+  rule.** `empty()` over a bare `intersection() { A; B; }` says only that two
+  parts do not interpenetrate — it is equally satisfied at 9 mm of standoff, at
+  0.01 mm, and, on a kernel that drops a zero-thickness sheet, at exact contact.
+  A clearance is a number and that probe carries none. Grown by the standoff the
+  fit requires, the same `empty()` states the standoff, and a violation is a
+  solid every kernel agrees about: measured by dropping the example's lid to a
+  1.0 mm standoff against a required 1.5 mm, the grown probe fails on **both**
+  pinned engines at **31.5 mm3** while the ungrown one passes on both. This is
+  the remedy `partspec lint`'s `csg-two-part-intersection` names (#270), and
+  §4.12 now says it at the check that carries the risk.
   **The third outcome — face contact — is documented and NOT recommended**,
   because it is kernel-dependent. Measured on both pinned OpenSCAD versions,
   `intersection()` of two 10 mm cubes offset by their own width exports a
