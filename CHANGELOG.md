@@ -677,7 +677,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **To assert a clearance, state the number and let a violation have volume**:
   intersect against a part grown by the clearance rather than against the part
   itself. A violation with any margin encloses volume rather than a sheet,
-  so every kernel agrees and
+  so every kernel agrees down to its own floor, and
   the bound sits in the contract where a reviewer can see it. `SPEC-contract.md`
   §4.12 carries the meaning, the kernel table and the pattern, and
   `skills/contract-authoring/SKILL.md` — the surface an authoring agent reads

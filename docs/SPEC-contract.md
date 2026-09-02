@@ -1130,7 +1130,8 @@ intersection() { a(); grown_b(0.5); }
 
 Declared with `empty` the second says *no part of `b`, plus 0.5 mm, meets `a`*. A
 violation with any margin encloses volume rather than a sheet — only exact equality
-between the gap and the declared clearance is degenerate — so every kernel agrees, and the
+between the gap and the declared clearance is degenerate — so every kernel agrees down to
+its own floor, and the
 bound is a number in the contract where a reviewer can see it. `partspec lint` flags the
 bare form advisorily (`csg-two-part-intersection`, `LINT.md`) — the bare claim is valid,
 it is simply narrower than it reads.
@@ -1440,17 +1441,35 @@ deliberate interference and grade the volume.
    still fails a 1.5 mm requirement, on both engines.
 
    **If the fit cares about Euclidean distance, `minkowski()` with a sphere is the
-   spelling — but compensate the sphere, because a bare one errs toward FALSE PASS.**
+   spelling — but the sphere MUST be compensated by `cos²`, and `$fn` MUST be pinned.**
    OpenSCAD's `sphere()` is a faceted solid whose vertices lie *on* the ideal ball, so it
-   is inscribed: the envelope it builds falls short of the true offset by
-   `r(1 − cos(180/$fn))`. Measured on this example's post at `$fn = 32`, both engines, the
-   envelope reaches **1.492777 mm** where 1.5 mm was required, and a real violation at a
-   1.495 mm gap **passes on both engines**. The shortfall is ≈0.029 mm at `$fn = 16`,
-   inside a printed fit's tolerance, and `$fn` here is whatever the author's global says.
-   Grow by `sphere(r = CLEAR / cos(180 / $fn), $fn = …)` instead: measured, that envelope
-   reaches exactly **1.500000 mm** on both engines and the 1.495 mm violation correctly
-   fails on both. Unlike the box grow, the uncompensated error is in the **unsafe**
-   direction, so this compensation is not optional.
+   is inscribed and the envelope falls short of the true offset. It is faceted in **two**
+   angular directions, so the worst-case shortfall goes as `cos²(180/$fn)`, not
+   `cos(180/$fn)`: a one-axis check does not see it, because the axial direction is not
+   the worst one. Measured from the exported ball on both engines, `CLEAR` = 1.5:
+
+   | grow | guaranteed offset (min face plane) | max offset (vertex) |
+   |---|---|---|
+   | `sphere(r = CLEAR)` | 1.485589 | 1.500000 |
+   | `sphere(r = CLEAR / cos(180/$fn))` | 1.492777 | 1.507258 |
+   | **`sphere(r = CLEAR / pow(cos(180/$fn), 2))`** | **1.500000** | 1.514551 |
+
+   Only the third reaches the required 1.5 in **every** direction, and it does so exactly
+   at `$fn` = 8, 16 and 32. End to end against a body approaching along the sphere's worst
+   direction, both engines: the first two **pass** violations at 1.495 mm and 1.499 mm,
+   the third fails both and passes at 1.520 mm. The bare shortfall is 0.057090 mm at
+   `$fn = 16` — inside a printed fit's tolerance.
+
+   So the form is `sphere(r = CLEAR / pow(cos(180 / $fn), 2), $fn = 32)`. **Pinning `$fn`
+   is part of the remedy, not decoration**: `$fn` defaults to 0, which makes `180/$fn`
+   infinite and the radius `nan`, and a `nan` sphere vanishes from the `minkowski()`
+   leaving the ungrown part — silently, exit 0, no warning, on both engines. Nothing in
+   partspec catches that: every name resolves, the build succeeds, and the probe passes a
+   0.1 mm gap against a 1.5 mm requirement.
+
+   Compensated this way the residual error is **one-sided toward false FAIL**, out to the
+   vertex column above — the same property the box grow has. Uncompensated, or compensated
+   only by `cos`, it is one-sided toward false **PASS**, which is why this is a MUST.
 
    `empty` carries no bound, so the clearance number lives in the model rather than in
    the contract. That is the one place this pattern is weaker than a bound-carrying

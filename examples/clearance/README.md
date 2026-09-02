@@ -92,18 +92,39 @@ is 2.0785 mm away in a straight line and still fails a 1.5 mm requirement, on
 both engines.
 
 If the fit cares about the straight-line distance, grow with `minkowski()` and a
-sphere — but **compensate the sphere**. OpenSCAD's `sphere()` puts its vertices
-*on* the ideal ball, so it is inscribed and the envelope falls short of the true
-offset by `r(1 − cos(180/$fn))`. Measured on this example's post, both engines:
+sphere. Use this form, and copy it whole:
 
-| grow, `CLEAR` = 1.5, `$fn` = 32 | envelope reaches | a real 1.495 mm violation |
+```openscad
+sphere(r = CLEAR / pow(cos(180 / $fn), 2), $fn = 32)
+```
+
+OpenSCAD's `sphere()` puts its vertices *on* the ideal ball, so it is inscribed
+and the envelope falls short of the true offset. It is faceted in **two** angular
+directions, so the shortfall goes as `cos²`, not `cos` — and the axial direction
+is not the worst one, so checking a single axis will not show it. Measured from
+the exported ball on both engines, `CLEAR` = 1.5, `$fn` = 32:
+
+| grow | guaranteed offset (min face plane) | max offset (vertex) |
 |---|---|---|
-| `sphere(r = CLEAR)` | 1.492777 mm | **passes on both engines — false PASS** |
-| `sphere(r = CLEAR / cos(180 / $fn))` | 1.500000 mm | fails on both engines |
+| `sphere(r = CLEAR)` | 1.485589 | 1.500000 |
+| `sphere(r = CLEAR / cos(180 / $fn))` | 1.492777 | 1.507258 |
+| **`sphere(r = CLEAR / pow(cos(180 / $fn), 2))`** | **1.500000** | 1.514551 |
 
-The shortfall is ≈0.029 mm at `$fn = 16` — inside a printed fit's tolerance — and
-`$fn` here is whatever your global happens to be. Unlike the box grow, this error
-is in the **unsafe** direction, so the compensation is not optional.
+Against a body approaching along the sphere's worst direction, both engines: the
+first two **pass** real violations at 1.495 mm and 1.499 mm; the third fails both
+and passes at 1.520 mm. The bare shortfall is 0.057090 mm at `$fn = 16`, inside a
+printed fit's tolerance.
+
+**Pin `$fn` in the call.** It is part of the remedy, not decoration. `$fn`
+defaults to 0, so `180 / $fn` is infinite and the radius is `nan` — and a `nan`
+sphere disappears from the `minkowski()`, leaving the part ungrown. Silently:
+exit 0, no warning, on both engines, and nothing for partspec to catch because
+every name resolved and the build succeeded. That probe passes a **0.1 mm** gap
+against a 1.5 mm requirement.
+
+Compensated by `cos²` with `$fn` pinned, the leftover error is one-sided toward
+false FAIL — out to the vertex column above — which is the same safe direction
+the box grow has. The bare and `cos` forms are one-sided toward false **PASS**.
 
 Measured, by dropping the lid to a 1.0 mm standoff and running both probes on
 both pinned engines:
