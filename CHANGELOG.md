@@ -115,20 +115,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "fails in **both** of its normal outcomes, for two independent reasons".
   Those two reasons were #237 and #238, and both have closed. So the pattern
   works now, and what was missing was that nothing said so.
-  **All three outcomes grade, and each on a different measurand.** Measured on
-  the new example: parts that interpenetrate build a solid and `volume` grades
-  it at **24.0 mm3**; parts that touch on a face build a sheet and `area`
-  grades it at **384.0 mm2** (#238); parts that share no space build nothing,
-  which was a hard failure before any claim was evaluated and is now
+  **Two of the three outcomes grade portably, and each on a different
+  measurand.** Measured on the new example: parts that interpenetrate build a
+  solid and `volume` grades it at **24.0 mm3**; parts that share no space build
+  nothing, which was a hard failure before any claim was evaluated and is now
   `empty()`'s passing result (#237). Documented in `SPEC-contract.md` §9.1 and
   executed by `tests/test_examples.py`, parameterised so a regression names the
-  outcome that broke rather than reporting one failure for three unrelated
+  outcome that broke rather than reporting one failure for two unrelated
   mechanisms.
-  **The two traps are written down because both are silent.** A sheet has two
-  sides and `area` counts both, so a 16 x 12 seated face measures 384 and the
-  claim carries the doubling. And `empty` belongs on the probe that should be
-  empty and on no other — on an interference probe an empty build is the
-  *loose joint*, so declaring `empty` there would grade the fault as the pass.
+  **The third outcome — face contact — is documented and NOT recommended**,
+  because it is kernel-dependent. Measured on both pinned OpenSCAD versions,
+  `intersection()` of two 10 mm cubes offset by their own width exports a
+  284-byte sheet on 2021.01 (`check` exit **1**) and nothing at all on
+  2026.08.01 (`check` exit **0**) — one source, two engines, opposite verdicts.
+  Under #270's settled semantics for `empty()` — no *positive-volume*
+  interference — the newer engine is the correct one, so the divergence cannot
+  be resolved by preferring the richer result. Retention is not the only axis
+  either: on the example's own seated face both engines write a four-triangle
+  sheet and disagree about its shape, **384.0 mm2 against 268.8 mm2**. #314 is
+  the enabler — once a report can state whether the kernel retained a
+  zero-thickness result, an `area` claim over a contact patch means something.
+  **The trap that remains is written down because it is silent.** `empty`
+  belongs on the probe that should be empty and on no other — on an
+  interference probe an empty build is the *loose joint*, so declaring `empty`
+  there would grade the fault as the pass.
   **Not superseded: `keep_out`/`keep_in` still take a declared region.** Their
   shell is mandatory and a shell is an offset of the region, which a rendered
   solid could only supply through 3D offsetting — measured, `manifold3d`'s

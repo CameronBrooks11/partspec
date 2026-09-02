@@ -236,11 +236,10 @@ def test_the_spacer_readme_describes_the_contract_it_documents():
     ("factory", "kind", "expected"),
     [
         ("interference", "volume", 24.0),
-        ("seat", "area", 384.0),
         ("clearance", "empty", None),
     ],
 )
-def test_the_clearance_example_grades_all_three_probe_outcomes(
+def test_the_clearance_example_grades_both_portable_probe_outcomes(
     tmp_path: Path, factory: str, kind: str, expected: float | None
 ):
     """#236: part-versus-part interference, declared with the unit of
@@ -253,8 +252,16 @@ def test_the_clearance_example_grades_all_three_probe_outcomes(
     normal outcomes; both companions closed, and this is the executable form
     of the claim that they did.
 
+    **Two outcomes, not three.** The face-contact probe is deliberately absent:
+    a zero-thickness intersection is kernel-dependent, and this suite runs a
+    two-version OpenSCAD matrix precisely so an engine-dependent claim cannot
+    hide. Measured on the two pinned versions, the seated face is a 384.0 mm2
+    rectangle on 2021.01 and a 268.8 mm2 skewed quad on 2026.08.01 — so a test
+    asserting either number is a test that only ever passed on one leg.
+    `examples/clearance/README.md` measures it; #314 is the enabler.
+
     Parameterised so a regression names the outcome that broke rather than
-    reporting one failure for three unrelated mechanisms.
+    reporting one failure for two unrelated mechanisms.
     """
     target = f"{EXAMPLES / 'clearance' / 'spec.py'}:{factory}"
     assert main(["check", target, "--quiet", "--out", str(tmp_path)]) == 0
@@ -297,7 +304,7 @@ def test_the_clearance_probes_intersect_placed_modules_rather_than_geometry():
     import ast
 
     home = EXAMPLES / "clearance"
-    for probe in ("interference", "seat", "clearance"):
+    for probe in ("interference", "clearance"):
         body = (home / f"{probe}.scad").read_text()
         assert "translate" not in body, f"{probe}.scad poses a part the assembly did not"
         assert body.count("intersection()") == 1
@@ -313,4 +320,4 @@ def test_the_clearance_probes_intersect_placed_modules_rather_than_geometry():
         for n in ast.walk(t)
         if isinstance(n, ast.Name)
     }
-    assert {"CRUSH_MIN", "CRUSH_MAX", "SEAT_BEARING_MIN"} <= named
+    assert {"CRUSH_MIN", "CRUSH_MAX"} <= named
