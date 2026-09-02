@@ -969,9 +969,29 @@ _SUBSTITUTED_VALUE_MARKERS = (
     #                          number, a vec3 or vec2 of numbers or a number
     # each with `o = undef`, each exiting 0 with a clean single-solid mesh.
     "Unable to convert",
+    # `rotate()` PARAMETERS THE ENGINE COULD NOT USE AS WRITTEN, which it
+    # words differently (#333). Character-identical on both pinned binaries,
+    # measured under each -- all three templates, and `o = undef`:
+    #   rotate(o)              Problem converting rotate(a=undef) parameter
+    #   rotate([o,0,0])        Problem converting rotate(a=[undef, 0, 0])
+    #                          parameter
+    #   rotate(a=o, v=[0,0,o]) Problem converting rotate(a=undef,
+    #                          v=[0, 0, undef]) parameter
+    #   rotate(a=45, v="z")    Problem converting rotate(..., v="z") parameter
+    # Read the docstring before widening this: the line does NOT always mean a
+    # default went in, and it fires beside a byte-identical export in three
+    # measured shapes. The prefix stops at `rotate(` because the fourth
+    # `Problem converting` template is not about geometry at all.
+    "Problem converting rotate(",
 )
-"""What OpenSCAD says where a value reached geometry and could not be converted,
-so a default went in instead.
+"""What OpenSCAD says where a value reached a geometry parameter and the engine
+could not use it as written.
+
+For `Unable to convert` that always means a default went in instead, and the
+paragraphs below are about that line. For `Problem converting rotate(` it does
+NOT always mean that -- one of its shapes applies the rotation and substitutes
+nothing -- and the rotate section near the end of this docstring states the
+difference rather than letting the sentence above stand for both.
 
 This is the discrimination `undefined operation` could not make. That line
 reports a type error anywhere in the file, geometry or not, which is why
@@ -1002,9 +1022,83 @@ ones measured, `mirror([undef,0,0])` is a fifth, and this set covers what the
 engine chooses to say and nothing more. Do not read it as covering every
 silently defaulted dimension.
 
-`rotate(a=undef)` drops a rotation just as quietly and words it
-`Problem converting rotate(a=undef) parameter` -- identical on both engines,
-same class, deliberately not added here (#333).
+`Problem converting rotate(` is the second marker, added in #333, and it is
+NOT simply the first said in other words. It means the engine could not use the
+`rotate` parameters as written. Whether anything was substituted, and whether
+the mesh is wrong, depends on WHICH way they were unusable -- measured on both
+engines, all byte comparisons `cmp -s` against the correct source named:
+
+    rotate(o) cube(5)             the angle is dropped; the part stands at
+    rotate([o,0,0]) cube(5)       IDENTITY. The mesh is wrong. This is the
+                                  shape #333 was filed for.
+
+    rotate() cube([10,5,2])       a=undef by omission -> identity, which is
+                                  what a no-op rotate is FOR. Byte-identical
+                                  to `cube([10,5,2])`.
+
+    rotate([90,0,0,0])            NOTHING IS SUBSTITUTED. 2021.01's
+      cube([10,5,2])              `src/transform.cc` reads
+                                  `default: ok &= false; /* fallthrough */
+                                  case 3:`, so an over-long vector still has
+                                  its first three components read and applied;
+                                  only `ok` is false. Measured bbox
+                                  (0,-2,0)..(10,0,5) -- the 90 deg about X the
+                                  source asked for -- and byte-identical to
+                                  `rotate([90,0,0]) cube([10,5,2])`.
+
+    rotate(a=45, v="z") cube(5)   the angle converts and the DEFAULT AXIS
+                                  [0,0,1] goes in. Measured bbox
+                                  (-3.536,0,0)..(3.536,7.071,5): rotated 45
+                                  deg about Z, NOT identity, and byte-identical
+                                  to `rotate(a=45, v=[0,0,1]) cube(5)`.
+
+So three of those five fire beside an export that is byte-identical to the
+correct part, on both engines, and this guard refuses all three at exit 4. That
+is a REMAINDER, not an oversight, and it is `FAILURE-MODES.md` entry 9b's trade
+in a second place: an over-long rotate vector, a string axis and a rotate whose
+angle never arrived are all bugs in the SOURCE, the modifier between right and
+wrong is one character, and refusing loudly is the safe direction. The refusal
+stands because the source is wrong -- never because the mesh was shown to be.
+Do not restate it as "a default was substituted"; for the over-long vector that
+is false -- which is why `runner.py`'s `_SUBSTITUTED_VALUE_CAUSE` says something
+this marker cannot support, tracked as #360.
+
+Added after the probe #308's own carve-out demanded: `Unable to convert` turned
+out to have a context where it is true and irrelevant (the GUI camera), so
+`Problem converting` was inventoried the same way rather than assumed clean.
+Both pinned binaries carry exactly FOUR `Problem converting` templates -- read
+out of each binary with `strings`, and the two lists are identical. Three are
+the `rotate` templates above (2021.01 `src/transform.cc` 152-177; master
+`src/core/TransformNode.cc` 130-163), and they are the marker. The fourth is
+`Problem converting this number: %1$s` (2021.01 `src/boost-utils.h` 41; master
+`src/utils/boost-utils.h` 38), whose only caller in either version is `rands()`'s
+result count (2021.01 `src/func.cc` 134; master `src/core/builtin_functions.cc`
+184). That one is not about geometry at all, and it cannot occur beside an
+exported mesh: the cast fails only on positive overflow, the engine then sets
+the count to SIZE_MAX and tries to build that many results, and it dies before
+writing anything. Measured under a 2 GB address-space cap on both engines, from
+`r = rands(0, 1, 1e30); cube([40,30,6]);`:
+
+    WARNING: Problem converting this number: 1000000000000000019884624838656.000000
+    WARNING: bad numeric conversion: positive overflow
+    WARNING: setting result to 18446744073709551615
+    2021.01     std::bad_alloc      exit 134, no STL
+    2026.08.01  std::length_error   exit 134, no STL
+
+So it needs no `_NON_GEOMETRY_CONVERSIONS` entry -- that tuple is for lines that
+are true beside an exported mesh, and there is no exported mesh here. The marker
+is narrowed to `Problem converting rotate(` instead, which separates the four by
+the engine's own grammar and keeps a crash from being reported as a defaulted
+dimension. Same reasoning as the `[` split in `_NON_GEOMETRY_CONVERSIONS`,
+spelled as a selection rather than a carve-out because the geometry side is the
+enumerable one here.
+
+Not every mis-specified rotation is narrated, which is the #332 shape again
+rather than a gap in this marker: `rotate(a=90, v=undef)` is SILENT on both
+engines and still exits 0. `undef` is not "defined", so the engine reads it as
+"no axis given" and applies its DEFAULT axis -- the part is rotated 90 deg about
+Z, byte-identical to both `rotate(a=90, v=[0,0,1])` and `rotate(90)`, measured.
+It is not unrotated; a reader told otherwise hunts the wrong symptom.
 
 `_NON_GEOMETRY_CONVERSIONS` carves out the two shapes measured to say this and
 mean nothing about the exported mesh: the GUI camera, and a range or step built

@@ -178,6 +178,36 @@ Read the non-`pass` statuses in `checks[]`:
   the *expression*, not the module: the fix is wherever that value was left `undef` or
   given the wrong type, which is usually a parameter that was never bound or a name
   spelled correctly but assigned nothing.
+  **A second spelling, and it does not mean quite the same thing.** `rotate()` words its
+  failure `Problem converting rotate(a=undef) parameter in file part.scad, line 2` — also
+  identical on both engines — and it says the engine could not use the `rotate` parameters
+  *as written* (#333). Sometimes that is a default going in and the rotation being lost:
+  `rotate(undef)` and `rotate([undef,0,0])` leave the part at identity, nothing having
+  changed size, standing in an orientation nobody wrote down. Sometimes it is not.
+  `rotate(a=45, v="z")` substitutes the **default axis** `[0,0,1]`, so the part really is
+  rotated 45° about Z; `rotate([90,0,0,0])` substitutes **nothing at all** — the engine
+  reads the first three components of an over-long vector and applies them, and only
+  complains about the fourth. Read the line as "look at this `rotate` call", not as "your
+  part is unrotated".
+  **What neither spelling says is whether the mesh is actually wrong.** Two measured
+  shapes where it is not, both refused at exit `4` on both engines, both covered by
+  `FAILURE-MODES.md` §9:
+  - **A fault inside `%` background geometry** (§9a). OpenSCAD evaluates the subtree under
+    a `%` (background) modifier and then excludes it from the render, so a fault inside one
+    is narrated on stderr while contributing nothing to the mesh:
+    `cube([40,30,6]); %translate([undef,0,0]) cube(2);` exports a file **byte-identical**
+    to the same source with the `%` line deleted. If the quoted line's file and line number
+    land on a `%` subtree, the mesh you have is very likely correct. `*` (disable) is the
+    modifier that costs nothing — its subtree is never evaluated, so it emits no
+    diagnostic — while `#` (highlight) is exported, and its warnings are about the mesh.
+  - **A `rotate()` parameter the engine ignored** (§9b). `rotate([90,0,0,0]) cube([10,5,2])`
+    exports **byte-identical** to `rotate([90,0,0]) cube([10,5,2])`, and
+    `rotate(a=45, v="z") cube(5)` to `rotate(a=45, v=[0,0,1]) cube(5)`.
+
+  In both, **the source is wrong and the mesh may be right**, and the remedy is the same
+  as for the damaging shapes: fix the value, or delete the scaffolding. Do not conclude
+  the tool is unreliable, and do not go looking for a flag to wave it through — there is
+  none, by design.
 - **Otherwise** → the contract itself raised (the report says "the contract is wrong,
   not the part"), or the report is still the placeholder ("run did not complete") —
   whose most common cause is deterministic, not transient: **the contract failed to
@@ -312,6 +342,27 @@ pinned part from the invocation — from where you sit these are indistinguishab
 
 A contract change can be *right* — the fix is to propose it in an escalation and let a
 human apply and re-pin it, never to make it silently.
+
+**`check` overwrites its report, so the baseline for that `diff` is yours to keep.**
+Every run writes to one deterministic destination — `<contract dir>/outputs/<slug>/report.json`,
+or `<--out DIR>/report.json` — and overwrites it. The second run of any repair loop destroys
+the only baseline the first produced, and `outputs/` is gitignored at every depth in this
+repository and in the layout the exemplars use, so a report left where `check` put it is
+**overwritten and then untracked**. Nothing does the copy for you:
+
+```console
+$ partspec check spec.py:part --out o --quiet
+$ cp o/report.json baseline.json          # the step no flag performs
+# ... edit the model ...
+$ partspec check spec.py:part --out o --quiet
+$ partspec diff baseline.json o/report.json
+```
+
+Take the copy **before** the run that might change something, not after you wish you had.
+The convention: commit `baseline/report.json` beside the contract when the drift matters
+across sessions, or keep it as a CI artifact when it matters only across one pull request.
+`vdiff` needs two `render.json` and takes the same step.
+`examples/spacer/README.md` is the worked copy of both this and the pin above.
 
 ## 5. Before believing a green run
 

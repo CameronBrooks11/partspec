@@ -34,6 +34,53 @@ The `openscad` binary is a system dependency and is not on the wheel's dependenc
 and installing both Python engines under plain `pip` needs one extra step —
 [Setting up the engines](#setting-up-the-engines) has both.
 
+### Enforcing it in CI
+
+The committed claims pin is what makes a contract enforceable by a machine: it
+records the *claim set*, so a run whose contract has drifted from it fails
+before the engine starts. `examples/spacer/` carries the worked copy —
+[`claims.lock`](https://github.com/CameronBrooks11/partspec/blob/main/examples/spacer/claims.lock)
+beside the contract, and
+[its README](https://github.com/CameronBrooks11/partspec/blob/main/examples/spacer/README.md)
+walks the `--pin` / `--expect` loop end to end. This repository's own CI runs
+that exemplar on every pull request and on every push to `main`, so the snippet
+below is a shape that is gated rather than one that is merely written down.
+
+```yaml
+# .github/workflows/partspec.yml
+name: partspec
+on: [push, pull_request]
+jobs:
+  parts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends openscad
+      - run: pip install 'partspec[mesh]'
+      # Non-zero fails the job. --expect adjudicates the claim set before the
+      # engine starts, so a weakened contract costs no build.
+      - run: partspec check parts/spec.py:spacer --expect parts/claims.lock
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: {name: partspec-reports, path: "**/outputs/**/report.json"}
+```
+
+What a red job means, and it is not one thing — the codes are enumerated once,
+[below](#what-it-is-for), and what each *obliges a reader to do* is
+[`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md)
+§2. The distinction this job turns on: `1` is a verdict about the **part** (a
+declared limit was violated — fix the model), while `2`, `3`, `4` and `64` are
+statements about the **run** (nothing was proven — the checks could not be
+evaluated, the contract asserted nothing, the contract raised, or the
+invocation was wrong). Only `0` is green, and a `2` is not a soft pass:
+`incomplete` exits non-zero precisely so that silence cannot read as success.
+Upload the report on `always()` — it is the product surface, and on a check
+that ran it is what says which check failed and by how much. It is not
+sufficient on its own: a `64` never gets that far, and the report at the
+deterministic path is then a placeholder with `counts.total: 0` while the
+diagnosis is on stderr alone. Watch the exit code, not only the artifacts
+(`docs/AGENT-CONTRACT.md` §4).
+
 ### A contract is code
 
 `check`, `measure` and `render` **import and execute** the module you name, and then the
