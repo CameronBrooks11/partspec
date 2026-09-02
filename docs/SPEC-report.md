@@ -667,18 +667,14 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 ### 7.1 Field rules
 
 - **`payload`** — which artifact this document is. The three this specification governs
-  are `report`, `measure` and `render`; `lint` and `vdiff` name the sibling artifacts that
-  carry the same field. A consumer MUST key on it rather than on `tool.name` or on the
-  presence of a block: `check`, `measure` and `render` all emit `schema_version: 1` under
-  `tool.name: "partspec"` and share the whole identity prefix by design (Scope), so until
-  this field existed the three were told apart only by guessing from the keys further down
-  (#295). Additive (no schema bump), and therefore **optional to a reader**: an artifact of
-  one of those five kinds written before the field existed carries none, and its absence
-  there means "an older partspec wrote this", never "not a report". **That reading is
-  scoped to those five.** `partspec diff`'s own artifact does not carry the field at any
-  version yet (#345), so its absence from a `diff.json` says nothing about which release
-  wrote it. A consumer that must tell the two cases apart reads `tool.name`, which is
-  `partspec-diff` there and has been since that artifact existed.
+  are `report`, `measure` and `render`; `lint`, `diff` and `vdiff` name the sibling
+  artifacts that carry the same field. A consumer MUST key on it rather than on `tool.name`
+  or on the presence of a block: `check`, `measure` and `render` all emit
+  `schema_version: 1` under `tool.name: "partspec"` and share the whole identity prefix by
+  design (Scope), so until this field existed the three were told apart only by guessing
+  from the keys further down (#295). Additive (no schema bump), and therefore **optional to
+  a reader**: an artifact written before the field existed carries none, and its absence
+  means "an older partspec wrote this", never "not a report".
   The optionality is also why a structural test — does this document declare a `verdict`
   and `counts`? — remains the right guard for "is this a report", and `partspec diff`
   keeps that one: a guard keyed on `payload` would refuse every report the tool wrote
@@ -694,15 +690,27 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   source, same closure — and nothing in either artifact says which target was invoked
   (#297). A module declaring a single factory needs no name to resolve, so both
   `<module>` and `<module>:<factory>` are well-formed and a consumer MUST parse the suffix
-  as optional. The corollary is that one run spelled two ways — `spec.py` and
-  `spec.py:spacer` for the same single-factory module — records two different strings for
-  one part, which is why this field is **provenance, not comparison identity**. What a
-  comparator pairs two reports on is `part.id`: `partspec diff` refuses a mismatch there
-  and reports `contract.digest_changed` as a field, which moves neither the outcome nor
-  the exit code — two reports with one `part.id` and different `contract_digest`s compare
-  `identical` at exit 0. So neither digest is a join key either, and a consumer wanting
-  the collision above surfaced as a difference has to read `part.contract` itself and
-  handle the two spellings.
+  as optional — but partspec **resolves the symbol and records it either way**, so a report
+  of a target that RESOLVED carries the suffix whenever the module declares a factory
+  (#343). The qualifier is not decoration: the pre-resolution placeholder below is written
+  before any of that is known and echoes the argument as typed, so a bare `<module>` is
+  still a shape this tool writes. That resolution is what makes the field comparable:
+  emitted only when the invocation typed it, one run spelled two ways — `spec.py` and
+  `spec.py:spacer` for the same single-factory module — recorded two different strings for
+  one part, and no comparator could tell that pair from a genuine change. It does **not**
+  move the default `--out` directory, which keys on the factory the invocation named:
+  `partspec check spec.py` writes `outputs/spec`, as it has since v0, and a test pins it.
+
+  It remains **provenance, not comparison identity**. What a comparator pairs two reports on
+  is `part.id`: `partspec diff` refuses a mismatch there. It now *compares* `part.contract`
+  as well, and what is outcome-bearing is the **factory alone**, where both sides name one —
+  `SPEC-diff.md` §3 states the rule, why the guard is needed for the two spellings above,
+  and why a moved module path is recorded rather than reported (renaming a contract file
+  changes no part). The digests are not join keys and are not outcome-bearing either: two
+  reports with one `part.id` and different `contract_digest`s compare `identical` at exit 0,
+  deliberately, because the digest is module-scoped and an edit to a factory that cannot
+  reach this part moves it. `partspec diff` reports it as `contract.digest_changed` and
+  names it on its summary line whatever the outcome.
 
   Two forms of this field are **not** `<module>[:<factory>]`, and both are visible from
   the artifact. The pre-resolution placeholder (§5 rule 2) is written before the target
