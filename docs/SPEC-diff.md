@@ -451,18 +451,35 @@ every outcome.
 **It does not reach the outcome, and §2 rule 3 is not the authority for that.** That rule
 classifies the gaps a closure names in `source_closure.unseen`; it governs that vocabulary
 and no other, and borrowing its taxonomy here would misfile this gap rather than justify it.
-This gap is not constant across every possible input — it fires only where one side predates
-the resolution, never where both were written by this release — which is that rule's own
-description of a **bounded** gap, and a bounded gap MUST make the outcome `indeterminate`.
-The reason this one does not is its own, and it is an argument about what the pair can
-prove. An unsuffixed value written by the CLI is evidence that the module declared **exactly
-one** factory when that report was written, since a module declaring several refuses to
-resolve without a name. So where the module path and the contract digest also match, the two
-sides ran that one factory and the pair is one run spelled two ways — nothing to report. Two
-residues remain: a factory renamed between the runs, which moves the digest and is reported
-on the same line; and a library caller invoking `run()` with a factory it did not record,
-which nothing else in either artifact can recover. The caveat is what carries them, and it
-is why the pair is named on every outcome rather than dropped.
+This gap is not constant across every possible input — it fires wherever one side records no
+factory, which is a shape this release still writes: a pre-resolution placeholder (§5 rule 2)
+echoes the argument as typed, and a library caller may invoke `run()` naming none. It is
+therefore that rule's own description of a **bounded** gap, and a bounded gap MUST make the
+outcome `indeterminate`.
+
+The reason this one does not is its own, and it is an argument about what the pair can prove.
+An unsuffixed value written by the CLI **for a target that resolved** — §7.1's qualifier, and
+it carries the same weight here — is evidence that the module declared **exactly one**
+factory when that report was written, since a module declaring several refuses to resolve
+without a name. So where the module path and the contract digest also match, the two sides
+ran that one factory and the pair is one run spelled two ways: nothing to report.
+
+The qualifier is load-bearing, because the refusal that supports the argument is also what
+produces its counterexample. `partspec check multi.py` on a two-factory module writes a
+placeholder — `{"id": "unresolved", "contract": "multi.py"}`, no digest, `verdict: "error"` —
+and against `multi.py:nosuch` the module path matches and `digest_changed` is `false`, so the
+antecedent holds while the consequent fails twice over: the module declares two factories and
+neither side ran any. Nothing is claimed of that pair, and it is not this gap that protects
+it — §2 rule 2 makes either side's `error` verdict `indeterminate` before this gap is
+consulted at all. Measured: exit `2`.
+
+Two residues remain for the resolved reports the argument does cover: a factory renamed
+between the runs, which moves the digest and is reported on the same line; and a library
+caller invoking `run()` with a factory it did not record, which nothing else in either
+artifact can recover — measured, a `run(factory=None)` report against a
+`partspec check multi.py:a` one compares `identical` at exit `0` under the caveat, both
+written by this build. The caveat is what carries them, and it is why the pair is named on
+every outcome rather than dropped.
 
 The default `--out` directory does not move with any of this: `Target.slug` keys on the
 factory the *invocation* named, and `partspec check spec.py` still writes `outputs/spec`,
