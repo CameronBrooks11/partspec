@@ -1492,6 +1492,14 @@ def test_the_substituted_value_markers_match_both_engine_spellings():
         " or a vec2 of numbers in file c.scad, line 2",
         "WARNING: Unable to convert scale(undef) parameter to a number, a vec3 or vec2"
         " of numbers or a number in file d.scad, line 2",
+        # `rotate()` words the same substitution differently (#333). All THREE
+        # templates either pinned binary carries, each fired from the source
+        # named, each exiting 0 with a clean 12-facet cube standing at identity
+        # because the angle did not convert:
+        #   rotate(o)   /   rotate([o,0,0])   /   rotate(a=45, v="z")
+        "WARNING: Problem converting rotate(a=undef) parameter in file e.scad, line 2",
+        "WARNING: Problem converting rotate(a=[undef, 0, 0]) parameter in file f.scad, line 2",
+        'WARNING: Problem converting rotate(..., v="z") parameter in file g.scad, line 1',
     ]
     for line in observed:
         assert openscad._unresolved_lines(line, openscad._SUCCESS_PATH_MARKERS), line
@@ -1540,12 +1548,15 @@ def test_the_substituted_value_markers_match_both_engine_spellings():
         # source's 21 `Unable to convert` templates beginning with `[`.
         "WARNING: Unable to convert [0:...:undef] to a range in file q.scad, line 2",
         "WARNING: Unable to convert [...:undef:...] to a step value in file q.scad, line 2",
-        # `rotate()` words its substitution differently and is deliberately NOT
-        # guarded (#333). Without this line, adding `Problem converting` to the
-        # marker set leaves the whole suite green -- so the deferral is a claim
-        # with nothing holding it (round-2 review).
-        "WARNING: Problem converting rotate(a=undef) parameter in file q.scad, line 2",
-        "WARNING: Problem converting rotate(a=[undef, 0, 0]) parameter in file q.scad, line 2",
+        # The FOURTH `Problem converting` template, and the only one of the four
+        # that is not a `rotate` substitution: `boost_numeric_cast` failing on
+        # `rands()`'s result count. Head-anchored exactly like the marker, so
+        # the marker stops at `rotate(` rather than at `Problem converting`
+        # (#333). It cannot reach a caller on the success path -- the engine
+        # sets the count to SIZE_MAX and dies building it, exit 134 with no STL
+        # on both engines -- so this pins the narrowing, not a live false pass.
+        "WARNING: Problem converting this number: 1000000000000000019884624838656.000000",
+        "WARNING: setting result to 18446744073709551615",
     ):
         assert not openscad._unresolved_lines(benign, openscad._SUCCESS_PATH_MARKERS), benign
 
@@ -1635,6 +1646,46 @@ def test_a_defaulted_dimension_is_read_where_a_debug_echos_type_error_is_not(tmp
     ok = openscad.render(OpenSCADSource(path=echoed), tmp_path / "echoed.stl", unresolved_out=quiet)
     assert not isinstance(ok, BuildError), ok
     assert quiet == [], "a type error in a debug echo reached no geometry"
+
+
+@needs_openscad
+def test_a_rotation_the_engine_dropped_is_read_as_a_substitution(tmp_path: Path):
+    """`rotate()` narrates the same substitution in other words (#333).
+
+    Each source below exits 0 on both pinned engines and writes a clean
+    12-facet cube -- standing at identity, because the angle or axis did not
+    convert. The mesh is well-formed, every geometry check runs, and none of
+    them is measuring the part the source describes.
+
+    The engine's own wording, character-identical on both binaries:
+
+        rotate(o)            Problem converting rotate(a=undef) parameter
+        rotate([o,0,0])      Problem converting rotate(a=[undef, 0, 0]) parameter
+        rotate(a=45, v="z")  Problem converting rotate(..., v="z") parameter
+
+    The last is the one that echoes a MODEL string into the sentence, which is
+    why the marker is head-anchored like every other.
+
+    `rotate(a=90, v=undef)` is deliberately absent: it is silent on both
+    engines and builds an unrotated part, because `undef` is not "defined" and
+    the engine reads that as "no axis given". That is #332's shape, not a hole
+    in this marker, and there is no stderr line for a test to key on.
+    """
+    for name, body in (
+        ("rot_scalar.scad", "o = undef;\nrotate(o) cube(5);\n"),
+        ("rot_vector.scad", "o = undef;\nrotate([o, 0, 0]) cube(5);\n"),
+        ("rot_axis.scad", 'rotate(a=45, v="z") cube(5);\n'),
+    ):
+        src = _scad(tmp_path, name, body)
+        seen: list[str] = []
+        result = openscad.render(
+            OpenSCADSource(path=src), tmp_path / f"{src.stem}.stl", unresolved_out=seen
+        )
+        assert not isinstance(result, BuildError), f"premise: {name} builds happily"
+        assert result.stat().st_size > 0, f"premise: {name} writes a real mesh"
+        assert seen, f"{name}: a dropped rotation must not reach a measurement"
+        assert openscad.is_substituted_value(seen[0]), seen[0]
+        assert "Problem converting rotate(" in seen[0], seen[0]
 
 
 @needs_openscad

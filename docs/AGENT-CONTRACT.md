@@ -178,6 +178,12 @@ Read the non-`pass` statuses in `checks[]`:
   the *expression*, not the module: the fix is wherever that value was left `undef` or
   given the wrong type, which is usually a parameter that was never bound or a name
   spelled correctly but assigned nothing.
+  **Two spellings, one meaning.** `rotate()` words its substitution
+  `Problem converting rotate(a=undef) parameter in file part.scad, line 2` — also
+  identical on both engines — and the damage is the same class read differently: nothing
+  changed size, the transform reverted to identity, and the part is standing in an
+  orientation nobody wrote down (#333). A mesh that is watertight, one solid and exactly
+  the right size is not evidence against this line.
 - **Otherwise** → the contract itself raised (the report says "the contract is wrong,
   not the part"), or the report is still the placeholder ("run did not complete") —
   whose most common cause is deterministic, not transient: **the contract failed to

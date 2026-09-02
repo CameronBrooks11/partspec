@@ -710,6 +710,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A rotation the engine dropped no longer reaches a measurement** (#333, epic
+  #305). `o = undef; rotate(o) cube(5);` exports a clean, watertight,
+  single-solid 12-facet cube standing at **identity** — the rotation is simply
+  gone — and `check` over `watertight()` + `solid_count(1)` reported
+  `PASS: 3 pass` at exit 0 on both pinned engines. The same damage as a
+  dimension silently defaulting, and #329's guard could not see it because
+  OpenSCAD words this one `Problem converting rotate(a=undef) parameter`, not
+  `Unable to convert`. It is read now: the same case is `ERROR: 3 skipped` at
+  exit 4 on 2021.01 and on 2026.08.01, quoting the engine's own line.
+  Measured under both binaries and character-identical on each — three
+  templates, all three fired from a source and all three exiting 0 with a
+  12-facet cube: `rotate(o)` → `Problem converting rotate(a=undef) parameter`,
+  `rotate([o,0,0])` → `Problem converting rotate(a=[undef, 0, 0]) parameter`,
+  `rotate(a=45, v="z")` → `Problem converting rotate(..., v="z") parameter`.
+  **The marker stops at `rotate(`, and that is a measured choice rather than a
+  minimal one.** `Unable to convert` turned out to have a context where it is
+  true and says nothing about the mesh — the GUI camera — so `Problem
+  converting` was inventoried the same way instead of assumed clean. Read out
+  of each binary with `strings`, both carry exactly **four** templates with
+  that head and the two lists are identical: three `rotate` substitutions from
+  `src/core/transform.cc`, and `Problem converting this number: %1$s` from
+  `boost_numeric_cast` in `src/utils/boost-utils.h`, whose only caller in
+  either version is `rands()`'s result count. The fourth is not a substitution
+  into geometry — but it is also **not** a false positive waiting to happen,
+  because it cannot occur beside an exported mesh: the cast fails only on
+  positive overflow, after which the engine sets the count to `SIZE_MAX` and
+  dies building it. Measured under a 2 GB address-space cap on both engines
+  from `r = rands(0, 1, 1e30); cube([40,30,6]);` — `std::bad_alloc` on 2021.01,
+  `std::length_error` on 2026.08.01, exit 134 and no STL either way. So it gets
+  no `_NON_GEOMETRY_CONVERSIONS` entry, which is for lines that are true
+  *beside* an exported mesh; the marker is narrowed instead, separating the
+  four by the engine's own grammar exactly as the `[` split does, and keeping a
+  crash from being reported as a defaulted dimension. It is pinned as the
+  negative in
+  `test_the_substituted_value_markers_match_both_engine_spellings`, where the
+  two rotate lines used to sit.
+  **Not every dropped rotation is narrated**, and that is #332's shape rather
+  than a gap here: `rotate(a=90, v=undef)` is **silent on both engines** and
+  builds an unrotated part, because `undef` is not "defined" and the engine
+  reads that as "no axis given". Measured; still exit 0; there is no stderr
+  line for a guard to key on.
+
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
   counts the field this release added to it** (#295, #340). §2.4 lists that
   payload's keys as "Measured … exactly `engine`, `error`, `geometry`, `hint`,
@@ -1371,12 +1413,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `linear_extrude(undef)` and `cylinder(h=undef)` are silent on both engines,
   and #308's own headline reproduction — `linear_extrude(undef + 1)` — prints
   `undefined operation` and no conversion line, so it still passes. There is
-  no stderr signal to guard on, so #308 stays open. `rotate(a=undef)` is a
+  no stderr signal to guard on, so #308 stays open. `rotate(a=undef)` was a
   sibling with a different spelling, `Problem converting`, left out to keep
   this change to one guard (#333) — and pinned as a negative, since adding it
   to the marker set otherwise left the whole suite green, which is a deferral
-  with nothing holding it. The docstring in `engines/openscad.py` says both,
-  rather than implying the shape closed.
+  with nothing holding it. That deferral is now closed, in the entry below; the
+  negative pin moved to the one `Problem converting` template that is not a
+  substitution. The docstring in `engines/openscad.py` says both, rather than
+  implying the shape closed.
   **The marker is anchored at the head of the engine's sentence**, and that is
   the whole of its safety. Two measured reasons. OpenSCAD echoes string
   literals verbatim into the warning, so an unanchored test let a source turn
