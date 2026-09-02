@@ -2578,7 +2578,7 @@ def test_render_refuses_a_hollowed_part_and_says_it_cannot_attribute_it(tmp_path
     assert not list(out.glob("renders/*.png")), "no view of a part the source does not describe"
 
 
-@needs_openscad
+@needs_scad_tier
 def test_check_render_is_unaffected_by_the_render_refusal(tmp_path: Path):
     """The note on #307: `check --render` never reached the render path.
 
@@ -2586,6 +2586,13 @@ def test_check_render_is_unaffected_by_the_render_refusal(tmp_path: Path):
     refused never got as far as drawing anything. Pinned because the fix lands
     in `render_views`, which both verbs share -- a regression here would look
     like a `check` bug and be a `render` one.
+
+    `needs_scad_tier`, not `needs_openscad`: this drives a `check` through the
+    runner, so without the mesh extra the build fails for an ENVIRONMENT reason
+    first and the run errors on a different path entirely -- `build_origin`
+    reads `"environment"` there rather than the `null` #286's refusal leaves.
+    Caught by `just test-no-extras`, which is the job that exists for exactly
+    this (see `support.needs_scad_tier`).
     """
     out = tmp_path / "out"
     target = _hollowed_scad_target(tmp_path, claims="    p.watertight()\n")
