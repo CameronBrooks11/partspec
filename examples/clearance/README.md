@@ -95,34 +95,47 @@ If the fit cares about the straight-line distance, grow with `minkowski()` and a
 sphere. Use this form, and copy it whole:
 
 ```openscad
-sphere(r = CLEAR / pow(cos(180 / $fn), 2), $fn = 32)
+CLEAR = 1.5;   // the standoff the fit requires, mm
+SEG   = 32;    // one name for the radius AND the facet count
+sphere(r = CLEAR / pow(cos(180 / SEG), 2), $fn = SEG);
 ```
+
+**Why a named `SEG` rather than `$fn` in the radius.** OpenSCAD evaluates a
+module call's arguments in the *caller's* scope, so `$fn = 32` in the argument
+list takes effect inside `sphere` and **not** in the sibling `r =` expression
+beside it. Written `pow(cos(180 / $fn), 2), $fn = 32`, the radius therefore reads
+the caller's `$fn` — 0 by default — giving `180 / 0 = inf`, `cos(inf) = nan` and
+a radius of `nan`. The engines then disagree about the wreckage: measured, that
+envelope reaches 1.507257 on 2021.01 and **nothing at all on 2026.08.01**, where
+`minkowski()` returns the bare ungrown part. The probe then passes a **0.1 mm**
+gap against a 1.5 mm requirement on 2026.08.01, silently, exit 0. `SEG` is an
+ordinary variable, so it means the same thing in both places.
+
+Measured in the five shapes a reader is likely to put it in — top level, inside a
+module, with a global `$fn` of 64, with a global `$fn` of 8, and with `$fa`/`$fs`
+set and no `$fn` — the `SEG` form gives an **identical envelope in all five, on
+both engines** (1148 facets, reach 1.507257). `SEG` governs the radius and the
+facet count together, so nothing in the caller's scope can pull them apart.
 
 OpenSCAD's `sphere()` puts its vertices *on* the ideal ball, so it is inscribed
 and the envelope falls short of the true offset. It is faceted in **two** angular
 directions, so the shortfall goes as `cos²`, not `cos` — and the axial direction
 is not the worst one, so checking a single axis will not show it. Measured from
-the exported ball on both engines, `CLEAR` = 1.5, `$fn` = 32:
+the exported ball on both engines, `CLEAR` = 1.5, `SEG` = 32:
 
-| grow | guaranteed offset (min face plane) | max offset (vertex) |
+| grow (all with `$fn = SEG`) | guaranteed offset (min face plane) | max offset (vertex) |
 |---|---|---|
 | `sphere(r = CLEAR)` | 1.485589 | 1.500000 |
-| `sphere(r = CLEAR / cos(180 / $fn))` | 1.492777 | 1.507258 |
-| **`sphere(r = CLEAR / pow(cos(180 / $fn), 2))`** | **1.500000** | 1.514551 |
+| `sphere(r = CLEAR / cos(180 / SEG))` | 1.492777 | 1.507258 |
+| **`sphere(r = CLEAR / pow(cos(180 / SEG), 2))`** | **1.500000** | 1.514551 |
 
-Against a body approaching along the sphere's worst direction, both engines: the
-first two **pass** real violations at 1.495 mm and 1.499 mm; the third fails both
-and passes at 1.520 mm. The bare shortfall is 0.057090 mm at `$fn = 16`, inside a
-printed fit's tolerance.
+Only the third reaches the required 1.5 in every direction, and it does so
+exactly at `SEG` = 8, 16 and 32. Against a body approaching along the sphere's
+worst direction, both engines: the first two **pass** real violations at 1.495 mm
+and 1.499 mm; the third fails both and passes at 1.520 mm. The bare shortfall is
+0.057090 mm at `SEG = 16`, inside a printed fit's tolerance.
 
-**Pin `$fn` in the call.** It is part of the remedy, not decoration. `$fn`
-defaults to 0, so `180 / $fn` is infinite and the radius is `nan` — and a `nan`
-sphere disappears from the `minkowski()`, leaving the part ungrown. Silently:
-exit 0, no warning, on both engines, and nothing for partspec to catch because
-every name resolved and the build succeeded. That probe passes a **0.1 mm** gap
-against a 1.5 mm requirement.
-
-Compensated by `cos²` with `$fn` pinned, the leftover error is one-sided toward
+Compensated by `cos²` with `SEG` named, the leftover error is one-sided toward
 false FAIL — out to the vertex column above — which is the same safe direction
 the box grow has. The bare and `cos` forms are one-sided toward false **PASS**.
 

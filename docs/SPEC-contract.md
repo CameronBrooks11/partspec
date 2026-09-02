@@ -1441,31 +1441,45 @@ deliberate interference and grade the volume.
    still fails a 1.5 mm requirement, on both engines.
 
    **If the fit cares about Euclidean distance, `minkowski()` with a sphere is the
-   spelling — but the sphere MUST be compensated by `cos²`, and `$fn` MUST be pinned.**
+   spelling — but the sphere MUST be compensated by `cos²`, and the segment count MUST be
+   a named variable rather than `$fn` in the argument list.** The form is:
+
+   ```openscad
+   CLEAR = 1.5;   // the standoff the fit requires, mm
+   SEG   = 32;    // one name for the radius AND the facet count
+   sphere(r = CLEAR / pow(cos(180 / SEG), 2), $fn = SEG);
+   ```
+
    OpenSCAD's `sphere()` is a faceted solid whose vertices lie *on* the ideal ball, so it
    is inscribed and the envelope falls short of the true offset. It is faceted in **two**
-   angular directions, so the worst-case shortfall goes as `cos²(180/$fn)`, not
-   `cos(180/$fn)`: a one-axis check does not see it, because the axial direction is not
-   the worst one. Measured from the exported ball on both engines, `CLEAR` = 1.5:
+   angular directions, so the worst-case shortfall goes as `cos²`, not `cos`: a one-axis
+   check does not see it, because the axial direction is not the worst one. Measured from
+   the exported ball on both engines, `CLEAR` = 1.5, `SEG` = 32:
 
-   | grow | guaranteed offset (min face plane) | max offset (vertex) |
+   | grow (all with `$fn = SEG`) | guaranteed offset (min face plane) | max offset (vertex) |
    |---|---|---|
    | `sphere(r = CLEAR)` | 1.485589 | 1.500000 |
-   | `sphere(r = CLEAR / cos(180/$fn))` | 1.492777 | 1.507258 |
-   | **`sphere(r = CLEAR / pow(cos(180/$fn), 2))`** | **1.500000** | 1.514551 |
+   | `sphere(r = CLEAR / cos(180 / SEG))` | 1.492777 | 1.507258 |
+   | **`sphere(r = CLEAR / pow(cos(180 / SEG), 2))`** | **1.500000** | 1.514551 |
 
    Only the third reaches the required 1.5 in **every** direction, and it does so exactly
-   at `$fn` = 8, 16 and 32. End to end against a body approaching along the sphere's worst
+   at `SEG` = 8, 16 and 32. End to end against a body approaching along the sphere's worst
    direction, both engines: the first two **pass** violations at 1.495 mm and 1.499 mm,
    the third fails both and passes at 1.520 mm. The bare shortfall is 0.057090 mm at
-   `$fn = 16` — inside a printed fit's tolerance.
+   `SEG = 16` — inside a printed fit's tolerance.
 
-   So the form is `sphere(r = CLEAR / pow(cos(180 / $fn), 2), $fn = 32)`. **Pinning `$fn`
-   is part of the remedy, not decoration**: `$fn` defaults to 0, which makes `180/$fn`
-   infinite and the radius `nan`, and a `nan` sphere vanishes from the `minkowski()`
-   leaving the ungrown part — silently, exit 0, no warning, on both engines. Nothing in
-   partspec catches that: every name resolves, the build succeeds, and the probe passes a
-   0.1 mm gap against a 1.5 mm requirement.
+   **Why the segment count must be a named variable.** A module call's arguments are
+   evaluated in the **caller's** scope, so `$fn = 32` in the argument list applies inside
+   `sphere` and not to the sibling `r =` expression. Spelled
+   `pow(cos(180 / $fn), 2), $fn = 32`, the radius reads the *caller's* `$fn` — 0 by
+   default — so `180/$fn` is infinite and the radius is `nan`. The engines then disagree:
+   measured, that envelope reaches 1.507257 on 2021.01 and **nothing at all** on
+   2026.08.01, where `minkowski()` yields the bare ungrown part, and the probe passes a
+   0.1 mm gap against a 1.5 mm requirement at exit 0. One source, two engines, different
+   geometry — F13, on this section's own prescribed spelling, which is why the named
+   variable is normative and not style. Measured in five caller shapes — top level, inside
+   a module, with a global `$fn` of 64, with a global `$fn` of 8, and with `$fa`/`$fs` and
+   no `$fn` — the `SEG` form gives an identical envelope in all five on both engines.
 
    Compensated this way the residual error is **one-sided toward false FAIL**, out to the
    vertex column above — the same property the box grow has. Uncompensated, or compensated
