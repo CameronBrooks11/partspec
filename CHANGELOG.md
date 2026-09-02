@@ -1246,8 +1246,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   otherwise the whole string is the module, and the guard is what stops a
   contract filename that contains a colon (`rev2:spec.py`) from being read as
   module `rev2`. Both forms remain well-formed for a reader; what the CLI now
-  writes is the suffixed one whenever the contract declares a factory at all
-  (#343, below).
+  writes is the suffixed one whenever the target **resolves** and the module
+  declares a factory — the pre-resolution placeholder echoes the argument as
+  typed and carries no suffix (#343, below).
   **The comparator half is #343, below.** As shipped here, `partspec diff` still
   answered `identical` at exit 0 for those two reports: it pairs on `part.id`
   and read `part.contract` for nothing.
@@ -1262,17 +1263,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same.py:metric`, exit 1, with `contract.target_changed` carrying both sides.
   The digest could never have been the signal — it is module-scoped, so it is
   **equal** on that pair by design.
-  **The field is compared only where both sides name a factory**, and the
-  guard is why `target.py` now resolves the symbol always. A single-factory
+  **What is outcome-bearing is the FACTORY**, and only where both sides name
+  one. The module path is recorded instead, as `contract.module_changed`:
+  keying on the whole `<module>:<factory>` string made a *rename* a
+  difference — measured, two byte-identical contract files, equal digests,
+  `single.py:spacer` against `renamed.py:spacer`, reported `different` at exit
+  1 — which is the mistake `SPEC-diff.md` §3 already refuses for the closure
+  digest, whose point is that it identifies contents and not layout.
+  **The guard is why `target.py` resolves the symbol always.** A single-factory
   module resolves without one being typed, so `spec.py` and `spec.py:spacer`
   were two spellings of ONE run and a plain equality would have called that
   pair a change; resolving always gives one spelling per target for every
-  report this release writes, and the guard covers the pair where one side
-  predates it. **The default `--out` directory does not move**: `Target.slug`
-  keys on the factory the *invocation* named, so `partspec check spec.py`
-  still writes `outputs/spec` and not `outputs/spec-spacer` — pinned by a
-  test, because moving it would silently relocate every existing user's
-  reports, `--pin` baselines and stored `diff` inputs included.
+  report of a target that resolves, and the guard covers the pair where one
+  side predates it. That pair is a **stated gap**, not a match: it is recorded
+  as `contract.target_incomparable` and named on the summary line, because §2's
+  opening makes "no differences found" a positive claim rather than a
+  fallthrough.
+  **The default `--out` directory does not move**: `Target.slug` keys on the
+  factory the *invocation* named, so `partspec check spec.py` still writes
+  `outputs/spec` and not `outputs/spec-spacer` — moving it would relocate
+  every existing user's reports, `--pin` baselines and stored `diff` inputs
+  included. Note where that rule bites: every production slug is taken from a
+  *parsed* target, so the flag guards a resolved target's `slug` — a library
+  caller's, and any later move of `_out_dir` onto it — rather than today's CLI
+  path.
   **`contract.digest_changed: true` inside an `identical` outcome is correct,
   and stays reachable.** The digest is module-scoped, so an edit that provably
   cannot reach this part moves it: measured, two reports of one part from a

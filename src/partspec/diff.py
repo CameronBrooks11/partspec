@@ -826,42 +826,70 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
     }
 
 
-def _names_factory(contract: Any) -> bool:
-    """Whether a `part.contract` value spells out the symbol it invoked.
+def _split_target(contract: str) -> tuple[str, str | None]:
+    """A `part.contract` value as (module, factory), the factory `None` when
+    the value names none.
 
-    `Target.parse`'s own rule, and it must stay that rule: partition on the
-    LAST colon and take the tail only when it is an identifier, so a contract
-    filename that contains one (`rev2:spec.py`) is not read as module `rev2`.
+    `Target.parse`'s rule: partition on the LAST colon, and take the tail only
+    when it is an identifier — so a contract filename that contains one
+    (`rev2:spec.py`) is a whole filename and not module `rev2`. One deliberate
+    divergence, and it is in the safe direction: an empty head (`:make`) is
+    read here as naming no factory, where `Target.parse` accepts it as an empty
+    path. Nothing partspec writes takes that shape, and reading it as "no
+    factory" declines to compare rather than comparing something unintended.
     """
-    head, sep, tail = str(contract).rpartition(":")
-    return bool(head and sep and tail.isidentifier())
+    head, sep, tail = contract.rpartition(":")
+    if head and sep and tail.isidentifier():
+        return head, tail
+    return contract, None
 
 
-def _target_changed(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[str, str] | None:
-    """The invoked target, when both sides say which one it was (#343).
+def _contract_target(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[str, Any]:
+    """What the two `part.contract` values say about which target ran (#343).
 
-    `part.contract` is the only field that separates two factories in one
-    module: they return parts with the same `id`, and the contract digest is
-    module-scoped, so the `part` blocks were byte-identical until #297 put the
-    symbol in this field. `diff` joins on `part.id` and read the field for
-    nothing, so `same.py:imperial` against `same.py:metric` — two different
-    targets, two genuine reports — compared `identical` at exit 0.
+    Three findings, and only the first is outcome-bearing.
 
-    **Only where both sides name a factory**, and the guard is not squeamishness.
-    A single-factory module resolves without one being typed, so before this
-    release `spec.py` and `spec.py:spacer` were two spellings of ONE run and a
-    plain equality would have reported that pair as a change. `target.py` now
-    resolves the name always, which makes the field one spelling per target for
-    every report this release writes — the guard therefore bites only on a pair
-    where one side predates that, and there the unsuffixed side cannot say which
-    target it was, so no change can be claimed from it either way.
+    **`target_changed` — the FACTORY differs, both sides naming one.** This is
+    the whole of what #343 evidences: two factories in one module return parts
+    with the same `id`, and the contract digest is module-scoped, so the `part`
+    blocks were byte-identical until #297 put the symbol in this field. `diff`
+    joins on `part.id` and read the field for nothing, so `same.py:imperial`
+    against `same.py:metric` compared `identical` at exit 0.
+
+    **`module_changed` — the module PATH differs. Recorded, never
+    outcome-bearing**, and the narrowness is the point. Comparing the whole
+    string made a *rename* a difference: measured on two byte-identical
+    contract files, `single.py:spacer` against `renamed.py:spacer`, equal
+    digests and nothing else moved, reported `different` at exit 1. That
+    contradicts the principle §3 already states for the closure digest — it
+    identifies contents, not layout — and it turns a committed-baseline CI
+    recipe red for a file rename.
+
+    **`target_incomparable` — one side names no factory.** A single-factory
+    module resolved without one being typed before this release, so `spec.py`
+    and `spec.py:spacer` may be two spellings of ONE run; an unsuffixed side
+    cannot say which target it was, so no change may be claimed from it in
+    either direction. That is a **stated gap**, not a match: §2's opening makes
+    "no differences found" a positive claim rather than a fallthrough, so the
+    summary says the comparison declined rather than saying nothing (§3).
     """
     old_target, new_target = old_part.get("contract"), new_part.get("contract")
     if not (isinstance(old_target, str) and isinstance(new_target, str)):
-        return None
-    if old_target == new_target or not (_names_factory(old_target) and _names_factory(new_target)):
-        return None
-    return {"old": old_target, "new": new_target}
+        return {}
+    if old_target == new_target:
+        return {}
+    old_module, old_factory = _split_target(old_target)
+    new_module, new_factory = _split_target(new_target)
+
+    found: dict[str, Any] = {}
+    if old_factory is not None and new_factory is not None:
+        if old_factory != new_factory:
+            found["target_changed"] = {"old": old_target, "new": new_target}
+    else:
+        found["target_incomparable"] = {"old": old_target, "new": new_target}
+    if old_module != new_module:
+        found["module_changed"] = {"old": old_module, "new": new_module}
+    return found
 
 
 def _packages_of(environment: Any) -> dict[str, Any] | None:
@@ -1196,7 +1224,7 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
     ]
 
     closure = _closure_delta(old_part, new_part)
-    target_changed = _target_changed(old_part, new_part)
+    contract_target = _contract_target(old_part, new_part)
     verdict_changed = old.get("verdict") != new.get("verdict")
     # A `changed` closure is deliberately NOT a difference, and this line is
     # the decision (#190 stage 3). When the library moved and no check moved
@@ -1210,7 +1238,16 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
     # moved, over a module that may declare several parts; the target says
     # which part was asked for, and two answers to that question are two
     # different questions, not one question answered twice (#343).
-    different = bool(removed or added or entries or verdict_changed or target_changed)
+    #
+    # The FACTORY alone, never the whole `<module>:<factory>` string: a moved
+    # module path is a rename, and reporting one as a difference contradicts
+    # what §3 says of the closure digest — it identifies contents, not layout.
+    # Measured: two byte-identical contract files under different names,
+    # `single.py:spacer` vs `renamed.py:spacer`, equal digests, reported
+    # `different` at exit 1 until this was narrowed (PR #353 review, F2).
+    different = bool(
+        removed or added or entries or verdict_changed or contract_target.get("target_changed")
+    )
     if indeterminate:
         outcome = "indeterminate"
     elif different:
@@ -1305,7 +1342,9 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         },
         "contract": {
             "digest_changed": old_part.get("contract_digest") != new_part.get("contract_digest"),
-            **({"target_changed": target_changed} if target_changed else {}),
+            # `target_changed`, `module_changed` and `target_incomparable`,
+            # each present only when it fires (§4).
+            **contract_target,
             "removed": removed,
             "added": added,
         },
@@ -1477,28 +1516,52 @@ def _packages_clause(doc: dict[str, Any]) -> str:
 
 
 def _contract_clause(doc: dict[str, Any]) -> str:
-    """The summary's fragment for a contract module that was edited.
+    """The summary's fragments for the contract module: what moved under an
+    unchanged part, and what this comparison declined to compare.
 
-    §1's rule — a build input that moved under an unchanged part is named on
-    every outcome — reached the closure and stopped, and the contract file is
-    the one input the closure deliberately EXCLUDES (`SPEC-report.md` §8.3:
-    `contract_digest` already covers it). So an edited `.scad` printed
-    `covered: source closure (1 file), changed` while an edited contract
-    printed nothing at all: measured, two reports of one part whose module
-    differed by one comment gave `identical: widget — no semantic differences`
-    with `contract.digest_changed: true` in the artifact and no word of it on
-    the line.
+    §1's rule — a build input that moved is named on every outcome — reached
+    the closure and stopped, and the contract file is the one input the closure
+    deliberately EXCLUDES (`SPEC-report.md` §8.3: `contract_digest` already
+    covers it). So an edited `.scad` printed `covered: source closure (1 file),
+    changed` while an edited contract printed nothing at all: measured, two
+    reports of one part whose module differed by one comment gave `identical:
+    widget — no semantic differences` with `contract.digest_changed: true` in
+    the artifact and no word of it on the line.
 
-    It stays a fact rather than a finding, and the clause says which: the
+    Each fragment stays a fact rather than a finding, and says which. The
     digest is module-scoped, so an edit to a sibling factory that cannot reach
-    this part moves it (§3, "recorded but never outcome-bearing").
+    this part moves it; a moved module path is a rename (§3, "recorded but
+    never outcome-bearing").
+
+    **The declined comparison is named too, and that is not optional.** §2's
+    opening makes "no differences found" a positive claim requiring comparable
+    inputs rather than a fallthrough. Where one side names no factory the
+    comparison cannot say which target ran, and reporting `identical` with
+    nothing on the line would be the same silence this function was added to
+    end, one guard away (PR #353 review, F3).
     """
-    if not doc.get("contract", {}).get("digest_changed"):
-        return ""
-    return (
-        "; contract module edited: the digest moved — module-scoped, so it over-fires "
-        "and is never by itself a difference"
-    )
+    contract = doc.get("contract", {})
+    clauses = []
+    if contract.get("digest_changed"):
+        clauses.append(
+            "contract module edited: the digest moved — module-scoped, so it over-fires "
+            "and is never by itself a difference"
+        )
+    # Suppressed where the headline already prints both full spellings, which
+    # is the one suppression §1 allows: the same fact twice on one line, not
+    # two facts one of which is dropped.
+    if (moved := contract.get("module_changed")) and not contract.get("target_changed"):
+        clauses.append(
+            f"contract module path moved: {moved['old']} → {moved['new']} — the recorded "
+            "path, not its contents, and never by itself a difference"
+        )
+    if declined := contract.get("target_incomparable"):
+        clauses.append(
+            f"which target ran was not compared: {declined['old']} vs {declined['new']} — "
+            "one side names no factory, so a single-factory module spelled two ways cannot "
+            "be told from a target that changed"
+        )
+    return ("; " + "; ".join(clauses)) if clauses else ""
 
 
 def _claims_across_the_change(new_report: dict[str, Any]) -> str:

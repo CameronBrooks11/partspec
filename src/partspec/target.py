@@ -36,9 +36,20 @@ class Target:
 
     `factory` is what reaches `part.contract`, and it is resolved ALWAYS so
     that a single-factory module records its symbol too: `diff` compares that
-    field, and it can only do so where one target has one spelling. This flag
-    is the whole reason the resolution is safe to make unconditional — `slug`
-    reads it, so the default `--out` directory is unmoved.
+    field, and it can only do so where one target has one spelling.
+
+    What this flag protects is `slug` — but NOT, today, the CLI's default
+    `--out`, and the difference matters to anyone changing either. Every
+    production slug is taken from a **parsed, unresolved** target
+    (`cli._out_dir`, `_out_dir_for`, and the batch collision guard all call
+    `Target.parse(spec).slug`), which never sees an inferred factory, so
+    dropping this flag would leave `partspec check spec.py` writing
+    `outputs/spec` and only `tests/test_contract.py`'s unit assertion would
+    fail (PR #353 review, F1). It keeps `slug` answering the same question on
+    a resolved target as on a parsed one — the factory the INVOCATION named —
+    so a library caller holding the resolved target gets `outputs/spec` too,
+    and so `_out_dir` may be moved onto the resolved target later without
+    silently relocating every existing user's reports.
     """
 
     @staticmethod
@@ -53,12 +64,15 @@ class Target:
         """Report directory name — distinct per factory so co-located targets
         never clobber each other's report.
 
-        Keyed on the factory the INVOCATION named. An inferred one must not
-        reach this: `partspec check spec.py` on a single-factory module has
-        written `outputs/spec` since v0, and a slug derived from the resolved
-        symbol would silently move every such user's reports to
-        `outputs/spec-spacer` — including the `--pin` baselines and the
-        `diff` inputs that name the old path (#343). Pinned by a test.
+        Keyed on the factory the INVOCATION named, never an inferred one:
+        `partspec check spec.py` on a single-factory module has written
+        `outputs/spec` since v0, and a slug derived from the resolved symbol
+        would move every such user's reports to `outputs/spec-spacer` —
+        the `--pin` baselines and the stored `diff` inputs among them.
+        See `inferred` for which callers that rule actually reaches, and
+        `tests/test_contract.py::
+        test_resolving_a_single_factory_records_the_symbol_without_moving_the_slug`
+        for the pin.
         """
         if self.factory is None or self.inferred:
             return self.path.stem
@@ -181,7 +195,8 @@ def resolve(spec: str) -> tuple[Part, Target]:
         # Emitting the symbol solely when the invocation typed it made
         # `spec.py` and `spec.py:spacer` two strings for one run, and a
         # comparator cannot tell that pair from a genuine change. `inferred`
-        # keeps `slug` — and so the default `--out` directory — where it was.
+        # keeps this target's `slug` reading as it did before, so the rule
+        # holds whichever target a caller takes the slug from.
         target = replace(target, factory=available[0], inferred=True)
     elif not available:
         raise TargetError(

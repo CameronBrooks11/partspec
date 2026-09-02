@@ -3134,12 +3134,18 @@ def test_two_targets_in_one_module_are_not_identical():
     )
 
 
-def test_one_run_spelled_two_ways_is_not_a_target_change():
-    """The guard on the rule above (#343). A single-factory module resolved
-    without a name being typed, so a report older than that resolution says
-    `spec.py` where this release says `spec.py:spacer` — one run, two
-    spellings. An unsuffixed side cannot say which target it was, so no change
-    may be claimed from it in either direction.
+def test_one_run_spelled_two_ways_is_not_a_target_change_and_does_not_pass_in_silence():
+    """The guard on the rule above (#343), and what §2's opening requires of it.
+
+    A single-factory module resolved without a name being typed, so a report
+    older than that resolution says `spec.py` where this release says
+    `spec.py:spacer` — one run, two spellings. An unsuffixed side cannot say
+    which target it was, so no change may be claimed from it in either
+    direction.
+
+    Declining is not the same as matching. "No differences found" is a positive
+    claim requiring comparable inputs, so the pair is recorded and named on the
+    line rather than dropped (PR #353 review, F3).
     """
     for old_spelling, new_spelling in (
         ("spec.py", "spec.py:make"),
@@ -3148,20 +3154,66 @@ def test_one_run_spelled_two_ways_is_not_a_target_change():
         old, new = _doc(), _doc()
         old["part"]["contract"], new["part"]["contract"] = old_spelling, new_spelling
         doc = _diff(old, new)
-        assert doc["outcome"] == "identical", f"{old_spelling} vs {new_spelling}"
-        assert "target_changed" not in doc["contract"]
+        where = f"{old_spelling} vs {new_spelling}"
+        assert doc["outcome"] == "identical", where
+        assert "target_changed" not in doc["contract"], where
+        assert doc["contract"]["target_incomparable"] == {
+            "old": old_spelling,
+            "new": new_spelling,
+        }, where
+        assert "which target ran was not compared" in summary_of(doc, new), where
+
+
+def test_a_renamed_contract_file_is_recorded_and_is_not_a_difference():
+    """PR #353 review, F2. #343 evidences two factories in ONE module, and
+    keying the outcome on the whole `<module>:<factory>` string reached past
+    that: two byte-identical contract files under different names compared
+    `different` at exit 1 with `digest_changed: false` in the same artifact.
+
+    §3 already states the opposing principle for the closure digest — it
+    identifies contents, not layout — so a rename is recorded the way the
+    digests are, and the summary names it.
+    """
+    old, new = _doc(), _doc()
+    old["part"]["contract"], new["part"]["contract"] = "single.py:spacer", "renamed.py:spacer"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical" and exit_code_of(doc["outcome"]) == 0
+    assert "target_changed" not in doc["contract"], "the factory did not move; the path did"
+    assert doc["contract"]["module_changed"] == {"old": "single.py", "new": "renamed.py"}
+    assert "contract module path moved: single.py → renamed.py" in summary_of(doc, new)
+
+
+def test_a_target_that_moved_module_and_factory_is_a_difference_named_once():
+    """The two findings compose, and the line does not say the same thing
+    twice: the headline prints both full spellings, so the path clause — which
+    exists to carry a move the headline is silent about — is suppressed under
+    it. The artifact keeps both fields."""
+    old, new = _doc(), _doc()
+    old["part"]["contract"], new["part"]["contract"] = "a.py:imperial", "b.py:metric"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "different"
+    assert doc["contract"]["target_changed"] == {"old": "a.py:imperial", "new": "b.py:metric"}
+    assert doc["contract"]["module_changed"] == {"old": "a.py", "new": "b.py"}
+    summary = summary_of(doc, new)
+    assert "the invoked target changed: a.py:imperial → b.py:metric" in summary
+    assert "contract module path moved" not in summary
 
 
 def test_a_contract_filename_containing_a_colon_is_not_read_as_a_factory():
     """`Target.parse`'s rule, and this comparison must not approximate it: the
     tail after the last colon is a factory only when it is an identifier.
-    `rev2:spec.py` is a whole filename, so neither side names a factory and the
-    pair falls under the guard above rather than being compared."""
+    `rev2:spec.py` is a whole filename, so neither side names a factory — the
+    pair is a declined comparison and a moved module path, never a changed
+    target."""
     old, new = _doc(), _doc()
     old["part"]["contract"], new["part"]["contract"] = "rev2:spec.py", "rev3:spec.py"
     doc = _diff(old, new)
     assert doc["outcome"] == "identical"
     assert "target_changed" not in doc["contract"]
+    assert doc["contract"]["module_changed"] == {"old": "rev2:spec.py", "new": "rev3:spec.py"}
+    assert doc["contract"]["target_incomparable"]["new"] == "rev3:spec.py"
 
 
 def test_a_moved_contract_digest_stays_inside_identical_and_stops_being_silent():
@@ -3195,9 +3247,14 @@ def test_cli_two_factories_in_one_module_compared_end_to_end(tmp_path: Path):
     which is the whole point: same part id, same source, same claims, same
     module-scoped digest. Before this, both reports were `identical` at exit 0.
 
-    The default `--out` directory is pinned in the same test, on the
-    single-factory module the resolution now names anyway: it is the one thing
-    the fix could have broken silently for every existing user.
+    The default `--out` directory is exercised here too, on the single-factory
+    module the resolution now names anyway. Note what this half does and does
+    not hold: `cli._out_dir` computes the slug from a PARSED target, so it
+    cannot see `Target.inferred` and passes even with that flag ignored —
+    measured (PR #353 review, F1). The pin for the flag itself is
+    `tests/test_contract.py::
+    test_resolving_a_single_factory_records_the_symbol_without_moving_the_slug`;
+    this is the end-to-end statement that the directory is where it always was.
     """
     (tmp_path / "plate.scad").write_text("cube([30, 20, 4]);\n")
     (tmp_path / "same.py").write_text(
