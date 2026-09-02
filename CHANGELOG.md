@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Documented
+### Changed
 
 - **ISO 965-1 does not meet §10.1's formula-executed exception, measured**
   (#260, #246, #261). The exception admits a standard's tolerance grades and
@@ -33,8 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shall not be used, under a citation naming that standard — the "worse than no
   data" case the exception exists to prevent. The near miss was considered and
   rejected: `EI_G`/`es_g` hold for all 15 cells at P >= 0.8, but that bound is
-  chosen after seeing where the formula fails, and the standard's tables govern
-  at every pitch. The exception is unchanged and may still reach a standard whose
+  chosen after seeing where the formula fails, it excludes exactly M4.5 coarse
+  — a size this module ships — and the standard's tables govern at every pitch.
+  Nor is the tie rule constant: Table 1 breaks `es_g`'s P = 8 tie downward while
+  Table 2 breaks the identical `TD1(6)` tie at P = 1 upward, and under the upward
+  reading `es_g` is 23 of 25. The exception is unchanged and may still reach a standard whose
   formulae are normative. `iso_metric_thread`'s claim that the ruling licensed
   this data is corrected, the released #261 entry's "verifiable by construction"
   claim for `es_g` is falsified by the same measurement, and §10.1 records it so

@@ -1587,13 +1587,18 @@ R40 member. So both routes fail: the tabulated values cannot execute the formula
 computed values are ones the standard says shall not be used.
 
 **The near miss was considered and rejected.** `EI_G` and `es_g` each reproduce 24 of 25
-cells, missing only at P = 0.75, and all 15 cells at P ≥ 0.8 — which would cover every
-coarse thread from M5 up, the 6g/6H deviation an author actually reaches for. It is still
-out, for two reasons. Restricting to P ≥ 0.8 is a bound chosen *after* seeing where the
-formula fails, which is the sampling bias this exception exists to forbid. And §10.1 of
-that standard says its tables govern at every pitch, so a column that happens to agree is
-agreeing by coincidence rather than by construction — which is the entire distinction the
-exception draws. The exception is unchanged and may still reach a standard whose formulae
+cells, missing only at P = 0.75, and all 15 cells at P ≥ 0.8 — the 6g/6G deviations, which
+would cover every coarse thread from M5 up. (At P = 8 the formula lands on 103, exactly
+between the R40 members 100 and 106. Table 1 resolves that tie downward, while Table 2
+resolves the identical tie at `TD1(6)`, P = 1 upward — so not even the tie rule is
+constant, and under the upward reading `es_g` is 23 of 25.) It is still out, for three
+reasons. The bound P ≥ 0.8 is chosen *after* seeing where the formula fails, which is the
+sampling bias this exception exists to forbid. It excludes exactly one pitch, 0.75 — which
+is **M4.5 coarse, a size `iso_metric_thread` ships today**, so the narrow table would
+silently drop one of this project's own sizes at precisely the point the formula breaks.
+And §10.1 of that standard says its tables govern at every pitch, so a column that happens
+to agree is agreeing by coincidence rather than by construction — which is the entire
+distinction the exception draws. The exception is unchanged and may still reach a standard whose formulae
 are normative; it does not reach this one (#260).
 
 ### 10.2 `build_input` — forcing byte identity for a named distribution
