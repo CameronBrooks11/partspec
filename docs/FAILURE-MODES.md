@@ -220,6 +220,14 @@ cost is written down here rather than paid quietly.
   The three modifiers differ, and only one of them has this property: `*` (disable) is
   never evaluated, so it emits nothing and costs nothing; `#` (highlight) **is** exported,
   so its warnings are about the mesh; `%` alone is evaluated and not exported.
+  A fourth, `!` (root), leaves a residual false red in the safe direction: it exports
+  *only* its own subtree, and the engine writes only that subtree to the `.csg` — measured
+  on both engines, `!cube(10);` followed by `import("outside.stl")` produces a one-line
+  export naming no file at all. So a reference discarded by `!` appears in neither the kept
+  nor the dropped set, is unaccounted for, and is refused. That is the fail-closed rule
+  behaving correctly on absent evidence rather than a second instance of this entry's
+  class, and it is left alone: `!` is a debugging modifier that is not meant to survive
+  into a checked-in source, and refusing is the direction to be wrong in.
   **stderr is not the only channel that loses the modifier, and the other one is now
   narrowed.** The engine's dependency file records what it *resolved*, not what it
   exported, for the same reason stderr records the line but not the modifier: `%` is

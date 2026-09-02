@@ -465,6 +465,13 @@ and never appears; `#` (highlight) IS exported and MUST be treated like an unmod
 reference. Distinguishing them is the producer's obligation, on evidence that carries the
 modifier — the `.csg` export does, engine stderr does not — and where no such evidence can
 be obtained the producer MUST keep the refusal rather than assume the file was scaffolding.
+Two properties of that evidence are load-bearing, and a producer that gets either wrong
+fails **open** — it passes a part whose export is provably short, which is the failure this
+whole arrival exists to catch. The evidence MUST describe **the model that was built**,
+with the same parameter values and the same entry file, because a modifier may sit behind a
+parameter. And a name in it MUST be matched to a dependency-file entry by **resolved
+path**: that entry is canonicalised, while the reference as written need not be, so any
+textual comparison between the two is unsound in both directions.
 `engine_inputs.missing` itself still reports what the engine said, unnarrowed: it is a
 record of the run, and narrowing it would destroy the evidence the judgement was made on.
 

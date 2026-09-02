@@ -1589,13 +1589,19 @@ def test_an_unreadable_csg_export_keeps_the_refusal(tmp_path: Path):
 
 
 @needs_scad_tier
-def test_a_reference_from_an_included_file_is_matched_by_suffix(tmp_path: Path):
-    """Why the join is a suffix match and not a resolve against the entry's dir.
+def test_a_reference_from_an_included_file_is_joined_to_its_depfile_entry(tmp_path: Path):
+    """The `.csg` literal is ENTRY-relative even when the reference is not.
 
-    `import()` resolves against the directory of the file CONTAINING it, so a
-    reference inside an included helper resolves somewhere the entry file's
-    parent does not name. Measured: the depfile's absolute path always ends
-    with the literal the `.csg` carries, whichever file wrote it.
+    This test used to claim the join had to be a suffix match, because an
+    `import()` inside an included file resolves against that file's directory.
+    The premise was false and the join it justified was unsound (#354 round-2,
+    B3): OpenSCAD re-expresses the literal relative to the **entry** file's
+    directory before writing the `.csg`. Measured on this exact shape, where
+    the two engines do not even agree on where the reference resolves —
+    2021.01 writes `"deep.stl"` and the 2026.08.01 snapshot `"sub/deep.stl"` —
+    and each engine's literal, resolved against the entry's parent, reproduces
+    that same engine's own depfile entry. So `(base / literal).resolve()` is
+    exact on both, which is what the guard now relies on.
     """
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "helper.scad").write_text('module h() { import("deep.stl"); }\n')
@@ -1626,3 +1632,170 @@ def test_two_files_of_the_same_name_in_different_directories_are_told_apart(tmp_
     assert closure is not None
     assert closure["engine_inputs"]["missing"] == ["a/x.stl"], "only the %-ed one is absent"
     assert report.verdict is not Verdict.ERROR, "the export depends on b/x.stl, which is there"
+
+
+# --------------------------------------------------------------------------
+# the narrowing must not fail OPEN (#354 round-2, B3 and B4)
+# --------------------------------------------------------------------------
+#
+# Both defects passed a run whose exported geometry was provably short of what
+# the source asked for, which is the founding-property failure #309 exists to
+# close. B3: the join was by path suffix, and neither half of its premise held
+# -- the depfile entry is `.resolve()`d and the `.csg` literal is rewritten
+# entry-relative -- so a kept literal carrying `../` could not match its own
+# resolved path while a shorter dropped literal matched it by accident. B4: the
+# discriminating export was taken at the model's DEFAULTS, so a modifier behind
+# a parameter or a method wrapper adjudicated a different tree than the one the
+# depfile came from.
+
+
+def _nested_part(root: Path, body: str, name: str = "probe") -> Part:
+    """An entry file one directory DOWN, so `../` is expressible."""
+    (root / "m").mkdir(exist_ok=True)
+    src = root / "m" / f"{name}.scad"
+    src.write_text(body)
+    p = Part(name, openscad(src))
+    p.watertight()
+    return p
+
+
+@needs_scad_tier
+def test_a_dotdot_reference_the_export_used_still_holds_the_verdict(tmp_path: Path):
+    """`../mate.stl` is imported for real; `mate.stl` is only `%`-ed.
+
+    Two different files. The exported mesh goes from 12 triangles to 24 when
+    `../mate.stl` is present, so it is a build input by any definition, and the
+    same model without the `%` line exits 4. Under the suffix join the resolved
+    `.../mate.stl` could not match the kept literal `"../mate.stl"` and matched
+    the dropped `"mate.stl"` instead, and the run passed at exit 0.
+    """
+    body = 'cube([10,10,10]);\nimport("../mate.stl");\n%import("mate.stl");\n'
+    report = run(_nested_part(tmp_path, body, "dd"), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "an exported build input is missing"
+    assert report.error is not None and "mate.stl" in report.error
+
+
+@needs_scad_tier
+def test_a_symlinked_reference_the_export_used_still_holds_the_verdict(tmp_path: Path):
+    """Same defect through the other half of `.resolve()`.
+
+    The depfile entry has its symlink resolved, so it cannot end with the
+    literal the source wrote either.
+    """
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real", target_is_directory=True)
+    body = 'cube([10,10,10]);\nimport("../link/mate.stl");\n%import("mate.stl");\n'
+    report = run(_nested_part(tmp_path, body, "sym"), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+
+
+@needs_scad_tier
+def test_a_dropped_reference_through_a_symlink_is_still_exonerated(tmp_path: Path):
+    """The mirror: the same unsoundness left false REDS behind too.
+
+    A `%`-ed reference whose resolved path does not end with its literal was
+    unaccounted for and refused, on an export that does not depend on it.
+    """
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real", target_is_directory=True)
+    body = 'cube([10,10,10]);\n%import("../link/mate.stl");\n'
+    report = run(_nested_part(tmp_path, body, "fr1"), out_dir=tmp_path)
+
+    assert report.verdict is not Verdict.ERROR
+    assert _status(report, "builds") is Status.PASS
+
+
+@needs_scad_tier
+def test_a_dropped_reference_by_absolute_path_is_exonerated(tmp_path: Path):
+    """An absolute literal never had a `/`-prefixed suffix to match either."""
+    body = f'cube([10,10,10]);\n%import("{(tmp_path / "nowhere" / "abs.stl").as_posix()}");\n'
+    report = run(_nested_part(tmp_path, body, "fr2"), out_dir=tmp_path)
+
+    assert report.verdict is not Verdict.ERROR
+    assert _status(report, "builds") is Status.PASS
+
+
+@needs_scad_tier
+def test_the_export_is_taken_with_the_parameters_the_build_used(tmp_path: Path):
+    """B4: a modifier behind a `-D` value.
+
+    At the model's defaults `ghost` is true and the reference is `%`-ed; the
+    contract overrides it to false, so the BUILT tree imports the file for real
+    — 24 triangles against 12. An export taken without the overrides sees only
+    the `%` branch and exonerates a file the run actually needed.
+    """
+    body = (
+        "ghost = true;\ncube([10,10,10]);\n"
+        'if (ghost) { %import("mate.stl"); } else { import("mate.stl"); }\n'
+    )
+    src = tmp_path / "g.scad"
+    src.write_text(body)
+
+    real = Part("g", openscad(src, ghost=False))
+    real.watertight()
+    assert run(real, out_dir=tmp_path).verdict is Verdict.ERROR, (
+        "with ghost=false the import is real and the file is absent"
+    )
+
+    ghosted = Part("g", openscad(src, ghost=True))
+    ghosted.watertight()
+    report = run(ghosted, out_dir=tmp_path)
+    assert report.verdict is not Verdict.ERROR, (
+        "with ghost=true it really is scaffolding — the override decides, both ways"
+    )
+
+
+@needs_scad_tier
+def test_the_export_is_taken_through_the_method_wrapper(tmp_path: Path):
+    """B4 again, by the other route into a different tree.
+
+    `mate.stl` is `%`-ed at the top level and imported for real inside the
+    method the contract names. Exporting the bare file sees only the `%` and
+    exonerates it; exporting through the same scratch entry `render()` builds
+    sees both, and a reference named anywhere outside a dropped subtree is a
+    build input.
+    """
+    src = tmp_path / "mm.scad"
+    src.write_text(
+        '%import("mate.stl");\nmodule make() {\n  cube([10,10,10]);\n  import("mate.stl");\n}\n'
+    )
+    p = Part("mm", openscad(src, method="make"))
+    p.watertight()
+
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert not list(tmp_path.glob(".partspec-*.scad")), "the method scratch must be cleaned up"
+
+
+@needs_scad_tier
+def test_the_discriminating_export_honours_the_contracts_timeout(tmp_path: Path):
+    """L8: it is the one subprocess in the runner that ignored the budget.
+
+    It ran with a hardcoded `timeout=120` while the call site passed nothing,
+    so `--timeout 1` could still spend two minutes here. Asserted on the
+    argument rather than on a stopwatch: a wall-clock test needs a model slow
+    enough to fold, which is a different thing to be flaky about.
+    """
+    import subprocess as sp
+
+    seen: list[float | None] = []
+    real_run = sp.run
+
+    def _recording(cmd, **kwargs):
+        if any(str(a).endswith(".csg") for a in cmd):
+            seen.append(kwargs.get("timeout"))
+        return real_run(cmd, **kwargs)
+
+    body = 'cube([10,10,10]);\n%import("mate.stl");\n'
+    p = _bare_part(tmp_path, body)
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(sp, "run", _recording)
+        run(p, out_dir=tmp_path, timeout_s=7.0)
+    finally:
+        monkey.undo()
+
+    assert seen == [7.0], f"the .csg export ran with {seen}, not the contract's budget"

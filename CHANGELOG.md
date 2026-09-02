@@ -877,10 +877,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reaches the depfile at all, and `#` stays a catch because its geometry IS
   exported. One extra `.csg` export, measured at 21–31 ms, and only on a run
   that was going to exit `4`: correct runs pay nothing. **Fail closed** — an
-  export that will not run, will not parse, or names a file that cannot be
-  joined to a depfile entry keeps the refusal, which matters because the format
+  export that will not run, will not parse, or names no literal that resolves
+  onto a missing entry keeps the refusal, which matters because the format
   prints string contents raw and `text("say \"hi\"")` is a genuine parse
   failure.
+  **Two things the narrowing has to get exactly right, because getting either
+  wrong fails OPEN** — it passes a part whose export is provably short, which is
+  the failure this guard exists to prevent, and both shipped broken in this
+  PR's first cut before review caught them. The `.csg` literal is joined to a
+  depfile entry by **resolved path**, not by suffix: the depfile entry is
+  `.resolve()`d (so `..` is collapsed and symlinks followed) and the literal is
+  rewritten relative to the ENTRY file's directory, so a kept literal carrying
+  `../` could not match its own resolved path while a shorter dropped literal
+  matched it by accident. Measured on an `import()` inside an included file the
+  two engines do not even agree where it resolves — 2021.01 writes
+  `"mate.stl"`, the 2026.08.01 snapshot `"lib/mate.stl"` — and each engine's
+  literal resolved against the entry's parent reproduces that engine's own
+  depfile entry, so the exact test is right on both where a suffix test is
+  right on neither. And the export is taken **of the model that was built**,
+  with the contract's `-D` values and through the method scratch entry, because
+  a modifier can sit behind a parameter: `if (ghost) { %import(f); } else {
+  import(f); }` with `ghost=false` adjudicated the default tree and passed a run
+  whose mesh was 12 triangles instead of 24.
+  `!` (root) is a residual false red in the safe direction, described in
+  `FAILURE-MODES.md` 9a: the engine writes only the rooted subtree to the
+  `.csg`, so a reference outside it is unaccounted for and refused.
   `measure` and `render` still emit numbers and views on this shape — they are
   guarded for #286's channel, which is a stderr marker, and this one is visible
   only in the depfile. Measured and tracked as #355.

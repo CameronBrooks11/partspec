@@ -25,7 +25,7 @@ from typing import Any
 
 from . import expr as expr_mod
 from . import imports
-from .backend import BuildError, Unsupported
+from .backend import BuildError, Unsupported, effective_timeout
 from .contract import GEOMETRY, GEOMETRY_KINDS, CheckSpec, Part
 from .region import CylinderRegion
 from .report import CheckResult, Report, tool_version
@@ -349,7 +349,9 @@ def _evaluate(
         # it actually opened, which is the one thing no static reader can know.
         report.source_closure = _closure(part.source, engine_deps[0])
 
-        unexported = _only_in_dropped_subtrees(part.source, engine_deps[0].missing)
+        unexported = _only_in_dropped_subtrees(
+            _engine_source(part), engine_deps[0].missing, out_dir, timeout_s
+        )
         absent = [
             _relative(f, part.source.path) or f.name
             for f in engine_deps[0].missing
@@ -1630,7 +1632,9 @@ _UNRESOLVED_NAME_HINT = (
 _CSG_FILE_LITERAL = re.compile(r'\bfile\s*=\s*"([^"\n]*)"')
 
 
-def _only_in_dropped_subtrees(source: Any, missing: tuple[Path, ...]) -> set[Path]:
+def _only_in_dropped_subtrees(
+    source: Any, missing: tuple[Path, ...], out_dir: Path, timeout_s: float | None
+) -> set[Path]:
     """Of `missing`, the entries the export provably did not depend on.
 
     OpenSCAD **evaluates** a `%` subtree -- so the file is resolved, the engine
@@ -1650,23 +1654,39 @@ def _only_in_dropped_subtrees(source: Any, missing: tuple[Path, ...]) -> set[Pat
     one that parser already implements, for the same reason, so nothing in
     `csg.py` changes.
 
-    **Fail closed at every step.** An export that will not run, will not parse,
-    or names a file this cannot join to a depfile entry returns nothing, and the
-    caller refuses as before. The known parse failure is real and is why: the
-    `.csg` prints string contents raw, so `text("say \"hi\"")` is a `CsgError`
-    -- a false refusal there is the behaviour that already shipped, while a
-    false pass would be the founding-property failure #309 exists to close.
+    **The export must be of the model that was BUILT, not of its defaults.**
+    A modifier can be behind a parameter -- `if (ghost) { %import(f); } else {
+    import(f); }` -- so an export taken without `-D` or without the method
+    wrapper adjudicates a different tree than the one the depfile came from,
+    and passes a run whose geometry is provably short (#354 round-2, B4). The
+    entry is prepared exactly as `render()` prepares it, and a method scratch
+    that cannot be written refuses rather than falls back to the defaults.
 
-    Compared by SUFFIX, not by resolving the literal against the entry file's
-    directory: an `import()` inside an INCLUDED file resolves against *that*
-    file's directory, which the entry's parent would get wrong. Measured, the
-    depfile's absolute path always ends with the literal as written.
+    **Joined by resolved path, not by suffix.** The depfile entry is
+    `.resolve()`d, and the `.csg` literal is not the literal as written either:
+    OpenSCAD re-expresses it relative to the ENTRY file's directory. Measured on
+    an `import()` inside an included file, where the two engines even disagree
+    about where it resolves -- 2021.01 writes `"mate.stl"` and the 2026.08.01
+    snapshot `"lib/mate.stl"` -- and each engine's literal, resolved against the
+    entry's parent, reproduces that same engine's own depfile entry. So
+    `(base / literal).resolve()` is exact where a suffix match is not: a kept
+    literal carrying `../` could not match its own resolved path, while a
+    shorter dropped literal matched it by accident, and the run passed with a
+    real build input missing (#354 round-2, B3).
+
+    **Fail closed at every step.** An export that will not run, will not parse,
+    or names no literal that resolves onto a `missing` entry returns nothing,
+    and the caller refuses as before. The known parse failure is real and is
+    why: the `.csg` prints string contents raw, so `text("say \"hi\"")` is a
+    `CsgError` -- a false refusal there is the behaviour that already shipped,
+    while a false pass would be the founding-property failure #309 exists to
+    close.
     """
     import subprocess
     import tempfile
 
     from . import csg
-    from .engines.openscad import find_executable
+    from .engines.openscad import _define_args, _method_scratch, find_executable
 
     if not missing:
         return set()
@@ -1674,30 +1694,48 @@ def _only_in_dropped_subtrees(source: Any, missing: tuple[Path, ...]) -> set[Pat
     if executable is None:
         return set()
 
+    scratch: Path | None = None
+    if source.method:
+        prepared = _method_scratch(source, out_dir)
+        if isinstance(prepared, BuildError):
+            # No usable entry, so no evidence: refuse. Falling back to
+            # `source.path` would export the module definitions without the
+            # call that uses them, which is the wrong tree stated confidently.
+            return set()
+        scratch, render_path, defines = prepared, prepared, []
+    else:
+        render_path, defines = source.path, _define_args(source.params)
+
     # A deliberate duplicate of `lint.lint_scad_tier2`'s exporter, not a shared
     # helper. Factoring that out is a refactor of a second module for one
     # caller, and this one needs neither its per-rule refusal vocabulary nor its
     # raw-quote pre-check -- a quote here is simply a `CsgError`, which is
-    # already the fail-closed answer.
-    with tempfile.TemporaryDirectory(prefix="partspec-csg-") as tmp:
-        out = Path(tmp) / "tree.csg"
-        try:
-            proc = subprocess.run(
-                [executable, "-o", str(out), str(source.path)],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return set()
-        if proc.returncode != 0 or not out.is_file():
-            return set()
-        raw = out.read_text(encoding="utf-8", errors="replace")
-        try:
-            nodes = csg.parse_csg(raw)
-        except csg.CsgError:
-            return set()
+    # already the fail-closed answer. It does differ in one way that matters:
+    # the contract's own budget is honoured, because this runs inside a `check`
+    # the caller may have bounded with `--timeout` (#354 round-2, L8).
+    try:
+        with tempfile.TemporaryDirectory(prefix="partspec-csg-") as tmp:
+            out = Path(tmp) / "tree.csg"
+            try:
+                proc = subprocess.run(
+                    [executable, "-o", str(out), *defines, str(render_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=effective_timeout(timeout_s),
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return set()
+            if proc.returncode != 0 or not out.is_file():
+                return set()
+            raw = out.read_text(encoding="utf-8", errors="replace")
+            try:
+                nodes = csg.parse_csg(raw)
+            except csg.CsgError:
+                return set()
+    finally:
+        if scratch is not None:
+            scratch.unlink(missing_ok=True)
 
     def _kept(items: list, acc: set[str]) -> set[str]:
         for node in items:
@@ -1714,14 +1752,16 @@ def _only_in_dropped_subtrees(source: Any, missing: tuple[Path, ...]) -> set[Pat
     kept = _kept(nodes, set())
     dropped = set(_CSG_FILE_LITERAL.findall(raw)) - kept
 
-    def _names(path: Path, literals: set[str]) -> bool:
-        text = path.as_posix()
-        return any(text == lit or text.endswith("/" + lit.removeprefix("./")) for lit in literals)
+    base = Path(render_path).resolve().parent
 
+    def _resolved(literals: set[str]) -> set[Path]:
+        return {(base / lit).resolve() for lit in literals}
+
+    kept_paths, dropped_paths = _resolved(kept), _resolved(dropped)
     # Exonerated only when the export names it in a dropped subtree AND nowhere
     # else. A file referenced from both is a build input, and an entry matching
     # neither set is unaccounted for and stays refused.
-    return {f for f in missing if _names(f, dropped) and not _names(f, kept)}
+    return {f for f in missing if f in dropped_paths and f not in kept_paths}
 
 
 _ABSENT_INPUT_CAUSE = (
