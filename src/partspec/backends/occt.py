@@ -122,6 +122,37 @@ def _empty(a: Any) -> bool:
     return not a.vertices()
 
 
+def _material_volume(a: Any) -> float:
+    """The volume of the shape's **material**: each solid's own, summed.
+
+    Never `a.volume`, which build123d computes as
+    `sum(i.volume for i in [*self.get_type(Solid), *self.get_type(Shell)])`
+    over `self.compounds()`, and which is therefore wrong in two independent
+    directions (measured, build123d 0.11.1):
+
+    * It sums **shells** as well as solids. A `Shell` built over a solid's own
+      faces is closed, so OCCT encloses a volume for it too, and a 20 mm cube
+      bored 6 mm through read `14869.03` against its honest `7434.51` — exactly
+      twice the part, flagged exact (#344).
+    * `get_type` walks the direct children of `self.compounds()`, and
+      `Compound.compounds()` returns self plus its *direct* compound children
+      only. A solid below that is therefore invisible to it and the sum is
+      `0.0` — 1000 mm³ of material reported as nothing, flagged exact (#347).
+      Measured level by level, counting **TopoDS compound wrappings above the
+      solid**: levels 0, 1 and 2 read 1000.0 and levels 3, 4, 5 and 6 read 0.0.
+      That is not the same count as `Compound(children=[...])` calls -- the two
+      differ by one, because `Box(...)` is already a compound over its solid --
+      so level 3 is reached by **two** such calls, which is an assembly
+      grouping a sub-assembly, the ordinary way to group one.
+
+    Each solid's own `.volume` is `BRepGProp.VolumeProperties_s` over that
+    solid, which recurses and knows nothing of the wrapping above it, so this
+    is correct at any depth and counts no sheet. Measured over eighteen honest
+    shapes, every one with a solid is unchanged.
+    """
+    return sum(float(solid.volume) for solid in a.solids())
+
+
 # The five entity counts the Euler-Poincare formula reads, and the singular of
 # each — genus is a statement about one closed body, so every one of them has to
 # be that body's own (#334).
@@ -534,41 +565,115 @@ class OcctBackend:
         )
 
     def volume(self, a: Any) -> Measurement | Unsupported:
-        """Refused for a shape that bounds no solid.
+        """How much **material** the shape holds: its solids' volume, summed.
 
-        The mesh tier's version of this returned a plausible wrong number; here
-        it returns a plausible wrong *zero*. An open shell and a bare face both
-        report `volume 0.0` while `is_valid` is True, so validity does not catch
-        it — and `volume(max=...)` on a shape containing no material would pass.
+        Refused for a shape that bounds no solid. The mesh tier's version of
+        this returned a plausible wrong number; here it returns a plausible
+        wrong *zero*. An open shell and a bare face both report `volume 0.0`
+        while `is_valid` is True, so validity does not catch it — and
+        `volume(max=...)` on a shape containing no material would pass.
+
+        On a multi-body shape the quantity is the **total over the bodies**, not
+        the total over everything the kernel finds. That is a decision about
+        what volume means here, not a guard copied from `genus` (#344): a
+        compound of several solids has a defensible total volume and keeps
+        answering, while a sheet has no volume to contribute at all. Taken over
+        `a.solids()` rather than off `a` — see `_material_volume` for the two
+        measured ways `a.volume` gets this wrong.
         """
         if not a.solids():
             return Unsupported(
                 "this shape bounds no solid, so it has no volume (check solid_count first)"
             )
-        return Measurement(float(a.volume), "mm3", exact=True)
+        return Measurement(_material_volume(a), "mm3", exact=True)
 
     def area(self, a: Any) -> Measurement | Unsupported:
-        """Total surface area. Total, like the mesh tier's — defined for a face
-        and a shell as much as for a solid, and so deliberately not gated on
-        `solids()`. Gated only on there being geometry at all: `area(max=...)`
-        would otherwise pass on an empty compound's 0.0."""
+        """Total surface area — of the material where there is material, and of
+        the shape itself where there is none.
+
+        Deliberately **not** the single rule `volume` takes, and the fallback is
+        the load-bearing half. Area is defined for a face and a shell as much as
+        for a solid, so a naive sum over `a.solids()` would report a shell-only
+        part as `0.0, exact` — measured, a closed 10 mm box shell reads 600.0
+        today and 0.0 under that sum. That is a new confident wrong number of
+        exactly the class this fixes, so no shape without a solid changes: it
+        still reads `a.area`, and only the emptiness gate stands in front of it
+        (`area(max=...)` would otherwise pass on an empty compound's 0.0).
+
+        Where solids DO exist, the surface asked about is the material's. A
+        `Shell` over a solid's own faces doubled the answer — 5440.88 against an
+        honest 2720.44 on a bored 20 mm cube, flagged exact (#344) — because
+        `BRepGProp.SurfaceProperties_s` visits every face occurrence in the
+        compound, the duplicates included. Summing each solid's own area is
+        unchanged on every honest solid measured and counts no stray sheet.
+
+        **The cost, stated rather than left to be discovered: a sheet standing
+        beside a solid contributes nothing here.** Measured, a 20 mm square face
+        reports 400.0 alone and is dropped once a 10 mm box is beside it — 600.0
+        on a shape carrying 1000 mm² of surface, so `area(max=700)` passes on
+        it. Accepted, because the alternative is the doubling above and because
+        a result mixing a solid with a loose sheet is the corruption this guard
+        answers.
+
+        **What names such a shape depends on whether the sheet is closed, and
+        `watertight` alone does not.** Measured: an OPEN sheet or shell leaves
+        an edge bounded by one face, so `is_manifold` reads false — that is the
+        400 mm² case above. A CLOSED stray shell does not: a 10 mm box shell
+        beside a plain box drops 600 mm² from `area` with `watertight` reading
+        **true**, and beside the bored cube it drops the same 600 mm² while
+        reading true (SPEC-backend.md §4's own row 3). What holds for both is
+        `genus`, which refuses any stray beside its one solid (#339), and
+        `bbox` / `topology_counts`, which move because the sheet is a separate
+        body. SPEC-backend.md §4 records the trade.
+        """
         if _empty(a):
             return Unsupported(_EMPTY_REASON)
-        return Measurement(float(a.area), "mm2", exact=True)
+        solids = a.solids()
+        if not solids:
+            return Measurement(float(a.area), "mm2", exact=True)
+        return Measurement(sum(float(solid.area) for solid in solids), "mm2", exact=True)
 
     def center_of_mass(self, a: Any) -> Measurement | Unsupported:
-        """Refused on the same precondition as `volume`, and for a sharper
-        reason: on a shape with no solid, build123d's `center()` still answers,
-        but with the centroid of the *surface* — a different quantity under the
-        same name."""
-        if not a.solids():
+        """The material's centroid: each solid's own centre, weighted by its
+        volume.
+
+        Refused for a shape bounding no solid, and for a sharper reason than
+        `volume`'s: there build123d's `center()` still answers, but with the
+        centroid of the *surface* — a different quantity under the same name.
+
+        Taken over the solids for the same reason as `volume`, and found by the
+        same sweep. `center()` reads `BRepGProp.VolumeProperties_s` over the
+        whole shape, which encloses a volume for a closed stray shell too, so
+        the centroid is dragged toward it: a bored 20 mm cube centred on the
+        origin beside a closed 10 mm box shell 100 mm away measured
+        `x = 11.856 mm, exact`, against its honest `-3.8e-16`. #344's own stray
+        sits on the solid's own faces and so moves this by nothing, which is why
+        the issue records `center_of_mass` as unmoved; move the stray and it
+        moves. Nesting depth does not reach it — the GProp walk recurses — so
+        this is the stray-body half of the class only.
+        """
+        solids = a.solids()
+        if not solids:
             return Unsupported(
                 "this shape bounds no solid, so it has no centre of mass (check solid_count first)"
             )
-        c = a.center()
-        return Measurement(
-            (float(c.X), float(c.Y), float(c.Z)), "mm", exact=True, axes=("x", "y", "z")
+        total = _material_volume(a)
+        if not total:
+            # Weighting by a zero total divides by zero, which on Python
+            # floats RAISES `ZeroDivisionError` -- it does not produce a `nan`.
+            # So this guard prevents a crash, not a fabricated number; the
+            # refusal is owed either way, because solids enclosing no net
+            # volume have no centre of mass. Reachable: two independently built
+            # 10 mm boxes, one reversed, are solids of +999.99 and -999.99 with
+            # `solid_count 2` and `is_valid True` (SPEC-backend.md 4).
+            return Unsupported(
+                "this shape's solids enclose no net volume, so it has no centre of mass"
+            )
+        centres = [(float(s.volume), s.center()) for s in solids]
+        com = tuple(
+            sum(v * float(getattr(c, axis)) for v, c in centres) / total for axis in ("X", "Y", "Z")
         )
+        return Measurement(com, "mm", exact=True, axes=("x", "y", "z"))
 
     def is_valid(self, a: Any) -> Measurement:
         """`is_valid` is a **property** on build123d and a **method**
@@ -999,11 +1104,21 @@ class OcctBackend:
         if isinstance(back, BuildError):
             return Unsupported(f"the round-tripped shape did not survive adoption: {back.message}")
 
-        volume = abs(a.volume)
+        # `_material_volume`, not `a.volume`, on BOTH sides: the raw property
+        # reads 0.0 once the solid sits three compound wrappings deep (#347),
+        # and the STEP reader hands back a shallow shape, so the comparison
+        # measured 0 against 7434.51 and reported `volume_rel 7.4e15` on a part
+        # the exchange had preserved exactly -- a fabricated total degradation.
+        # `area` is left as the shape's total on both sides: this is the
+        # survivability question, where a stray sheet the exchange dropped IS
+        # a change to the artifact, and area is immune to the nesting anyway.
+        before = _material_volume(a)
+        after = _material_volume(back)
+        volume = abs(before)
         area = abs(a.area)
         return {
             "schema": schema,
-            "volume_rel": abs(back.volume - a.volume) / max(volume, 1e-12),
+            "volume_rel": abs(after - before) / max(volume, 1e-12),
             "area_rel": abs(back.area - a.area) / max(area, 1e-12),
             "faces": (len(a.faces()), len(back.faces())),
             "edges": (len(a.edges()), len(back.edges())),

@@ -992,3 +992,336 @@ def test_the_grouping_quantum_is_a_micrometre():
     distinct, _ = _axis_key((0, 0, 0), (0, 0, 1.0), 4.00001)
     assert same_a == same_b
     assert same_a != distinct
+
+
+# --------------------------------------------------------------------------
+# volume / area / centre of mass measure the MATERIAL (#344, #347)
+#
+# Two corruptions of one solid, found sweeping PR #339's guard: a stray shell
+# beside it, and the solid nested three compound wrappings deep. Every builder
+# constructs its shapes fresh inside the call, behind a `lambda` where it is
+# parametrized -- the #337 discipline.
+# --------------------------------------------------------------------------
+
+
+def _cube_beside_a_shell_100mm_away():
+    """The stray that MOVES the centroid. #344's shell sits on the solid's own
+    faces, so it drags the centre of mass by nothing and the issue records it
+    unmoved; a closed shell 100 mm off drags it to x = 11.856 mm."""
+    return bd.Compound(
+        children=[_bored_cube(), bd.Pos(100, 0, 0) * bd.Shell(bd.Box(10, 10, 10).faces())]
+    )
+
+
+def _nested(shape, depth: int):
+    """`shape` inside `depth` further TopoDS_Compound wrappings.
+
+    Built at the TopoDS level rather than with `Compound(children=[...])` so
+    the depth in the name is the depth in the shape: `Box(...)` is already a
+    compound over its solid, so one `children=` wrapping is depth 2, not 1.
+
+    `depth == 0` returns the shape UNWRAPPED. Wrapping a bare `TopoDS_SOLID` in
+    a `bd.Compound` is not level 0 of anything a build produces: `Compound.volume`
+    iterates `compounds()`, which is empty for a solid handle, so it would read
+    0.0 and the parametrization would measure a helper artifact instead of the
+    rule. `adopt` maps a real level-0 solid to `bd.Solid`, where it reads
+    999.99 -- which is what this returns.
+    """
+    from OCP.TopoDS import (
+        TopoDS_Builder,  # pyright: ignore[reportAttributeAccessIssue]
+        TopoDS_Compound,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+
+    if depth == 0:
+        return shape
+    raw = shape.wrapped
+    for _ in range(depth):
+        wrapper = TopoDS_Compound()
+        builder = TopoDS_Builder()
+        builder.MakeCompound(wrapper)
+        builder.Add(wrapper, raw)
+        raw = wrapper
+    return bd.Compound(raw)
+
+
+def _deeply_nested_cube():
+    """A bored cube three compound wrappings deep -- `Compound.compounds()`
+    reaches self and its DIRECT compound children only, so `get_type(Solid)`
+    finds nothing and `a.volume` reads 0.0 (#347)."""
+    return _nested(_bored_cube().solids()[0], 3)
+
+
+def test_volume_ignores_a_stray_shell_beside_the_solid(backend: OcctBackend):
+    """#344: a `Shell` over the solid's own faces is closed, so OCCT encloses a
+    volume for it, and build123d's `.volume` sums shells alongside solids --
+    exactly twice the part, flagged exact."""
+    shape = _cube_beside_a_shell_over_its_own_faces()
+    assert shape.volume == pytest.approx(14869.026644707672), "premise: the raw property doubles"
+    assert backend.solid_count(shape).value == 1, "premise: the solid count does not move"
+    assert measured(backend.volume(shape)).value == pytest.approx(7434.513322353836)
+
+
+def test_volume_is_the_material_however_deeply_the_solid_is_nested(backend: OcctBackend):
+    """#347: 7434 mm3 of material reported as 0.0, flagged exact -- which
+    `volume(max=...)` passes on any part."""
+    shape = _deeply_nested_cube()
+    assert shape.volume == 0.0, "premise: the raw property collapses"
+    assert backend.solid_count(shape).value == 1, "premise: the solid count does not move"
+    assert measured(backend.volume(shape)).value == pytest.approx(7434.513322353836)
+
+
+@pytest.mark.parametrize("depth", [0, 1, 2, 3, 4, 6])
+def test_volume_does_not_depend_on_nesting_depth(backend: OcctBackend, depth: int):
+    """The raw property is correct to depth 2 and 0.0 from depth 3 on, so a
+    test at one depth proves nothing about the rule. Depth 3 is one ordinary
+    `Compound(children=[...])` past an already-compound `Box`."""
+    shape = _nested(bd.Box(10, 10, 10).solids()[0], depth)
+    assert measured(backend.volume(shape)).value == pytest.approx(1000.0)
+
+
+def test_area_ignores_a_stray_shell_beside_the_solid(backend: OcctBackend):
+    """`SurfaceProperties_s` visits every face OCCURRENCE in the compound, so
+    the shell's duplicate references to the solid's own faces are summed again
+    (#344)."""
+    shape = _cube_beside_a_shell_over_its_own_faces()
+    assert shape.area == pytest.approx(5440.884901332316), "premise: the raw property doubles"
+    assert measured(backend.area(shape)).value == pytest.approx(2720.4424506661585)
+
+
+def test_area_falls_back_to_the_shape_when_there_is_no_solid(backend: OcctBackend):
+    """The other half of the rule, and the reason `area` does not take
+    `volume`'s single form. A sum over `solids()` alone reports a shell-only
+    part as 0.0, exact -- a new confident wrong number of the class this fixes.
+    A closed 10 mm box shell has an area whatever it bounds."""
+    shell = bd.Shell(bd.Box(10, 10, 10).faces())
+    assert shell.solids() == [], "premise: a shell is not a solid"
+    assert sum(s.area for s in shell.solids()) == 0.0, "premise: the naive sum reports nothing"
+    assert measured(backend.area(shell)).value == pytest.approx(600.0)
+
+
+def test_center_of_mass_ignores_a_stray_shell_beside_the_solid(backend: OcctBackend):
+    """Found by the sweep, not filed: `center()` reads volume properties over
+    the whole shape, and a closed stray shell encloses a volume, so it drags
+    the centroid 11.856 mm off a part centred on the origin."""
+    shape = _cube_beside_a_shell_100mm_away()
+    assert pytest.approx(11.856, abs=1e-3) == shape.center().X, "premise: the raw call is dragged"
+    assert backend.solid_count(shape).value == 1, "premise: the solid count does not move"
+    x, y, z = measured(backend.center_of_mass(shape)).value
+    assert (x, y, z) == pytest.approx((0.0, 0.0, 0.0), abs=1e-9)
+
+
+def test_center_of_mass_weights_the_bodies_by_their_volume(backend: OcctBackend):
+    """A multi-body part still answers, and the answer is the material's
+    centroid -- not the midpoint of the bodies. A 10 mm cube at the origin and
+    a 20 mm cube centred at x = 50 put it at 50 * 8000 / 9000."""
+    shape = bd.Compound(children=[bd.Box(10, 10, 10), bd.Pos(50, 0, 0) * bd.Box(20, 20, 20)])
+    assert backend.solid_count(shape).value == 2
+    x, _, _ = measured(backend.center_of_mass(shape)).value
+    assert x == pytest.approx(50.0 * 8000.0 / 9000.0)
+
+
+def test_a_multi_body_shape_still_answers_volume_and_area(backend: OcctBackend):
+    """The decision is what the quantity MEANS on a multi-body shape, not a
+    refusal copied from `genus` (#344). Two disjoint 10 mm boxes hold 2000 mm3
+    of material bounded by 1200 mm2 of surface, and both are defensible
+    totals -- D17's second half forbids refusing them."""
+    two = bd.Compound(children=[bd.Box(10, 10, 10), bd.Pos(30, 0, 0) * bd.Box(10, 10, 10)])
+    assert measured(backend.volume(two)).value == pytest.approx(2000.0)
+    assert measured(backend.area(two)).value == pytest.approx(1200.0)
+    assert "per body" in refused(backend.genus(two)).reason, "genus still refuses; these do not"
+
+
+@pytest.mark.parametrize(
+    ("name", "shape", "volume", "area"),
+    [
+        ("box", lambda: bd.Box(10, 10, 10), 1000.0, 600.0),
+        ("bored cube", _bored_cube, 7434.513322353836, 2720.4424506661585),
+        (
+            "blind hole",
+            lambda: bd.Box(20, 20, 20) - (bd.Pos(0, 0, 5) * bd.Cylinder(3, 12)),
+            7688.982236504618,
+            2607.345175426583,
+        ),
+        (
+            "tube",
+            lambda: bd.Cylinder(10, 20) - bd.Cylinder(5, 20),
+            4712.388980384691,
+            2356.1944901923457,
+        ),
+        ("sphere", lambda: bd.Sphere(10), 4188.790204786391, 1256.6370614359173),
+        ("torus", lambda: bd.Torus(10, 3), 1776.5287921960845, 1184.3525281307231),
+        (
+            "sealed cavity block",
+            lambda: bd.Solid(bd.Box(20, 20, 20).solids()[0].wrapped).cut(
+                bd.Solid(bd.Box(10, 10, 10).solids()[0].wrapped)
+            ),
+            7000.0,
+            3000.0,
+        ),
+        ("solids()[0]", lambda: bd.Box(10, 10, 10).solids()[0], 1000.0, 600.0),
+        (
+            "compound of one solid",
+            lambda: bd.Compound(children=[bd.Box(10, 10, 10)]),
+            1000.0,
+            600.0,
+        ),
+        (
+            "two disjoint solids",
+            lambda: bd.Compound(
+                children=[bd.Box(10, 10, 10), bd.Pos(30, 0, 0) * bd.Box(10, 10, 10)]
+            ),
+            2000.0,
+            1200.0,
+        ),
+    ],
+)
+def test_honest_shapes_measure_exactly_as_before(
+    backend: OcctBackend, name: str, shape, volume: float, area: float
+):
+    """D17's second half: the narrowing must not move an honest answer. Every
+    row was measured under `float(a.volume)` / `float(a.area)` before the
+    change and is identical after it."""
+    a = shape()
+    assert measured(backend.volume(a)).value == pytest.approx(volume), name
+    assert measured(backend.area(a)).value == pytest.approx(area), name
+
+
+def test_step_roundtrip_compares_material_not_the_collapsed_property(backend: OcctBackend):
+    """The same broken read, one method down. `a.volume` is 0.0 on the nested
+    shape and the round-tripped shape comes back shallow, so the comparison
+    reported `volume_rel 7.4e15` -- total degradation fabricated on an exchange
+    that preserved the part exactly."""
+    shape = _deeply_nested_cube()
+    assert shape.volume == 0.0, "premise: the raw property collapses"
+    result = backend.step_roundtrip(shape)
+    assert not isinstance(result, Unsupported)
+    assert result["volume_rel"] < 1e-9
+    assert result["solids"] == (1, 1)
+
+
+def test_center_of_mass_is_refused_when_the_solids_enclose_no_net_volume(backend: OcctBackend):
+    """The weighting divides by the total, and a reversed solid contributes a
+    NEGATIVE volume, so the total is reachable at exactly zero. Python floats
+    raise `ZeroDivisionError` there rather than producing a `nan` -- so the
+    guard prevents a crash, not a fabricated number, and the refusal is owed
+    either way: solids enclosing no net volume have no centre of mass.
+
+    Nothing adjacent catches it: `solid_count` reads 2 and `is_valid` True.
+    """
+    a1, a2 = bd.Box(10, 10, 10), bd.Box(10, 10, 10)
+    shape = bd.Compound(children=[a1, bd.Solid(a2.solids()[0].wrapped.Reversed())])
+    assert [round(float(s.volume), 6) for s in shape.solids()] == [1000.0, -1000.0], (
+        "premise: the reversed solid encloses a negative volume"
+    )
+    assert backend.solid_count(shape).value == 2, "premise: the solid count reads normal"
+    assert backend.is_valid(shape).value is True, "premise: validity does not catch it"
+    assert "no net volume" in refused(backend.center_of_mass(shape)).reason
+
+
+def test_a_sheet_beside_a_solid_contributes_nothing_to_area(backend: OcctBackend):
+    """The accepted cost of measuring area over the solids, pinned so it stays
+    a decision rather than a discovery.
+
+    The same 20 mm square face is measured when it stands alone and dropped
+    once a solid is beside it. `area(max=700)` therefore passes on a shape
+    carrying 1000 mm2 of surface -- the unsafe direction, accepted because the
+    alternative is #344's doubling. `watertight` is the primitive that names
+    such a shape.
+    """
+    sheet = bd.Pos(0, 0, 30) * bd.Rectangle(20, 20).faces()[0]
+    assert measured(backend.area(sheet)).value == pytest.approx(400.0)
+
+    mixed = bd.Compound(
+        children=[bd.Box(10, 10, 10), bd.Pos(0, 0, 30) * bd.Rectangle(20, 20).faces()[0]]
+    )
+    assert mixed.area == pytest.approx(1000.0), "premise: the shape does carry 1000 mm2"
+    assert measured(backend.area(mixed)).value == pytest.approx(600.0)
+    assert backend.solid_count(mixed).value == 1
+    assert backend.is_valid(mixed).value is True
+    assert measured(backend.watertight(mixed)).value is False, "an OPEN sheet: false"
+
+
+def test_a_closed_stray_shell_is_dropped_from_area_with_watertight_still_true(
+    backend: OcctBackend,
+):
+    """`watertight` is NOT the primitive that names a dropped sheet, and this
+    is the row that proves it.
+
+    An open sheet leaves an edge bounded by one face, so `is_manifold` reads
+    false. A CLOSED stray shell leaves every edge bounded by two, so it reads
+    **true** while `area` silently drops the shell's whole 600 mm2. Every
+    adjacent boolean reads normal. What catches it is `genus`, which refuses
+    any stray beside its one solid, and `bbox` / `topology_counts`, which move
+    because the shell is a separate body.
+    """
+    mixed = bd.Compound(
+        children=[bd.Box(10, 10, 10), bd.Pos(100, 0, 0) * bd.Shell(bd.Box(10, 10, 10).faces())]
+    )
+    assert mixed.area == pytest.approx(1200.0), "premise: the shape carries 1200 mm2"
+    assert measured(backend.area(mixed)).value == pytest.approx(600.0), "600 mm2 dropped"
+
+    assert measured(backend.watertight(mixed)).value is True, "a CLOSED shell: still true"
+    assert backend.is_valid(mixed).value is True
+    assert backend.solid_count(mixed).value == 1
+
+    assert "one closed body" in refused(backend.genus(mixed)).reason
+    assert measured(backend.bbox(mixed)).value == pytest.approx((110.0, 10.0, 10.0))
+    assert backend.topology_counts(mixed).value == (12, 24, 16)
+
+
+def test_step_roundtrip_fails_the_stray_shell_that_the_accessors_cannot_see(
+    backend: OcctBackend,
+):
+    """The second detector for #344's stray, and the stronger one.
+
+    The shell shares the solid's TShapes, so every deduplicating accessor is
+    unmoved -- `topology_counts` reads the honest (7, 15, 10). The STEP writer
+    expands those shared TShapes into distinct entities, so the round-trip
+    counts move where nothing else does. `genus` refuses this shape at exit 2;
+    this FAILS it at exit 1, which is a verdict rather than a refusal.
+
+    **The deduplication is what makes the drift visible, not what threatens
+    it.** An earlier revision of this docstring and of SPEC-backend said the
+    opposite -- that a refactor must not deduplicate these counts -- which is
+    the rule inverted: obeying it deletes the detector. Measured on this shape,
+    the two refactors that lose the detection are raw occurrence counting and
+    reduction to the solids' own, and the accessor the code uses is the only
+    one of the three that sees anything:
+
+        .faces() both sides            (7, 14)   drift -> FAIL
+        raw TopExp occurrences        (14, 14)   no drift, detector gone
+        summed over a.solids()         (7,  7)   no drift, detector gone
+
+    Both losing forms are pinned below, so neither can be introduced silently.
+    """
+    honest = backend.step_roundtrip(_bored_cube())
+    assert not isinstance(honest, Unsupported)
+    assert honest["faces"] == (7, 7)
+    assert honest["edges"] == (15, 15)
+
+    stray = _cube_beside_a_shell_over_its_own_faces()
+    assert backend.topology_counts(stray).value == (7, 15, 10), (
+        "premise: the accessors cannot see this stray at all"
+    )
+
+    # The mechanism, executed rather than described: the `a` side must stay
+    # deduplicated for the round-trip's expansion to show up as drift.
+    from OCP.TopAbs import TopAbs_ShapeEnum  # pyright: ignore[reportAttributeAccessIssue]
+    from OCP.TopExp import TopExp_Explorer  # pyright: ignore[reportAttributeAccessIssue]
+
+    explorer = TopExp_Explorer(stray.wrapped, TopAbs_ShapeEnum.TopAbs_FACE)
+    occurrences = 0
+    while explorer.More():
+        occurrences += 1
+        explorer.Next()
+    assert occurrences == 14, "premise: raw occurrence counting already reads 14 before"
+    assert len(stray.faces()) == 7, "premise: the deduplicating accessor reads 7"
+    assert sum(len(solid.faces()) for solid in stray.solids()) == 7, (
+        "premise: reducing to the solids' own also reads 7"
+    )
+    result = backend.step_roundtrip(stray)
+    assert not isinstance(result, Unsupported)
+    assert result["faces"] == (7, 14), "the writer expands the shared TShapes"
+    assert result["edges"] == (15, 30)
+    assert result["solids"] == (1, 1)
+    assert result["volume_rel"] < 1e-9, "the MATERIAL survives; only the topology moves"

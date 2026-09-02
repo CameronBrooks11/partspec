@@ -78,12 +78,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test, at exit 64; what the discriminator adds is that a consumer which is not
   `diff` can now make the same distinction, by name, without reverse-engineering
   it from the key set.
-  **Five of the six payloads #295 names, not six: `partspec diff`'s own output
-  carries no discriminator (#345)**, its module having belonged to another lane
-  this wave. §7.1's "absent means an older partspec wrote it" reading is
-  therefore scoped to the five that do carry the field — a `diff.json` from this
-  release has none, and `tool.name: "partspec-diff"` is what identifies it until
-  #345 lands.
+  **All six payloads #295 names, `partspec diff`'s own artifact included
+  (#345).** It shipped without one — its module belonged to another lane during
+  #342 — which left §7.1's "absent means an older partspec wrote it" reading
+  scoped to five artifacts, drawing a false conclusion about every `diff.json`
+  this release had written, and left a consumer switching on `payload`
+  special-casing that one document by `tool.name`. It now carries
+  `"payload": "diff"` in the same position as the rest, `DIFF_SCHEMA_VERSION`
+  unmoved at 2 by the same additive rule, and §7.1 states the plain rule with
+  no exception attached.
 
 - **`csg-two-part-intersection`, an advisory lint rule** (#270). Fires when a
   file's entire top level is a single `intersection()` of exactly two children.
@@ -726,6 +729,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OCCT `volume`, `area` and `center_of_mass` measure the material, not the
+  shape** (#344, #347). All three read a build123d property off the whole shape,
+  and none of those properties is about material. On a 20 mm cube bored Ø6
+  through — honestly 7434.51 mm³ — a `Shell` over the solid's own faces read
+  **14869.03**, exactly double; a closed 10 mm shell standing 100 mm away read
+  **8434.51** and dragged the centroid to **x = 11.856 mm** from −3.8e−16; and
+  the same solid **two `Compound(children=[...])` calls deep** — an assembly
+  grouping a sub-assembly — read **0.0**. (Counted in calls; `occt.py` and
+  `SPEC-backend.md` §4 count the same cliff as TopoDS compound level 3,
+  which is the same shape: `Box(...)` is already a compound over its solid,
+  so the two counts differ by one.) Every one was
+  flagged `exact`, on a shape reporting `solid_count 1`, `watertight true` and
+  `cavities 0`. On the shell-over-its-own-faces shape and the nested one,
+  none of the primitives beside them moved: `solid_count`, `watertight`,
+  `is_valid`, `cavities`, `bbox` and `topology_counts` all read the honest
+  values. (`genus` refuses the shell shape and `step_roundtrip` fails it —
+  `SPEC-backend` §4.) (Not a blanket claim: the stray standing 100 mm away is a
+  separate body, so `bbox` and `topology_counts` do move for it. `SPEC-backend`
+  §4 states which primitives name which shape.) All three now sum over
+  `a.solids()`.
+  **`area` keeps its fallback where there is no solid**: a naive sum reports a
+  closed box shell as `0.0` exact, which is the same defect in a new place, and
+  `area` is deliberately defined for a face and a shell as much as for a solid.
+  **`step_roundtrip` read the same collapsed property on both sides** and
+  reported a total volume degradation on an exchange that preserved the part
+  exactly — the one member of this class that moved a verdict.
+
 - **A rotation the engine dropped no longer reaches a measurement** (#333, epic
   #305). `o = undef; rotate(o) cube(5);` exports a clean, watertight,
   single-solid 12-facet cube standing at **identity** — the rotation is simply
@@ -1300,8 +1330,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own directory — the frame `_anchor` already resolves against, so that two
   checkouts of one tree produce byte-identical `part` blocks — and a
   CWD-relative chain is exactly what that closed. §7.1 now states both halves,
-  including that the suffix is **optional**: a module with one factory needs no
-  name to resolve and records none.
+  including that a consumer MUST parse the suffix as **optional**: a module with
+  one factory needs no name to resolve, and a library caller may name none.
   `tests/test_report.py`'s fixture asserted `parts/p.py:main`, a shape the
   production path cannot emit, so the spec, the dataclass and the suite all
   agreed and only the runner did not — which is why 1,203 tests could not see
@@ -1317,16 +1347,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `spec.py:spacer` where it saw `spec.py`. The tool's own rule, worth copying
   rather than approximating (`target.py`'s `Target.parse`): partition on the
   LAST `:`, and treat the tail as a factory **only if it is an identifier** —
-  otherwise the whole string is the module. Both forms are emitted, since a
-  single-factory module needs no name to resolve and records none, and the
-  identifier guard is what stops a contract filename that contains a colon
-  (`rev2:spec.py`) from being read as module `rev2`.
-  **Not fixed here (#343):** `partspec diff` still answers `identical` at exit 0
-  for those two reports. It pairs two reports on `part.id` and never reads
-  `part.contract`; `contract_digest` is not the join either, and rides along as
-  `contract.digest_changed` — a reported field that moves neither the outcome
-  nor the exit code. The artifacts now record which target ran; teaching the
-  comparator to read it is `diff`'s own change.
+  otherwise the whole string is the module, and the guard is what stops a
+  contract filename that contains a colon (`rev2:spec.py`) from being read as
+  module `rev2`. Both forms remain well-formed for a reader; what the CLI now
+  writes is the suffixed one whenever the target **resolves** and the module
+  declares a factory — the pre-resolution placeholder echoes the argument as
+  typed and carries no suffix (#343, below).
+  **The comparator half is #343, below.** As shipped here, `partspec diff` still
+  answered `identical` at exit 0 for those two reports: it pairs on `part.id`
+  and read `part.contract` for nothing.
+
+- **`diff` reads which target was invoked** (#343). #297 put the
+  factory in `part.contract`; the comparator still pairs two reports on
+  `part.id` and read that field for nothing, so two genuine reports of two
+  different targets compared clean. Measured before, on two factories in one
+  module returning `Part("widget", ...)` with the same claims:
+  `identical: widget — no semantic differences`, exit 0. After:
+  `different: widget — the invoked target changed: same.py:imperial →
+  same.py:metric`, exit 1, with `contract.target_changed` carrying both sides.
+  The digest could never have been the signal — it is module-scoped, so it is
+  **equal** on that pair by design.
+  **What is outcome-bearing is the FACTORY**, and only where both sides name
+  one. The module path is recorded instead, as `contract.module_changed`:
+  keying on the whole `<module>:<factory>` string made a *rename* a
+  difference — measured, two byte-identical contract files, equal digests,
+  `single.py:spacer` against `renamed.py:spacer`, reported `different` at exit
+  1 — which is the mistake `SPEC-diff.md` §3 already refuses for the closure
+  digest, whose point is that it identifies contents and not layout.
+  **The guard is why `target.py` resolves the symbol always.** A single-factory
+  module resolves without one being typed, so `spec.py` and `spec.py:spacer`
+  were two spellings of ONE run and a plain equality would have called that
+  pair a change; resolving always gives one spelling per target for every
+  report of a target that resolves, and the guard covers the pair where one
+  side predates it. That pair is a **stated gap**, not a match: it is recorded
+  as `contract.target_incomparable` and named on the summary line, because §2's
+  opening makes "no differences found" a positive claim rather than a
+  fallthrough. It does not move the outcome, on an argument of its own rather
+  than a borrowed one: an unsuffixed value written by the CLI **for a target
+  that resolved** is evidence the module declared exactly one factory at the
+  time, so a matching path and digest make the pair one run spelled two ways.
+  The qualifier is not decoration — a pre-resolution placeholder is unsuffixed
+  and its module may declare several — and `SPEC-diff.md` §3 carries it with
+  the two residues the caveat covers.
+  **The default `--out` directory does not move**: `Target.slug` keys on the
+  factory the *invocation* named, so `partspec check spec.py` still writes
+  `outputs/spec` and not `outputs/spec-spacer` — moving it would relocate
+  every existing user's reports, `--pin` baselines and stored `diff` inputs
+  included. Note where that rule bites: every production slug is taken from a
+  *parsed* target, so the flag guards a resolved target's `slug` — a library
+  caller's, and any later move of `_out_dir` onto it — rather than today's CLI
+  path.
+  **`contract.digest_changed: true` inside an `identical` outcome is correct,
+  and stays reachable.** The digest is module-scoped, so an edit that provably
+  cannot reach this part moves it: measured, two reports of one part from a
+  module whose *other* factory gained a comment line differ in
+  `contract_digest` and in nothing else the comparison sees. Reporting
+  `different` there would answer a question about part A with a fact about
+  part B. What was wrong was the **silence** — `SPEC-diff.md` §1 requires a
+  moved build input to be named on every outcome, and the contract file is the
+  one input the closure deliberately excludes (`SPEC-report.md` §8.3), so an
+  edited `.scad` reached the summary line and an edited contract did not. The
+  summary now names it, qualified in the same clause as module-scoped and
+  never by itself a difference.
 
 - **The eval harness stops calling a file "lint-clean" when three rules never
   looked at it** (#317, epic #305).

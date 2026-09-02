@@ -537,7 +537,8 @@ def test_the_contract_records_which_factory_was_invoked(tmp_path: Path):
     )
     assert imperial != metric, "and the symbol is what does"
     assert block(None)["contract"] == "same.py", (
-        "a module with one factory needs no name to resolve and records none"
+        "`run(factory=None)` records none — the library path. The CLI resolves the "
+        "symbol and passes it even when the invocation named none (#343)"
     )
 
 

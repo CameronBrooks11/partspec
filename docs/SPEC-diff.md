@@ -1,6 +1,12 @@
 # SPEC — `partspec diff`
 
-**Status:** draft 6 · 2026-08-24 · §3 states three rules the reasons behind draft 5 already
+**Status:** draft 7 · 2026-09-02 · §4 puts `payload` in this artifact, the discriminator
+#295 named and PR #342 shipped to the other five (#345); §3 compares `part.contract`'s
+FACTORY where both sides name one, two targets in one module having compared `identical` at
+exit 0 — the module path is recorded instead, a rename being no difference — states the
+declined comparison as a gap rather than a match, and answers what a moved contract digest
+inside `identical` is: correct, and until now unsaid on the summary line (#343);
+draft 6 · 2026-08-24 · §3 states three rules the reasons behind draft 5 already
 implied: an entry carries every delta the comparison computed whatever bucket it landed in
 (#330), the comparison tolerance keys on `phase` because that is where the report records a
 value's provenance (#335), and a status-change entry says when the new report does not
@@ -48,7 +54,13 @@ misreport as nothing having happened. A distribution the `inputs` clause reports
 distribution is also an installed one, so a library bump would otherwise be named twice on
 one line — and that is the only suppression: matching names across *different* groups drops
 real facts, since an import that appeared while its installed version moved is two
-findings, not one.
+findings, not one. **An edited or renamed contract module is named there too**, on the same
+grounds and with the same qualification: it is a build input that moved, it is the one input
+the closure excludes by design, and its digest is module-scoped, so the clause says both that
+it moved and that a move is not by itself a difference (§3). **A comparison this verb
+declined is named there as well** — where the two `part.contract` values differ and a side
+names no factory, the line says which target ran was not compared, because §2's opening
+makes silence the one thing "no differences found" may not rest on.
 
 Below that line, and on every outcome, the summary states the **coverage** the finding
 rests on: what was covered, and every gap §2 rule 3 named that the headline has not already
@@ -410,6 +422,69 @@ it produced its own input.
 Also compared, at the top level, and **outcome-bearing**: `verdict` and `counts.total` (a
 shrink is named, not implied).
 
+**`part.contract` is compared too. What is outcome-bearing is the FACTORY, and only where
+both sides name one** (#343). It is the one field that separates two targets in one module:
+`same.py:imperial` and `same.py:metric` return parts with the same `id`, and the contract
+digest is module-scoped, so the two `part` blocks were byte-identical until `SPEC-report.md`
+§7.1 put the symbol in this field. This comparison joins on `part.id` and read the field for
+nothing, so those two — two different targets, two genuine reports — compared `identical` at
+exit `0`. A difference is now `contract.target_changed`, named first on the §1 headline
+because a check count under it describes a comparison between two different questions.
+
+**The module path is recorded and never outcome-bearing**, as `contract.module_changed`.
+Keying the outcome on the whole `<module>:<factory>` string makes a *rename* a difference:
+measured on two byte-identical contract files, `single.py:spacer` against
+`renamed.py:spacer` — equal digests, equal claims, equal measurements — reported `different`
+at exit `1`, which is the same mistake this section already refuses for the closure digest,
+whose whole point is that it identifies file *contents* and not layout. The summary names
+the move, on the same terms as the digests above.
+
+**Where one side names no factory, the comparison is a stated gap and MUST say so.** A
+single-factory module resolved without a name being typed before `target.py` resolved it
+always, so `spec.py` and `spec.py:spacer` may be two spellings of one run; an unsuffixed
+side cannot say which target it was, so no change may be claimed from it in either
+direction. Declining is right, and declining *silently* is not: §2's opening makes "no
+differences found" a positive claim requiring comparable inputs rather than a fallthrough.
+The pair is recorded as `contract.target_incomparable` and named on the summary line on
+every outcome.
+
+**It does not reach the outcome, and §2 rule 3 is not the authority for that.** That rule
+classifies the gaps a closure names in `source_closure.unseen`; it governs that vocabulary
+and no other, and borrowing its taxonomy here would misfile this gap rather than justify it.
+This gap is not constant across every possible input — it fires wherever one side records no
+factory, which is a shape this release still writes: a pre-resolution placeholder (`SPEC-report.md` §5 rule 2)
+echoes the argument as typed, and a library caller may invoke `run()` naming none. It is
+therefore that rule's own description of a **bounded** gap, and a bounded gap MUST make the
+outcome `indeterminate`.
+
+The reason this one does not is its own, and it is an argument about what the pair can prove.
+An unsuffixed value written by the CLI **for a target that resolved** — §7.1's qualifier, and
+it carries the same weight here — is evidence that the module declared **exactly one**
+factory when that report was written, since a module declaring several refuses to resolve
+without a name. So where the module path and the contract digest also match, the two sides
+ran that one factory and the pair is one run spelled two ways: nothing to report.
+
+The qualifier is load-bearing, because the refusal that supports the argument is also what
+produces its counterexample. `partspec check multi.py` on a two-factory module writes a
+placeholder — `{"id": "unresolved", "contract": "multi.py"}`, no digest, `verdict: "error"` —
+and against `multi.py:nosuch` the module path matches and `digest_changed` is `false`, so the
+antecedent holds while the consequent fails twice over: the module declares two factories and
+neither side ran any. Nothing is claimed of that pair, and it is not this gap that protects
+it — §2 rule 2 makes either side's `error` verdict `indeterminate` before this gap is
+consulted at all. Measured: exit `2`.
+
+Two residues remain for the resolved reports the argument does cover: a factory renamed
+between the runs, which moves the digest and is reported on the same line; and a library
+caller invoking `run()` with a factory it did not record, which nothing else in either
+artifact can recover — measured, a `run(factory=None)` report against a
+`partspec check multi.py:a` one compares `identical` at exit `0` under the caveat, both
+written by this build. The caveat is what carries them, and it is why the pair is named on
+every outcome rather than dropped.
+
+The default `--out` directory does not move with any of this: `Target.slug` keys on the
+factory the *invocation* named, and `partspec check spec.py` still writes `outputs/spec`,
+never `outputs/spec-spacer`.
+
 **Recorded but never outcome-bearing**: `contract_digest`, `source_digest`, the closure
 digest and the closure's `imports` map. All four appear in the artifact — as
 `contract.digest_changed`, `source.digest_changed`, `source.closure_digest_changed` and
@@ -429,6 +504,21 @@ inputs were fully identified at all. Holding the line at "a moved library is not
 a difference of the part" is what keeps arm A and arm B one tool: OpenSCAD has always got
 exit `0` for a changed `.scad` closure under unmoved checks, and the summary line naming
 the distribution that moved is what carries that fact to the reader (#190).
+
+**`contract.digest_changed: true` inside an `identical` outcome is correct, and MUST stay
+reachable** (#343). The digest covers the whole module whatever `part.contract` spells, so
+an edit that provably cannot reach this part moves it: measured, two reports of one part
+from a module whose *other* factory gained a comment line differ in `contract_digest` and
+in nothing else this comparison sees — same target, same claims, same statuses, same
+measurements, same source. Reporting `different` there would answer a question about part A
+with a fact about part B, and a verb that did it would be piped through `|| true` within a
+week. What was wrong was not the outcome but the **silence**: §1 requires a moved build
+input to be named on every outcome, and the contract file is the one input the closure
+deliberately excludes (`SPEC-report.md` §8.3 — `contract_digest` already covers it), so an
+edited `.scad` was reported on the summary line and an edited contract was not. The summary
+now names it on every outcome, and says in the same clause that it is module-scoped and not
+by itself a difference. The finding that *was* missing from `identical` is the one above:
+which target was invoked.
 
 Alongside them, the environment facts that *explain* differences without being differences
 of the part — `tool_version`, `engine.version`, `engine.render_backend` and
@@ -468,6 +558,9 @@ It does not change the outcome: an old report that predates the field still diff
 ```jsonc
 {
   "schema_version": 2,              // this artifact's own version, not the report's
+  "payload": "diff",                // which artifact this is (SPEC-report.md §7.1),
+                                    // in the same position as the other five. Additive,
+                                    // so `schema_version` did not move for it (#345)
   "tool": { "name": "partspec-diff", "version": "0.7.6" },
                                     // partspec's own version. `diff` has none of its own
                                     // and never has, so a sample showing one invites a
@@ -487,6 +580,18 @@ It does not change the outcome: an old report that predates the field still diff
   "counts_total": { "old": 8, "new": 7 },
   "contract": {
     "digest_changed": true,
+    "target_changed": {             // the invoked target, present ONLY when the two
+      "old": "same.py:imperial",    // sides name different FACTORIES and both name one
+      "new": "same.py:metric"       // (§3). Outcome-bearing, unlike every digest here
+    },
+    "module_changed": {             // the recorded module path moved — a rename, so it
+      "old": "single.py",           // is recorded and never outcome-bearing (§3).
+      "new": "renamed.py"           // Present only when it differs
+    },
+    "target_incomparable": {        // present when the two values differ and a side names
+      "old": "spec.py",             // no factory: which target ran was NOT compared, and
+      "new": "spec.py:make"         // §3 requires the summary to say so (§2's opening)
+    },
     "removed": ["wall_gt_2"],       // the headline finding, by id
     "added": []
   },
@@ -582,7 +687,11 @@ this one what changed in the part's appearance. It consumes two on-disk render a
 document (`vdiff_schema_version: 1`) with the same outcome vocabulary — `identical`
 (exit 0) / `different` (exit 1) / `indeterminate` (exit 2).
 
-Keys: `inputs` (file, part id and engine block per side), `views` (per view:
+Keys: `schema_version` and `payload` (`"vdiff"`) first, the identity prefix every other
+artifact carries — this document spelled its version `vdiff_schema_version` alone, so a
+consumer reading `doc["schema_version"]`, the key `SPEC-report.md` §7 tells it to key on,
+found nothing; both spellings are emitted for one release (#295). Then
+`inputs` (file, part id and engine block per side), `views` (per view:
 `pixels_changed`, `fraction`, `image` — the diff image, the new run faded to grey with
 changed pixels in magenta), `bbox_delta_mm`, `magnitude`, and on refusal `refused
 {reason[, hint]}`.

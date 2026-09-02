@@ -809,3 +809,30 @@ def test_a_declaration_needs_a_name(bad):
     p = Part("p", openscad("x.scad"))
     with pytest.raises(ContractError, match="non-empty string"):
         p.build_input(bad)
+
+
+def test_resolving_a_single_factory_records_the_symbol_without_moving_the_slug(tmp_path: Path):
+    """#343. `part.contract` is the only field separating two targets in one
+    module, and `diff` can only compare it where one target has ONE spelling —
+    so the factory is resolved whether or not the invocation named it.
+
+    The slug is the constraint on that, pinned here beside it: it decides the
+    default `--out` directory, and `partspec check spec.py` has written
+    `outputs/spec` since v0. A slug derived from the resolved symbol would
+    silently move every such user's reports — the `--pin` baselines and the
+    `diff` inputs among them — to `outputs/spec-spacer`.
+    """
+    (tmp_path / "spec.py").write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def spacer() -> Part:\n"
+        "    return Part('solo', openscad('spacer.scad'))\n"
+    )
+
+    _, target = resolve(str(tmp_path / "spec.py"))
+    assert target.factory == "spacer", "the resolved symbol is recorded, not just called"
+    assert target.inferred is True, "and it is marked as inferred rather than named"
+    assert target.slug == "spec", "the default --out directory MUST NOT move (#343)"
+
+    _, named = resolve(f"{tmp_path / 'spec.py'}:spacer")
+    assert (named.factory, named.inferred) == ("spacer", False)
+    assert named.slug == "spec-spacer", "a NAMED factory still gets its own directory"
