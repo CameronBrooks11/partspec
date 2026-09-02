@@ -723,8 +723,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so the two counts differ by one.) Every one was
   flagged `exact`, on a shape reporting `solid_count 1`, `watertight true` and
   `cavities 0`. On the shell-over-its-own-faces shape and the nested one,
-  nothing adjacent moved at all — which is why the measurements beside them
-  caught none of it. (Not a blanket claim: the stray standing 100 mm away is a
+  none of the primitives beside them moved: `solid_count`, `watertight`,
+  `is_valid`, `cavities`, `bbox` and `topology_counts` all read the honest
+  values. (`genus` refuses the shell shape and `step_roundtrip` fails it —
+  `SPEC-backend` §4.) (Not a blanket claim: the stray standing 100 mm away is a
   separate body, so `bbox` and `topology_counts` do move for it. `SPEC-backend`
   §4 states which primitives name which shape.) All three now sum over
   `a.solids()`.

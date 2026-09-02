@@ -343,7 +343,7 @@ Level 3 is therefore reached by **two** `Compound(children=[…])` calls — an 
 groups a sub-assembly, which is the ordinary way to group one. Each solid's own `.volume` /
 `.area` / `.center()` recurse and know nothing of the wrapping above them, which is why the
 per-solid sum is right at every level. `solid_count`, `watertight`, `is_valid` and
-`cavities` read normal on all four shapes above, so nothing adjacent catches any of it.
+`cavities` read normal on all four shapes above, so none of those four catches any of it.
 (#344, #347.)
 
 `center_of_mass` MUST also refuse when the shape's solids enclose **no net volume**. The
@@ -410,7 +410,9 @@ reports `FAIL … the round-trip changed topology: faces 7 -> 14, edges 15 -> 30
 row 2. That makes it the **stronger** of the two detectors — a verdict rather than a refusal
 — and it is a deliberate property of this tier, not an accident: an exchange that duplicates
 a part's faces has changed the artifact, which is exactly what the check asks. Backends MUST
-NOT deduplicate the counts they compare there.
+take these counts from the same accessor on both sides, and MUST NOT reduce them to the
+solids' own — the deduplicating accessor is what makes the drift visible, because raw
+occurrence counts read `faces (14, 14)` on row 2 and see nothing.
 
 ### 4.1 Dependency pinning — mandatory
 
