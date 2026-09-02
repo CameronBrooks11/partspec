@@ -176,9 +176,24 @@ exists to name — the message describes the geometry instead.
   children. A probe whose two parts are *module calls* matches too, because the export
   folds `rail(); cover();` into two `group` children; a `difference()`, a second
   top-level node, or a third child does not. Of the `.scad` files tracked in this repo,
-  **0 match** — counted over those whose export can be read at all, which is 21 of 25 on
-  2021.01 and 22 of 25 on 2026.08.01, the rest being refused whole for string content
-  before any rule runs.
+  **2 match** — `examples/clearance/clearance.scad` and
+  `examples/clearance/interference.scad` — counted over those whose export can be read at
+  all, which is 24 of 28 on 2021.01 and 25 of 28 on 2026.08.01, the rest being refused
+  whole for string content before any rule runs.
+- **The two matches are expected, and no authoring of them would remove the finding.**
+  They are `SPEC-contract.md` §9.1's worked probe pattern, and the predicate is the
+  *shape*, which every part-versus-part probe has by construction. Growing a part by the
+  clearance — this rule's own stated remedy — does not change the shape: an enlarged
+  module, a `minkowski()` and a `hull()` sweep were each measured, and all three still
+  match on both pinned engines. The remedy makes the *claim* numeric, which is what it is
+  for; it was never a way to silence the finding, and the finding is advisory anyway. The
+  clearance probe has taken the remedy; the interference probe needs no clearance, its
+  claim being a band on positive volume already.
+- **Trust the test, not these counts.** All three numbers move whenever a `.scad` is added
+  to the repo, and the denominators move again whenever an engine changes what it will
+  export. `tests/test_lint.py::test_only_the_clearance_probes_match_the_two_part_intersection_rule`
+  asserts the match list by **name and by equality**, so a newly matching file fails it and
+  says which file — a guarantee a prose count cannot make.
 - **Rationale:** declared with `p.empty()`, that shape proves **no positive-volume
   interference**, which is not the same as proving the parts are separated. A
   zero-thickness contact collapses to empty on the OCCT tier always, and on OpenSCAD's
@@ -187,7 +202,10 @@ exists to name — the message describes the geometry instead.
   the author's call and stays theirs
   (`SPEC-contract.md` §4.12, #270). The claim is valid and the finding is not a defect:
   it is narrower than it reads, and the remedy is to say the clearance you mean —
-  intersect against a part grown by it, so a violation has volume on every kernel.
+  intersect against a part grown by it, so a violation with any margin has volume rather
+  than a sheet. The remedy is bounded, not absolute: a gap of exactly the clearance is
+  degenerate again, and a thin enough violation still falls under the kernel's floor
+  (`SPEC-contract.md` §4.12 and §9.1 rule 3).
 - **Known noise, owned.** This shape is **not** unique to probes: `intersection()` of two
   solids is also how a part gets *built*. All four of these fire, measured, and none is a
   probe — a lens blank (`sphere ∩ cylinder`), a chamfer by rotated cube, two

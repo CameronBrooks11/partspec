@@ -1078,18 +1078,45 @@ def test_every_declared_rule_has_a_description():
     assert emitted <= set(RULES), f"undescribed: {sorted(emitted - set(RULES))}"
 
 
+# The two files this repo ships that match `csg-two-part-intersection`, and the
+# only two that may. They are `SPEC-contract.md` 9.1's worked probe pattern, and
+# the rule is DESIGNED to fire on them -- see the test below for why.
+EXPECTED_TWO_PART_MATCHES = {
+    "examples/clearance/clearance.scad",
+    "examples/clearance/interference.scad",
+}
+
+
 @needs_openscad
-def test_no_shipped_model_trips_the_two_part_intersection_rule():
-    """The "0 match" claim in `LINT.md` and the CHANGELOG, pinned.
+def test_only_the_clearance_probes_match_the_two_part_intersection_rule():
+    """`LINT.md`'s match list, pinned by name rather than by a count.
 
     The rule fires on a shape that is NOT unique to probes -- a lens blank, a
     chamfer by rotated cube, two perpendicular extrusions and a
     trimmed-to-envelope lattice all match, which `LINT.md` owns as known noise.
-    That makes it worth knowing mechanically that nothing this repo ships is in
-    that set, rather than asserting it in prose three times and finding out
-    when someone adds an exemplar built as an intersection.
+    So it is worth knowing mechanically WHICH shipped files are in that set,
+    rather than asserting it in prose and finding out when someone adds an
+    exemplar built as an intersection.
 
-    Counts only files whose export can be read: a `.scad` carrying string
+    **Why two files are expected rather than none.** This asserted `not
+    flagged` until `examples/clearance/` shipped 9.1's probe pattern, and no
+    authoring of that example can satisfy the old form. The predicate is the
+    SHAPE -- one top-level node, an `intersection()` of exactly two children --
+    and every part-versus-part probe has that shape by construction. Growing a
+    part by the clearance, which is the rule's own stated remedy, does not
+    change it: an enlarged module, a `minkowski()` and a `hull()` sweep were
+    all measured, and all three fire on both pinned engines. `LINT.md` says why
+    the rule cannot be narrowed instead -- "the discriminator is the contract's
+    `p.empty()`, and `partspec lint` never sees a contract" -- and the finding
+    is advisory, never a verdict on the part, so a correct probe carrying one
+    is the designed outcome and not a defect.
+
+    Equality, not a bound: a NEW file matching still fails this, and the
+    failure names the file rather than only moving a number. Removing an
+    expected one fails it too, because a match list that quietly shrinks is how
+    `LINT.md` would go stale in the other direction.
+
+    Reads only files whose export can be read: a `.scad` carrying string
     content is refused whole before any rule runs, so it is not evidence either
     way and must not be counted as a pass.
     """
@@ -1105,16 +1132,20 @@ def test_no_shipped_model_trips_the_two_part_intersection_rule():
     ]
     assert tracked, "the repo ships .scad files; finding none means the query is wrong"
 
-    read, flagged = 0, []
+    read, flagged = 0, set()
     for scad in tracked:
         findings, unsupported = lint_scad_tier2(scad, OPENSCAD)
         if any(u["rule"] == "csg-two-part-intersection" for u in unsupported):
             continue  # refused whole; no evidence either way
         read += 1
         if any(f.rule == "csg-two-part-intersection" for f in findings):
-            flagged.append(scad.relative_to(root).as_posix())
+            flagged.add(scad.relative_to(root).as_posix())
 
-    assert not flagged, f"shipped models now trip the rule: {flagged}"
+    assert flagged == EXPECTED_TWO_PART_MATCHES, (
+        f"the match list moved — newly matching: "
+        f"{sorted(flagged - EXPECTED_TWO_PART_MATCHES)}; "
+        f"no longer matching: {sorted(EXPECTED_TWO_PART_MATCHES - flagged)}"
+    )
     assert read >= 20, f"only {read} of {len(tracked)} exports could be read — too few to claim"
 
 

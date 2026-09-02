@@ -99,13 +99,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a lattice trimmed to its envelope — all four fire, measured, and none is a
   probe. The discriminator is the contract's `empty()` and `partspec lint` never
   sees a contract, so the finding is phrased conditionally and the noise is
-  owned in `LINT.md` beside `csg-coincident-face`'s. Nothing this repo ships
-  trips it — 0 of the tracked `.scad` files whose export can be read (21 of 25
-  on 2021.01, 22 of 25 on 2026.08.01; the rest are refused whole for string
-  content) — and a test now pins that rather than three documents asserting it.
+  owned in `LINT.md` beside `csg-coincident-face`'s. Two of this repo's tracked
+  `.scad` files trip it — `examples/clearance/`'s two probes, of the 24 of 28
+  whose export can be read on 2021.01 and 25 of 28 on 2026.08.01; the rest are
+  refused whole for string content — and a test pins that match list **by name
+  and by equality** rather than three documents asserting a count. Those two are
+  §9.1's worked probe pattern and are expected: the predicate is the shape, and
+  every part-versus-part probe has it by construction.
   It reads the `.csg` tree **before any boolean runs**, so the predicate answers
   the same on every kernel — which is the point, the kernels being exactly what
   disagree about the result. It consults no engine verdict and needs none.
+
+- **Part-versus-part interference is declarable, and `examples/clearance/` is
+  the worked pattern** (#236, with #237 and #238). partspec's unit of
+  verification is the single part through v1.0 (D19), and #236 read that as
+  *interference cannot be declared at all* — because the obvious workaround,
+  modelling `intersection() { A; B; }` at assembly pose as its own part,
+  "fails in **both** of its normal outcomes, for two independent reasons".
+  Those two reasons were #237 and #238, and both have closed. So the pattern
+  works now, and what was missing was that nothing said so.
+  **Two of the three outcomes grade portably, and each on a different
+  measurand.** Measured on the new example: parts that interpenetrate build a
+  solid and `volume` grades it at **24.0 mm3**; parts that stand off build
+  nothing, which was a hard failure before any claim was evaluated and is now
+  `empty()`'s passing result (#237). Documented in `SPEC-contract.md` §9.1 and
+  executed by `tests/test_examples.py`, parameterised so a regression names the
+  outcome that broke rather than reporting one failure for two unrelated
+  mechanisms.
+  **The clearance probe intersects against a GROWN part, and §9.1 makes that a
+  rule.** `empty()` over a bare `intersection() { A; B; }` says only that two
+  parts do not interpenetrate — it is equally satisfied at 9 mm of standoff, at
+  0.01 mm, and, on a kernel that drops a zero-thickness sheet, at exact contact.
+  A clearance is a number and that probe carries none. Grown by the standoff the
+  fit requires, the same `empty()` states the standoff, and a violation of it
+  *with any margin* is a solid every kernel agrees about down to its own floor:
+  measured by dropping
+  the example's lid to a 1.0 mm standoff against a required 1.5 mm, the grown
+  probe fails on **both** pinned engines at **31.5 mm3** while the ungrown one
+  passes on both. This is the remedy `partspec lint`'s
+  `csg-two-part-intersection` names (#270), and §4.12 now says it at the check
+  that carries the risk.
+  **Growing relocates the degenerate case rather than removing it**, and §9.1
+  rule 3 says so instead of overselling: at a gap of *exactly* the clearance the
+  probe is a zero-thickness sheet and the pinned engines split — 2021.01 exits 1
+  on a 284-byte sheet, 2026.08.01 exits 0 having exported nothing — which is the
+  same divergence the section condemns for face contact, now sitting on the
+  number a designer working *to* the requirement lands on. So a design gap must
+  clear the requirement **strictly**, which is why the example designs 2.0 mm
+  against a required 1.5 mm. A per-axis grow also measures **Chebyshev** rather
+  than Euclidean distance — a corner 1.2 mm away on each axis is 2.0785 mm away
+  in a straight line and still fails a 1.5 mm requirement — which is false FAIL
+  only, never false PASS, and agrees on both engines.
+  **The third outcome — face contact — is documented and NOT recommended**,
+  because it is kernel-dependent. Measured on both pinned OpenSCAD versions,
+  `intersection()` of two 10 mm cubes offset by their own width exports a
+  284-byte sheet on 2021.01 (`check` exit **1**) and nothing at all on
+  2026.08.01 (`check` exit **0**) — one source, two engines, opposite verdicts.
+  Under #270's settled semantics for `empty()` — no *positive-volume*
+  interference — the newer engine is the correct one, so the divergence cannot
+  be resolved by preferring the richer result. Retention is not the only axis
+  either: on the example's own seated face both engines write a four-triangle
+  sheet and disagree about its shape, **384.0 mm2 against 268.8 mm2**. #314 is
+  the enabler — once a report can state whether the kernel retained a
+  zero-thickness result, an `area` claim over a contact patch means something.
+  **The trap that remains is written down because it is silent.** `empty`
+  belongs on the probe that should be empty and on no other — on an
+  interference probe an empty build is the *loose joint*, so declaring `empty`
+  there would grade the fault as the pass.
+  **Not superseded: `keep_out`/`keep_in` still take a declared region.** Their
+  shell is mandatory and a shell is an offset of the region, which a rendered
+  solid could only supply through 3D offsetting — measured, `manifold3d`'s
+  Minkowski gives the outward offset in 13 ms and the inward one in **1290 ms**,
+  inside a 24-iteration bisection. The shell exists to stop a `keep_out`
+  passing vacuously when the feature is absent, and that risk does not arise
+  here: the other part is a real rendered solid whose absence is a build
+  failure, not a silent pass. The expensive machinery would be bought for a
+  guarantee this case does not need.
 
 - **`p.build_input("cadquery-ocp")` — an author may force byte identity for a
   named distribution** (#215, epic #229, stage 4 of #190). Identity is decided
@@ -608,7 +677,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **To assert a clearance, state the number and let a violation have volume**:
   intersect against a part grown by the clearance rather than against the part
   itself. A violation with any margin encloses volume rather than a sheet,
-  so every kernel agrees and
+  so every kernel agrees down to its own floor, and
   the bound sits in the contract where a reviewer can see it. `SPEC-contract.md`
   §4.12 carries the meaning, the kernel table and the pattern, and
   `skills/contract-authoring/SKILL.md` — the surface an authoring agent reads
