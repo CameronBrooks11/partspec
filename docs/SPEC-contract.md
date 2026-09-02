@@ -1000,8 +1000,9 @@ interference whatsoever": that last qualifier is load-bearing, and §4.11 states
 
 **So `empty` over a bare pair is not a clearance**, and a contract that wants one MUST
 intersect against a part **grown by the clearance it requires**: a violation with any
-margin then encloses positive volume, which puts it above every floor tabulated below and
-makes the claim numeric. At a gap of *exactly* the declared clearance the probe is a
+margin then encloses positive volume rather than a sheet, which makes the claim numeric;
+how thin a violation still survives the kernel is the floor question below, and this
+pattern does not escape it. At a gap of *exactly* the declared clearance the probe is a
 zero-thickness sheet again and the pinned engines disagree — the degeneracy moves to the
 boundary rather than disappearing. §9.1 rule 3 is the worked form and says to grade a
 design gap strictly greater than the clearance; `partspec lint`'s
@@ -1409,7 +1410,8 @@ deliberate interference and grade the volume.
    it is equally satisfied at 9 mm of standoff, at 0.01 mm, and — on a kernel that drops
    a zero-thickness sheet — at exact contact. A clearance is a number and that probe
    carries none. Grow one part by the standoff the fit requires and a violation with any
-   margin is a **solid with positive volume**, which every kernel agrees about. Measured in
+   margin is a **solid with positive volume** rather than a sheet, which every kernel agrees
+   about down to its own floor (§4.12). Measured in
    `examples/clearance/` by dropping the lid to a 1.0 mm standoff against a required
    1.5 mm: the grown probe fails on both pinned engines at 31.5 mm3, and the ungrown one
    passes on both. This is the remedy `partspec lint`'s `csg-two-part-intersection`
@@ -1435,8 +1437,20 @@ deliberate interference and grade the volume.
    by `CLEAR` per axis strictly contains the true offset, so the error is false FAIL only
    and never false PASS, and both engines agree — this is not F13. Measured: a body whose
    nearest corner sits 1.2 mm away on each axis is 2.0785 mm away in a straight line and
-   still fails a 1.5 mm requirement, on both engines. Use `minkowski()` with a sphere
-   where the Euclidean distance is the one the fit actually cares about.
+   still fails a 1.5 mm requirement, on both engines.
+
+   **If the fit cares about Euclidean distance, `minkowski()` with a sphere is the
+   spelling — but compensate the sphere, because a bare one errs toward FALSE PASS.**
+   OpenSCAD's `sphere()` is a faceted solid whose vertices lie *on* the ideal ball, so it
+   is inscribed: the envelope it builds falls short of the true offset by
+   `r(1 − cos(180/$fn))`. Measured on this example's post at `$fn = 32`, both engines, the
+   envelope reaches **1.492777 mm** where 1.5 mm was required, and a real violation at a
+   1.495 mm gap **passes on both engines**. The shortfall is ≈0.029 mm at `$fn = 16`,
+   inside a printed fit's tolerance, and `$fn` here is whatever the author's global says.
+   Grow by `sphere(r = CLEAR / cos(180 / $fn), $fn = …)` instead: measured, that envelope
+   reaches exactly **1.500000 mm** on both engines and the 1.495 mm violation correctly
+   fails on both. Unlike the box grow, the uncompensated error is in the **unsafe**
+   direction, so this compensation is not optional.
 
    `empty` carries no bound, so the clearance number lives in the model rather than in
    the contract. That is the one place this pattern is weaker than a bound-carrying

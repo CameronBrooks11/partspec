@@ -42,8 +42,8 @@ module post() {
 
 // The post plus the standoff the fit requires around it. The clearance probe
 // intersects the lid against THIS rather than against `post()`, so a lid closer
-// than CLEAR by any margin leaves a solid of positive volume on every kernel
-// instead of the zero-thickness result the kernels disagree about.
+// than CLEAR by any margin leaves a solid of positive volume, down to the
+// kernel's own floor, instead of the zero-thickness result they disagree about.
 //
 // LID_AT is 2.0 mm above the post against CLEAR = 1.5 for a reason: at a gap of
 // EXACTLY CLEAR the probe is a zero-thickness sheet and the pinned engines split

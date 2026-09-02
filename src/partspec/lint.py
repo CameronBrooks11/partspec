@@ -621,7 +621,10 @@ def lint_scad_tier2(path: Path, executable: str | None) -> tuple[list[Finding], 
                     "all, so touching and clear are usually one signal unless the "
                     "contract pins a kernel that keeps the sheet. To assert a numeric "
                     "clearance, intersect against a part grown by it — a violation "
-                    "then has volume on every kernel (SPEC-contract.md 4.12). If this "
+                    "with any margin then has volume rather than a sheet, though a gap "
+                    "of exactly the clearance is degenerate again and a thin enough "
+                    "violation still falls under the kernel's floor "
+                    "(SPEC-contract.md 4.12). If this "
                     "intersection is how the part is BUILT rather than a probe, the "
                     "finding does not apply (LINT.md)"
                 ),

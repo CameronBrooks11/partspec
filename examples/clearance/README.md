@@ -64,8 +64,8 @@ module post_envelope() {
 ```
 
 Now `empty` is a numeric claim — *nothing comes within 1.5 mm of the post* — and
-a violation of it *with any margin* is a **solid with positive volume**, which
-every kernel agrees about.
+a violation of it *with any margin* is a **solid with positive volume** rather
+than a sheet, which every kernel agrees about down to its own floor (§4.12).
 
 **Design the gap strictly greater than `CLEAR`, and here is why.** Growing
 relocates the degenerate case onto `gap == CLEAR`; it does not remove it. At
@@ -89,8 +89,21 @@ axis-aligned box by `CLEAR` on every axis strictly contains the true offset, so
 the error is false FAIL only — never false PASS — and both engines agree, so it
 is not F13. Measured: a body whose nearest corner sits 1.2 mm away on each axis
 is 2.0785 mm away in a straight line and still fails a 1.5 mm requirement, on
-both engines. If the fit cares about the straight-line distance, grow with
-`minkowski()` and a sphere instead.
+both engines.
+
+If the fit cares about the straight-line distance, grow with `minkowski()` and a
+sphere — but **compensate the sphere**. OpenSCAD's `sphere()` puts its vertices
+*on* the ideal ball, so it is inscribed and the envelope falls short of the true
+offset by `r(1 − cos(180/$fn))`. Measured on this example's post, both engines:
+
+| grow, `CLEAR` = 1.5, `$fn` = 32 | envelope reaches | a real 1.495 mm violation |
+|---|---|---|
+| `sphere(r = CLEAR)` | 1.492777 mm | **passes on both engines — false PASS** |
+| `sphere(r = CLEAR / cos(180 / $fn))` | 1.500000 mm | fails on both engines |
+
+The shortfall is ≈0.029 mm at `$fn = 16` — inside a printed fit's tolerance — and
+`$fn` here is whatever your global happens to be. Unlike the box grow, this error
+is in the **unsafe** direction, so the compensation is not optional.
 
 Measured, by dropping the lid to a 1.0 mm standoff and running both probes on
 both pinned engines:

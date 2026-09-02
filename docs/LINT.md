@@ -202,7 +202,10 @@ exists to name — the message describes the geometry instead.
   the author's call and stays theirs
   (`SPEC-contract.md` §4.12, #270). The claim is valid and the finding is not a defect:
   it is narrower than it reads, and the remedy is to say the clearance you mean —
-  intersect against a part grown by it, so a violation has volume on every kernel.
+  intersect against a part grown by it, so a violation with any margin has volume rather
+  than a sheet. The remedy is bounded, not absolute: a gap of exactly the clearance is
+  degenerate again, and a thin enough violation still falls under the kernel's floor
+  (`SPEC-contract.md` §4.12 and §9.1 rule 3).
 - **Known noise, owned.** This shape is **not** unique to probes: `intersection()` of two
   solids is also how a part gets *built*. All four of these fire, measured, and none is a
   probe — a lens blank (`sphere ∩ cylinder`), a chamfer by rotated cube, two

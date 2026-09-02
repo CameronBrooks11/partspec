@@ -28,8 +28,8 @@ in force.
 empty for any gap at all, including a gap of nothing, so `empty` over it states
 only that the two do not interpenetrate. Grown by the standoff the fit
 requires, the same `empty` states the standoff -- and a violation of it with any
-margin is a solid with positive volume on every kernel rather than the
-zero-thickness result the kernels disagree about. This is the remedy `partspec
+margin is a solid with positive volume, down to the kernel's own floor, rather
+than the zero-thickness result the kernels disagree about. This is the remedy `partspec
 lint`'s own `csg-two-part-intersection` finding names.
 
 The degeneracy moves rather than vanishing: at a gap of EXACTLY the clearance

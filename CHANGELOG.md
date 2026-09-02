@@ -132,7 +132,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.01 mm, and, on a kernel that drops a zero-thickness sheet, at exact contact.
   A clearance is a number and that probe carries none. Grown by the standoff the
   fit requires, the same `empty()` states the standoff, and a violation of it
-  *with any margin* is a solid every kernel agrees about: measured by dropping
+  *with any margin* is a solid every kernel agrees about down to its own floor:
+  measured by dropping
   the example's lid to a 1.0 mm standoff against a required 1.5 mm, the grown
   probe fails on **both** pinned engines at **31.5 mm3** while the ungrown one
   passes on both. This is the remedy `partspec lint`'s
