@@ -737,7 +737,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be silent. The lock-shrink guard also fired only when a target failed to
   resolve, so pinning a subset of a multi-part lock silently deleted the rest.
 
-
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
   counts the field this release added to it** (#295, #340). §2.4 lists that
   payload's keys as "Measured … exactly `engine`, `error`, `geometry`, `hint`,

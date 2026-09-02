@@ -295,9 +295,14 @@ run *ARGS:
 # suppresses `_summarise`, and a claim-set mismatch under it writes 0 bytes to
 # stdout and 0 to stderr — measured; the entire CI record becomes `error:
 # recipe example-spacer failed … with exit code 4`. That gates the exit code
-# and nothing else, which is what pytest already does from in-process. Without
-# the flag the adjudication lands on stderr, 1372 bytes of it, naming the
-# claim that moved and both slugs.
+# and nothing else — which is not what the three comments around this recipe
+# claim it gates. (Nor is it what pytest covers: nothing in the suite runs the
+# spacer against its committed lock at all. `test_docs.py` runs `check` on it
+# in a subprocess with `check=False` and never reads `returncode`, asserting
+# the README's console lines instead.) Without the flag the adjudication lands
+# on stderr — roughly 1.4 KB, naming the claim that moved and both slugs. Not
+# an exact byte count on purpose: the last line is the absolute report path,
+# so it moves with the checkout.
 [doc("Check the spacer exemplar against its committed claims pin")]
 example-spacer:
     uv run partspec check examples/spacer/spec.py:spacer \
