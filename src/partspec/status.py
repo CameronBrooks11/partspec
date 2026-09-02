@@ -259,14 +259,17 @@ class Measurement:
         Raising rather than returning a status is deliberate. Nothing downstream
         can honestly adjudicate this, and a non-finite value means either a
         parameter that is not a number or a backend that has miscomputed — both
-        of which are `verdict: "error"`, not a claim about the part.
+        of which are `verdict: "error"`, not a claim about the part. `measure`
+        adjudicates nothing, so it catches this per name and records a refusal
+        rather than ending the run (#365); the message therefore names both
+        halves of why the value is unusable, not only the comparison.
         """
         values = self.value if self.is_vector else (self.value,)
         for v in values:
             if isinstance(v, float) and not math.isfinite(v):
                 raise ContractError(
                     f"measurement value is {v}, which is not a number; a "
-                    f"non-finite value cannot be compared against a limit"
+                    f"non-finite value can be neither reported nor compared"
                 )
 
     @property

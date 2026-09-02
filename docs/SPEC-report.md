@@ -1036,7 +1036,11 @@ reachable on the same tier from the rules just above.
   own words: `"volume": "volume is the integral over a closed surface; this mesh is open
   along 4 boundary edge(s)"`. The reason names the part's defect, so it is the finding and
   not an apology. **Omitted entirely when nothing was refused** — a sound part carries no
-  `refused` key.
+  `refused` key. A backend that *raises* instead of refusing — a non-finite value reaching
+  the §2 measurement shape, which rejects one — lands here too, naming the fault rather
+  than the part's defect, and it MUST cost **that one name only**: the verb continues and
+  emits every other quantity, since a quantity needing nothing the part lacks is answerable
+  whatever defeated its neighbour (#365).
 - **`unavailable`** — the names this **tier** cannot answer for any part, so the same list
   every time that backend measures anything. Listed in the fixed order the verb asks them
   in, which is not alphabetical. **Omitted entirely when the tier can answer everything
