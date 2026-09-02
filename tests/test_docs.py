@@ -863,6 +863,19 @@ def test_every_spec_a_diagnostic_cites_is_locatable_from_the_tool():
         "installed user has no docs/ directory to look in"
     )
 
+    # And since #349 the answer can be a local one, so the weaker half above
+    # is no longer the whole assertion: where this copy carries the documents,
+    # `--help` must name THAT directory rather than only the URL. A phrase
+    # search would not have caught the epilog going stale against a moved
+    # bundle, because the word "docs" survives every such move.
+    from partspec.docs import docs_root
+
+    root = docs_root()
+    assert root is not None, "the checkout should locate its own documents"
+    assert str(root / "docs") in epilog, (
+        f"--help does not name the documents this copy carries ({root / 'docs'})"
+    )
+
 
 def test_every_engine_factory_documents_how_it_finds_the_part():
     """`openscad` had a docstring; `build123d` and `cadquery` had none.
@@ -1213,3 +1226,42 @@ def test_the_docs_index_routes_to_every_document_beside_it():
     # can point at what it recommends rather than naming it in backticks.
     dead = sorted(t for t in targets if not (index.parent / t).exists())
     assert dead == [], f"docs/README.md links targets that are not there: {dead}"
+
+
+def test_every_citation_of_a_bundled_tree_resolves_where_the_reader_is_sent():
+    """The regression #349 was, stated as a property of the corpus.
+
+    `docs/` and `skills/` ship in the wheel and the citations inside them are
+    repo-relative, so each one has to open against the directory
+    `partspec --docs` returns — which is the repository root here and the
+    bundled copy in an install, by construction of the same layout.
+
+    Scoped to those two trees on purpose. A citation of `examples/`, `tests/`
+    or the source tree names something the wheel does not carry, and
+    `docs/README.md` says so rather than pretending otherwise; policing those
+    here would demand churn this test cannot justify. What it does police is
+    the class that routes a reader between the shipped documents, which is the
+    one that was silently dead.
+    """
+    from partspec.docs import docs_root
+
+    root = docs_root()
+    assert root is not None, "the checkout should locate its own documents"
+
+    cite = re.compile(r"`((?:docs|skills)/[\w./-]*\.\w+)`")
+    bundled = [p for p in shipped_markdown() if p.is_relative_to(DOCS) or "skills" in p.parts]
+    assert bundled, "no bundled documents scanned — this guard has lost its subject"
+
+    checked, dangling = 0, []
+    for doc in bundled:
+        text = prose_of(doc.read_text())
+        for m in cite.finditer(text):
+            checked += 1
+            if not (root / m.group(1)).is_file():
+                line = text[: m.start()].count("\n") + 1
+                dangling.append(f"{doc.relative_to(ROOT)}:{line} -> {m.group(1)}")
+    assert checked, "matched no citations at all; the regex has stopped reaching them"
+    assert not dangling, (
+        "these route a reader to a path that does not exist under "
+        f"{root}:\n  " + "\n  ".join(dangling)
+    )

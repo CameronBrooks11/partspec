@@ -10,6 +10,11 @@ the routing document, and it sends you to the source-side skill for your engine
 (`openscad-authoring`, or `build123d-authoring` for build123d and CadQuery). The spec is
 normative and closes the vocabulary; the skill is how to choose within it.
 
+Every path cited here is relative to the directory **`partspec --docs`** prints: the
+repository root in a checkout, and the copy of `docs/` and `skills/` that the wheel
+carries in an install (#349). Before that, this paragraph's own routing path resolved to
+nothing for anyone who installed rather than cloned.
+
 **The `partspec-mcp` tools cannot execute this document.** They run the same CLI per call,
 but the four registered tools are `check` / `measure` / `render` / `vdiff`, and the check
 tool builds only `["check", target, "--quiet"]` plus `--out` and `--render`. There is no
@@ -19,7 +24,8 @@ advisory source read. An MCP-driven agent is running a weaker loop than the one 
 here, and should be told so rather than assumed to be following it. (Tracked: the flags
 are plumbing, not design.) The MCP server's own `instructions` now say all of this, which
 is the only place an MCP client can learn it: that client has a tool list and nothing
-else, and the sole doc pointer the package otherwise ships is the CLI epilog.
+else. The package does ship these documents now, but reaching them still means leaving
+the tool surface for a shell — there is no docs tool either.
 
 The one rule everything below serves: **the report artifact is the ground truth, and
 only `pass` is green.** Read `report.json`, not the console — the console is a courtesy

@@ -24,6 +24,7 @@ from typing import Any, cast
 
 from .backend import DEFAULT_TIMEOUT_S, BuildError, effective_timeout
 from .contract import Part
+from .docs import DOCS_URL, docs_root
 from .install import install_hint
 from .report import tool_version, write_placeholder
 from .runner import run
@@ -109,20 +110,48 @@ OUT_DEFAULT_DOC = (
 )
 
 
+def _docs_epilog() -> str:
+    """`--help`'s last line: where the cited specs are, for this copy.
+
+    Computed rather than constant because the answer differs between an
+    install and a checkout, and a constant would have to name whichever one
+    its author had. Both branches name something a reader can open.
+    """
+    root = docs_root()
+    if root is None:
+        return (
+            "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) are not "
+            f"installed with this copy; read them at {DOCS_URL}"
+        )
+    return (
+        "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) ship with this "
+        f"copy: {root / 'docs'} (`partspec --docs` prints the directory they resolve "
+        f"against). Online: {DOCS_URL}"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="partspec",
         description="Verify CAD-as-code parts against declared engineering intent.",
-        # Diagnostics cite the specs by section ("SPEC-report.md 7.1"), and the
-        # wheel ships the package and nothing else — so for anyone who installed
-        # rather than cloned, every one of those citations is a dead pointer
-        # unless the tool says where the documents are. Found by dropping an
-        # agent on a cold install: it went looking for SPEC-contract.md, could
-        # not find it, and inferred the API from `inspect.getdoc` instead.
-        epilog="Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...): "
-        "https://github.com/CameronBrooks11/partspec/tree/main/docs",
+        # Diagnostics cite the specs by section ("SPEC-report.md 7.1"), and for
+        # anyone who installed rather than cloned every one of those citations
+        # was a dead pointer unless the tool said where the documents are.
+        # Found by dropping an agent on a cold install: it went looking for
+        # SPEC-contract.md, could not find it, and inferred the API from
+        # `inspect.getdoc` instead. The URL answered that; the wheel now
+        # carries the documents themselves (#349), so the epilog names the
+        # directory when there is one to name, and says there is not when
+        # there is not.
+        epilog=_docs_epilog(),
     )
     parser.add_argument("--version", action="version", version=f"partspec {tool_version()}")
+    parser.add_argument(
+        "--docs",
+        action="store_true",
+        help="print the directory the documents' own citations resolve against "
+        "(`docs/AGENT-CONTRACT.md`, `skills/contract-authoring/SKILL.md`), and exit",
+    )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     check = sub.add_parser("check", help="build parts and check them against their contracts")
@@ -2135,6 +2164,27 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     return exit_code_of(doc["outcome"])
 
 
+def _cmd_docs() -> int:
+    """The path on stdout and nothing else, or a refusal on stderr.
+
+    A caller writes `cd "$(partspec --docs)"`, so stdout carries the path
+    alone -- and when there is no path, it carries nothing at all and the exit
+    is non-zero. Printing the URL to stdout instead would substitute a string
+    no shell can enter for the answer, which is the silence-reading-as-success
+    shape this tool exists to refuse. ERROR rather than a usage code: the
+    arguments were fine, the tool could not answer them.
+    """
+    root = docs_root()
+    if root is None:
+        print(
+            "partspec: this copy carries no documents; read them at " + DOCS_URL,
+            file=sys.stderr,
+        )
+        return exit_code(Verdict.ERROR)
+    print(root)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args_list = argv if argv is not None else sys.argv[1:]
@@ -2164,6 +2214,9 @@ def main(argv: list[str] | None = None) -> int:
     # `--out` cases. Deliberately not an isinstance ladder: the point is that
     # *unanticipated* failures land on ERROR rather than on a verdict about the
     # part. Placed after `parse_args`, so argparse keeps its own SystemExit.
+    if args.docs:
+        return _cmd_docs()
+
     try:
         if args.command == "check":
             return _cmd_check(args, args_list)

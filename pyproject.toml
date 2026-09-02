@@ -97,7 +97,13 @@ build-backend = "hatchling.build"
 # down: it moves on every added test, which is the same reason the byte count
 # came out of `.pre-commit-config.yaml` in this commit's own diff.
 #
-# The wheel needs no such list: it was already exactly the package.
+# The wheel WAS exactly the package, and that was the defect (#349). Every
+# diagnostic cites a spec by section, and `AGENT-CONTRACT.md` opens by routing
+# the reader to `skills/contract-authoring/SKILL.md` — so an installed copy
+# could reach none of it without the network. Measured against an installed
+# 0.7.6 rather than read off this file: `find` over the uv tool tree for
+# `AGENT-CONTRACT.md` returned nothing. The force-include block below is the
+# fix.
 [tool.hatch.build.targets.sdist]
 exclude = [
   "uv.lock",
@@ -107,6 +113,31 @@ exclude = [
   "notes",
   "evals",
 ]
+
+# The agent-facing corpus, shipped (#349).
+#
+# `_bundled/` mirrors the REPOSITORY ROOT rather than flattening the two trees
+# into one documentation directory, and that is the whole point of the layout:
+# the citations inside these files read `docs/SPEC-contract.md` and
+# `skills/contract-authoring/SKILL.md`, and under this shape both resolve
+# verbatim against what `partspec --docs` prints — in an install and in a
+# checkout alike. Nothing gets rewritten for the install, and no path acquires
+# a second spelling that can drift from the first.
+#
+# Measured on the built wheel at this commit: 296,358 -> 462,999 bytes, so
+# +163 KiB. A delta, not a share, for the reason the sdist note above gives.
+#
+# These two trees ONLY. `examples/` is a deliberate omission despite the docs
+# citing it: its tracked content is 68 KiB, but `force-include` copies what is
+# on disk rather than what git tracks — measured, by adding it and building:
+# ten untracked `outputs/` and `__pycache__` entries landed in the wheel. A
+# dev-built wheel and a CI-built one would then differ, which is #218 again,
+# in the artifact that goes to PyPI. `docs/` and `skills/` hold no generated
+# files, and `test_the_wheel_carries_exactly_the_documents_git_tracks` fails
+# if either ever does.
+[tool.hatch.build.targets.wheel.force-include]
+"docs" = "partspec/_bundled/docs"
+"skills" = "partspec/_bundled/skills"
 
 [tool.uv]
 # THE OCP LANDMINE, and the fix.

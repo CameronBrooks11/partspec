@@ -20,9 +20,10 @@ run means what you think it means.
 **[SPEC-contract.md](SPEC-contract.md)** — the check vocabulary and its grammar,
 normatively. Long, and structured for lookup rather than a sitting.
 
-The `skills/contract-authoring` skill in this repo is the worked version of the
-same material, and [`examples/`](../examples) has four parts whose READMEs say
-what each is meant to teach.
+The `skills/contract-authoring` skill is the worked version of the same
+material, and
+[`examples/`](https://github.com/CameronBrooks11/partspec/tree/main/examples)
+has four parts whose READMEs say what each is meant to teach.
 
 ## I want to read what the tool produced
 
@@ -56,6 +57,13 @@ Four of them document the false positives they knowingly accept; findings are
 data about the source and never a verdict on the part.
 
 ---
+
+**Where these files are.** `partspec --docs` prints the directory that every
+repo-relative path above — into `docs/` or into `skills/` — resolves against:
+the repository root in a checkout, and a bundled copy inside the package in an install, because the
+wheel carries both trees (#349). What it does **not** carry is the rest of the
+repository, so a citation naming `examples/`, `tests/` or the source tree is a
+pointer into the repository rather than a path an install can open.
 
 The specs are normative and were written before the implementation. Where code
 and spec disagree, that is a bug in one of them — say which, rather than

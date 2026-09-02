@@ -725,3 +725,78 @@ def test_the_install_hint_names_the_installer_this_interpreter_has(monkeypatch):
     monkeypatch.setattr(importlib.util, "find_spec", real)
     if real("pip") is not None:  # pragma: no cover - depends on the venv
         assert install_hint("'partspec[mesh]'") == "pip install 'partspec[mesh]'"
+
+
+# ---------------------------------------------------------------------------
+# the wheel
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def wheel_names(tmp_path_factory) -> set[str]:
+    """Every path inside the built wheel.
+
+    Same guards as `sdist_names`, and the `.git`-is-a-directory one matters
+    here for a different reason: this asks what THIS repository publishes, and
+    a worktree cannot answer it.
+    """
+    import shutil
+    import zipfile
+
+    if shutil.which("uv") is None or not (REPO / ".git").is_dir():
+        pytest.skip(
+            "inspects what this checkout publishes; needs the uv frontend and a checkout "
+            "whose .git is a directory (in a worktree hatchling cannot read the ignores)"
+        )
+    out = tmp_path_factory.mktemp("wheel")
+    subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(out)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    with zipfile.ZipFile(next(out.glob("*.whl"))) as archive:
+        return set(archive.namelist())
+
+
+def test_the_wheel_carries_exactly_the_documents_git_tracks(wheel_names: set[str]):
+    """#349, both halves: the documents ship, and only the tracked ones do.
+
+    The first half is the bug as filed — on 0.7.6, `find` over an installed
+    tree for `AGENT-CONTRACT.md` returned nothing, so every spec citation in
+    every diagnostic and the contract's own routing line were dead paths for
+    anyone who installed rather than cloned.
+
+    The second half is the hazard the fix introduces. `force-include` copies
+    what is on DISK, not what git tracks: measured, by adding `examples/` to
+    the block and building, ten untracked `outputs/` and `__pycache__` entries
+    landed in the wheel. `docs/` and `skills/` hold no generated files today,
+    and a dev-built wheel differing from a CI-built one is #218 again — on the
+    artifact that reaches PyPI, where it cannot be caught by inspection later.
+    Set EQUALITY, therefore, rather than a subset check in either direction.
+    """
+    tracked = set(
+        subprocess.run(
+            ["git", "ls-files", "docs", "skills"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+    )
+    assert tracked, "no tracked documents at all; this test has lost its subject"
+
+    prefix = "partspec/_bundled/"
+    bundled = {name[len(prefix) :] for name in wheel_names if name.startswith(prefix)}
+    assert bundled == tracked, (
+        "the wheel's bundled documents are not the tracked ones:\n"
+        f"  missing from the wheel: {sorted(tracked - bundled)}\n"
+        f"  in the wheel, untracked: {sorted(bundled - tracked)}"
+    )
+
+    # Non-vacuous in the direction that matters: the two files the corpus
+    # routes to first, named outright.
+    for entry in ("docs/AGENT-CONTRACT.md", "skills/contract-authoring/SKILL.md"):
+        assert prefix + entry in wheel_names, f"the wheel does not carry {entry}"
+    assert "partspec/cli.py" in wheel_names, "and it is still a package, not a docs bundle"

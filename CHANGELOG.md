@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The documents install with the package** (#349). `docs/` and `skills/` now
+  ride in the wheel, and **`partspec --docs`** prints the directory they resolve
+  against. Before this, an installed copy could reach neither: every diagnostic
+  cites a spec by section, `AGENT-CONTRACT.md` opens by routing the reader to
+  `skills/contract-authoring/SKILL.md`, and on 0.7.6 a `find` over the installed
+  tree for `AGENT-CONTRACT.md` returned nothing — so the whole agent-facing
+  corpus was reachable only over the network, which an agent without it cannot
+  do at all. The bundled directory **mirrors the repository root** rather than
+  flattening the two trees, so `docs/SPEC-contract.md` and
+  `skills/contract-authoring/SKILL.md` resolve verbatim from an install and from
+  a checkout alike, with no citation rewritten and no second spelling to keep in
+  sync. `--help` names the directory when there is one and says there is not
+  when there is not; `partspec --docs` prints the path alone on stdout, or
+  exits `4` printing nothing there — a caller writes `cd "$(partspec --docs)"`,
+  and a URL on stdout would be a string no shell can enter standing in for the
+  answer. Costs +163 KiB on the wheel, measured. `examples/` deliberately does
+  not ship: `force-include` copies what is on disk rather than what git tracks,
+  and adding it put ten untracked `outputs/` and `__pycache__` entries in the
+  wheel — a dev build and a CI build would no longer agree (#218's failure, on
+  the artifact that reaches PyPI).
+
 - **`payload` — every artifact now says which artifact it is** (#295, epic
   #305). `check`, `measure` and `render` all emit `schema_version: 1` under
   `tool.name: "partspec"` and share the whole identity prefix by design, so a
