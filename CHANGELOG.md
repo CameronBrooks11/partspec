@@ -7,35 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **A rotation the engine dropped is no longer a pass** (#333). PR #329 guarded
-  `Unable to convert`; `rotate()` substitutes its default and words it
-  differently, so a part whose orientation silently reverted to identity kept
-  reporting `PASS: 3 pass` at exit 0 on both engines. The probe #333 demanded
-  found what it asked for: `strings` over both binaries shows exactly four
-  `Problem converting` templates, and the fourth — `Problem converting this
-  number:` — is `rands()`'s result count, not a substitution into geometry. It
-  is not a false positive either: that cast fails only on positive overflow, and
-  the engine then dies building the array with no STL written. So the marker is
-  narrowed to **`Problem converting rotate(`** rather than carved out, separating
-  the four by the engine's own grammar. All three `rotate` spellings now exit 4
-  on both engines.
-
-### Documented
-
-- **What a diagnostic from inside `%` background geometry means** (#336). A
-  fault in a `%` subtree refuses a part whose exported mesh is byte-identical to
-  the correct one — re-confirmed at 684/684 bytes on both engines. The decision
-  is to keep refusing and say so: an `undef` inside a `%` subtree is still a bug
-  in the source, and the alternative was ruled out on measurement rather than
-  taste. The `.csg` carries **no file or line anywhere**, and `csg.py`
-  deliberately drops `%` and `*` subtrees (PR #125), so correlating a warning to
-  its subtree is not available at the price it looked like. All three modifiers
-  were measured across both engines: `%` is evaluated and not exported (the
-  cost), `*` is never evaluated (free), `#` is exported (its warning is a
-  catch). `FAILURE-MODES.md` gains entry 9 and `AGENT-CONTRACT.md` §2.3 says
-  what the quoted stderr line does not.
+### Added
 
 - **The documents install with the package** (#349). `docs/` and `skills/` now
   ride in the wheel, and **`partspec --docs`** prints the directory they resolve
