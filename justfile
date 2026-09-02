@@ -278,6 +278,23 @@ hooks:
 run *ARGS:
     uv run partspec {{ARGS}}
 
+# Run the shipped exemplar's claims pin, as a consumer's CI would.
+#
+# #290: `--expect` is step 1 of AGENT-CONTRACT §1 and `diff` is its §4 drift
+# remedy, and neither verb was exercised anywhere this project ships — no
+# `claims.lock` was tracked, and CI reached the examples only in-process
+# through pytest. A committed lock that nothing runs reproduces the same root
+# cause one layer down, so CI calls THIS recipe on both engine legs.
+#
+# The CLI, not pytest, because the artifact under test is the console contract
+# an agent and a CI job actually see: the exit code, and the named difference
+# on stderr. Cheap enough to be unconditional — one 40x30x6 spacer, and the
+# pin adjudicates before the engine starts when it fails.
+[doc("Check the spacer exemplar against its committed claims pin")]
+example-spacer:
+    uv run partspec check examples/spacer/spec.py:spacer \
+        --expect examples/spacer/claims.lock --quiet
+
 # Assert exactly one OCP provider is installed (SPEC-backend.md 4.1).
 # cadquery-ocp and cadquery-ocp-novtk both own the top-level OCP/ package and
 # pip does NOT detect the conflict — one silently clobbers the other.
