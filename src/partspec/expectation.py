@@ -37,7 +37,7 @@ from .status import Limit
 if TYPE_CHECKING:
     from .contract import CheckSpec, Part
 
-__all__ = ["LockError", "claims_of", "compare", "read_lock", "write_lock"]
+__all__ = ["LockError", "claims_of", "compare", "read_lock", "repin_differences", "write_lock"]
 
 LOCK_SCHEMA_VERSION = 1
 
@@ -137,3 +137,35 @@ def compare(pinned: dict[str, str], declared: dict[str, str]) -> list[str]:
                 f"declared '{declared[check_id]}'"
             )
     return differences
+
+
+def repin_differences(
+    previous: dict[str, dict[str, str]], declared: dict[str, dict[str, str]]
+) -> list[str]:
+    """What re-pinning would overwrite, part by part, prefixed with the part id.
+
+    `--pin` writes the lock unconditionally, and until #294 it said only
+    `pinned N part(s)`: the one weakening move this module computes the diff
+    for was the one it discarded, one flag away from `--expect` printing
+    exactly these lines. Refusal is not the remedy — the agent contract §4
+    permits a deliberate re-pin — so this names what moved and lets the write
+    stand.
+
+    A part the previous lock did not cover is NOT reported: a first pin is not
+    an overwrite, and reporting each of its claims as `added` would bury the
+    real cases. A part the previous lock covered and this invocation did not
+    produce IS reported, because writing the lock now deletes that claim set
+    outright — a stricter loss than any `changed` line, and one the existing
+    guard catches only when a target failed to resolve.
+    """
+    lines = []
+    for part_id in sorted(previous.keys() - declared.keys()):
+        n = len(previous[part_id])
+        lines.append(
+            f"{part_id}: dropped — the pin covered it with {n} claim(s) and no "
+            f"target in this invocation produced it"
+        )
+    for part_id in sorted(previous.keys() & declared.keys()):
+        for difference in compare(previous[part_id], declared[part_id]):
+            lines.append(f"{part_id}: {difference}")
+    return lines
