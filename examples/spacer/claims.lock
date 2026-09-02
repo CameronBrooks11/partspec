@@ -1,0 +1,14 @@
+{
+  "parts": {
+    "example-spacer": {
+      "bore_d_2_wall_le_plate_y": "requires expr=bore_d + 2 * wall <= plate_y",
+      "bore_d_gt_0": "requires expr=bore_d > 0",
+      "envelope": "envelope max=[40.0, 30.0, 6.0]",
+      "genus": "genus equals=1",
+      "param:plate_z": "param_range expr=plate_z min=1.0",
+      "solid_count": "solid_count equals=1",
+      "watertight": "watertight equals=true"
+    }
+  },
+  "schema_version": 1
+}

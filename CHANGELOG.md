@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The drift loop ships as something you can run** (#290, #291, #294). `--pin`
+  and `--expect` are what partspec has over "run a script and eyeball it", and
+  nothing the project shipped exercised either: no `claims.lock` was tracked
+  anywhere, CI never invoked the CLI on an example, and no recipe existed.
+  `examples/spacer/claims.lock` is now committed with the pin/expect sequence in
+  that example's README, and **CI runs it on both engine legs** — a committed
+  lock nothing exercises would reproduce the very root cause, the loop being
+  unseen by the project's own gate. Verified green on 2021.01 and 2026.08.01,
+  and exit 4 with all 8 checks skipped when `PLATE` moves without a re-pin.
+- **Where a baseline comes from** (#291). `check` overwrites its report in place,
+  so the second run of any loop destroys the only baseline the first produced —
+  and `outputs/` is gitignored unanchored at every depth, making the default
+  disposition "deleted, then untracked". `AGENT-CONTRACT.md` §4 and
+  `SPEC-diff.md` §1 now say so, with the literal `cp` and the convention for
+  keeping one.
+
 - **The documents install with the package** (#349). `docs/` and `skills/` now
   ride in the wheel, and **`partspec --docs`** prints the directory they resolve
   against. Before this, an installed copy could reach neither: every diagnostic
@@ -737,6 +753,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported a total volume degradation on an exchange that preserved the part
   exactly — the one member of this class that moved a verdict.
 
+- **A rotation the engine dropped no longer reaches a measurement** (#333, epic
+  #305). `o = undef; rotate(o) cube(5);` exports a clean, watertight,
+  single-solid 12-facet cube standing at **identity** — the rotation is simply
+  gone — and `check` over `watertight()` + `solid_count(1)` reported
+  `PASS: 3 pass` at exit 0 on both pinned engines. The same damage as a
+  dimension silently defaulting, and #329's guard could not see it because
+  OpenSCAD words this one `Problem converting rotate(a=undef) parameter`, not
+  `Unable to convert`. It is read now: the same case is `ERROR: 3 skipped` at
+  exit 4 on 2021.01 and on 2026.08.01, quoting the engine's own line.
+  Measured under both binaries and character-identical on each, all three
+  templates fired from a source: `rotate(o)` →
+  `Problem converting rotate(a=undef) parameter`, `rotate([o,0,0])` →
+  `Problem converting rotate(a=[undef, 0, 0]) parameter`,
+  `rotate(a=o, v=[0,0,o])` →
+  `Problem converting rotate(a=undef, v=[0, 0, undef]) parameter`, and
+  `rotate(a=45, v="z")` → `Problem converting rotate(..., v="z") parameter`.
+  **The line does not always mean a default went in, and it has a measured
+  remainder — this is `FAILURE-MODES.md` entry 9a's trade in a second place,
+  and it is written down there as entry 9b.**
+  It means the engine could not use the `rotate` parameters *as written*, and
+  what that does to the mesh differs by shape. Measured on both engines, every
+  byte comparison `cmp -s` against the correct source named:
+  `rotate(o)` and `rotate([o,0,0])` lose the rotation and stand at identity —
+  the wrong part, and the reason #333 exists. But `rotate() cube([10,5,2])` is
+  identity because identity is what a no-op rotate is *for*, byte-identical to
+  the bare cube; `rotate(a=45, v="z") cube(5)` substitutes the **default axis**
+  and really is rotated 45° about Z (bbox `(-3.536,0,0)..(3.536,7.071,5)`),
+  byte-identical to `rotate(a=45, v=[0,0,1]) cube(5)`; and
+  `rotate([90,0,0,0]) cube([10,5,2])` substitutes **nothing at all** —
+  2021.01's `src/transform.cc` reads
+  `default: ok &= false; /* fallthrough */ case 3:`, so an over-long vector
+  still has its first three components read and applied — byte-identical to
+  `rotate([90,0,0]) cube([10,5,2])`. All three of those went exit 0 on `main`
+  and are exit 4 here. **The refusal stands anyway**, on entry 9's reasoning:
+  an over-long rotate vector, a string where an axis belongs and an angle that
+  never arrived are bugs in the *source*, one character separates them from the
+  correct spelling, and the marker cannot tell which of the four situations it
+  is in. `tests/test_openscad_engine.py::test_the_rotate_marker_refuses_a_part_whose_mesh_is_byte_perfect`
+  **executes** that cost — asserting both the refusal and the byte identity —
+  so it cannot be quietly lost the way it was nearly shipped as "not a false
+  positive". One consequence is filed rather than fixed here: the report
+  sentence `runner.py` prints for this marker — "built a default in place of
+  it" — asserts a mechanism the over-long vector never took (#360).
+  **The marker stops at `rotate(`, and that is a measured choice rather than a
+  minimal one.** `Unable to convert` turned out to have a context where it is
+  true and says nothing about the mesh — the GUI camera — so `Problem
+  converting` was inventoried the same way instead of assumed clean. Read out
+  of each binary with `strings`, both carry exactly **four** templates with
+  that head and the two lists are identical: the three `rotate` templates
+  (2021.01 `src/transform.cc` 152–177; master `src/core/TransformNode.cc`
+  130–163), and `Problem converting this number: %1$s` from
+  `boost_numeric_cast` (2021.01 `src/boost-utils.h` 41; master
+  `src/utils/boost-utils.h` 38), whose only caller in either version is
+  `rands()`'s result count (2021.01 `src/func.cc` 134; master
+  `src/core/builtin_functions.cc` 184). That fourth one is not about geometry
+  at all, and it cannot occur beside an exported mesh: the cast fails only on
+  positive overflow, after which the engine sets the count to `SIZE_MAX` and
+  dies building it. Measured under a 2 GB address-space cap on both engines
+  from `r = rands(0, 1, 1e30); cube([40,30,6]);` — `std::bad_alloc` on 2021.01,
+  `std::length_error` on 2026.08.01, exit 134 and no STL either way. So it gets
+  no `_NON_GEOMETRY_CONVERSIONS` entry, which is for lines that are true
+  *beside* an exported mesh; the marker is narrowed instead, separating the
+  four by the engine's own grammar exactly as the `[` split does, and keeping a
+  crash from being reported as a defaulted dimension. It is pinned as the
+  negative in
+  `test_the_substituted_value_markers_match_both_engine_spellings`, where the
+  two rotate lines used to sit.
+  **Not every mis-specified rotation is narrated**, and that is #332's shape
+  rather than a gap here: `rotate(a=90, v=undef)` is **silent on both engines**
+  and still exits 0. `undef` is not "defined", so the engine reads it as "no
+  axis given" and applies its **default** axis — the part is rotated 90° about
+  Z, byte-identical to both `rotate(a=90, v=[0,0,1])` and `rotate(90)`. It is
+  **not** unrotated; an earlier draft of this entry said so, and a reader told
+  that hunts the wrong symptom. There is no stderr line for a guard to key on
+  either way.
+
+- **A `%`-only diagnostic is written down instead of being a silent trade**
+  (#336, epic #305). `%` marks geometry as *background*: OpenSCAD **evaluates**
+  the subtree and excludes it from the render and the export. Its diagnostics
+  still reach stderr, stderr does not carry the modifier, and partspec's
+  success-path guard therefore refuses a part whose only fault is in geometry
+  nobody exported. Re-measured on both pinned engines: `cube([40,30,6]);
+  %translate([undef,0,0]) cube(2);` exports 684 bytes that `cmp -s` finds
+  **byte-identical** to the same source with the `%` line deleted, and `check`
+  over `watertight()` + `solid_count(1)` gives `ERROR: 3 skipped` at exit 4 on
+  both. **The refusal stands** — an `undef` inside a `%` subtree is a bug in
+  the source whatever it costs today, the modifier is one character so
+  scaffolding routinely becomes the part, and the alternative (correlating
+  stderr line numbers against the `%` nodes of a `.csg` export) buys silence on
+  a real defect at the price of a second parser between the engine and the
+  verdict. What changes is that an agent hitting exit 4 on a byte-perfect mesh
+  can now reach that conclusion from the documents: `FAILURE-MODES.md` gains
+  entry **9a** — the first half of a new entry whose second half (**9b**) is
+  the `rotate()` remainder above — and `AGENT-CONTRACT.md` §2.3's conversion
+  bullet says what the quoted line does *not* tell you.
+  The three modifiers were measured, not assumed, and only one has this
+  property: `*` (disable) is never evaluated, so it emits nothing and is the
+  modifier that is free; `#` (highlight) **is** exported, so its warnings are
+  about the mesh and its refusal is a catch; `%` alone is evaluated and not
+  exported. All three are executed in
+  `tests/test_docs.py::test_the_background_modifier_entry_is_reproducible_here`,
+  byte identity included, so entry 9a is a claim that runs rather than one that
+  is asserted.
+
+- **`--pin` names the claims it rewrote** (#294). It read the previous lock only
+  when a target had failed to resolve; on the ordinary path it rewrote a changed
+  claim and printed `pinned 1 part(s)`. `AGENT-CONTRACT.md` §4 rests the whole
+  guarantee on "the lock is committed, and its diff is the confession in your
+  PR" — so the one weakening move partspec computes the diff for was the one it
+  discarded. The differences now print on **stderr**, which `--quiet` does not
+  suppress, because `--quiet` is the invocation a weakening uses. It stays exit
+  0: §4 permits a deliberate re-pin, and the requirement was only that it cannot
+  be silent. The lock-shrink guard also fired only when a target failed to
+  resolve, so pinning a subset of a multi-part lock silently deleted the rest.
+
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
   counts the field this release added to it** (#295, #340). §2.4 lists that
   payload's keys as "Measured … exactly `engine`, `error`, `geometry`, `hint`,
@@ -1398,12 +1529,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `linear_extrude(undef)` and `cylinder(h=undef)` are silent on both engines,
   and #308's own headline reproduction — `linear_extrude(undef + 1)` — prints
   `undefined operation` and no conversion line, so it still passes. There is
-  no stderr signal to guard on, so #308 stays open. `rotate(a=undef)` is a
+  no stderr signal to guard on, so #308 stays open. `rotate(a=undef)` was a
   sibling with a different spelling, `Problem converting`, left out to keep
   this change to one guard (#333) — and pinned as a negative, since adding it
   to the marker set otherwise left the whole suite green, which is a deferral
-  with nothing holding it. The docstring in `engines/openscad.py` says both,
-  rather than implying the shape closed.
+  with nothing holding it. That deferral is now closed, in the entry below; the
+  negative pin moved to the one `Problem converting` template that is not a
+  substitution. The docstring in `engines/openscad.py` says both, rather than
+  implying the shape closed.
   **The marker is anchored at the head of the engine's sentence**, and that is
   the whole of its safety. Two measured reasons. OpenSCAD echoes string
   literals verbatim into the warning, so an unanchored test let a source turn

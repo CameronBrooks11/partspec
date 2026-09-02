@@ -189,11 +189,98 @@ quietly-wrong part shows you.
   friction is recorded in `docs/PLAN.md`'s P4 revision note (citing F8): a real
   contract on community code usually ships a small explicit adapter.
 
+## 9. A true diagnostic about a source whose mesh is exactly right **[repo]**
+
+*Not from the dogfood corpus: found in review of PRs #329 and #357, and filed as #336 and
+#333. It is here because it is a property of the language an authoring agent has to have
+seen, and because it is the one entry whose green face is a **false red**.*
+
+Two cases, one shape. In both, OpenSCAD prints a warning that is **true about the source**
+and says nothing at all about whether the exported mesh is wrong — and partspec refuses on
+it, because stderr does not carry the difference. Refusing is the deliberate choice; the
+cost is written down here rather than paid quietly.
+
+### 9a. A fault inside `%` background geometry
+
+- **Symptom.** `partspec check` reports `ERROR: 3 skipped` at exit `4` over a part whose
+  exported STL is **byte-identical** to the correct one. The quoted evidence names a
+  module and a value, and the mesh it is supposedly about does not contain that module's
+  output at all.
+- **Root cause.** `%` marks a subtree as *background*: OpenSCAD **evaluates** it, shows it
+  in the preview, and excludes it from the render and the export. Diagnostics from inside
+  it still reach stderr, and stderr does not carry the modifier — the line names the file
+  and the line number and nothing else — so a warning about scaffolding is
+  indistinguishable, at the point partspec reads it, from a warning about the part.
+  Measured on both pinned engines, `cube([40,30,6]);` followed by
+  `%translate([undef,0,0]) cube(2);` prints
+  `WARNING: Unable to convert translate([undef, 0, 0]) parameter to a vec3 or vec2 of
+  numbers`, exports 684 bytes, and `cmp -s` says those bytes are the same 684 the source
+  without the `%` line produces.
+  The three modifiers differ, and only one of them has this property: `*` (disable) is
+  never evaluated, so it emits nothing and costs nothing; `#` (highlight) **is** exported,
+  so its warnings are about the mesh; `%` alone is evaluated and not exported.
+- **Detected by.** The engine's own stderr on the path that succeeded — the same guard as
+  entries 1 and 5 (`SPEC-report.md` §6.1). Nothing here needed a contract carrying theory.
+- **When it's green.** It isn't, and that is the entry: this is the one shape in this
+  catalogue where partspec refuses **more** than the geometry requires. **The refusal
+  stands, deliberately** (#336). An `undef` inside a `%` subtree is a bug in the source
+  whatever it costs today; the modifier is one character, so the scaffolding routinely
+  becomes the part; and the alternative — correlating stderr's line numbers against the
+  `%` nodes in a `.csg` export — buys silence on a real defect at the price of a second
+  parser between the engine and the verdict. What was wrong was that the trade was
+  **silent**: an agent hitting exit 4 on a byte-perfect mesh had no way to reach this
+  conclusion from the report.
+- **Guards.** `AGENT-CONTRACT.md` §2.3 now says it, at the bullet that routes a
+  conversion error: if the quoted line's file and line land on a `%` subtree, the mesh is
+  probably right and the source is still wrong. The remedy is unchanged — fix the `undef`,
+  or delete the scaffolding. When debug geometry must stay and must cost nothing, `*` is
+  the modifier that is free.
+
+### 9b. A `rotate()` parameter the engine ignored
+
+- **Symptom.** The same `ERROR: 3 skipped` at exit `4`, over a part that is rotated
+  exactly as the source asked. The report says the engine "could not convert a value and
+  built a default in place of it", and for this shape **no default went in**.
+- **Root cause.** `Problem converting rotate(...)` means the engine could not use the
+  `rotate` parameters *as written*. That is four different situations, and only some of
+  them damage the mesh. Measured on both pinned engines, every byte comparison `cmp -s`
+  against the correct source named:
+
+  | source | what the mesh is | vs. correct |
+  |---|---|---|
+  | `rotate(o) cube(5)`, `o = undef` | identity — the rotation is **lost** | wrong part |
+  | `rotate([o,0,0]) cube(5)` | identity — the rotation is **lost** | wrong part |
+  | `rotate() cube([10,5,2])` | identity, which is what a no-op rotate is for | **byte-identical** to `cube([10,5,2])` |
+  | `rotate([90,0,0,0]) cube([10,5,2])` | rotated 90° about X, as asked | **byte-identical** to `rotate([90,0,0]) …` |
+  | `rotate(a=45, v="z") cube(5)` | rotated 45° about Z — the default axis, which is the one the author named | **byte-identical** to `rotate(a=45, v=[0,0,1]) …` |
+
+  The fourth row is the one to understand: OpenSCAD 2021.01's own `transform.cc` reads
+  `default: ok &= false; /* fallthrough */ case 3:`, so an over-long `a` vector still has
+  its first three components read and applied. Only the "could I use this?" flag goes
+  false. **Nothing is substituted at all**, and the warning is purely "your vector had a
+  fourth element".
+- **Detected by.** The engine's own stderr on the path that succeeded (#333), the same
+  guard as 9a.
+- **When it's green.** Three of the five rows above are byte-perfect and refused. `main`
+  passes all five at exit 0; this guard errors **all five** at exit 4 (a sixth shape,
+  silent on both engines, is below).
+- **Guards.** The refusal stands. An over-long rotate vector, a string where an axis
+  belongs, and an angle that never arrived are all bugs in the source; the marker cannot
+  tell which of the four situations it is in, and the two that *do* damage the mesh are
+  exactly the ones #333 exists to catch. `AGENT-CONTRACT.md` §2.3 tells the reader what
+  the line does not say, so a byte-perfect mesh at exit 4 is diagnosable rather than
+  baffling.
+- **Not narrated at all**, and therefore not caught: `rotate(a=90, v=undef)` is silent on
+  both engines and exits `0`. `undef` is not "defined", so the engine reads it as "no axis
+  given" and applies its default — the part is rotated 90° about Z, byte-identical to
+  `rotate(90)`. **It is not unrotated.** Same class as entry 5's silent shapes; tracked in
+  #332, which is about the dimensions nothing narrates.
+
 ---
 
 ## The shared moral
 
-Five of these eight (1, 2, 3, 5, and the header half of 4) have the same signature:
+Five of these nine (1, 2, 3, 5, and the header half of 4) have the same signature:
 **exit 0, a clean watertight mesh, and an artifact that is not the part you asked for.**
 Nothing in the render pipeline is positioned to notice, because every stage's contract
 with the next is "produce *a* mesh", not "produce *the* mesh". The checks that caught
@@ -201,6 +288,13 @@ them — envelope from theory, topology, external standards, unbound-parameter r
 are all statements about **intent the model does not contain**, which is the reason this
 tool exists and the reason a contract derived from the model's own numbers proves
 nothing (entry 4).
+
+Entry 9 is the inverse, and it is here so the ledger has both columns: a guard sharp
+enough to catch the other eight refuses a byte-perfect mesh when the fault it can see is
+in geometry that was never exported (9a), or in a parameter the engine ignored on its way
+to building the part correctly (9b). That cost is written down rather than paid quietly —
+the alternative to naming it is a reader who concludes the tool is unreliable, which is
+the more expensive mistake.
 
 *Cross-references from the authoring skills (#22, #23) land with those skills; each
 entry above carries a stable heading for them to anchor to.*

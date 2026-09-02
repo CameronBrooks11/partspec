@@ -172,6 +172,22 @@ jobs:
           PARTSPEC_REQUIRE_ENGINES: "1"
         run: ${{ matrix.source == 'apt' && 'xvfb-run -a just test' || 'just test' }}
 
+      # The exemplar, through the CLI, on both engines. #290: `--expect` is
+      # step 1 of AGENT-CONTRACT §1 and nothing this project ships ran it —
+      # no `claims.lock` was tracked, and the examples were reached only
+      # in-process by pytest, so the console contract an agent reads (the
+      # exit code, and the difference named on stderr) was never gated.
+      # Committing a lock that nothing exercises would reproduce that root
+      # cause one layer down, which is why this step exists and not only the
+      # file. It fails when a CLAIM moves without `--pin` — the pin binds the
+      # claim set and not the source (`SPEC-report.md` §7.1), so editing
+      # `BORE_D` in that same file exits 0 here and only `diff` sees it. A
+      # moved claim is exactly the confession the lock is committed for.
+      - name: Exemplar claims pin (examples/spacer)
+        env:
+          PARTSPEC_REQUIRE_ENGINES: "1"
+        run: ${{ matrix.source == 'apt' && 'xvfb-run -a just example-spacer' || 'just example-spacer' }}
+
       # The same suite, reversed. Order coupling is invisible to the forward
       # run by construction — a test that leaves process-global state behind
       # only breaks whatever sorts after it — and the forward order is the one

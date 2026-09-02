@@ -15,7 +15,7 @@ import pytest
 from support import needs_openscad, needs_scad_tier, report_of
 
 from partspec.cli import main
-from partspec.expectation import LockError, compare, read_lock
+from partspec.expectation import LockError, compare, read_lock, repin_differences
 
 # --------------------------------------------------------------------------
 # the comparison, engine-free
@@ -665,3 +665,167 @@ def test_the_early_warning_is_silent_under_quiet(tmp_path: Path, capsys):
     err = capsys.readouterr().err
     assert "'other'" in err, "the authoritative message still lands"
     assert "checked anyway" not in err, "and only that"
+
+
+# --------------------------------------------------------------------------
+# re-pinning over an existing lock (#294)
+# --------------------------------------------------------------------------
+
+
+def test_repin_differences_ignores_a_part_the_previous_lock_never_covered():
+    """A first pin is not an overwrite. Reporting each of a new part's claims
+    as `added` would put the loud case and the routine one on the same line."""
+    previous = {"a": {"envelope": "envelope max=[40]"}}
+    declared = {"a": {"envelope": "envelope max=[40]"}, "b": {"watertight": "watertight"}}
+    assert repin_differences(previous, declared) == []
+
+
+def test_repin_differences_prefixes_every_line_with_its_part():
+    previous = {"a": {"envelope": "envelope max=[40]"}, "gone": {"x": "watertight", "y": "genus"}}
+    declared = {"a": {"envelope": "envelope max=[99]"}}
+    lines = repin_differences(previous, declared)
+    assert any(line.startswith("gone: dropped") and "2 claim(s)" in line for line in lines)
+    assert any(
+        line.startswith("a: changed: envelope") and "max=[40]" in line and "max=[99]" in line
+        for line in lines
+    )
+
+
+@needs_scad_tier
+def test_a_repin_over_an_existing_lock_names_what_moved(tmp_path: Path, capsys):
+    """#294. Measured on 0.7.6: lock present, target resolved, `envelope
+    max=[31, 21, 11]` rewritten to `max=[500, 500, 500]`, stdout `pinned 1
+    part(s)` and exit 0 — the one weakening move partspec computes the diff
+    for and then discarded. `--expect` refuses this same edit at exit 4 one
+    flag over, so the comparison was never the missing part.
+    """
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", target, "--quiet", "--pin", str(lock)]) == 0
+    capsys.readouterr()
+
+    # NOT `--quiet`, deliberately, and the only one of these that is not.
+    # Every re-pin test passed `--quiet`, so gating the confession on
+    # `if args.quiet:` — printing it on exactly the wrong path — left the whole
+    # suite green (adversarial review of #351, M1). The flag is orthogonal to
+    # the guard, so both sides of it need a reader.
+    loosened = _target(tmp_path, "    p.envelope(max=(500, 500, 500))\n    p.watertight()\n")
+    assert main(["check", loosened, "--pin", str(lock)]) == 0, (
+        "not a refusal: AGENT-CONTRACT.md §4 permits a deliberate re-pin"
+    )
+    err = capsys.readouterr().err
+    assert "subject: changed: envelope" in err
+    assert "31" in err and "500" in err, "both slugs, so the reader needs neither file"
+    assert "AGENT-CONTRACT" in err, "and where the sign-off rule lives"
+    assert read_lock(lock)["subject"]["envelope"] == "envelope max=[500, 500, 500]", (
+        "the write still happened"
+    )
+
+
+@needs_scad_tier
+def test_a_repin_names_what_moved_under_quiet_too(tmp_path: Path, capsys):
+    """`--quiet` is the invocation a weakening would actually use — it is what
+    a script writes. The `pinned N part(s)` headline is a courtesy and stays
+    suppressed; the confession is not, exactly like the two refusals above it
+    on this branch, which have never honoured `--quiet` either."""
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", target, "--quiet", "--pin", str(lock)]) == 0
+    capsys.readouterr()
+
+    weakened = _target(tmp_path, "    p.watertight()\n")  # envelope deleted outright
+    assert main(["check", weakened, "--quiet", "--pin", str(lock)]) == 0
+    captured = capsys.readouterr()
+    assert "pinned 1 part(s)" not in captured.out, "the headline is still quiet"
+    assert "subject: removed: envelope" in captured.err
+
+
+@needs_scad_tier
+def test_a_first_pin_says_nothing_extra(tmp_path: Path, capsys):
+    """The guard must not tax the ordinary path. No previous lock, nothing
+    overwritten, nothing to confess — a warning on every first pin is how the
+    real one stops being read."""
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", target, "--quiet", "--pin", str(lock)]) == 0
+    assert capsys.readouterr().err == ""
+
+    # And re-pinning an UNCHANGED contract is equally silent.
+    assert main(["check", target, "--quiet", "--pin", str(lock)]) == 0
+    assert capsys.readouterr().err == ""
+
+
+@needs_scad_tier
+def test_a_repin_that_narrows_the_invocation_names_the_dropped_part(tmp_path: Path, capsys):
+    """The existing shrink guard only fires when a target FAILED to resolve
+    (#243), so a lock covering three parts re-pinned from one target — every
+    one of them resolving — deleted two claim sets under `pinned 1 part(s)`.
+    Still not a refusal: the deliberate retirement that
+    `test_a_deliberate_shrink_with_nothing_unresolved_still_writes` pins must
+    keep working. It is now merely audible.
+    """
+    targets = _crashable(tmp_path)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", *targets, "--quiet", "--pin", str(lock)]) == 0
+    capsys.readouterr()
+
+    assert main(["check", targets[1], "--quiet", "--pin", str(lock)]) == 0
+    err = capsys.readouterr().err
+    assert "refusing" not in err, "a resolved shrink is the author's decision"
+    assert "a-part: dropped" in err and "c-part: dropped" in err
+    assert sorted(read_lock(lock)) == ["b-part"]
+
+
+@needs_scad_tier
+def test_an_unreadable_lock_with_nothing_unresolved_still_writes_and_says_so(
+    tmp_path: Path, capsys
+):
+    """Reading the lock unconditionally must not turn `--pin` over a corrupt
+    lock into a refusal: overwriting one is the documented way out of it, and
+    the `unresolved` refusal above exists precisely because a crash is what
+    makes the overwrite dangerous. With nothing unresolved the write stands —
+    but partspec must not imply it compared anything.
+    """
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    lock.write_text("{not json")
+
+    assert main(["check", target, "--quiet", "--pin", str(lock)]) == 0
+    err = capsys.readouterr().err
+    assert "could not be read first" in err
+    assert "cannot say which claims moved" in err
+    assert read_lock(lock)["subject"], "the write went through"
+
+
+@needs_scad_tier
+def test_the_confession_lands_under_the_headline_it_qualifies(tmp_path: Path):
+    """`sys.stdout.flush()` after the `pinned N part(s)` line, through a pipe.
+
+    stdout is block-buffered whenever it is not a tty, so without the flush the
+    stderr confession overtakes the stdout headline and a reader meets the
+    moved claim before the line it belongs to — in a batch, under the PREVIOUS
+    target's output. Deleting the flush reproduces exactly that and left the
+    suite green (adversarial review of #351, M2), which is why this test runs
+    a real subprocess: `capsys` captures the two streams separately and can
+    therefore never see the interleaving that is the whole defect.
+    """
+    import subprocess
+    import sys as _sys
+
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", target, "--quiet", "--pin", str(lock)]) == 0
+
+    loosened = _target(tmp_path, "    p.envelope(max=(500, 500, 500))\n    p.watertight()\n")
+    merged = subprocess.run(
+        [_sys.executable, "-m", "partspec", "check", loosened, "--pin", str(lock)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    ).stdout
+
+    headline = merged.index("pinned 1 part(s)")
+    confession = merged.index("--pin rewrote claims")
+    assert headline < confession, f"the confession sorted above its headline:\n{merged}"
