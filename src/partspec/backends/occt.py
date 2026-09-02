@@ -613,8 +613,18 @@ class OcctBackend:
         on a shape carrying 1000 mm² of surface, so `area(max=700)` passes on
         it. Accepted, because the alternative is the doubling above and because
         a result mixing a solid with a loose sheet is the corruption this guard
-        answers; `watertight` reads false on such a shape and is the primitive
-        that names it. SPEC-backend.md §4 records the trade.
+        answers.
+
+        **What names such a shape depends on whether the sheet is closed, and
+        `watertight` alone does not.** Measured: an OPEN sheet or shell leaves
+        an edge bounded by one face, so `is_manifold` reads false — that is the
+        400 mm² case above. A CLOSED stray shell does not: a 10 mm box shell
+        beside a plain box drops 600 mm² from `area` with `watertight` reading
+        **true**, and beside the bored cube it drops the same 600 mm² while
+        reading true (SPEC-backend.md §4's own row 3). What holds for both is
+        `genus`, which refuses any stray beside its one solid (#339), and
+        `bbox` / `topology_counts`, which move because the sheet is a separate
+        body. SPEC-backend.md §4 records the trade.
         """
         if _empty(a):
             return Unsupported(_EMPTY_REASON)
@@ -656,7 +666,9 @@ class OcctBackend:
             # volume have no centre of mass. Reachable: two independently built
             # 10 mm boxes, one reversed, are solids of +999.99 and -999.99 with
             # `solid_count 2` and `is_valid True` (SPEC-backend.md 4).
-            return Unsupported("this shape's solids enclose no volume, so it has no centre of mass")
+            return Unsupported(
+                "this shape's solids enclose no net volume, so it has no centre of mass"
+            )
         centres = [(float(s.volume), s.center()) for s in solids]
         com = tuple(
             sum(v * float(getattr(c, axis)) for v, c in centres) / total for axis in ("X", "Y", "Z")

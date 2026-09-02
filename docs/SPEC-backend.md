@@ -363,8 +363,22 @@ contributes nothing to `area`.** Measured, a 20 mm square face reports `area 400
 and is dropped entirely once a 10 mm box is beside it — `area 600.0` against a shape
 carrying 1000 mm² of surface, so `area(max=700)` passes on it. This is accepted, not
 overlooked: the alternative is the row-2 doubling above, and a modelling result that mixes a
-solid with a loose sheet is the corruption this section exists to answer. `watertight`
-reads `false` on such a shape and is the primitive that names it.
+solid with a loose sheet is the corruption this section exists to answer.
+
+**What names such a shape depends on whether the sheet is closed, and `watertight` alone
+does not.** Measured:
+
+| shape | `area` before → after | dropped | `watertight` |
+|---|---|---|---|
+| an **open** 20 mm face beside a 10 mm box | 1000.0 → 600.0 | 400 mm² | **false** |
+| an **open** shell (one face off) beside a 10 mm box | 1100.0 → 600.0 | 500 mm² | **false** |
+| a **closed** 10 mm shell beside a 10 mm box | 1200.0 → 600.0 | 600 mm² | **true** |
+| a **closed** 10 mm shell beside the bored cube (row 3 above) | 3320.4 → 2720.4 | 600 mm² | **true** |
+
+An open sheet leaves an edge bounded by one face, so `is_manifold` reads false. A closed one
+does not, and the last two rows drop 600 mm² with every adjacent boolean reading normal. What
+holds across all four is **`genus`, which refuses any stray beside its one solid** (#339),
+and `bbox` / `topology_counts`, which move because the sheet is a separate body.
 
 `bbox`, `topology_counts`, `is_valid` and `watertight` are unchanged by this rule and keep
 measuring the shape as given. Note that the Protocol's own taxonomy above is about
@@ -379,7 +393,24 @@ the row-2 stray shares the solid's own TShapes, so the deduplicating `.faces()` 
 the row-3 stray is a separate body and moves it to `(13, 27, 18)`. `bbox` is likewise
 `(20, 20, 20)` on row 2 and `(115, 20, 20)` on row 3. So these are left alone because an
 envelope and an entity count are honest statements about what was drawn — not because they
-carry any part of the guard. `genus` is what refuses row 2, on its own precondition (#339).
+carry any part of the guard.
+
+**Two primitives do catch row 2, and neither is one of those four.** `genus` refuses it on
+its own precondition (#339), at `incomplete` / exit 2. And `step_roundtrip` **fails** it at
+exit 1: the STEP writer expands the shared TShapes into distinct entities, so the counts
+move where the deduplicating accessors did not —
+
+```
+honest             faces (7, 7)    edges (15, 15)   solids (1, 1)   volume_rel 2.7e-15
+row 2 (shared)     faces (7, 14)   edges (15, 30)   solids (1, 1)   volume_rel 2.7e-15
+```
+
+End to end, a contract declaring `step_roundtrip(tol=1e-6)` passes the honest cube and
+reports `FAIL … the round-trip changed topology: faces 7 -> 14, edges 15 -> 30` at exit 1 on
+row 2. That makes it the **stronger** of the two detectors — a verdict rather than a refusal
+— and it is a deliberate property of this tier, not an accident: an exchange that duplicates
+a part's faces has changed the artifact, which is exactly what the check asks. Backends MUST
+NOT deduplicate the counts they compare there.
 
 ### 4.1 Dependency pinning — mandatory
 

@@ -1019,12 +1019,21 @@ def _nested(shape, depth: int):
     Built at the TopoDS level rather than with `Compound(children=[...])` so
     the depth in the name is the depth in the shape: `Box(...)` is already a
     compound over its solid, so one `children=` wrapping is depth 2, not 1.
+
+    `depth == 0` returns the shape UNWRAPPED. Wrapping a bare `TopoDS_SOLID` in
+    a `bd.Compound` is not level 0 of anything a build produces: `Compound.volume`
+    iterates `compounds()`, which is empty for a solid handle, so it would read
+    0.0 and the parametrization would measure a helper artifact instead of the
+    rule. `adopt` maps a real level-0 solid to `bd.Solid`, where it reads
+    999.99 -- which is what this returns.
     """
     from OCP.TopoDS import (
         TopoDS_Builder,  # pyright: ignore[reportAttributeAccessIssue]
         TopoDS_Compound,  # pyright: ignore[reportAttributeAccessIssue]
     )
 
+    if depth == 0:
+        return shape
     raw = shape.wrapped
     for _ in range(depth):
         wrapper = TopoDS_Compound()
@@ -1206,7 +1215,7 @@ def test_center_of_mass_is_refused_when_the_solids_enclose_no_net_volume(backend
     )
     assert backend.solid_count(shape).value == 2, "premise: the solid count reads normal"
     assert backend.is_valid(shape).value is True, "premise: validity does not catch it"
-    assert "no volume" in refused(backend.center_of_mass(shape)).reason
+    assert "no net volume" in refused(backend.center_of_mass(shape)).reason
 
 
 def test_a_sheet_beside_a_solid_contributes_nothing_to_area(backend: OcctBackend):
@@ -1229,4 +1238,63 @@ def test_a_sheet_beside_a_solid_contributes_nothing_to_area(backend: OcctBackend
     assert measured(backend.area(mixed)).value == pytest.approx(600.0)
     assert backend.solid_count(mixed).value == 1
     assert backend.is_valid(mixed).value is True
-    assert measured(backend.watertight(mixed)).value is False, "the primitive that names it"
+    assert measured(backend.watertight(mixed)).value is False, "an OPEN sheet: false"
+
+
+def test_a_closed_stray_shell_is_dropped_from_area_with_watertight_still_true(
+    backend: OcctBackend,
+):
+    """`watertight` is NOT the primitive that names a dropped sheet, and this
+    is the row that proves it.
+
+    An open sheet leaves an edge bounded by one face, so `is_manifold` reads
+    false. A CLOSED stray shell leaves every edge bounded by two, so it reads
+    **true** while `area` silently drops the shell's whole 600 mm2. Every
+    adjacent boolean reads normal. What catches it is `genus`, which refuses
+    any stray beside its one solid, and `bbox` / `topology_counts`, which move
+    because the shell is a separate body.
+    """
+    mixed = bd.Compound(
+        children=[bd.Box(10, 10, 10), bd.Pos(100, 0, 0) * bd.Shell(bd.Box(10, 10, 10).faces())]
+    )
+    assert mixed.area == pytest.approx(1200.0), "premise: the shape carries 1200 mm2"
+    assert measured(backend.area(mixed)).value == pytest.approx(600.0), "600 mm2 dropped"
+
+    assert measured(backend.watertight(mixed)).value is True, "a CLOSED shell: still true"
+    assert backend.is_valid(mixed).value is True
+    assert backend.solid_count(mixed).value == 1
+
+    assert "one closed body" in refused(backend.genus(mixed)).reason
+    assert measured(backend.bbox(mixed)).value == pytest.approx((110.0, 10.0, 10.0))
+    assert backend.topology_counts(mixed).value == (12, 24, 16)
+
+
+def test_step_roundtrip_fails_the_stray_shell_that_the_accessors_cannot_see(
+    backend: OcctBackend,
+):
+    """The second detector for #344's stray, and the stronger one.
+
+    The shell shares the solid's TShapes, so every deduplicating accessor is
+    unmoved -- `topology_counts` reads the honest (7, 15, 10). The STEP writer
+    expands those shared TShapes into distinct entities, so the round-trip
+    counts move where nothing else does. `genus` refuses this shape at exit 2;
+    this FAILS it at exit 1, which is a verdict rather than a refusal.
+
+    Pinned so a future refactor cannot deduplicate these counts and give the
+    detection away silently.
+    """
+    honest = backend.step_roundtrip(_bored_cube())
+    assert not isinstance(honest, Unsupported)
+    assert honest["faces"] == (7, 7)
+    assert honest["edges"] == (15, 15)
+
+    stray = _cube_beside_a_shell_over_its_own_faces()
+    assert backend.topology_counts(stray).value == (7, 15, 10), (
+        "premise: the accessors cannot see this stray at all"
+    )
+    result = backend.step_roundtrip(stray)
+    assert not isinstance(result, Unsupported)
+    assert result["faces"] == (7, 14), "the writer expands the shared TShapes"
+    assert result["edges"] == (15, 30)
+    assert result["solids"] == (1, 1)
+    assert result["volume_rel"] < 1e-9, "the MATERIAL survives; only the topology moves"
