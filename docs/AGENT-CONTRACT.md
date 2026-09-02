@@ -310,6 +310,27 @@ pinned part from the invocation — from where you sit these are indistinguishab
   itself; take limits from `partspec.refs` (`iso15`, `iso_metric_thread`,
   `nema17`) or the drawing.
 
+**`check` overwrites its report, so the baseline for that `diff` is yours to keep.**
+Every run writes to one deterministic destination — `<contract dir>/outputs/<slug>/report.json`,
+or `<--out DIR>/report.json` — and overwrites it. The second run of any repair loop destroys
+the only baseline the first produced, and `outputs/` is gitignored at every depth in this
+repository and in the layout the exemplars use, so a report left where `check` put it is
+**overwritten and then untracked**. Nothing does the copy for you:
+
+```console
+$ partspec check spec.py:part --out o --quiet
+$ cp o/report.json baseline.json          # the step no flag performs
+# ... edit the model ...
+$ partspec check spec.py:part --out o --quiet
+$ partspec diff baseline.json o/report.json
+```
+
+Take the copy **before** the run that might change something, not after you wish you had.
+The convention: commit `baseline/report.json` beside the contract when the drift matters
+across sessions, or keep it as a CI artifact when it matters only across one pull request.
+`vdiff` needs two `render.json` and takes the same step.
+`examples/spacer/README.md` is the worked copy of both this and the pin above.
+
 A contract change can be *right* — the fix is to propose it in an escalation and let a
 human apply and re-pin it, never to make it silently.
 
