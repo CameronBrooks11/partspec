@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import os
 import re
 import subprocess
 import tarfile
@@ -864,11 +865,23 @@ def test_the_installed_wheel_locates_the_documents_it_carries(tmp_path: Path):
         check=True,
     )
 
+    # PYTHONPATH is scrubbed, not inherited. The point of this test is that an
+    # INSTALLED copy locates its own documents, and `partspec --docs` in a
+    # subprocess honours whatever `PYTHONPATH` the parent had -- so a developer
+    # who exports one (pointing at a checkout, which is the usual reason to)
+    # makes the installed entry point import that checkout instead, take
+    # `docs_root()`'s `src/` branch, and print the repository root. The
+    # assertions below then fail on a correct install. Found by running the
+    # suite with `PYTHONPATH` set at a merged tree; CI passes only because it
+    # happens not to set one, which is the kind of accident this file exists to
+    # stop relying on.
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
     located = subprocess.run(
         [str(venv / "bin" / "partspec"), "--docs"],
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     assert located.returncode == 0, f"--docs failed on an install: {located.stderr}"
     root = Path(located.stdout.strip())
