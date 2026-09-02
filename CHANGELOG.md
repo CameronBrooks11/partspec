@@ -131,12 +131,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parts do not interpenetrate — it is equally satisfied at 9 mm of standoff, at
   0.01 mm, and, on a kernel that drops a zero-thickness sheet, at exact contact.
   A clearance is a number and that probe carries none. Grown by the standoff the
-  fit requires, the same `empty()` states the standoff, and a violation is a
-  solid every kernel agrees about: measured by dropping the example's lid to a
-  1.0 mm standoff against a required 1.5 mm, the grown probe fails on **both**
-  pinned engines at **31.5 mm3** while the ungrown one passes on both. This is
-  the remedy `partspec lint`'s `csg-two-part-intersection` names (#270), and
-  §4.12 now says it at the check that carries the risk.
+  fit requires, the same `empty()` states the standoff, and a violation of it
+  *with any margin* is a solid every kernel agrees about: measured by dropping
+  the example's lid to a 1.0 mm standoff against a required 1.5 mm, the grown
+  probe fails on **both** pinned engines at **31.5 mm3** while the ungrown one
+  passes on both. This is the remedy `partspec lint`'s
+  `csg-two-part-intersection` names (#270), and §4.12 now says it at the check
+  that carries the risk.
+  **Growing relocates the degenerate case rather than removing it**, and §9.1
+  rule 3 says so instead of overselling: at a gap of *exactly* the clearance the
+  probe is a zero-thickness sheet and the pinned engines split — 2021.01 exits 1
+  on a 284-byte sheet, 2026.08.01 exits 0 having exported nothing — which is the
+  same divergence the section condemns for face contact, now sitting on the
+  number a designer working *to* the requirement lands on. So a design gap must
+  clear the requirement **strictly**, which is why the example designs 2.0 mm
+  against a required 1.5 mm. A per-axis grow also measures **Chebyshev** rather
+  than Euclidean distance — a corner 1.2 mm away on each axis is 2.0785 mm away
+  in a straight line and still fails a 1.5 mm requirement — which is false FAIL
+  only, never false PASS, and agrees on both engines.
   **The third outcome — face contact — is documented and NOT recommended**,
   because it is kernel-dependent. Measured on both pinned OpenSCAD versions,
   `intersection()` of two 10 mm cubes offset by their own width exports a

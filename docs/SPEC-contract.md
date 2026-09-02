@@ -999,9 +999,12 @@ interference whatsoever": that last qualifier is load-bearing, and §4.11 states
 `min_wall`'s interval for the same reason.
 
 **So `empty` over a bare pair is not a clearance**, and a contract that wants one MUST
-intersect against a part **grown by the clearance it requires**: a violation then encloses
-positive volume, which puts it above every floor tabulated below and makes the claim
-numeric. §9.1 rule 3 is the worked form, and `partspec lint`'s `csg-two-part-intersection`
+intersect against a part **grown by the clearance it requires**: a violation with any
+margin then encloses positive volume, which puts it above every floor tabulated below and
+makes the claim numeric. At a gap of *exactly* the declared clearance the probe is a
+zero-thickness sheet again and the pinned engines disagree — the degeneracy moves to the
+boundary rather than disappearing, which is why §9.1 rule 3 says to grade a design gap
+strictly greater than it. §9.1 rule 3 is the worked form, and `partspec lint`'s `csg-two-part-intersection`
 is the finding that says so at the source.
 
 **Why it cannot mean more, and why it sometimes means less.** Past the unresolved-name
@@ -1405,13 +1408,35 @@ deliberate interference and grade the volume.
    over a bare `intersection() { A; B; }` says only that the two do not interpenetrate:
    it is equally satisfied at 9 mm of standoff, at 0.01 mm, and — on a kernel that drops
    a zero-thickness sheet — at exact contact. A clearance is a number and that probe
-   carries none. Grow one part by the standoff the fit requires and a violation is a
-   **solid with positive volume**, which every kernel agrees about. Measured in
+   carries none. Grow one part by the standoff the fit requires and a violation with any
+   margin is a **solid with positive volume**, which every kernel agrees about. Measured in
    `examples/clearance/` by dropping the lid to a 1.0 mm standoff against a required
    1.5 mm: the grown probe fails on both pinned engines at 31.5 mm3, and the ungrown one
    passes on both. This is the remedy `partspec lint`'s `csg-two-part-intersection`
    names, and the rule fires on the probe either way — its predicate is the shape, which
    every part-versus-part probe has by construction (`docs/LINT.md`).
+
+   **Growing relocates the degenerate case, it does not remove it, so grade a design gap
+   strictly greater than the clearance.** At a gap of exactly `CLEAR` the probe is a
+   zero-thickness sheet — the same artifact this section refuses above — and the two
+   pinned engines disagree about it. Swept on `examples/clearance/`:
+
+   | design gap, `CLEAR` = 1.5 | 2021.01 | 2026.08.01 |
+   |---|---|---|
+   | 1.6 mm | exit 0 | exit 0 |
+   | **1.5 mm — exactly `CLEAR`** | **exit 1** (284-byte sheet, "may not be a valid 2-manifold") | **exit 0** (exports nothing) |
+   | 1.49 mm | exit 1 | exit 1 |
+
+   Only exact equality is degenerate (§4.12 states the same), but it is the value a
+   designer working *to* the requirement lands on. This is why the example designs a
+   2.0 mm standoff against a required 1.5 mm: the margin is load-bearing, not arbitrary.
+
+   **A box grow measures Chebyshev distance, not Euclidean.** Growing an axis-aligned box
+   by `CLEAR` per axis strictly contains the true offset, so the error is false FAIL only
+   and never false PASS, and both engines agree — this is not F13. Measured: a body whose
+   nearest corner sits 1.2 mm away on each axis is 2.0785 mm away in a straight line and
+   still fails a 1.5 mm requirement, on both engines. Use `minkowski()` with a sphere
+   where the Euclidean distance is the one the fit actually cares about.
 
    `empty` carries no bound, so the clearance number lives in the model rather than in
    the contract. That is the one place this pattern is weaker than a bound-carrying

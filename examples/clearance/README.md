@@ -64,8 +64,33 @@ module post_envelope() {
 ```
 
 Now `empty` is a numeric claim — *nothing comes within 1.5 mm of the post* — and
-a violation of it is a **solid with positive volume**, which every kernel agrees
-about. The design leaves 2.0 mm, so the probe is empty with 0.5 mm to spare.
+a violation of it *with any margin* is a **solid with positive volume**, which
+every kernel agrees about.
+
+**Design the gap strictly greater than `CLEAR`, and here is why.** Growing
+relocates the degenerate case onto `gap == CLEAR`; it does not remove it. At
+exactly the clearance the probe is a zero-thickness sheet — the same artifact
+this README condemns as non-portable further down — and the two pinned engines
+disagree about it:
+
+| design gap, `CLEAR` = 1.5 | 2021.01 | 2026.08.01 |
+|---|---|---|
+| 1.6 mm | exit 0 | exit 0 |
+| **1.5 mm — exactly `CLEAR`** | **exit 1** (284-byte sheet, "may not be a valid 2-manifold") | **exit 0** (exports nothing) |
+| 1.49 mm | exit 1 | exit 1 |
+
+Only exact equality is degenerate — but it is precisely the value a designer
+lands on who designs *to* the requirement rather than above it. So the assembly
+leaves **2.0 mm against a required 1.5 mm**: that 0.5 mm margin is load-bearing,
+not a round number picked for looks.
+
+**The box grow measures Chebyshev distance, not Euclidean.** Growing an
+axis-aligned box by `CLEAR` on every axis strictly contains the true offset, so
+the error is false FAIL only — never false PASS — and both engines agree, so it
+is not F13. Measured: a body whose nearest corner sits 1.2 mm away on each axis
+is 2.0785 mm away in a straight line and still fails a 1.5 mm requirement, on
+both engines. If the fit cares about the straight-line distance, grow with
+`minkowski()` and a sphere instead.
 
 Measured, by dropping the lid to a 1.0 mm standoff and running both probes on
 both pinned engines:

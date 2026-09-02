@@ -27,10 +27,16 @@ in force.
 **The clearance probe intersects against a GROWN part.** `lid() n post()` is
 empty for any gap at all, including a gap of nothing, so `empty` over it states
 only that the two do not interpenetrate. Grown by the standoff the fit
-requires, the same `empty` states the standoff -- and a violation of it is a
-solid with positive volume on every kernel rather than the zero-thickness
-result the kernels disagree about. This is the remedy `partspec lint`'s own
-`csg-two-part-intersection` finding names.
+requires, the same `empty` states the standoff -- and a violation of it with any
+margin is a solid with positive volume on every kernel rather than the
+zero-thickness result the kernels disagree about. This is the remedy `partspec
+lint`'s own `csg-two-part-intersection` finding names.
+
+The degeneracy moves rather than vanishing: at a gap of EXACTLY the clearance
+the probe is a sheet again and the pinned engines disagree, so a design gap must
+clear the requirement strictly. The assembly leaves 2.0 mm against a required
+1.5 mm for that reason. See the README for the sweep and for why a per-axis grow
+measures Chebyshev distance rather than Euclidean.
 """
 
 from partspec import Part, openscad

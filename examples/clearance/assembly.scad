@@ -41,9 +41,16 @@ module post() {
 }
 
 // The post plus the standoff the fit requires around it. The clearance probe
-// intersects the lid against THIS rather than against `post()`, so a lid that
-// comes closer than CLEAR leaves a solid of positive volume on every kernel
+// intersects the lid against THIS rather than against `post()`, so a lid closer
+// than CLEAR by any margin leaves a solid of positive volume on every kernel
 // instead of the zero-thickness result the kernels disagree about.
+//
+// LID_AT is 2.0 mm above the post against CLEAR = 1.5 for a reason: at a gap of
+// EXACTLY CLEAR the probe is a zero-thickness sheet and the pinned engines split
+// (2021.01 exit 1, 2026.08.01 exit 0). Growing moves that degeneracy to the
+// boundary rather than removing it, so the design gap must clear CLEAR strictly.
+// The grow is per-axis, so it measures Chebyshev and not Euclidean distance --
+// safe in the FAIL direction only (SPEC-contract.md 9.1 rule 3).
 module post_envelope() {
     translate(POST_AT - [CLEAR, CLEAR, CLEAR]) cube(POST + 2 * [CLEAR, CLEAR, CLEAR]);
 }
