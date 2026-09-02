@@ -179,8 +179,10 @@ jobs:
       # exit code, and the difference named on stderr) was never gated.
       # Committing a lock that nothing exercises would reproduce that root
       # cause one layer down, which is why this step exists and not only the
-      # file. It fails if `examples/spacer/spec.py` is edited without
-      # `--pin`, which is exactly the confession the lock is committed for.
+      # file. It fails when a CLAIM moves without `--pin` — the pin binds the
+      # claim set and not the source (`SPEC-report.md` §7.1), so editing
+      # `BORE_D` in that same file exits 0 here and only `diff` sees it. A
+      # moved claim is exactly the confession the lock is committed for.
       - name: Exemplar claims pin (examples/spacer)
         env:
           PARTSPEC_REQUIRE_ENGINES: "1"

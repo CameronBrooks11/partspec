@@ -290,10 +290,18 @@ run *ARGS:
 # an agent and a CI job actually see: the exit code, and the named difference
 # on stderr. Cheap enough to be unconditional — one 40x30x6 spacer, and the
 # pin adjudicates before the engine starts when it fails.
+#
+# NO `--quiet`, and that is the whole of what this recipe buys. `--quiet`
+# suppresses `_summarise`, and a claim-set mismatch under it writes 0 bytes to
+# stdout and 0 to stderr — measured; the entire CI record becomes `error:
+# recipe example-spacer failed … with exit code 4`. That gates the exit code
+# and nothing else, which is what pytest already does from in-process. Without
+# the flag the adjudication lands on stderr, 1372 bytes of it, naming the
+# claim that moved and both slugs.
 [doc("Check the spacer exemplar against its committed claims pin")]
 example-spacer:
     uv run partspec check examples/spacer/spec.py:spacer \
-        --expect examples/spacer/claims.lock --quiet
+        --expect examples/spacer/claims.lock
 
 # Assert exactly one OCP provider is installed (SPEC-backend.md 4.1).
 # cadquery-ocp and cadquery-ocp-novtk both own the top-level OCP/ package and

@@ -53,7 +53,7 @@ pinned 1 part(s) -> examples/spacer/claims.lock
 
 Enforce it. This is step 1 of
 [`docs/AGENT-CONTRACT.md`](../../docs/AGENT-CONTRACT.md) §1, and it is what CI
-runs on every push (`just example-spacer`):
+runs on every pull request and on every push to `main` (`just example-spacer`):
 
 ```console
 $ partspec check examples/spacer/spec.py:spacer --expect examples/spacer/claims.lock
@@ -78,8 +78,12 @@ $ echo $?
 ```
 
 Every check is `skipped`, not failed: the question changed identity, so nothing
-may be said about the part. Exit 4 is `error` — the contract is wrong, not the
-part — and it is the one exit an agent must never repair by editing the contract.
+may be said about the part. Exit 4 is `error` — nothing was evaluated, so
+nothing may be concluded. **This particular exit 4 must never be repaired by
+editing the contract**, which is §4's rule and is specific to the pin: exit 4
+from a contract that *raised* is repaired by editing the contract, and
+`AGENT-CONTRACT.md` §2.3 says exactly that. The two are told apart by the
+report — a pin mismatch names the moved claims in `expectation.differences`.
 
 A change that is genuinely intended is re-pinned in one flag, and says what it
 overwrote on stderr:
@@ -102,17 +106,37 @@ diff of this file in a pull request is the confession.
 The pin covers the claim *set*. A wall thinning from 2.9 mm to 2.1 mm against an
 unchanged 2.0 minimum moves no claim at all — two green reports and one
 important trend. `partspec diff` is what sees that, and it needs a **baseline**,
-which `check` does not keep for you:
+which `check` does not keep for you.
+
+Note which edit this is. The `PLATE` change above moves a claim, so the pin
+catches it. Change the **model's** numbers instead — `BORE_D` from 8.0 to 12.0,
+a bore half again as wide, every declared claim still satisfied:
 
 ```console
 $ partspec check examples/spacer/spec.py:spacer --out o --quiet
 $ cp o/report.json baseline.json     # check overwrites o/report.json every run
-# ... edit the model ...
+# ... now edit BORE_D: 8.0 -> 12.0 ...
+$ partspec check examples/spacer/spec.py:spacer --expect examples/spacer/claims.lock --quiet
+$ echo $?
+0                                    # green: not one claim moved
 $ partspec check examples/spacer/spec.py:spacer --out o --quiet
 $ partspec diff baseline.json o/report.json
-different: example-spacer — 1 drifted; 1 limit_changed
+different: example-spacer — 2 drifted
   covered: source closure (1 file)
+$ echo $?
+1
 ```
+
+Both `drifted` entries are still `pass`. They are the two `requires`, whose
+captured operands moved with the bore:
+
+```json
+{"id": "bore_d_gt_0", "change": "drifted", "status": "pass",
+ "operands": {"old": {"bore_d": 8.0}, "new": {"bore_d": 12.0}}}
+```
+
+That is the division of labour: the pin refuses a changed *question*, `diff`
+reports a changed *answer*, and neither substitutes for the other.
 
 Without the `cp`, the second run has already destroyed the only baseline the
 first produced — and `outputs/` is gitignored at every depth, so the default

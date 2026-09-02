@@ -43,8 +43,8 @@ before the engine starts. `examples/spacer/` carries the worked copy —
 beside the contract, and
 [its README](https://github.com/CameronBrooks11/partspec/blob/main/examples/spacer/README.md)
 walks the `--pin` / `--expect` loop end to end. This repository's own CI runs
-that exemplar on every push, so the snippet below is a shape that is gated
-rather than one that is merely written down.
+that exemplar on every pull request and on every push to `main`, so the snippet
+below is a shape that is gated rather than one that is merely written down.
 
 ```yaml
 # .github/workflows/partspec.yml
@@ -74,8 +74,12 @@ statements about the **run** (nothing was proven — the checks could not be
 evaluated, the contract asserted nothing, the contract raised, or the
 invocation was wrong). Only `0` is green, and a `2` is not a soft pass:
 `incomplete` exits non-zero precisely so that silence cannot read as success.
-Upload the report on `always()` — it is the product surface, and on a failing
-run it is the only thing that says which check and by how much.
+Upload the report on `always()` — it is the product surface, and on a check
+that ran it is what says which check failed and by how much. It is not
+sufficient on its own: a `64` never gets that far, and the report at the
+deterministic path is then a placeholder with `counts.total: 0` while the
+diagnosis is on stderr alone. Watch the exit code, not only the artifacts
+(`docs/AGENT-CONTRACT.md` §4).
 
 ### A contract is code
 

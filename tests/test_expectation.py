@@ -704,8 +704,13 @@ def test_a_repin_over_an_existing_lock_names_what_moved(tmp_path: Path, capsys):
     assert main(["check", target, "--quiet", "--pin", str(lock)]) == 0
     capsys.readouterr()
 
+    # NOT `--quiet`, deliberately, and the only one of these that is not.
+    # Every re-pin test passed `--quiet`, so gating the confession on
+    # `if args.quiet:` — printing it on exactly the wrong path — left the whole
+    # suite green (adversarial review of #351, M1). The flag is orthogonal to
+    # the guard, so both sides of it need a reader.
     loosened = _target(tmp_path, "    p.envelope(max=(500, 500, 500))\n    p.watertight()\n")
-    assert main(["check", loosened, "--quiet", "--pin", str(lock)]) == 0, (
+    assert main(["check", loosened, "--pin", str(lock)]) == 0, (
         "not a refusal: AGENT-CONTRACT.md §4 permits a deliberate re-pin"
     )
     err = capsys.readouterr().err
@@ -790,3 +795,37 @@ def test_an_unreadable_lock_with_nothing_unresolved_still_writes_and_says_so(
     assert "could not be read first" in err
     assert "cannot say which claims moved" in err
     assert read_lock(lock)["subject"], "the write went through"
+
+
+@needs_scad_tier
+def test_the_confession_lands_under_the_headline_it_qualifies(tmp_path: Path):
+    """`sys.stdout.flush()` after the `pinned N part(s)` line, through a pipe.
+
+    stdout is block-buffered whenever it is not a tty, so without the flush the
+    stderr confession overtakes the stdout headline and a reader meets the
+    moved claim before the line it belongs to — in a batch, under the PREVIOUS
+    target's output. Deleting the flush reproduces exactly that and left the
+    suite green (adversarial review of #351, M2), which is why this test runs
+    a real subprocess: `capsys` captures the two streams separately and can
+    therefore never see the interleaving that is the whole defect.
+    """
+    import subprocess
+    import sys as _sys
+
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    assert main(["check", target, "--quiet", "--pin", str(lock)]) == 0
+
+    loosened = _target(tmp_path, "    p.envelope(max=(500, 500, 500))\n    p.watertight()\n")
+    merged = subprocess.run(
+        [_sys.executable, "-m", "partspec", "check", loosened, "--pin", str(lock)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    ).stdout
+
+    headline = merged.index("pinned 1 part(s)")
+    confession = merged.index("--pin rewrote claims")
+    assert headline < confession, f"the confession sorted above its headline:\n{merged}"

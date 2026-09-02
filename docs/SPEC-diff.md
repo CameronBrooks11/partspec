@@ -61,8 +61,8 @@ Owning no run, `diff` also keeps no history: both inputs are artifacts the calle
 has, and `check` does not supply the earlier one. `check` writes to one deterministic
 destination, `<contract dir>/outputs/<slug>/report.json` or `<--out DIR>/report.json`, and
 **overwrites it every run**, so the second run of a loop destroys the only baseline the
-first produced. A baseline MUST therefore be copied or committed before re-running
-(`cp o/report.json baseline.json`), and the copy must be taken before the run that might
+first produced. A baseline therefore has to be copied or committed before re-running
+(`cp o/report.json baseline.json`), and the copy has to be taken before the run that might
 change something. Left where `check` put it a report is overwritten and then untracked:
 `outputs/` is gitignored at every depth in this repository and in the layout the exemplars
 use, so the default disposition of a baseline is *deleted, then not in the history either*.

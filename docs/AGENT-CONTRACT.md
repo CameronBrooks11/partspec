@@ -310,6 +310,9 @@ pinned part from the invocation — from where you sit these are indistinguishab
   itself; take limits from `partspec.refs` (`iso15`, `iso_metric_thread`,
   `nema17`) or the drawing.
 
+A contract change can be *right* — the fix is to propose it in an escalation and let a
+human apply and re-pin it, never to make it silently.
+
 **`check` overwrites its report, so the baseline for that `diff` is yours to keep.**
 Every run writes to one deterministic destination — `<contract dir>/outputs/<slug>/report.json`,
 or `<--out DIR>/report.json` — and overwrites it. The second run of any repair loop destroys
@@ -330,9 +333,6 @@ The convention: commit `baseline/report.json` beside the contract when the drift
 across sessions, or keep it as a CI artifact when it matters only across one pull request.
 `vdiff` needs two `render.json` and takes the same step.
 `examples/spacer/README.md` is the worked copy of both this and the pin above.
-
-A contract change can be *right* — the fix is to propose it in an escalation and let a
-human apply and re-pin it, never to make it silently.
 
 ## 5. Before believing a green run
 
