@@ -719,22 +719,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OpenSCAD words this one `Problem converting rotate(a=undef) parameter`, not
   `Unable to convert`. It is read now: the same case is `ERROR: 3 skipped` at
   exit 4 on 2021.01 and on 2026.08.01, quoting the engine's own line.
-  Measured under both binaries and character-identical on each — three
-  templates, all three fired from a source and all three exiting 0 with a
-  12-facet cube: `rotate(o)` → `Problem converting rotate(a=undef) parameter`,
-  `rotate([o,0,0])` → `Problem converting rotate(a=[undef, 0, 0]) parameter`,
+  Measured under both binaries and character-identical on each, all three
+  templates fired from a source: `rotate(o)` →
+  `Problem converting rotate(a=undef) parameter`, `rotate([o,0,0])` →
+  `Problem converting rotate(a=[undef, 0, 0]) parameter`,
+  `rotate(a=o, v=[0,0,o])` →
+  `Problem converting rotate(a=undef, v=[0, 0, undef]) parameter`, and
   `rotate(a=45, v="z")` → `Problem converting rotate(..., v="z") parameter`.
+  **The line does not always mean a default went in, and it has a measured
+  remainder — this is `FAILURE-MODES.md` entry 9a's trade in a second place,
+  and it is written down there as entry 9b.**
+  It means the engine could not use the `rotate` parameters *as written*, and
+  what that does to the mesh differs by shape. Measured on both engines, every
+  byte comparison `cmp -s` against the correct source named:
+  `rotate(o)` and `rotate([o,0,0])` lose the rotation and stand at identity —
+  the wrong part, and the reason #333 exists. But `rotate() cube([10,5,2])` is
+  identity because identity is what a no-op rotate is *for*, byte-identical to
+  the bare cube; `rotate(a=45, v="z") cube(5)` substitutes the **default axis**
+  and really is rotated 45° about Z (bbox `(-3.536,0,0)..(3.536,7.071,5)`),
+  byte-identical to `rotate(a=45, v=[0,0,1]) cube(5)`; and
+  `rotate([90,0,0,0]) cube([10,5,2])` substitutes **nothing at all** —
+  2021.01's `src/transform.cc` reads
+  `default: ok &= false; /* fallthrough */ case 3:`, so an over-long vector
+  still has its first three components read and applied — byte-identical to
+  `rotate([90,0,0]) cube([10,5,2])`. All three of those went exit 0 on `main`
+  and are exit 4 here. **The refusal stands anyway**, on entry 9's reasoning:
+  an over-long rotate vector, a string where an axis belongs and an angle that
+  never arrived are bugs in the *source*, one character separates them from the
+  correct spelling, and the marker cannot tell which of the four situations it
+  is in. `tests/test_openscad_engine.py::test_the_rotate_marker_refuses_a_part_whose_mesh_is_byte_perfect`
+  **executes** that cost — asserting both the refusal and the byte identity —
+  so it cannot be quietly lost the way it was nearly shipped as "not a false
+  positive". One consequence is filed rather than fixed here: the report
+  sentence `runner.py` prints for this marker — "built a default in place of
+  it" — asserts a mechanism the over-long vector never took (#360).
   **The marker stops at `rotate(`, and that is a measured choice rather than a
   minimal one.** `Unable to convert` turned out to have a context where it is
   true and says nothing about the mesh — the GUI camera — so `Problem
   converting` was inventoried the same way instead of assumed clean. Read out
   of each binary with `strings`, both carry exactly **four** templates with
-  that head and the two lists are identical: three `rotate` substitutions from
-  `src/core/transform.cc`, and `Problem converting this number: %1$s` from
-  `boost_numeric_cast` in `src/utils/boost-utils.h`, whose only caller in
-  either version is `rands()`'s result count. The fourth is not a substitution
-  into geometry — but it is also **not** a false positive waiting to happen,
-  because it cannot occur beside an exported mesh: the cast fails only on
+  that head and the two lists are identical: the three `rotate` templates
+  (2021.01 `src/transform.cc` 152–177; master `src/core/TransformNode.cc`
+  130–163), and `Problem converting this number: %1$s` from
+  `boost_numeric_cast` (2021.01 `src/boost-utils.h` 41; master
+  `src/utils/boost-utils.h` 38), whose only caller in either version is
+  `rands()`'s result count (2021.01 `src/func.cc` 134; master
+  `src/core/builtin_functions.cc` 184). That fourth one is not about geometry
+  at all, and it cannot occur beside an exported mesh: the cast fails only on
   positive overflow, after which the engine sets the count to `SIZE_MAX` and
   dies building it. Measured under a 2 GB address-space cap on both engines
   from `r = rands(0, 1, 1e30); cube([40,30,6]);` — `std::bad_alloc` on 2021.01,
@@ -746,11 +777,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   negative in
   `test_the_substituted_value_markers_match_both_engine_spellings`, where the
   two rotate lines used to sit.
-  **Not every dropped rotation is narrated**, and that is #332's shape rather
-  than a gap here: `rotate(a=90, v=undef)` is **silent on both engines** and
-  builds an unrotated part, because `undef` is not "defined" and the engine
-  reads that as "no axis given". Measured; still exit 0; there is no stderr
-  line for a guard to key on.
+  **Not every mis-specified rotation is narrated**, and that is #332's shape
+  rather than a gap here: `rotate(a=90, v=undef)` is **silent on both engines**
+  and still exits 0. `undef` is not "defined", so the engine reads it as "no
+  axis given" and applies its **default** axis — the part is rotated 90° about
+  Z, byte-identical to both `rotate(a=90, v=[0,0,1])` and `rotate(90)`. It is
+  **not** unrotated; an earlier draft of this entry said so, and a reader told
+  that hunts the wrong symptom. There is no stderr line for a guard to key on
+  either way.
 
 - **A `%`-only diagnostic is written down instead of being a silent trade**
   (#336, epic #305). `%` marks geometry as *background*: OpenSCAD **evaluates**
@@ -768,15 +802,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a real defect at the price of a second parser between the engine and the
   verdict. What changes is that an agent hitting exit 4 on a byte-perfect mesh
   can now reach that conclusion from the documents: `FAILURE-MODES.md` gains
-  entry **9**, and `AGENT-CONTRACT.md` §2.3's conversion bullet says what the
-  quoted line does *not* tell you.
+  entry **9a** — the first half of a new entry whose second half (**9b**) is
+  the `rotate()` remainder above — and `AGENT-CONTRACT.md` §2.3's conversion
+  bullet says what the quoted line does *not* tell you.
   The three modifiers were measured, not assumed, and only one has this
   property: `*` (disable) is never evaluated, so it emits nothing and is the
   modifier that is free; `#` (highlight) **is** exported, so its warnings are
   about the mesh and its refusal is a catch; `%` alone is evaluated and not
   exported. All three are executed in
   `tests/test_docs.py::test_the_background_modifier_entry_is_reproducible_here`,
-  byte identity included, so entry 9 is a claim that runs rather than one that
+  byte identity included, so entry 9a is a claim that runs rather than one that
   is asserted.
 
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload

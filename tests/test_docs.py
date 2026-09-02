@@ -206,7 +206,7 @@ def test_the_hole_becomes_notch_essence_is_reproducible_here(tmp_path: Path):
 
 @needs_openscad
 def test_the_background_modifier_entry_is_reproducible_here(tmp_path: Path):
-    """Catalogue entry 9's [repo] claims, executed (#336).
+    """Catalogue entry 9a's [repo] claims, executed (#336).
 
     Three claims, one source each, and the entry stands or falls on all three:
     `%` is EVALUATED and NOT EXPORTED, so its diagnostic reaches partspec over

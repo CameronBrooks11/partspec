@@ -178,24 +178,36 @@ Read the non-`pass` statuses in `checks[]`:
   the *expression*, not the module: the fix is wherever that value was left `undef` or
   given the wrong type, which is usually a parameter that was never bound or a name
   spelled correctly but assigned nothing.
-  **Two spellings, one meaning.** `rotate()` words its substitution
-  `Problem converting rotate(a=undef) parameter in file part.scad, line 2` — also
-  identical on both engines — and the damage is the same class read differently: nothing
-  changed size, the transform reverted to identity, and the part is standing in an
-  orientation nobody wrote down (#333). A mesh that is watertight, one solid and exactly
-  the right size is not evidence against this line.
-  **What the line does NOT say is where the value came from — including whether it came
-  from geometry that is exported at all.** OpenSCAD evaluates the subtree under a `%`
-  (background) modifier and then excludes it from the render, so a fault inside one is
-  narrated on stderr while contributing nothing to the mesh: measured on both engines,
-  `cube([40,30,6]); %translate([undef,0,0]) cube(2);` exports a file **byte-identical**
-  to the same source with the `%` line deleted, and still exits `4` here. partspec
-  refuses it deliberately (`FAILURE-MODES.md` §9). If the quoted line's file and line
-  number land on a `%` subtree, the mesh you have is very likely correct — but the source
-  is not, and the remedy is the same either way: fix the `undef`, or delete the
-  scaffolding. Do not reach for `--allow-incomplete`; there is none. `*` (disable) is the
-  modifier that costs nothing — its subtree is never evaluated, so it emits no
-  diagnostic — while `#` (highlight) is exported, and its warnings are about the mesh.
+  **A second spelling, and it does not mean quite the same thing.** `rotate()` words its
+  failure `Problem converting rotate(a=undef) parameter in file part.scad, line 2` — also
+  identical on both engines — and it says the engine could not use the `rotate` parameters
+  *as written* (#333). Sometimes that is a default going in and the rotation being lost:
+  `rotate(undef)` and `rotate([undef,0,0])` leave the part at identity, nothing having
+  changed size, standing in an orientation nobody wrote down. Sometimes it is not.
+  `rotate(a=45, v="z")` substitutes the **default axis** `[0,0,1]`, so the part really is
+  rotated 45° about Z; `rotate([90,0,0,0])` substitutes **nothing at all** — the engine
+  reads the first three components of an over-long vector and applies them, and only
+  complains about the fourth. Read the line as "look at this `rotate` call", not as "your
+  part is unrotated".
+  **What neither spelling says is whether the mesh is actually wrong.** Two measured
+  shapes where it is not, both refused at exit `4` on both engines, both covered by
+  `FAILURE-MODES.md` §9:
+  - **A fault inside `%` background geometry** (§9a). OpenSCAD evaluates the subtree under
+    a `%` (background) modifier and then excludes it from the render, so a fault inside one
+    is narrated on stderr while contributing nothing to the mesh:
+    `cube([40,30,6]); %translate([undef,0,0]) cube(2);` exports a file **byte-identical**
+    to the same source with the `%` line deleted. If the quoted line's file and line number
+    land on a `%` subtree, the mesh you have is very likely correct. `*` (disable) is the
+    modifier that costs nothing — its subtree is never evaluated, so it emits no
+    diagnostic — while `#` (highlight) is exported, and its warnings are about the mesh.
+  - **A `rotate()` parameter the engine ignored** (§9b). `rotate([90,0,0,0]) cube([10,5,2])`
+    exports **byte-identical** to `rotate([90,0,0]) cube([10,5,2])`, and
+    `rotate(a=45, v="z") cube(5)` to `rotate(a=45, v=[0,0,1]) cube(5)`.
+
+  In both, **the source is wrong and the mesh may be right**, and the remedy is the same
+  as for the damaging shapes: fix the value, or delete the scaffolding. Do not conclude
+  the tool is unreliable, and do not go looking for a flag to wave it through — there is
+  none, by design.
 - **Otherwise** → the contract itself raised (the report says "the contract is wrong,
   not the part"), or the report is still the placeholder ("run did not complete") —
   whose most common cause is deterministic, not transient: **the contract failed to

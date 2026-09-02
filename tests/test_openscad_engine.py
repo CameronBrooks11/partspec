@@ -1492,14 +1492,23 @@ def test_the_substituted_value_markers_match_both_engine_spellings():
         " or a vec2 of numbers in file c.scad, line 2",
         "WARNING: Unable to convert scale(undef) parameter to a number, a vec3 or vec2"
         " of numbers or a number in file d.scad, line 2",
-        # `rotate()` words the same substitution differently (#333). All THREE
-        # templates either pinned binary carries, each fired from the source
-        # named, each exiting 0 with a clean 12-facet cube standing at identity
-        # because the angle did not convert:
-        #   rotate(o)   /   rotate([o,0,0])   /   rotate(a=45, v="z")
+        # `rotate()` words its own failure differently (#333). All THREE
+        # templates either pinned binary carries -- the first is instantiated
+        # twice because a scalar and a vector `a` reach it by different routes,
+        # and template 2 needs BOTH parameters bad to fire. Each line was
+        # produced by the source named; none of them means the same thing about
+        # the mesh, which the marker's docstring is where to read:
+        #   rotate(o)                 template 1, angle dropped -> identity
+        #   rotate([o,0,0])           template 1, same
+        #   rotate(a=o, v=[0,0,o])    template 2
+        #   rotate(a=45, v="z")       template 3, DEFAULT AXIS substituted;
+        #                             the cube is rotated 45 deg about Z, not
+        #                             standing at identity
         "WARNING: Problem converting rotate(a=undef) parameter in file e.scad, line 2",
         "WARNING: Problem converting rotate(a=[undef, 0, 0]) parameter in file f.scad, line 2",
-        'WARNING: Problem converting rotate(..., v="z") parameter in file g.scad, line 1',
+        "WARNING: Problem converting rotate(a=undef, v=[0, 0, undef]) parameter in file"
+        " g.scad, line 2",
+        'WARNING: Problem converting rotate(..., v="z") parameter in file h.scad, line 1',
     ]
     for line in observed:
         assert openscad._unresolved_lines(line, openscad._SUCCESS_PATH_MARKERS), line
@@ -1649,13 +1658,16 @@ def test_a_defaulted_dimension_is_read_where_a_debug_echos_type_error_is_not(tmp
 
 
 @needs_openscad
-def test_a_rotation_the_engine_dropped_is_read_as_a_substitution(tmp_path: Path):
-    """`rotate()` narrates the same substitution in other words (#333).
+def test_a_rotation_the_engine_could_not_use_is_read_as_a_substitution(tmp_path: Path):
+    """`rotate()` narrates its own failure in other words (#333).
 
     Each source below exits 0 on both pinned engines and writes a clean
-    12-facet cube -- standing at identity, because the angle or axis did not
-    convert. The mesh is well-formed, every geometry check runs, and none of
-    them is measuring the part the source describes.
+    12-facet mesh; each is refused. What the three do to the GEOMETRY differs,
+    and the docstring on `_SUBSTITUTED_VALUE_MARKERS` is where that is set out
+    -- only the first two stand at identity. `rotate(a=45, v="z")` converts the
+    angle fine and substitutes the DEFAULT AXIS, so the cube really is rotated
+    45 deg about Z (measured bbox (-3.536,0,0)..(3.536,7.071,5)); calling that
+    identity was wrong in the first version of this test.
 
     The engine's own wording, character-identical on both binaries:
 
@@ -1667,9 +1679,11 @@ def test_a_rotation_the_engine_dropped_is_read_as_a_substitution(tmp_path: Path)
     why the marker is head-anchored like every other.
 
     `rotate(a=90, v=undef)` is deliberately absent: it is silent on both
-    engines and builds an unrotated part, because `undef` is not "defined" and
-    the engine reads that as "no axis given". That is #332's shape, not a hole
-    in this marker, and there is no stderr line for a test to key on.
+    engines and exits 0, because `undef` is not "defined" and the engine reads
+    that as "no axis given" -- so its DEFAULT axis applies and the part is
+    rotated 90 deg about Z, byte-identical to `rotate(90)`. Not unrotated.
+    That is #332's shape, not a hole in this marker, and there is no stderr
+    line for a test to key on.
     """
     for name, body in (
         ("rot_scalar.scad", "o = undef;\nrotate(o) cube(5);\n"),
@@ -1683,9 +1697,59 @@ def test_a_rotation_the_engine_dropped_is_read_as_a_substitution(tmp_path: Path)
         )
         assert not isinstance(result, BuildError), f"premise: {name} builds happily"
         assert result.stat().st_size > 0, f"premise: {name} writes a real mesh"
-        assert seen, f"{name}: a dropped rotation must not reach a measurement"
+        assert seen, f"{name}: a rotate the engine could not use must not be waved through"
         assert openscad.is_substituted_value(seen[0]), seen[0]
         assert "Problem converting rotate(" in seen[0], seen[0]
+
+
+@needs_openscad
+def test_the_rotate_marker_refuses_a_part_whose_mesh_is_byte_perfect(tmp_path: Path):
+    """The cost of the #333 marker, executed rather than asserted (round-1 review).
+
+    `rotate([90,0,0,0])` is the strongest case: 2021.01's `src/transform.cc`
+    reads `default: ok &= false; /* fallthrough */ case 3:`, so an over-long
+    `a` vector still has its first three components read and applied. NOTHING
+    is substituted, the part is rotated exactly as the source asked, and the
+    export is byte-identical to the correct three-component spelling -- and
+    this guard refuses it at exit 4 anyway.
+
+    That refusal is deliberate and it is `FAILURE-MODES.md` entry 9b's trade in
+    a second place: the SOURCE is wrong, one character separates it from right,
+    and refusing loudly is the safe direction. The point of pinning it here is
+    that the cost cannot be quietly lost -- if a later change makes this pass,
+    the trade has moved and someone has to say so out loud.
+
+    `rotate()` is the second, milder shape: a no-op rotate whose intended
+    output IS identity, byte-identical to the bare cube, refused all the same.
+    """
+    correct = _scad(tmp_path, "correct.scad", "rotate([90, 0, 0]) cube([10, 5, 2]);\n")
+    overlong = _scad(tmp_path, "overlong.scad", "rotate([90, 0, 0, 0]) cube([10, 5, 2]);\n")
+    bare = _scad(tmp_path, "bare.scad", "cube([10, 5, 2]);\n")
+    noop = _scad(tmp_path, "noop.scad", "rotate() cube([10, 5, 2]);\n")
+
+    def build(src: Path) -> tuple[bytes, list[str]]:
+        seen: list[str] = []
+        out = openscad.render(
+            OpenSCADSource(path=src), tmp_path / f"{src.stem}.stl", unresolved_out=seen
+        )
+        assert not isinstance(out, BuildError), out
+        return out.read_bytes(), seen
+
+    correct_mesh, quiet = build(correct)
+    assert quiet == [], "premise: the correct spelling is not refused"
+    bare_mesh, also_quiet = build(bare)
+    assert also_quiet == [], "premise: the bare cube is not refused"
+
+    overlong_mesh, refused = build(overlong)
+    assert overlong_mesh == correct_mesh, (
+        "an over-long `a` vector still applies its first three components — "
+        "no default was substituted and the mesh is right"
+    )
+    assert refused, "and it is refused anyway: the source is wrong (#333, FAILURE-MODES 9)"
+
+    noop_mesh, also_refused = build(noop)
+    assert noop_mesh == bare_mesh, "a no-op rotate is identity, which is what it is for"
+    assert also_refused, "and it is refused anyway, for the same reason"
 
 
 @needs_openscad
