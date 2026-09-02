@@ -432,6 +432,8 @@ def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path)
         "rule-4-before",
         "rule-4-after",
         "rule-5-after",
+        "rule-7-before",
+        "rule-7-after",
     }
     # Rule 3's overshoot idiom is taught THROUGH the after-blocks it points
     # at; an exact-face cutter slipped every measurement (review mutation M4),
@@ -483,6 +485,60 @@ def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path)
     assert measured(backend5.volume(decomposed)).value == pytest.approx(
         measured(backend.volume(after)).value, rel=1e-9
     )
+
+
+@needs_scad_tier
+def test_the_scad_skills_loop_guard_holds_on_whichever_engine_is_pinned(tmp_path: Path):
+    """Rule 7's claim, executed: the guarded loop builds one part on every
+    engine, and the unguarded one does not (#356).
+
+    The divergence needs two binaries and a run has one, so the unguarded
+    half is keyed to `engine.version` — CI pins 2021.01 and 2026.08.01 and
+    runs the whole suite under each, so both rows below are executed, one per
+    matrix leg. An unpinned third version is not skipped: it still has to land
+    on one of the two measured outcomes, which is what makes a NEW divergence
+    a failure here rather than a silence.
+    """
+    from partspec.backends.mesh import MeshBackend
+    from partspec.engines.openscad import OpenSCADSource, version
+
+    blocks = _scad_blocks()
+
+    def bbox(name: str, stud_n: float) -> tuple[float, ...]:
+        scad = tmp_path / f"{name}.scad"
+        scad.write_text(blocks[name])
+        backend = MeshBackend()
+        artifact = backend.build(
+            OpenSCADSource(path=scad, params={"stud_n": stud_n}),
+            tmp_path / f"{name}{stud_n:g}",
+        )
+        return backend.bbox(artifact).value
+
+    rail = (40.0, 8.0, 6.0)
+    studded = (40.0, 8.0, 6.0 - 0.01 + 4.0)
+
+    # The guard is the claim: no count reaches the range that the source has
+    # not already said is non-empty, so zero and negative counts are the bare
+    # rail on any engine, and a real count still places its studs.
+    for stud_n in (0.0, -1.0):
+        assert bbox("rule-7-after", stud_n) == pytest.approx(rail, abs=1e-6), stud_n
+    assert bbox("rule-7-after", 2.0) == pytest.approx(studded, abs=1e-6)
+
+    # Unguarded, `[1 : 0]` is engine-defined. 2021.01 normalises it and
+    # iterates ASCENDING — i = 0 and i = 1, two studs the source did not ask
+    # for; 2026.08.01 iterates nothing.
+    unguarded = bbox("rule-7-before", 0.0)
+    expected = {"2021.01": studded, "2026.08.01": rail}.get(version())
+    if expected is not None:
+        assert unguarded == pytest.approx(expected, abs=1e-6), version()
+    else:
+        assert unguarded == pytest.approx(rail, abs=1e-6) or unguarded == pytest.approx(
+            studded, abs=1e-6
+        ), f"{version()} reads a backwards range a third way: {unguarded}"
+
+    # A real count is the same part either way — the divergence is confined to
+    # the empty case, which is why it survives review.
+    assert bbox("rule-7-before", 2.0) == pytest.approx(studded, abs=1e-6)
 
 
 # --------------------------------------------------------------------------
