@@ -280,6 +280,11 @@ def test_a_backend_that_raises_costs_one_name_and_not_the_run(tmp_path: Path, ca
     assert "area" not in doc["measurements"]
     assert doc["measurements"]["volume"]["value"] == pytest.approx(30 * 20 * 10 - 6 * 6 * 10)
     assert "verdict" not in doc, "measure decides nothing, including here"
+    # SPEC-report 7.3's partition, on the backstop path as well as the
+    # fixture one: a name lost to a raise must still land in exactly one
+    # of the three blocks, or the payload stops accounting for the
+    # vocabulary (PR #369 review, N3).
+    assert _accounted_names(doc)
 
 
 @needs_build123d

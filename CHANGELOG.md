@@ -13,17 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#365). A zero-thickness part — `intersection()` of two cubes meeting on a
   face, which 2021.01 and 2026.08.01 both export as a closed, consistently
   wound four-facet sheet — has no centre of mass, because the centroid divides
-  by the volume. `trimesh` returned `nan`, `Measurement` refused it by raising,
-  and the raise escaped the per-name loop: exit 4, **stdout 0 bytes**, no
-  `area`, no `bbox`, on a part whose other thirteen quantities were perfectly
-  well defined and whose `area` the same geometry answers through `check`
-  (480.0 mm², pass, exit 0). The mesh tier's `center_of_mass` now refuses that
-  shape with a reason — "this mesh encloses no volume, so it has no centre of
-  mass (check volume first)" — leaving `area` 480.0, `bbox` (20, 12, 0) and
-  `volume` 0.0 emitted, all fourteen names accounted for across the three
-  §7.3 blocks. `measure` also catches a raising backend per name and records it
-  in `refused` rather than ending the run, so the next one can cost one name
-  and not the verb. The OCCT tier already guarded this case and was measured
+  by the volume. `trimesh` returned `nan`, `Measurement` refused it by
+  raising, and the raise escaped the per-name loop: exit 4, **stdout 0
+  bytes**, no `area`, no `bbox`, on a part whose other thirteen names the
+  payload accounts for — eight measured, five unavailable on that tier — and
+  whose `area` the same geometry answers through `check` (480.0 mm², pass,
+  exit 0). The mesh tier's `center_of_mass` now refuses that shape with a
+  reason — "this mesh encloses no volume, so it has no centre of mass (check
+  volume first)" — leaving `area` 480.0, `bbox` (20, 12, 0) and `volume` 0.0
+  emitted, all fourteen names accounted for across the three §7.3 blocks.
+  `measure` also catches a raising backend per name and records it in
+  `refused` rather than ending the run, so the next one can cost one name and
+  not the verb. The OCCT tier already guarded this case and was measured
   unaffected; `render` builds no `Measurement` and has no equivalent path.
 
 - **ISO 965-1 does not meet §10.1's formula-executed exception, measured**
