@@ -905,9 +905,20 @@ VERSIONED_DOCS = (
     "docs/LINT.md",
     "docs/FAILURE-MODES.md",
 )
-"""The normative surface. `DECISIONS.md`, `POST-V0.md` and `PLAN.md` are absent
-on purpose: the first two are reasoning that outlives any release and the third
-says "HISTORICAL" in its own second line."""
+"""The normative surface: every document that describes a release."""
+
+UNVERSIONED_DOCS = frozenset({"DECISIONS.md", "POST-V0.md", "PLAN.md", "README.md"})
+"""Exempt, each for its own reason. `DECISIONS.md` and `POST-V0.md` are
+reasoning that outlives any release; `PLAN.md` says **HISTORICAL** in its own
+second line; `README.md` is a router whose claims are about the other files
+rather than about the tool.
+
+Named rather than merely omitted. The first version of this gate was a
+whitelist with a prose aside, and `docs/README.md` was in neither -- so a new
+`docs/SPEC-*.md` file could be added with no `Applies to:` line and all four
+gates passed (executed, PR #363 review MEDIUM-1). A partition forces the next
+person to classify.
+"""
 
 
 def _declared_version() -> str:
@@ -946,7 +957,7 @@ def test_the_readme_and_agents_status_lines_name_that_same_version():
             None,
         )
         assert status is not None, f"{name} has no status line to check"
-        assert version in status, (
+        assert re.search(rf"\bv?{re.escape(version)}\b", status), (
             f"{name}'s status line does not name {version}: {status.strip()!r}"
         )
 
@@ -967,13 +978,21 @@ def test_every_normative_document_says_which_version_it_describes():
     substance, which is a fact about history rather than a claim about currency.
     """
     version = _declared_version()
+    present = {p.name for p in (REPO / "docs").glob("*.md")}
+    classified = UNVERSIONED_DOCS | {Path(n).name for n in VERSIONED_DOCS}
+    assert present == classified, (
+        "every document in docs/ must be classified as versioned or exempt; "
+        f"unclassified: {sorted(present - classified)}, "
+        f"named but absent: {sorted(classified - present)}"
+    )
+
     missing, stale = [], []
     for name in VERSIONED_DOCS:
         head = "\n".join((REPO / name).read_text().splitlines()[:12])
         match = re.search(r"^\*\*Applies to:\*\* (.+)$", head, re.M)
         if match is None:
             missing.append(name)
-        elif version not in match.group(1):
+        elif not re.search(rf"\bv?{re.escape(version)}\b", match.group(1)):
             stale.append(f"{name} -> {match.group(1).strip()}")
     assert not missing, f"no `Applies to:` line in: {missing}"
     assert not stale, (

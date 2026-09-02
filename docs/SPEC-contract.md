@@ -124,7 +124,7 @@ revising when a check is added. **This document closes it at each release**: v0 
 set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5),
 `bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6;
 `draft_angle` (§4.8), `self_intersection_free` (§4.9), `step_roundtrip` (§4.10) and
-`min_wall` (§4.11) are the depth epic's (#136).
+`min_wall` (§4.11) are the depth epic's (#136); `empty` (§4.12) is #257's.
 
 ### 4.1 Parameter phase
 

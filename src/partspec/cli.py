@@ -134,7 +134,8 @@ def _docs_epilog() -> str:
     if root is None:
         return (
             "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) are\n"
-            f"not installed with this copy; read them at {DOCS_URL}"
+            "not installed with this copy. On `main`, which may describe a release\n"
+            f"other than this one:\n  {DOCS_URL}"
         )
     return (
         "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) ship\n"

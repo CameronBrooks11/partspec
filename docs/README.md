@@ -8,8 +8,8 @@ which question, and roughly what it costs to read.
 
 **[AGENT-CONTRACT.md](AGENT-CONTRACT.md)** — read `report.json`, not the console.
 What each exit code obliges you to do, the two cases where the exit and the
-report disagree on purpose, and what never to do about a failure. At 260 lines
-it is a fraction of the specs, and start here rather than with them.
+report disagree on purpose, and what never to do about a failure. It is a
+fraction of the specs, and start here rather than with them.
 
 **[FAILURE-MODES.md](FAILURE-MODES.md)** — the observed ways a part is wrong
 while every tool in the chain reports success. Read this before deciding a green
@@ -23,7 +23,7 @@ normatively. Long, and structured for lookup rather than a sitting.
 The `skills/contract-authoring` skill is the worked version of the same
 material, and
 [`examples/`](https://github.com/CameronBrooks11/partspec/tree/main/examples)
-has four parts whose READMEs say what each is meant to teach.
+has five parts whose READMEs say what each is meant to teach.
 
 ## I want to read what the tool produced
 
