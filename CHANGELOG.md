@@ -716,7 +716,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through — honestly 7434.51 mm³ — a `Shell` over the solid's own faces read
   **14869.03**, exactly double; a closed 10 mm shell standing 100 mm away read
   **8434.51** and dragged the centroid to **x = 11.856 mm** from −3.8e−16; and
-  the same solid two `Compound` wrappings deep read **0.0**. Every one was
+  the same solid **two `Compound(children=[...])` calls deep** — an assembly
+  grouping a sub-assembly — read **0.0**. (Counted in calls; `occt.py` and
+  `SPEC-backend.md` §4 count the same cliff as TopoDS compound level 3,
+  which is the same shape: `Box(...)` is already a compound over its solid,
+  so the two counts differ by one.) Every one was
   flagged `exact`, on a shape reporting `solid_count 1`, `watertight true` and
   `cavities 0` — nothing adjacent moved, which is why none of this was caught by
   the measurements beside it. All three now sum over `a.solids()`.
