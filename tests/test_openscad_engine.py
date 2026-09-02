@@ -2226,3 +2226,25 @@ def test_render_refuses_the_defaulted_value_arm_too(tmp_path: Path):
     assert result.origin is None
     assert "could not convert a value" in result.message
     assert not (out / "renders").exists(), "no view of a part built from a default"
+
+
+@needs_openscad
+def test_render_refuses_a_rotation_the_engine_dropped(tmp_path: Path):
+    """The composition of #357 and #307, which neither PR commits alone.
+
+    #357 narrowed the success-path markers so `Problem converting rotate(...)`
+    feeds `unresolved_out`; #307 made `render_views` refuse on that list. So a
+    dropped rotation — a clean, watertight, single-solid cube standing at
+    identity, exit 0 from the engine — now costs `render` its views too, and
+    not because either change said so about the other.
+    """
+    src = tmp_path / "r.scad"
+    src.write_text("o = undef;\nrotate(o) cube(5);\n")
+    out = tmp_path / "out"
+
+    result = openscad.render_views(OpenSCADSource(src), out)
+
+    assert isinstance(result, BuildError)
+    assert result.origin is None
+    assert "rotate" in result.unresolved[0]
+    assert not (out / "renders").exists()

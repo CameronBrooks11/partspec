@@ -1485,3 +1485,144 @@ def test_the_environment_arm_is_unchanged_by_the_widening(tmp_path: Path, monkey
     assert model.verdict is Verdict.FAIL, "a design that does not compile IS a statement"
     assert _status(model, "builds") is Status.FAIL
     assert model.build_origin == "model"
+
+
+# --------------------------------------------------------------------------
+# the guard is narrowed to files the export actually depended on (#354 B1)
+# --------------------------------------------------------------------------
+#
+# OpenSCAD EVALUATES a `%` subtree -- so the reference resolves, the engine warns,
+# and the depfile records the file -- and then excludes it from the export. The
+# bytes are identical whether or not the file is there, so refusing is refusing
+# more than the mathematics requires. `*` never evaluates and never reaches the
+# depfile. `#` is exported, so it stays a catch.
+
+
+def _bare_part(tmp_path: Path, body: str, name: str = "probe") -> Part:
+    src = tmp_path / f"{name}.scad"
+    src.write_text(body)
+    p = Part(name, openscad(src))
+    p.watertight()
+    return p
+
+
+_MODIFIER_SHAPES = [
+    # (name, body, refuses)
+    ("plain_import", 'cube([10,10,10]);\nimport("gone.stl");\n', True),
+    ("surface_absent", 'cube([10,10,10]);\nsurface(file="h.dat");\n', True),
+    ("hash_import", 'cube([10,10,10]);\n#import("hash.stl");\n', True),
+    ("pct_and_plain", 'cube([10,10,10]);\n%import("bg.stl");\nimport("fg.stl");\n', True),
+    ("pct_import", 'cube([10,10,10]);\n%import("mate.stl");\n', False),
+    ("pct_surface", 'cube([10,10,10]);\n%surface(file="bg.dat");\n', False),
+    ("star_import", 'cube([10,10,10]);\n*import("star.stl");\n', False),
+]
+
+
+@needs_scad_tier
+@pytest.mark.parametrize(
+    ("name", "body", "refuses"), _MODIFIER_SHAPES, ids=[s[0] for s in _MODIFIER_SHAPES]
+)
+def test_only_a_file_the_export_depended_on_holds_the_verdict(
+    tmp_path: Path, name: str, body: str, refuses: bool
+):
+    """All seven shapes, because the boundary is the whole claim.
+
+    `%` and `*` are excluded from the export, so a file named only from one of
+    them is not a build input and a missing one proves nothing about the part.
+    `#` IS exported — the source asked for that geometry and did not get it —
+    so it is a true positive and stays refused, the same `%`/`#` asymmetry
+    `FAILURE-MODES.md` entry 9a draws.
+    """
+    report = run(_bare_part(tmp_path, body, name), out_dir=tmp_path)
+
+    if refuses:
+        assert report.verdict is Verdict.ERROR, "an exported input is missing"
+        assert report.exit_code == 4
+    else:
+        assert report.verdict is not Verdict.ERROR, (
+            "the export does not depend on this file; refusing it is a false red"
+        )
+        assert _status(report, "builds") is Status.PASS
+
+
+@needs_scad_tier
+def test_the_refusal_names_the_exported_file_and_not_the_dropped_one(tmp_path: Path):
+    """The case a naive implementation gets wrong.
+
+    One file has both a `%` reference and a real one; another has only the `%`.
+    Refusing the run is right, and naming `bg.stl` in the sentence — or counting
+    it in the `(and N more)` suffix — would send a reader to a reference that
+    costs the export nothing. The closure still records BOTH under
+    `engine_inputs.missing`: that field reports what the engine said, and the
+    narrowing is a judgement laid over it, not an edit of it.
+    """
+    body = 'cube([10,10,10]);\n%import("bg.stl");\nimport("fg.stl");\n'
+    report = run(_bare_part(tmp_path, body), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.error is not None
+    assert "fg.stl" in report.error
+    assert "bg.stl" not in report.error
+    assert "more" not in report.error, "one file is missing from the export, not two"
+
+    closure = report.source_closure
+    assert closure is not None
+    assert closure["engine_inputs"]["missing"] == ["bg.stl", "fg.stl"]
+
+
+@needs_scad_tier
+def test_an_unreadable_csg_export_keeps_the_refusal(tmp_path: Path):
+    """Fail closed, on the failure that is real rather than hypothetical.
+
+    The `.csg` format prints string contents raw, so a quote inside one breaks
+    the parse — `CsgError: unexpected identifier in value position: 'hi'`,
+    measured on this exact source. A `%`-only reference would otherwise be
+    exonerated; it is not, because a false refusal here is the behaviour that
+    already shipped while a false pass would be the founding-property failure
+    #309 exists to close.
+    """
+    body = 'cube([10,10,10]);\n%import("q.stl");\nlinear_extrude(1) text("say \\"hi\\"");\n'
+    report = run(_bare_part(tmp_path, body), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "unreadable evidence may not exonerate"
+    assert report.error is not None and "q.stl" in report.error
+
+
+@needs_scad_tier
+def test_a_reference_from_an_included_file_is_matched_by_suffix(tmp_path: Path):
+    """Why the join is a suffix match and not a resolve against the entry's dir.
+
+    `import()` resolves against the directory of the file CONTAINING it, so a
+    reference inside an included helper resolves somewhere the entry file's
+    parent does not name. Measured: the depfile's absolute path always ends
+    with the literal the `.csg` carries, whichever file wrote it.
+    """
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "helper.scad").write_text('module h() { import("deep.stl"); }\n')
+    body = "include <sub/helper.scad>\ncube([10,10,10]);\nh();\n"
+    report = run(_bare_part(tmp_path, body), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.error is not None and "deep.stl" in report.error
+
+
+@needs_scad_tier
+def test_two_files_of_the_same_name_in_different_directories_are_told_apart(tmp_path: Path):
+    """The join is by path suffix, and a basename match is not good enough.
+
+    `a/x.stl` is referenced only from a `%` subtree and is absent; `b/x.stl` is
+    referenced for real and is there. Only the first is in `missing`, and the
+    export does not depend on it. Matching on the bare name instead would see
+    the missing file's name in the KEPT set too — because `b/x.stl` shares it —
+    and refuse a run whose export is complete.
+    """
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    (tmp_path / "b" / "x.stl").write_text("solid s\nendsolid s\n")
+    body = 'cube([10,10,10]);\n%import("a/x.stl");\nimport("b/x.stl");\n'
+    report = run(_bare_part(tmp_path, body), out_dir=tmp_path)
+
+    closure = report.source_closure
+    assert closure is not None
+    assert closure["engine_inputs"]["missing"] == ["a/x.stl"], "only the %-ed one is absent"
+    assert report.verdict is not Verdict.ERROR, "the export depends on b/x.stl, which is there"

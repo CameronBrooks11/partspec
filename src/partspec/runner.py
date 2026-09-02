@@ -17,6 +17,7 @@ Spec: SPEC-report.md sections 4, 5, 6; SPEC-contract.md sections 4, 6.
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
 import time
 from pathlib import Path
@@ -348,7 +349,12 @@ def _evaluate(
         # it actually opened, which is the one thing no static reader can know.
         report.source_closure = _closure(part.source, engine_deps[0])
 
-        absent = [_relative(f, part.source.path) or f.name for f in engine_deps[0].missing]
+        unexported = _only_in_dropped_subtrees(part.source, engine_deps[0].missing)
+        absent = [
+            _relative(f, part.source.path) or f.name
+            for f in engine_deps[0].missing
+            if f not in unexported
+        ]
         if absent:
             # The build SUCCEEDED, the depfile is `complete` -- a success-path
             # read is never anything else -- and the complete answer is that a
@@ -1620,6 +1626,103 @@ _UNRESOLVED_NAME_HINT = (
     "either the source misspells the name, or whatever defines it is not on "
     "OPENSCADPATH. Fix the name or install the library, then re-run"
 )
+
+_CSG_FILE_LITERAL = re.compile(r'\bfile\s*=\s*"([^"\n]*)"')
+
+
+def _only_in_dropped_subtrees(source: Any, missing: tuple[Path, ...]) -> set[Path]:
+    """Of `missing`, the entries the export provably did not depend on.
+
+    OpenSCAD **evaluates** a `%` subtree -- so the file is resolved, the engine
+    warns it could not open it, and the depfile records it -- and then excludes
+    it from the export. Measured on both pinned engines: `cube([10,10,10]);
+    %import("mate.stl");` exports the same bytes whether or not `mate.stl` is
+    there. Refusing that is refusing more than the mathematics requires (#354
+    review, B1); `*` never evaluates and never reaches the depfile at all, so it
+    needs nothing here.
+
+    **Why the `.csg` and not stderr.** The warning is worded identically for a
+    `%`-ed and a plain `import()`, differing only in the line number, so the
+    stderr route needs the line-number correlation #336 ruled against. The
+    `.csg` carries the modifier next to the filename on both engines, and
+    `csg.parse_csg` already drops `%` and `*` subtrees -- "a %-ed cutter is not
+    part of the part" (PR #125 review, F2). The discriminator this needs is the
+    one that parser already implements, for the same reason, so nothing in
+    `csg.py` changes.
+
+    **Fail closed at every step.** An export that will not run, will not parse,
+    or names a file this cannot join to a depfile entry returns nothing, and the
+    caller refuses as before. The known parse failure is real and is why: the
+    `.csg` prints string contents raw, so `text("say \"hi\"")` is a `CsgError`
+    -- a false refusal there is the behaviour that already shipped, while a
+    false pass would be the founding-property failure #309 exists to close.
+
+    Compared by SUFFIX, not by resolving the literal against the entry file's
+    directory: an `import()` inside an INCLUDED file resolves against *that*
+    file's directory, which the entry's parent would get wrong. Measured, the
+    depfile's absolute path always ends with the literal as written.
+    """
+    import subprocess
+    import tempfile
+
+    from . import csg
+    from .engines.openscad import find_executable
+
+    if not missing:
+        return set()
+    executable = find_executable()
+    if executable is None:
+        return set()
+
+    # A deliberate duplicate of `lint.lint_scad_tier2`'s exporter, not a shared
+    # helper. Factoring that out is a refactor of a second module for one
+    # caller, and this one needs neither its per-rule refusal vocabulary nor its
+    # raw-quote pre-check -- a quote here is simply a `CsgError`, which is
+    # already the fail-closed answer.
+    with tempfile.TemporaryDirectory(prefix="partspec-csg-") as tmp:
+        out = Path(tmp) / "tree.csg"
+        try:
+            proc = subprocess.run(
+                [executable, "-o", str(out), str(source.path)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return set()
+        if proc.returncode != 0 or not out.is_file():
+            return set()
+        raw = out.read_text(encoding="utf-8", errors="replace")
+        try:
+            nodes = csg.parse_csg(raw)
+        except csg.CsgError:
+            return set()
+
+    def _kept(items: list, acc: set[str]) -> set[str]:
+        for node in items:
+            value = node.kwargs.get("file")
+            if isinstance(value, str):
+                acc.add(value)
+            _kept(node.children, acc)
+        return acc
+
+    # Like against like: both sides are `file=` literals out of one `.csg`, so
+    # the difference is exactly what the modifier removed. Reading the dropped
+    # set off the raw text is the only way to see it -- the parser's whole job
+    # here is to not return those nodes.
+    kept = _kept(nodes, set())
+    dropped = set(_CSG_FILE_LITERAL.findall(raw)) - kept
+
+    def _names(path: Path, literals: set[str]) -> bool:
+        text = path.as_posix()
+        return any(text == lit or text.endswith("/" + lit.removeprefix("./")) for lit in literals)
+
+    # Exonerated only when the export names it in a dropped subtree AND nowhere
+    # else. A file referenced from both is a build input, and an entry matching
+    # neither set is unaccounted for and stays refused.
+    return {f for f in missing if _names(f, dropped) and not _names(f, kept)}
+
 
 _ABSENT_INPUT_CAUSE = (
     "the engine asked for a build input that is not on disk and rendered without it"

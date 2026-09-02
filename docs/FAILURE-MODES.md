@@ -220,6 +220,20 @@ cost is written down here rather than paid quietly.
   The three modifiers differ, and only one of them has this property: `*` (disable) is
   never evaluated, so it emits nothing and costs nothing; `#` (highlight) **is** exported,
   so its warnings are about the mesh; `%` alone is evaluated and not exported.
+  **stderr is not the only channel that loses the modifier, and the other one is now
+  narrowed.** The engine's dependency file records what it *resolved*, not what it
+  exported, for the same reason stderr records the line but not the modifier: `%` is
+  evaluated, so an `import("mate.stl")` inside one is resolved, recorded in the depfile,
+  and reported under `source_closure.engine_inputs.missing` when the file is not there —
+  while the export is byte-identical either way, measured on both pinned engines. `*`
+  records nothing on this channel either, because it is never evaluated. So the guard that
+  reads `missing` (#309) would have produced a second false red of exactly this class.
+  It does not, because on this channel the cheap discriminator that stderr lacks does
+  exist: the `.csg` export **keeps the modifier next to the filename** —
+  `%import(file = "ref.stl", …)` on both engines — and `csg.py`'s reader already drops
+  `%` and `*` subtrees, so the refusal is narrowed to files the export actually depended
+  on with no line-number correlation and no second parser (#354). `#` stays a catch there
+  too, on the asymmetry above.
 - **Detected by.** The engine's own stderr on the path that succeeded — the same guard as
   entries 1 and 5 (`SPEC-report.md` §6.1). Nothing here needed a contract carrying theory.
 - **When it's green.** It isn't, and that is the entry: this is the one shape in this
@@ -228,7 +242,10 @@ cost is written down here rather than paid quietly.
   whatever it costs today; the modifier is one character, so the scaffolding routinely
   becomes the part; and the alternative — correlating stderr's line numbers against the
   `%` nodes in a `.csg` export — buys silence on a real defect at the price of a second
-  parser between the engine and the verdict. What was wrong was that the trade was
+  parser between the engine and the verdict. (That reasoning is about **stderr**, whose
+  evidence is a line number; it does not carry to the depfile channel, where the `.csg`
+  names the file itself and no correlation is needed. Hence the narrowing above and the
+  refusal here, in one catalogue entry.) What was wrong was that the trade was
   **silent**: an agent hitting exit 4 on a byte-perfect mesh had no way to reach this
   conclusion from the report.
 - **Guards.** `AGENT-CONTRACT.md` §2.3 now says it, at the bullet that routes a

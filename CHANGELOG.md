@@ -861,6 +861,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wording. §6.1 records this as the third way a successful build reaches `error`;
   `build_origin` stays `null`, because whether the path is a typo or a file a
   two-pass workflow has not produced yet is not something partspec can tell.
+  **The guard is narrowed to files the export actually depended on**, because the
+  depfile records what the engine *resolved*, not what it exported. OpenSCAD
+  **evaluates** a `%` subtree and then excludes it from the export, so
+  `cube([10,10,10]); %import("mate.stl");` lands `mate.stl` in `missing` while
+  exporting byte-identical STLs with and without the file — measured, both
+  pinned engines. Refusing that is refusing more than the mathematics requires,
+  and it is `FAILURE-MODES.md` entry 9a's class arriving through a second
+  channel. stderr cannot tell the two apart — the warning is worded identically
+  for a `%`-ed and a plain `import()`, differing only in the line number, which
+  is the correlation #336 declined to build — but the `.csg` export keeps the
+  modifier beside the filename on both engines, and `csg.py`'s reader already
+  drops `%` and `*` subtrees for the same stated reason. So a file named only
+  from a dropped subtree is exonerated, one named from both is not, `*` never
+  reaches the depfile at all, and `#` stays a catch because its geometry IS
+  exported. One extra `.csg` export, measured at 21–31 ms, and only on a run
+  that was going to exit `4`: correct runs pay nothing. **Fail closed** — an
+  export that will not run, will not parse, or names a file that cannot be
+  joined to a depfile entry keeps the refusal, which matters because the format
+  prints string contents raw and `text("say \"hi\"")` is a genuine parse
+  failure.
   `measure` and `render` still emit numbers and views on this shape — they are
   guarded for #286's channel, which is a stderr marker, and this one is visible
   only in the depfile. Measured and tracked as #355.

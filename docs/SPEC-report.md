@@ -455,6 +455,19 @@ only when `engine_inputs.state` is not `complete`, and here the engine answered 
 the full answer being that the file is absent. A consumer reading `unseen` alone sees a
 closure with no gaps, which is correct and is not the same question.
 
+**`missing` is evidence, not the verdict, and a producer MUST NOT read one off the other.**
+The dependency file records what the engine *resolved*, which is a wider set than what it
+*exported*: OpenSCAD evaluates a `%` (background) subtree and then leaves it out of the
+export, so a file referenced only from one is listed in `missing` while the exported
+geometry is byte-identical with and without it — measured on both pinned engines. Such a
+file is not a build input and MUST NOT hold the verdict; `*` (disable) is never evaluated
+and never appears; `#` (highlight) IS exported and MUST be treated like an unmodified
+reference. Distinguishing them is the producer's obligation, on evidence that carries the
+modifier — the `.csg` export does, engine stderr does not — and where no such evidence can
+be obtained the producer MUST keep the refusal rather than assume the file was scaffolding.
+`engine_inputs.missing` itself still reports what the engine said, unnarrowed: it is a
+record of the run, and narrowing it would destroy the evidence the judgement was made on.
+
 In none of these cases can the tool claim it measured the part the contract describes, so
 no geometry check is evaluated:
 `builds` and every geometry check are `skipped`, `verdict: "error"`, exit `4`, and `error`
