@@ -452,7 +452,7 @@ every outcome.
 classifies the gaps a closure names in `source_closure.unseen`; it governs that vocabulary
 and no other, and borrowing its taxonomy here would misfile this gap rather than justify it.
 This gap is not constant across every possible input — it fires wherever one side records no
-factory, which is a shape this release still writes: a pre-resolution placeholder (§5 rule 2)
+factory, which is a shape this release still writes: a pre-resolution placeholder (`SPEC-report.md` §5 rule 2)
 echoes the argument as typed, and a library caller may invoke `run()` naming none. It is
 therefore that rule's own description of a **bounded** gap, and a bounded gap MUST make the
 outcome `indeterminate`.
