@@ -826,6 +826,44 @@ def _closure_delta(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[s
     }
 
 
+def _names_factory(contract: Any) -> bool:
+    """Whether a `part.contract` value spells out the symbol it invoked.
+
+    `Target.parse`'s own rule, and it must stay that rule: partition on the
+    LAST colon and take the tail only when it is an identifier, so a contract
+    filename that contains one (`rev2:spec.py`) is not read as module `rev2`.
+    """
+    head, sep, tail = str(contract).rpartition(":")
+    return bool(head and sep and tail.isidentifier())
+
+
+def _target_changed(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict[str, str] | None:
+    """The invoked target, when both sides say which one it was (#343).
+
+    `part.contract` is the only field that separates two factories in one
+    module: they return parts with the same `id`, and the contract digest is
+    module-scoped, so the `part` blocks were byte-identical until #297 put the
+    symbol in this field. `diff` joins on `part.id` and read the field for
+    nothing, so `same.py:imperial` against `same.py:metric` — two different
+    targets, two genuine reports — compared `identical` at exit 0.
+
+    **Only where both sides name a factory**, and the guard is not squeamishness.
+    A single-factory module resolves without one being typed, so before this
+    release `spec.py` and `spec.py:spacer` were two spellings of ONE run and a
+    plain equality would have reported that pair as a change. `target.py` now
+    resolves the name always, which makes the field one spelling per target for
+    every report this release writes — the guard therefore bites only on a pair
+    where one side predates that, and there the unsuffixed side cannot say which
+    target it was, so no change can be claimed from it either way.
+    """
+    old_target, new_target = old_part.get("contract"), new_part.get("contract")
+    if not (isinstance(old_target, str) and isinstance(new_target, str)):
+        return None
+    if old_target == new_target or not (_names_factory(old_target) and _names_factory(new_target)):
+        return None
+    return {"old": old_target, "new": new_target}
+
+
 def _packages_of(environment: Any) -> dict[str, Any] | None:
     """The `environment.packages` map, or None when there is nothing to compare."""
     if not isinstance(environment, dict):
@@ -1158,6 +1196,7 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
     ]
 
     closure = _closure_delta(old_part, new_part)
+    target_changed = _target_changed(old_part, new_part)
     verdict_changed = old.get("verdict") != new.get("verdict")
     # A `changed` closure is deliberately NOT a difference, and this line is
     # the decision (#190 stage 3). When the library moved and no check moved
@@ -1166,7 +1205,12 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
     # exit 0 for a changed `.scad` closure with no moved check, and a
     # different rule for Python would rebuild the arm-A/arm-B asymmetry #190
     # exists to remove.
-    different = bool(removed or added or entries or verdict_changed)
+    # `target_changed` is outcome-bearing where the digests are not, and the
+    # distinction is what the two fields ARE. A digest says the module's bytes
+    # moved, over a module that may declare several parts; the target says
+    # which part was asked for, and two answers to that question are two
+    # different questions, not one question answered twice (#343).
+    different = bool(removed or added or entries or verdict_changed or target_changed)
     if indeterminate:
         outcome = "indeterminate"
     elif different:
@@ -1261,6 +1305,7 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
         },
         "contract": {
             "digest_changed": old_part.get("contract_digest") != new_part.get("contract_digest"),
+            **({"target_changed": target_changed} if target_changed else {}),
             "removed": removed,
             "added": added,
         },
@@ -1431,6 +1476,31 @@ def _packages_clause(doc: dict[str, Any]) -> str:
     return ("; " + "; ".join(clauses)) if clauses else ""
 
 
+def _contract_clause(doc: dict[str, Any]) -> str:
+    """The summary's fragment for a contract module that was edited.
+
+    §1's rule — a build input that moved under an unchanged part is named on
+    every outcome — reached the closure and stopped, and the contract file is
+    the one input the closure deliberately EXCLUDES (`SPEC-report.md` §8.3:
+    `contract_digest` already covers it). So an edited `.scad` printed
+    `covered: source closure (1 file), changed` while an edited contract
+    printed nothing at all: measured, two reports of one part whose module
+    differed by one comment gave `identical: widget — no semantic differences`
+    with `contract.digest_changed: true` in the artifact and no word of it on
+    the line.
+
+    It stays a fact rather than a finding, and the clause says which: the
+    digest is module-scoped, so an edit to a sibling factory that cannot reach
+    this part moves it (§3, "recorded but never outcome-bearing").
+    """
+    if not doc.get("contract", {}).get("digest_changed"):
+        return ""
+    return (
+        "; contract module edited: the digest moved — module-scoped, so it over-fires "
+        "and is never by itself a difference"
+    )
+
+
 def _claims_across_the_change(new_report: dict[str, Any]) -> str:
     """What `identical` plus a moved closure actually licenses saying.
 
@@ -1554,7 +1624,7 @@ def summary_of(doc: dict[str, Any], new_report: dict[str, Any]) -> str:
     # that moved under an unchanged part is precisely the case `identical: no
     # semantic differences` would otherwise report as an unqualified
     # nothing-happened.
-    moved = _imports_clause(doc) + _packages_clause(doc)
+    moved = _imports_clause(doc) + _packages_clause(doc) + _contract_clause(doc)
     if doc["outcome"] == "identical":
         headline = f"identical: {doc['part']} — no semantic differences{moved}"
     elif doc["outcome"] == "indeterminate":
@@ -1563,6 +1633,12 @@ def summary_of(doc: dict[str, Any], new_report: dict[str, Any]) -> str:
     else:
         contract = doc["contract"]
         parts = []
+        # First, because it is the one finding that says the two reports are
+        # not two runs of the same question. A check count under it describes
+        # a comparison between two different targets, and a reader who does
+        # not know that reads every other number wrongly (#343).
+        if target := contract.get("target_changed"):
+            parts.append(f"the invoked target changed: {target['old']} → {target['new']}")
         if contract["removed"]:
             parts.append(
                 f"{len(contract['removed'])} check(s) removed: {', '.join(contract['removed'])}"

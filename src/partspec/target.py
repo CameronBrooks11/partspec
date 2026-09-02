@@ -30,6 +30,16 @@ class TargetError(Exception):
 class Target:
     path: Path
     factory: str | None = None
+    inferred: bool = False
+    """True when `resolve` filled `factory` in because the module declares
+    exactly one, rather than the invocation having named it (#343).
+
+    `factory` is what reaches `part.contract`, and it is resolved ALWAYS so
+    that a single-factory module records its symbol too: `diff` compares that
+    field, and it can only do so where one target has one spelling. This flag
+    is the whole reason the resolution is safe to make unconditional — `slug`
+    reads it, so the default `--out` directory is unmoved.
+    """
 
     @staticmethod
     def parse(spec: str) -> Target:
@@ -41,8 +51,18 @@ class Target:
     @property
     def slug(self) -> str:
         """Report directory name — distinct per factory so co-located targets
-        never clobber each other's report."""
-        return self.path.stem if self.factory is None else f"{self.path.stem}-{self.factory}"
+        never clobber each other's report.
+
+        Keyed on the factory the INVOCATION named. An inferred one must not
+        reach this: `partspec check spec.py` on a single-factory module has
+        written `outputs/spec` since v0, and a slug derived from the resolved
+        symbol would silently move every such user's reports to
+        `outputs/spec-spacer` — including the `--pin` baselines and the
+        `diff` inputs that name the old path (#343). Pinned by a test.
+        """
+        if self.factory is None or self.inferred:
+            return self.path.stem
+        return f"{self.path.stem}-{self.factory}"
 
 
 _CONTRACT_MODULE_PREFIX = "_partspec_contract_"
@@ -155,6 +175,14 @@ def resolve(spec: str) -> tuple[Part, Target]:
             )
     elif len(available) == 1:
         factory = getattr(module, available[0])
+        # Recorded, not merely called. `part.contract` is the only field that
+        # separates two targets in one module (#297), and `diff` compares it
+        # (#343) — which it can only do where one target has ONE spelling.
+        # Emitting the symbol solely when the invocation typed it made
+        # `spec.py` and `spec.py:spacer` two strings for one run, and a
+        # comparator cannot tell that pair from a genuine change. `inferred`
+        # keeps `slug` — and so the default `--out` directory — where it was.
+        target = replace(target, factory=available[0], inferred=True)
     elif not available:
         raise TargetError(
             f"{target.path} declares no part factories. A factory is a public "

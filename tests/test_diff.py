@@ -1343,7 +1343,12 @@ def test_cli_a_loosened_predicate_shows_the_claim_and_the_operands(tmp_path: Pat
     # `builds` was skipped behind the failing precondition on the old side and
     # runs on the new one, so the bucket holds two — and the qualifier still
     # counts the one entry whose claim moved.
-    assert err.splitlines()[0] == "different: plate — 2 fixed (1 with the claim changed)"
+    headline = err.splitlines()[0]
+    assert headline.startswith("different: plate — 2 fixed (1 with the claim changed)"), headline
+    # The contract was rewritten between the two runs, so the clause #343 added
+    # rides the same line. Pinned rather than absorbed: an assertion that only
+    # matched a prefix would pass if the qualifier above lost its clause too.
+    assert headline.endswith("never by itself a difference"), headline
 
 
 @needs_scad_tier
@@ -3100,4 +3105,143 @@ def test_the_diff_artifact_says_which_payload_it_is():
     assert list(doc)[:2] == ["schema_version", "payload"]
     assert doc["schema_version"] == DIFF_SCHEMA_VERSION == 2, (
         "additive: SPEC-report.md §7.1 says adding a field MUST NOT bump the version"
+    )
+
+
+def test_two_targets_in_one_module_are_not_identical():
+    """#343's reproduction, at the unit. Two factories in one module return
+    parts with the same `id`; the contract digest is module-scoped, so it is
+    EQUAL on both sides and cannot be what separates them. `part.contract` is
+    the only field that can, and this comparison read it for nothing.
+
+    Asserted with the digest held equal on purpose: a fixture where anything
+    else differed too would pass without the field being read at all.
+    """
+    old = _doc()
+    new = _doc()
+    old["part"]["contract"], new["part"]["contract"] = "same.py:imperial", "same.py:metric"
+
+    doc = _diff(old, new)
+    assert old["part"]["contract_digest"] == new["part"]["contract_digest"]
+    assert doc["outcome"] == "different"
+    assert exit_code_of(doc["outcome"]) == 1
+    assert doc["contract"]["target_changed"] == {
+        "old": "same.py:imperial",
+        "new": "same.py:metric",
+    }
+    assert summary_of(doc, new).splitlines()[0] == (
+        "different: p — the invoked target changed: same.py:imperial → same.py:metric"
+    )
+
+
+def test_one_run_spelled_two_ways_is_not_a_target_change():
+    """The guard on the rule above (#343). A single-factory module resolved
+    without a name being typed, so a report older than that resolution says
+    `spec.py` where this release says `spec.py:spacer` — one run, two
+    spellings. An unsuffixed side cannot say which target it was, so no change
+    may be claimed from it in either direction.
+    """
+    for old_spelling, new_spelling in (
+        ("spec.py", "spec.py:make"),
+        ("spec.py:make", "spec.py"),
+    ):
+        old, new = _doc(), _doc()
+        old["part"]["contract"], new["part"]["contract"] = old_spelling, new_spelling
+        doc = _diff(old, new)
+        assert doc["outcome"] == "identical", f"{old_spelling} vs {new_spelling}"
+        assert "target_changed" not in doc["contract"]
+
+
+def test_a_contract_filename_containing_a_colon_is_not_read_as_a_factory():
+    """`Target.parse`'s rule, and this comparison must not approximate it: the
+    tail after the last colon is a factory only when it is an identifier.
+    `rev2:spec.py` is a whole filename, so neither side names a factory and the
+    pair falls under the guard above rather than being compared."""
+    old, new = _doc(), _doc()
+    old["part"]["contract"], new["part"]["contract"] = "rev2:spec.py", "rev3:spec.py"
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical"
+    assert "target_changed" not in doc["contract"]
+
+
+def test_a_moved_contract_digest_stays_inside_identical_and_stops_being_silent():
+    """#343's fourth question, answered. The digest is module-scoped, so an
+    edit to a sibling factory — code that provably cannot reach this part —
+    moves it. Reporting `different` there would answer a question about part A
+    with a fact about part B, so `digest_changed: true` inside `identical` is
+    correct and MUST stay reachable.
+
+    What was wrong was the silence: §1 requires a moved build input to be named
+    on every outcome, and the contract file is the one input `source_closure`
+    deliberately excludes (`SPEC-report.md` §8.3), so an edited `.scad` reached
+    the summary line and an edited contract did not.
+    """
+    old, new = _doc(), _doc()
+    new["part"]["contract_digest"] = "sha256:c2"
+
+    doc = _diff(old, new)
+    assert doc["outcome"] == "identical" and exit_code_of(doc["outcome"]) == 0
+    assert doc["contract"]["digest_changed"] is True
+    headline = summary_of(doc, new).splitlines()[0]
+    assert "contract module edited" in headline, "a moved build input is named (#343)"
+    assert "never by itself a difference" in headline, "and qualified in the same clause"
+
+
+@needs_scad_tier
+def test_cli_two_factories_in_one_module_compared_end_to_end(tmp_path: Path):
+    """#343's own reproduction, through the CLI on two real builds.
+
+    The two contracts are byte-identical apart from which factory is invoked,
+    which is the whole point: same part id, same source, same claims, same
+    module-scoped digest. Before this, both reports were `identical` at exit 0.
+
+    The default `--out` directory is pinned in the same test, on the
+    single-factory module the resolution now names anyway: it is the one thing
+    the fix could have broken silently for every existing user.
+    """
+    (tmp_path / "plate.scad").write_text("cube([30, 20, 4]);\n")
+    (tmp_path / "same.py").write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def _build() -> Part:\n"
+        "    p = Part('widget', openscad('plate.scad'))\n"
+        "    p.envelope(max=(40, 30, 10))\n"
+        "    p.watertight()\n"
+        "    return p\n\n\n"
+        "def imperial() -> Part:\n"
+        "    return _build()\n\n\n"
+        "def metric() -> Part:\n"
+        "    return _build()\n"
+    )
+    module = str(tmp_path / "same.py")
+    assert _run_cli("check", f"{module}:imperial", "--out", str(tmp_path / "a"), "--quiet")[0] == 0
+    assert _run_cli("check", f"{module}:metric", "--out", str(tmp_path / "b"), "--quiet")[0] == 0
+
+    reports = [json.loads((tmp_path / d / "report.json").read_text()) for d in ("a", "b")]
+    assert [r["part"]["contract"] for r in reports] == ["same.py:imperial", "same.py:metric"]
+    assert reports[0]["part"]["contract_digest"] == reports[1]["part"]["contract_digest"], (
+        "module-scoped by design — so it is not what tells the two apart"
+    )
+
+    code, out, err = _run_cli(
+        "diff", str(tmp_path / "a" / "report.json"), str(tmp_path / "b" / "report.json")
+    )
+    assert code == 1, err
+    doc = json.loads(out)
+    assert doc["outcome"] == "different"
+    assert doc["contract"]["target_changed"]["new"] == "same.py:metric"
+    assert "the invoked target changed" in err
+
+    # And the default --out for a single-factory module, unmoved (#343).
+    (tmp_path / "spec.py").write_text(
+        "from partspec import Part, openscad\n\n\n"
+        "def spacer() -> Part:\n"
+        "    p = Part('solo', openscad('plate.scad'))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    assert _run_cli("check", str(tmp_path / "spec.py"), "--quiet")[0] == 0
+    written = tmp_path / "outputs" / "spec" / "report.json"
+    assert written.is_file(), f"the default --out moved; {list((tmp_path / 'outputs').iterdir())}"
+    assert json.loads(written.read_text())["part"]["contract"] == "spec.py:spacer", (
+        "the symbol is recorded even though the invocation named none"
     )

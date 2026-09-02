@@ -69,9 +69,10 @@ def run(
     one reviewed" must survive `--quiet` and MCP the same way `attribution`
     does. An empty dict means the pin does not vouch for this part at all.
 
-    `factory` is the symbol the invocation named, `None` when the module has a
-    single factory and none had to be named. It reaches `part.contract`; see
-    `identity`.
+    `factory` is the symbol the target resolved to — the CLI passes it whether
+    the invocation named it or the module's single factory was inferred (#343)
+    — and `None` only from a library caller that names none. It reaches
+    `part.contract`; see `identity`.
 
     `loaded_before` is `sys.modules` as it stood before this target's contract
     was resolved, and only the caller that owns the loop can take it — by the
@@ -390,7 +391,9 @@ def identity(
     either artifact recorded which one was invoked. The path stays in the frame
     #45 fixed on: relative to the contract's own directory, which for the
     contract itself is its filename. A module with a single factory needs no
-    name to resolve and reports none, so `<module>` and `<module>:<factory>`
+    name to resolve, and `target.resolve` supplies the resolved symbol anyway
+    so that `diff` has one spelling per target to compare (#343) — but a
+    library caller may still pass none, so `<module>` and `<module>:<factory>`
     are both well-formed values and a consumer MUST parse the suffix as
     optional (SPEC-report.md 7.1).
     """

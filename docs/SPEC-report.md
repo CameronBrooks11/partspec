@@ -690,15 +690,24 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   source, same closure — and nothing in either artifact says which target was invoked
   (#297). A module declaring a single factory needs no name to resolve, so both
   `<module>` and `<module>:<factory>` are well-formed and a consumer MUST parse the suffix
-  as optional. The corollary is that one run spelled two ways — `spec.py` and
-  `spec.py:spacer` for the same single-factory module — records two different strings for
-  one part, which is why this field is **provenance, not comparison identity**. What a
-  comparator pairs two reports on is `part.id`: `partspec diff` refuses a mismatch there
-  and reports `contract.digest_changed` as a field, which moves neither the outcome nor
-  the exit code — two reports with one `part.id` and different `contract_digest`s compare
-  `identical` at exit 0. So neither digest is a join key either, and a consumer wanting
-  the collision above surfaced as a difference has to read `part.contract` itself and
-  handle the two spellings.
+  as optional — but partspec **resolves the symbol and records it either way**, so a report
+  this release writes carries the suffix whenever the contract declares a factory at all
+  (#343). That is what makes the field comparable: emitted only when the invocation typed
+  it, one run spelled two ways — `spec.py` and `spec.py:spacer` for the same single-factory
+  module — recorded two different strings for one part, and no comparator could tell that
+  pair from a genuine change. The resolution does **not** move the default `--out`
+  directory, which keys on the factory the invocation named: `partspec check spec.py`
+  writes `outputs/spec`, as it has since v0, and a test pins it.
+
+  It remains **provenance, not comparison identity**. What a comparator pairs two reports on
+  is `part.id`: `partspec diff` refuses a mismatch there. It now *compares* `part.contract`
+  as well, and a difference is outcome-bearing where both sides name a factory —
+  `SPEC-diff.md` §3 states the rule and why the guard is needed for the two spellings above.
+  The digests are not join keys and are not outcome-bearing either: two reports with one
+  `part.id` and different `contract_digest`s compare `identical` at exit 0, deliberately,
+  because the digest is module-scoped and an edit to a factory that cannot reach this part
+  moves it. `partspec diff` reports it as `contract.digest_changed` and names it on its
+  summary line whatever the outcome.
 
   Two forms of this field are **not** `<module>[:<factory>]`, and both are visible from
   the artifact. The pre-resolution placeholder (§5 rule 2) is written before the target
