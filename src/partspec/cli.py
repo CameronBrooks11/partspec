@@ -125,9 +125,10 @@ def _docs_epilog() -> str:
     the path rejoins exactly, which is what makes the break hard to see and
     the line unselectable in one go. A located path that cannot be copied is
     barely better than the URL it replaced, and being pasteable is this
-    line's whole value. (The "three lines and an inserted hyphen" first
-    written here was measured against a long scratchpad venv path, not the
-    root this sentence names — PR #350 review, NEW-B.)
+    line's whole value. (The "three lines" first written here came from a
+    long scratchpad venv path, not the root this sentence names. The
+    "inserted hyphen" half came from nowhere: no root length produces one,
+    and both renders rejoin exactly — PR #350 review, NEW-B.)
     """
     root = docs_root()
     if root is None:
