@@ -9,26 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documented
 
-- **ISO 965-1 does not meet §10.1's formula-executed exception, measured** (#260,
-  #246). The exception admits a standard's tolerance grades and fundamental
-  deviations where the standard states them as a formula *and* the suite executes
-  that formula against every shipped value. ISO 965-1:2013's clause 10 states the
-  formulae — and its §10.1 also states that "in order to reproduce a smooth
-  progression, the rules of rounding off are not always used", and that where the
-  computed and tabulated values differ, **the tables govern**. Executing every
-  clause-10.2 formula against Table 1 with the R40 rounding §10.1 prescribes:
-  **144 of 197 cells agree, 53 do not**. Not a rounding artefact —
-  `es_d = -(65 + 19P)` at P = 8 gives -217 against a tabulated -180, and Table 1
-  carries values off the R40 grid entirely, so no single rule reproduces it. Even
+- **ISO 965-1 does not meet §10.1's formula-executed exception, measured**
+  (#260, #246, #261). The exception admits a standard's tolerance grades and
+  fundamental deviations where the standard states them as a formula *and* the
+  suite executes that formula against every shipped value. ISO 965-1:2013's
+  clause 10 states the formulae — and its §10.1 also states that "in order to
+  reproduce a smooth progression, the rules of rounding off are not always
+  used", and that where the computed and tabulated values differ, **the tables
+  govern**. Executing every clause-10.2 formula against Table 1 with the R40
+  rounding §10.1 prescribes: **149 of 197 cells agree, 48 do not** — the best of
+  fifteen rounding models swept. The standard rounds half-to-even, which its own
+  tables give away: the images only half-up can produce (13, 27, 43) appear
+  nowhere in Tables 1–5, while the half-even-only images (26, 42) appear five
+  times in Table 1.
+  Not a rounding artefact — `es_d = -(65 + 19P)` at P = 8 gives -217 raw and
+  -212 rounded against a tabulated -180, and column `d` carries -105, -110,
+  -115, -130, -135, -155, none of them the rounded image of any R40 member.
   `es_g = -(15 + 11P)`, the formula #246 cited as its corroboration when it
-  narrowed the exclusion, misses at four pitches. Both routes therefore fail: the
-  tabulated values cannot execute the formula, and the computed values are ones
-  the standard says shall not be used — under a citation naming that standard,
-  which is the "worse than no data" case the exception exists to prevent. The
-  exception is unchanged and may still reach a standard whose formulae are
-  normative. `iso_metric_thread`'s claim that the ruling licensed this data is
-  corrected, and the measurement is recorded in §10.1 so the work is not repeated.
-
+  narrowed the exclusion, reproduces 24 of 25 cells and misses at P = 0.75 —
+  right often enough that a reader stops checking, which is the shape the
+  exception exists to catch. Both routes therefore fail: the tabulated values
+  cannot execute the formula, and the computed values are ones the standard says
+  shall not be used, under a citation naming that standard — the "worse than no
+  data" case the exception exists to prevent. The near miss was considered and
+  rejected: `EI_G`/`es_g` hold for all 15 cells at P >= 0.8, but that bound is
+  chosen after seeing where the formula fails, and the standard's tables govern
+  at every pitch. The exception is unchanged and may still reach a standard whose
+  formulae are normative. `iso_metric_thread`'s claim that the ruling licensed
+  this data is corrected, the released #261 entry's "verifiable by construction"
+  claim for `es_g` is falsified by the same measurement, and §10.1 records it so
+  the work is not repeated.
 
 ## [0.7.7] - 2026-09-02
 

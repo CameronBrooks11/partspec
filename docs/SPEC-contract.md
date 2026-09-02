@@ -1575,13 +1575,26 @@ the rules of rounding off are not always used" and that "when the tolerance valu
 calculated from the formulae are different from the values specified by the tolerance
 tables, the values in the tolerance tables shall be used". Measured against
 ISO 965-1:2013 Table 1, executing every clause-10.2 formula with the R40 rounding §10.1
-prescribes: **144 of 197 cells agree and 53 do not**, and the divergence is not a rounding
-artefact — `es_d = −(65 + 19P)` at P = 8 gives −217 against a tabulated −180, and Table 1
-carries values off the R40 grid entirely. Even `es_g = −(15 + 11P)`, the formula #246 cited
-as its corroboration, misses at four pitches. So both routes fail: the tabulated values
-cannot execute the formula, and the computed values are ones the standard says shall not
-be used. The exception is unchanged and may still reach a standard whose formulae are
-normative; it does not reach this one (#260).
+prescribes: **149 of 197 cells agree and 48 do not**. That is the *best* of fifteen
+rounding models swept; the standard rounds half-to-even, which its own tables give away —
+the images only half-up can produce (13, 27, 43) appear nowhere in Tables 1–5, while the
+images only half-even can produce (26, 42) appear five times in Table 1 alone.
+
+The divergence is not a rounding artefact. `es_d = −(65 + 19P)` at P = 8 gives −217 raw
+and −212 rounded against a tabulated −180 — 32 µm that no model bridges, and column `d`
+carries −105, −110, −115, −130, −135 and −155, none of which is the rounded image of any
+R40 member. So both routes fail: the tabulated values cannot execute the formula, and the
+computed values are ones the standard says shall not be used.
+
+**The near miss was considered and rejected.** `EI_G` and `es_g` each reproduce 24 of 25
+cells, missing only at P = 0.75, and all 15 cells at P ≥ 0.8 — which would cover every
+coarse thread from M5 up, the 6g/6H deviation an author actually reaches for. It is still
+out, for two reasons. Restricting to P ≥ 0.8 is a bound chosen *after* seeing where the
+formula fails, which is the sampling bias this exception exists to forbid. And §10.1 of
+that standard says its tables govern at every pitch, so a column that happens to agree is
+agreeing by coincidence rather than by construction — which is the entire distinction the
+exception draws. The exception is unchanged and may still reach a standard whose formulae
+are normative; it does not reach this one (#260).
 
 ### 10.2 `build_input` — forcing byte identity for a named distribution
 

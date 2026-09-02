@@ -40,12 +40,15 @@ envelope and leaves `tol=` to the author.
 
 That ruling turned out to license nothing here either. #260 sourced
 ISO 965-1:2013 and measured its clause-10 formulae against its own tables:
-53 of 197 cells disagree, and the standard itself says the tables govern
-where they differ. So a grade or deviation table cannot execute its formula
-in the sense §10.1 requires, and neither the tabulated nor the computed
-values may ship. `es_g = -(15 + 11P)` — the formula #246 cited when it
-narrowed the exclusion — misses at four pitches. The exclusion stands, and
-this module's history is why nobody wrote the numbers from memory first.
+48 of 197 cells disagree under the best of fifteen rounding models, and the
+standard itself says the tables govern where they differ. So a grade or
+deviation table cannot execute its formula in the sense §10.1 requires, and
+neither the tabulated nor the computed values may ship. `es_g = -(15 + 11P)`
+— the formula #246 cited when it narrowed the exclusion — reproduces 24 of
+25 cells and misses at P = 0.75, which is the shape the exception exists to
+catch: right often enough that the reader stops checking. The exclusion
+stands, and this module's history is why nobody wrote the numbers down
+before the document was open.
 
 ## Why the derived diameters still carry a citation
 
