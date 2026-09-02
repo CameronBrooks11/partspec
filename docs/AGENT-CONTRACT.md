@@ -1,5 +1,8 @@
 # The agent contract — driving partspec in a repair loop
 
+**Applies to:** v0.7.7 — the release this text describes. The `Status:` line records when
+this document was last revised in substance; it is provenance, not currency (#300).
+
 **Status:** v1 · 2026-08-08 · closes #28
 **Audience:** an agent (or the harness around one) using `partspec` to take a part to
 green, **via the CLI**.

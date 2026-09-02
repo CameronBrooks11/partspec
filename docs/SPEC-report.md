@@ -1,5 +1,8 @@
 # SPEC — the `partspec` report
 
+**Applies to:** v0.7.7 — the release this text describes. The `Status:` line records when
+this document was last revised in substance; it is provenance, not currency (#300).
+
 **Status:** draft 13 · 2026-08-09 · §10 rewritten (`approximate` is live), §2.2 gains
 `bool` and `rel`, the example's phantom `timestamp` removed; the render verb leaves
 `render.json` on disk (its
@@ -589,7 +592,7 @@ version alone cannot tell a report from a `measure` dump, the two carrying the s
 {
   "schema_version": 1,
   "payload": "report",                                 // which artifact this is (7.1)
-  "tool": { "name": "partspec", "version": "0.7.6" },  // whatever is installed; a
+  "tool": { "name": "partspec", "version": "0.7.7" },  // whatever is installed; a
                                                        // consumer keys on `schema_version`
                                                        // above, never on this
 

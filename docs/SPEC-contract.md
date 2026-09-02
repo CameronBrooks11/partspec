@@ -1,5 +1,8 @@
 # SPEC — the `partspec` contract
 
+**Applies to:** v0.7.7 — the release this text describes. The `Status:` line records when
+this document was last revised in substance; it is provenance, not currency (#300).
+
 **Status:** draft 3 · 2026-08-09 · adds §4.8–4.11 (draft_angle, self_intersection_free,
 step_roundtrip, min_wall) to the vocabulary table and the dimensional set; corrects the
 constructor signatures in §3
@@ -121,7 +124,7 @@ revising when a check is added. **This document closes it at each release**: v0 
 set below through `topology`; `keep_out` / `keep_in` (§4.4), `hole_diameter` (§4.5),
 `bolt_circle` (§4.6) and `fillet_radius` (§4.7) are the post-v0.1 additions, from epic #6;
 `draft_angle` (§4.8), `self_intersection_free` (§4.9), `step_roundtrip` (§4.10) and
-`min_wall` (§4.11) are the depth epic's (#136).
+`min_wall` (§4.11) are the depth epic's (#136); `empty` (§4.12) is #257's.
 
 ### 4.1 Parameter phase
 

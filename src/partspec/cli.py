@@ -134,13 +134,15 @@ def _docs_epilog() -> str:
     if root is None:
         return (
             "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) are\n"
-            f"not installed with this copy; read them at {DOCS_URL}"
+            "not installed with this copy. On `main`, which may describe a release\n"
+            f"other than this one:\n  {DOCS_URL}"
         )
     return (
         "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) ship\n"
         "with this copy, under `docs/` and `skills/` of:\n"
         f"  {root}\n"
-        f"which `partspec --docs` prints. Online:\n  {DOCS_URL}"
+        f"which `partspec --docs` prints. The same documents on `main`, which may be\n"
+        f"ahead of this copy:\n  {DOCS_URL}"
     )
 
 
