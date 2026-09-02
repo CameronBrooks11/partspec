@@ -366,6 +366,57 @@ def test_genus_is_refused_on_an_open_mesh(backend: MeshBackend, open_cube):
     assert "closed surface" in refused(backend.genus(open_cube)).reason
 
 
+@pytest.fixture
+def zero_thickness_sheet():
+    """Closed, consistently wound, and enclosing nothing.
+
+    The exact topology OpenSCAD exports for `intersection()` of two cubes
+    meeting on a face: four facets, taken off the binstl that 2021.01 and
+    2026.08.01 both produce for that source. The two sides split the rectangle
+    on opposite diagonals, so every edge is used exactly twice — the mesh is
+    watertight and passes the volume gate, and still encloses 0.0.
+    """
+    return trimesh.Trimesh(
+        vertices=[[0, 12, 10], [20, 0, 10], [20, 12, 10], [0, 0, 10]],
+        faces=[[0, 1, 2], [1, 0, 3], [3, 2, 1], [2, 3, 0]],
+        process=False,
+    )
+
+
+@needs_mesh
+def test_center_of_mass_is_refused_on_a_mesh_enclosing_no_volume(
+    backend: MeshBackend, zero_thickness_sheet
+):
+    """Closedness is necessary and not sufficient (#365).
+
+    The centroid is the same integral as `volume` *divided by* the volume, so a
+    closed surface enclosing none has no centre of mass. trimesh divides in
+    numpy and returns `nan` rather than raising, and `Measurement` refuses a
+    non-finite value by raising — which, out of a backend, ended the entire
+    `measure` run and emitted nothing at all.
+    """
+    assert zero_thickness_sheet.is_watertight, "premise: it clears the closedness gate"
+    assert zero_thickness_sheet.is_winding_consistent, "premise: and the winding gate"
+
+    reason = refused(backend.center_of_mass(zero_thickness_sheet)).reason
+    assert "no volume" in reason, "the refusal names the part's defect"
+    assert "centre of mass" in reason
+
+
+@needs_mesh
+def test_a_sheet_still_answers_everything_that_needs_no_volume(
+    backend: MeshBackend, zero_thickness_sheet
+):
+    """D17's other half: do not refuse more than the mathematics requires.
+
+    A degenerate solid has no centroid, but it has an area, a bounding box and
+    an enclosed volume — 0.0 is the answer, not the absence of one.
+    """
+    assert measured(backend.volume(zero_thickness_sheet)).value == 0.0
+    assert measured(backend.area(zero_thickness_sheet)).value == pytest.approx(480.0)
+    assert measured(backend.bbox(zero_thickness_sheet)).value == pytest.approx((20.0, 12.0, 0.0))
+
+
 @needs_mesh
 def test_volume_is_refused_when_the_winding_is_inconsistent(backend: MeshBackend):
     """Closed is not sufficient. The divergence theorem sums *signed*

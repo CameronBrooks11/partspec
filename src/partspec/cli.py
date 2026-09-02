@@ -28,7 +28,7 @@ from .docs import DOCS_URL, docs_root
 from .install import install_hint
 from .report import tool_version, write_placeholder
 from .runner import run
-from .status import EXIT_USAGE, Status, Verdict, exit_code
+from .status import EXIT_USAGE, ContractError, Status, Verdict, exit_code
 from .target import Target, TargetError, resolve
 
 __all__ = ["main"]
@@ -1344,7 +1344,6 @@ def _measure_resolved(
     from .backend import Unsupported
     from .report import SCHEMA_VERSION
     from .runner import _backend_for, _engine_source, engine_block, identity
-    from .status import ContractError
 
     try:
         backend = _backend_for(part.source.engine)
@@ -1498,7 +1497,26 @@ def _measure_resolved(
         if name not in backend.capabilities():
             unavailable.append(name)
             continue
-        result = getattr(backend, name)(artifact)
+        try:
+            result = getattr(backend, name)(artifact)
+        except ContractError as exc:
+            # A backend that constructs an impossible `Measurement` -- a
+            # non-finite value, an approximate one without bounds -- raises, and
+            # before #365 that raise escaped this loop and ended the run: one
+            # name aborted the verb and emitted NOTHING, `area` and `bbox`
+            # included, on a part whose other thirteen quantities were perfectly
+            # well defined. The backend is where such an inability belongs
+            # (AGENTS.md: return `Unsupported`, never a plausible-looking
+            # number), and the mesh tier's own case is fixed there; this is the
+            # bound on what the next one can cost, which is one name.
+            #
+            # `refused`, not `unavailable`: SPEC-report.md 7.3 makes
+            # `unavailable` a property of the TIER -- "the same list every time
+            # that backend measures anything" -- and this name is one the tier
+            # answers for other parts. What defeated it arrived with this
+            # artifact, which is what `refused` is for.
+            refused[name] = f"the {backend.kind} backend could not measure {name} here: {exc}"
+            continue
         if isinstance(result, Unsupported):
             refused[name] = result.reason
             continue
@@ -1948,7 +1966,6 @@ def _render_resolved(
 ) -> int:
     from .report import SCHEMA_VERSION
     from .runner import _backend_for, engine_block, identity
-    from .status import ContractError
 
     if part.source.engine == "openscad":
         from .engines import openscad

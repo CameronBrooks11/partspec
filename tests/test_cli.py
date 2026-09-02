@@ -235,6 +235,53 @@ def test_the_three_measure_blocks_account_for_every_name(tmp_path: Path, capsys)
     )
 
 
+@needs_scad_tier
+def test_one_unmeasurable_quantity_does_not_suppress_the_other_thirteen(tmp_path: Path, capsys):
+    """#365. `measure` emitted NOTHING on a zero-thickness part.
+
+    `intersection()` of two cubes meeting on a face exports a closed,
+    consistently-wound sheet enclosing no volume. It has no centre of mass, and
+    the backend's `nan` reached `Measurement`, which refused it by raising —
+    out of the per-name loop, through the verb, to exit 4 with an empty stdout.
+    `area` and `bbox` need no volume and the same part answers both through
+    `check`, so the verb whose job is dumping every honest quantity produced
+    strictly less than the verb that decides.
+    """
+    doc = _measure(scad_target(tmp_path, source="zero_thickness.scad", claims=""), capsys)
+
+    assert doc["measurements"]["area"]["value"] == pytest.approx(480.0)
+    assert doc["measurements"]["bbox"]["value"] == pytest.approx([20.0, 12.0, 0.0])
+    assert doc["measurements"]["volume"]["value"] == 0.0, "0.0 is an answer, not an absence"
+    assert "no volume" in doc["refused"]["center_of_mass"]
+    assert "center_of_mass" not in doc["measurements"]
+    assert _accounted_names(doc), "the partition still covers the whole vocabulary"
+
+
+@needs_scad_tier
+def test_a_backend_that_raises_costs_one_name_and_not_the_run(tmp_path: Path, capsys, monkeypatch):
+    """The bound on the next backend that slips a non-finite value through.
+
+    The mesh tier's own case is fixed in the backend, where the inability to
+    answer is known. This pins what a backend fault may cost when the next one
+    is not: exactly the name that raised, recorded in `refused` — a property of
+    THIS artifact, where `unavailable` is a property of the tier
+    (SPEC-report.md §7.3) — with every other name still emitted, and no verdict.
+    """
+    from partspec.backends.mesh import MeshBackend
+    from partspec.status import ContractError
+
+    def explode(self, a):
+        raise ContractError("measurement value is nan, which is not a number")
+
+    monkeypatch.setattr(MeshBackend, "area", explode)
+    doc = _measure(scad_target(tmp_path, source="block_with_hole.scad", claims=""), capsys)
+
+    assert "nan" in doc["refused"]["area"] and "mesh" in doc["refused"]["area"]
+    assert "area" not in doc["measurements"]
+    assert doc["measurements"]["volume"]["value"] == pytest.approx(30 * 20 * 10 - 6 * 6 * 10)
+    assert "verdict" not in doc, "measure decides nothing, including here"
+
+
 @needs_build123d
 def test_a_tier_that_answers_everything_omits_both_optional_blocks(tmp_path: Path, capsys):
     """SPEC-report §7.3, the OCCT half — and the reason it is a MUST that a

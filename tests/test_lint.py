@@ -1078,12 +1078,16 @@ def test_every_declared_rule_has_a_description():
     assert emitted <= set(RULES), f"undescribed: {sorted(emitted - set(RULES))}"
 
 
-# The two files this repo ships that match `csg-two-part-intersection`, and the
-# only two that may. They are `SPEC-contract.md` 9.1's worked probe pattern, and
-# the rule is DESIGNED to fire on them -- see the test below for why.
+# The files this repo ships that match `csg-two-part-intersection`, and the only
+# ones that may. The first two are `SPEC-contract.md` 9.1's worked probe pattern,
+# and the rule is DESIGNED to fire on them -- see the test below for why. The
+# third is the degenerate result of that same shape, kept because #365 needs a
+# part with no centre of mass and a face-contact intersection is how one is
+# built; it matches for exactly the reason the other two do.
 EXPECTED_TWO_PART_MATCHES = {
     "examples/clearance/clearance.scad",
     "examples/clearance/interference.scad",
+    "tests/fixtures/zero_thickness.scad",
 }
 
 
