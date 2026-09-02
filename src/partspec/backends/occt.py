@@ -136,11 +136,14 @@ def _material_volume(a: Any) -> float:
       twice the part, flagged exact (#344).
     * `get_type` walks the direct children of `self.compounds()`, and
       `Compound.compounds()` returns self plus its *direct* compound children
-      only. A solid **three or more compound wrappings deep** is therefore
-      invisible to it and the sum is `0.0` — 1000 mm³ of material reported as
-      nothing, flagged exact (#347). Two wrappings is the ordinary way to group
-      a sub-assembly, and `Box(...)` is already a compound over its solid, so
-      depth 3 is one `Compound(children=[...])` past that.
+      only. A solid below that is therefore invisible to it and the sum is
+      `0.0` — 1000 mm³ of material reported as nothing, flagged exact (#347).
+      Measured level by level, counting **TopoDS compound wrappings above the
+      solid**: levels 0, 1 and 2 read 1000.0 and levels 3, 4, 5 and 6 read 0.0.
+      That is not the same count as `Compound(children=[...])` calls -- the two
+      differ by one, because `Box(...)` is already a compound over its solid --
+      so level 3 is reached by **two** such calls, which is an assembly
+      grouping a sub-assembly, the ordinary way to group one.
 
     Each solid's own `.volume` is `BRepGProp.VolumeProperties_s` over that
     solid, which recurses and knows nothing of the wrapping above it, so this
@@ -603,6 +606,15 @@ class OcctBackend:
         `BRepGProp.SurfaceProperties_s` visits every face occurrence in the
         compound, the duplicates included. Summing each solid's own area is
         unchanged on every honest solid measured and counts no stray sheet.
+
+        **The cost, stated rather than left to be discovered: a sheet standing
+        beside a solid contributes nothing here.** Measured, a 20 mm square face
+        reports 400.0 alone and is dropped once a 10 mm box is beside it — 600.0
+        on a shape carrying 1000 mm² of surface, so `area(max=700)` passes on
+        it. Accepted, because the alternative is the doubling above and because
+        a result mixing a solid with a loose sheet is the corruption this guard
+        answers; `watertight` reads false on such a shape and is the primitive
+        that names it. SPEC-backend.md §4 records the trade.
         """
         if _empty(a):
             return Unsupported(_EMPTY_REASON)
@@ -637,9 +649,13 @@ class OcctBackend:
             )
         total = _material_volume(a)
         if not total:
-            # Weighting by a zero total is a division by zero, and the `nan`
-            # it produces would be flagged exact. A solid enclosing no volume
-            # has no centre of mass to report.
+            # Weighting by a zero total divides by zero, which on Python
+            # floats RAISES `ZeroDivisionError` -- it does not produce a `nan`.
+            # So this guard prevents a crash, not a fabricated number; the
+            # refusal is owed either way, because solids enclosing no net
+            # volume have no centre of mass. Reachable: two independently built
+            # 10 mm boxes, one reversed, are solids of +999.99 and -999.99 with
+            # `solid_count 2` and `is_valid True` (SPEC-backend.md 4).
             return Unsupported("this shape's solids enclose no volume, so it has no centre of mass")
         centres = [(float(s.volume), s.center()) for s in solids]
         com = tuple(

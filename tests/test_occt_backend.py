@@ -1188,3 +1188,45 @@ def test_step_roundtrip_compares_material_not_the_collapsed_property(backend: Oc
     assert not isinstance(result, Unsupported)
     assert result["volume_rel"] < 1e-9
     assert result["solids"] == (1, 1)
+
+
+def test_center_of_mass_is_refused_when_the_solids_enclose_no_net_volume(backend: OcctBackend):
+    """The weighting divides by the total, and a reversed solid contributes a
+    NEGATIVE volume, so the total is reachable at exactly zero. Python floats
+    raise `ZeroDivisionError` there rather than producing a `nan` -- so the
+    guard prevents a crash, not a fabricated number, and the refusal is owed
+    either way: solids enclosing no net volume have no centre of mass.
+
+    Nothing adjacent catches it: `solid_count` reads 2 and `is_valid` True.
+    """
+    a1, a2 = bd.Box(10, 10, 10), bd.Box(10, 10, 10)
+    shape = bd.Compound(children=[a1, bd.Solid(a2.solids()[0].wrapped.Reversed())])
+    assert [round(float(s.volume), 6) for s in shape.solids()] == [1000.0, -1000.0], (
+        "premise: the reversed solid encloses a negative volume"
+    )
+    assert backend.solid_count(shape).value == 2, "premise: the solid count reads normal"
+    assert backend.is_valid(shape).value is True, "premise: validity does not catch it"
+    assert "no volume" in refused(backend.center_of_mass(shape)).reason
+
+
+def test_a_sheet_beside_a_solid_contributes_nothing_to_area(backend: OcctBackend):
+    """The accepted cost of measuring area over the solids, pinned so it stays
+    a decision rather than a discovery.
+
+    The same 20 mm square face is measured when it stands alone and dropped
+    once a solid is beside it. `area(max=700)` therefore passes on a shape
+    carrying 1000 mm2 of surface -- the unsafe direction, accepted because the
+    alternative is #344's doubling. `watertight` is the primitive that names
+    such a shape.
+    """
+    sheet = bd.Pos(0, 0, 30) * bd.Rectangle(20, 20).faces()[0]
+    assert measured(backend.area(sheet)).value == pytest.approx(400.0)
+
+    mixed = bd.Compound(
+        children=[bd.Box(10, 10, 10), bd.Pos(0, 0, 30) * bd.Rectangle(20, 20).faces()[0]]
+    )
+    assert mixed.area == pytest.approx(1000.0), "premise: the shape does carry 1000 mm2"
+    assert measured(backend.area(mixed)).value == pytest.approx(600.0)
+    assert backend.solid_count(mixed).value == 1
+    assert backend.is_valid(mixed).value is True
+    assert measured(backend.watertight(mixed)).value is False, "the primitive that names it"

@@ -304,43 +304,82 @@ material would pass. `center()` is worse than a wrong number — it answers with
 of the *surface*, a different quantity under the same name. `area` and `solid_count` stay
 answerable: an area is defined for a face, and `0 solids` is a true answer.
 
-**And those three MUST be taken over the shape's solids, never off the shape.** They are
+**And these MUST be measured over the shape's solids, not off the shape.** They are
 quantities about the part's **material**: how much of it there is, the surface bounding it,
 and where its centroid sits. A compound of several bodies therefore keeps answering — the
 total over the bodies is a defensible quantity, and refusing it would breach D17's second
-half — but nothing that is not a body may contribute. Reading them off the whole shape gives
-a confident wrong number in two independent ways, both measured on build123d 0.11.1 with a
-20 mm cube bored Ø6 through (honestly 7434.51 mm³, 2720.44 mm², centroid at the origin):
+half — but nothing that is not a body may contribute. The rule is not uniform across the
+three, and the difference is deliberate:
+
+- `volume` and `center_of_mass` are **unconditional**: they already refuse a shape bounding
+  no solid, so there is no second case to serve.
+- `area` is **conditional on there being solids**. Where the shape has none it MUST report
+  its own area, as it always has — see below.
+
+Reading these off the whole shape gives a confident wrong number in two independent ways,
+both measured on build123d 0.11.1 / cadquery-ocp 7.9.3.1.1, with a 20 mm cube bored Ø6
+through (honestly 7434.51 mm³, 2720.44 mm², centroid at the origin):
 
 | shape | `a.volume` | `a.area` | `a.center().X` |
 |---|---|---|---|
 | the cube alone | 7434.51 | 2720.44 | −3.8e−16 |
 | beside a `Shell` over its own faces | **14869.03** | **5440.88** | −4.3e−16 |
 | beside a closed 10 mm box shell 100 mm away | **8434.51** | **3320.44** | **11.856** |
-| the solid three `Compound` wrappings deep | **0.0** | 2720.44 | −3.8e−16 |
+| the solid at compound level 3 | **0.0** | 2720.44 | −3.8e−16 |
 
 `.volume` sums **shells alongside solids**, and a `Shell` over a solid's own faces is closed,
 so OCCT encloses a volume for it too; `.area` visits every face **occurrence**, duplicates
 included; `center()` reads volume properties over everything, so a closed stray shell drags
-the centroid toward it. Separately, `.volume` walks `compounds()`, which reaches only the
-shape and its **direct** compound children, so a solid three wrappings deep is invisible to
-it and the sum collapses to `0.0` — and one `Compound(children=[…])` around an
-already-compound `Box` is depth 2, so depth 3 is one ordinary sub-assembly grouping past
-that. Each solid's own `.volume` / `.area` / `.center()` recurse and know nothing of the
-wrapping above them, which is why the per-solid sum is right at any depth. Every one of the
-adjacent primitives reads normal on all three shapes (`solid_count 1`, `watertight true`,
-`is_valid true`, `cavities 0`), so nothing catches it. (#344, #347.)
+the centroid toward it — row 2's stray sits on the solid's own faces and so moves it by
+nothing, which is why the corruption has to be moved off the part before that column shows
+it. Separately, `.volume` walks `compounds()`, which reaches only the shape and its
+**direct** compound children, so a solid below that is invisible to it and the sum collapses
+to `0.0`.
 
-`area` alone keeps a fallback, and it is load-bearing: **where the shape has no solid at all
-it MUST report its own area**, as it always has. A sum over `solids()` would report a
-shell-only or face-only part as `0.0` exact — a new confident wrong number of exactly the
-class the rule fixes. The measurand is the boundary of what the shape *is*: the material's
-faces where there is material, the sheet itself where the sheet is all there is.
+**Compound level is counted in TopoDS wrappings above the solid, not in
+`Compound(children=[…])` calls**, and the two differ by one because `Box(…)` is *already* a
+compound over its solid. Levels 0, 1 and 2 read correctly; level 3 and below read `0.0`.
+Level 3 is therefore reached by **two** `Compound(children=[…])` calls — an assembly that
+groups a sub-assembly, which is the ordinary way to group one. Each solid's own `.volume` /
+`.area` / `.center()` recurse and know nothing of the wrapping above them, which is why the
+per-solid sum is right at every level. `solid_count`, `watertight`, `is_valid` and
+`cavities` read normal on all four shapes above, so nothing adjacent catches any of it.
+(#344, #347.)
 
-`bbox`, `topology_counts`, `is_valid` and `watertight` stay **total** and are unchanged by
-this. They are statements about the shape as given — an envelope must contain everything
-drawn, and a face count counts the faces drawn — so a stray body belongs in their answer in
-a way it does not belong in a quantity about material.
+`center_of_mass` MUST also refuse when the shape's solids enclose **no net volume**. The
+weighting is a division by that total, and Python raises `ZeroDivisionError` on it rather
+than producing a `nan`; either way there is no centroid to report. Reachable: two
+independently built 10 mm boxes, one of them reversed, measure as solids of `+999.99` and
+`−999.99` with `solid_count 2` and `is_valid True`.
+
+`area`'s fallback is load-bearing: **where the shape has no solid at all it MUST report its
+own area.** A sum over `solids()` would report a shell-only or face-only part as `0.0`
+exact — a new confident wrong number of exactly the class the rule fixes. The measurand is
+the boundary of what the shape *is*: the material's faces where there is material, the sheet
+itself where the sheet is all there is.
+
+**The cost of that rule, stated rather than discovered: a sheet standing beside a solid
+contributes nothing to `area`.** Measured, a 20 mm square face reports `area 400.0` alone
+and is dropped entirely once a 10 mm box is beside it — `area 600.0` against a shape
+carrying 1000 mm² of surface, so `area(max=700)` passes on it. This is accepted, not
+overlooked: the alternative is the row-2 doubling above, and a modelling result that mixes a
+solid with a loose sheet is the corruption this section exists to answer. `watertight`
+reads `false` on such a shape and is the primitive that names it.
+
+`bbox`, `topology_counts`, `is_valid` and `watertight` are unchanged by this rule and keep
+measuring the shape as given. Note that the Protocol's own taxonomy above is about
+**refusal**, not about measurand: it names `bbox`, `area` and `watertight` as the primitives
+that stay answerable however broken the shape is, which `area` still does. It does not say
+those three sum over everything, and it does not classify `topology_counts` or `is_valid`
+that way at all.
+
+A stray body does **not** reliably move any of the four. Measured on the same bored cube:
+the row-2 stray shares the solid's own TShapes, so the deduplicating `.faces()` / `.edges()`
+/ `.vertices()` accessors are unmoved and `topology_counts` reads the honest `(7, 15, 10)`;
+the row-3 stray is a separate body and moves it to `(13, 27, 18)`. `bbox` is likewise
+`(20, 20, 20)` on row 2 and `(115, 20, 20)` on row 3. So these are left alone because an
+envelope and an entity count are honest statements about what was drawn — not because they
+carry any part of the guard. `genus` is what refuses row 2, on its own precondition (#339).
 
 ### 4.1 Dependency pinning — mandatory
 
