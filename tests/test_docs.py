@@ -204,6 +204,44 @@ def test_the_hole_becomes_notch_essence_is_reproducible_here(tmp_path: Path):
         assert b.bbox(a).value == (40.0, 30.0, 4.0)
 
 
+@needs_openscad
+def test_the_background_modifier_entry_is_reproducible_here(tmp_path: Path):
+    """Catalogue entry 9's [repo] claims, executed (#336).
+
+    Three claims, one source each, and the entry stands or falls on all three:
+    `%` is EVALUATED and NOT EXPORTED, so its diagnostic reaches partspec over
+    a byte-identical mesh; `*` is not evaluated, so it is free; `#` is
+    exported, so its diagnostic is about the mesh. Byte identity is the load
+    bearing half -- it is why the refusal is a cost rather than a catch.
+    """
+    from partspec.backend import BuildError
+    from partspec.engines.openscad import OpenSCADSource, render
+
+    def build(name: str, body: str) -> tuple[bytes, list[str]]:
+        src = tmp_path / name
+        src.write_text(body)
+        seen: list[str] = []
+        out = render(OpenSCADSource(path=src), tmp_path / f"{src.stem}.stl", unresolved_out=seen)
+        assert not isinstance(out, BuildError), out
+        return out.read_bytes(), seen
+
+    fault = "translate([undef, 0, 0]) cube(2);\n"
+    plain, quiet = build("plain.scad", "cube([40,30,6]);\n")
+    assert quiet == [], "premise: the part on its own is clean"
+
+    ghost, refused = build("ghost.scad", f"cube([40,30,6]);\n%{fault}")
+    assert ghost == plain, "a `%` subtree contributes nothing to the export"
+    assert refused, "and its diagnostic is read anyway — the deliberate cost, #336"
+
+    disabled, silent = build("disabled.scad", f"cube([40,30,6]);\n*{fault}")
+    assert disabled == plain, "`*` contributes nothing either"
+    assert silent == [], "and is never evaluated, so it costs nothing"
+
+    highlit, read = build("highlit.scad", f"cube([40,30,6]);\n#{fault}")
+    assert highlit != plain, "`#` IS exported, so its warning is about the mesh"
+    assert read, "and is refused for that reason, not as a cost"
+
+
 # --------------------------------------------------------------------------
 # skills/contract-authoring — the skill's executable claims
 # --------------------------------------------------------------------------

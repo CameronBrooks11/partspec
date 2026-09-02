@@ -752,6 +752,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads that as "no axis given". Measured; still exit 0; there is no stderr
   line for a guard to key on.
 
+- **A `%`-only diagnostic is written down instead of being a silent trade**
+  (#336, epic #305). `%` marks geometry as *background*: OpenSCAD **evaluates**
+  the subtree and excludes it from the render and the export. Its diagnostics
+  still reach stderr, stderr does not carry the modifier, and partspec's
+  success-path guard therefore refuses a part whose only fault is in geometry
+  nobody exported. Re-measured on both pinned engines: `cube([40,30,6]);
+  %translate([undef,0,0]) cube(2);` exports 684 bytes that `cmp -s` finds
+  **byte-identical** to the same source with the `%` line deleted, and `check`
+  over `watertight()` + `solid_count(1)` gives `ERROR: 3 skipped` at exit 4 on
+  both. **The refusal stands** — an `undef` inside a `%` subtree is a bug in
+  the source whatever it costs today, the modifier is one character so
+  scaffolding routinely becomes the part, and the alternative (correlating
+  stderr line numbers against the `%` nodes of a `.csg` export) buys silence on
+  a real defect at the price of a second parser between the engine and the
+  verdict. What changes is that an agent hitting exit 4 on a byte-perfect mesh
+  can now reach that conclusion from the documents: `FAILURE-MODES.md` gains
+  entry **9**, and `AGENT-CONTRACT.md` §2.3's conversion bullet says what the
+  quoted line does *not* tell you.
+  The three modifiers were measured, not assumed, and only one has this
+  property: `*` (disable) is never evaluated, so it emits nothing and is the
+  modifier that is free; `#` (highlight) **is** exported, so its warnings are
+  about the mesh and its refusal is a catch; `%` alone is evaluated and not
+  exported. All three are executed in
+  `tests/test_docs.py::test_the_background_modifier_entry_is_reproducible_here`,
+  byte identity included, so entry 9 is a claim that runs rather than one that
+  is asserted.
+
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
   counts the field this release added to it** (#295, #340). §2.4 lists that
   payload's keys as "Measured … exactly `engine`, `error`, `geometry`, `hint`,

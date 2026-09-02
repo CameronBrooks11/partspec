@@ -184,6 +184,18 @@ Read the non-`pass` statuses in `checks[]`:
   changed size, the transform reverted to identity, and the part is standing in an
   orientation nobody wrote down (#333). A mesh that is watertight, one solid and exactly
   the right size is not evidence against this line.
+  **What the line does NOT say is where the value came from — including whether it came
+  from geometry that is exported at all.** OpenSCAD evaluates the subtree under a `%`
+  (background) modifier and then excludes it from the render, so a fault inside one is
+  narrated on stderr while contributing nothing to the mesh: measured on both engines,
+  `cube([40,30,6]); %translate([undef,0,0]) cube(2);` exports a file **byte-identical**
+  to the same source with the `%` line deleted, and still exits `4` here. partspec
+  refuses it deliberately (`FAILURE-MODES.md` §9). If the quoted line's file and line
+  number land on a `%` subtree, the mesh you have is very likely correct — but the source
+  is not, and the remedy is the same either way: fix the `undef`, or delete the
+  scaffolding. Do not reach for `--allow-incomplete`; there is none. `*` (disable) is the
+  modifier that costs nothing — its subtree is never evaluated, so it emits no
+  diagnostic — while `#` (highlight) is exported, and its warnings are about the mesh.
 - **Otherwise** → the contract itself raised (the report says "the contract is wrong,
   not the part"), or the report is still the placeholder ("run did not complete") —
   whose most common cause is deterministic, not transient: **the contract failed to
