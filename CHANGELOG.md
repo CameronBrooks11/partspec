@@ -726,6 +726,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OCCT `volume`, `area` and `center_of_mass` measure the material, not the
+  shape** (#344, #347). All three read a build123d property off the whole shape,
+  and none of those properties is about material. On a 20 mm cube bored Ø6
+  through — honestly 7434.51 mm³ — a `Shell` over the solid's own faces read
+  **14869.03**, exactly double; a closed 10 mm shell standing 100 mm away read
+  **8434.51** and dragged the centroid to **x = 11.856 mm** from −3.8e−16; and
+  the same solid **two `Compound(children=[...])` calls deep** — an assembly
+  grouping a sub-assembly — read **0.0**. (Counted in calls; `occt.py` and
+  `SPEC-backend.md` §4 count the same cliff as TopoDS compound level 3,
+  which is the same shape: `Box(...)` is already a compound over its solid,
+  so the two counts differ by one.) Every one was
+  flagged `exact`, on a shape reporting `solid_count 1`, `watertight true` and
+  `cavities 0`. On the shell-over-its-own-faces shape and the nested one,
+  none of the primitives beside them moved: `solid_count`, `watertight`,
+  `is_valid`, `cavities`, `bbox` and `topology_counts` all read the honest
+  values. (`genus` refuses the shell shape and `step_roundtrip` fails it —
+  `SPEC-backend` §4.) (Not a blanket claim: the stray standing 100 mm away is a
+  separate body, so `bbox` and `topology_counts` do move for it. `SPEC-backend`
+  §4 states which primitives name which shape.) All three now sum over
+  `a.solids()`.
+  **`area` keeps its fallback where there is no solid**: a naive sum reports a
+  closed box shell as `0.0` exact, which is the same defect in a new place, and
+  `area` is deliberately defined for a face and a shell as much as for a solid.
+  **`step_roundtrip` read the same collapsed property on both sides** and
+  reported a total volume degradation on an exchange that preserved the part
+  exactly — the one member of this class that moved a verdict.
+
 - **A rotation the engine dropped no longer reaches a measurement** (#333, epic
   #305). `o = undef; rotate(o) cube(5);` exports a clean, watertight,
   single-solid 12-facet cube standing at **identity** — the rotation is simply
