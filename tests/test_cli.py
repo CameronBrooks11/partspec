@@ -2479,9 +2479,15 @@ def test_the_locator_answers_each_layout_it_can_meet(tmp_path: Path, monkeypatch
     # And the INSTALLED branch, which the suite otherwise reaches only through
     # a subprocess (`test_the_installed_wheel_locates_the_documents_it_carries`
     # runs a real venv's entry point, so nothing in-process executes this
-    # line). `_bundled/` wins over any `src/` reading, which is what an
-    # editable install of a checkout that was later built into a wheel would
-    # otherwise make ambiguous.
+    # line).
+    #
+    # The order is a preference, not a tie-break: no shipped layout presents
+    # both candidates. An editable install does put a `_bundled/` in
+    # site-packages, but its `.pth` redirects the import to `src/`, so
+    # `__file__` — which is what the locator reads — only ever sees one of
+    # them. Claiming it disambiguated an editable-then-built checkout was
+    # invented; `src/partspec/_bundled` is never created by a build (PR #350
+    # review, NEW-C).
     bundled = tmp_path / "site-packages2" / "partspec" / "_bundled"
     (bundled / "docs").mkdir(parents=True)
     (bundled / "docs" / "AGENT-CONTRACT.md").write_text("")

@@ -120,10 +120,14 @@ def _docs_epilog() -> str:
     Hard-wrapped, and the parser takes `RawDescriptionHelpFormatter` for it.
     The default formatter re-fills the epilog to the terminal width, which
     broke the path across a line — measured at COLUMNS=80 against a real
-    `uv tool install` root, which wrapped over three lines and put a hyphen
-    where `site-packages` breaks. A located path that cannot be copied is
-    barely better than the URL it replaced, and this is the one line whose
-    whole value is being pasteable.
+    `uv tool install` root, where it spanned two lines, splitting at the
+    hyphen already inside `site-packages`. Nothing inserted that hyphen and
+    the path rejoins exactly, which is what makes the break hard to see and
+    the line unselectable in one go. A located path that cannot be copied is
+    barely better than the URL it replaced, and being pasteable is this
+    line's whole value. (The "three lines and an inserted hyphen" first
+    written here was measured against a long scratchpad venv path, not the
+    root this sentence names — PR #350 review, NEW-B.)
     """
     root = docs_root()
     if root is None:

@@ -816,10 +816,19 @@ def test_the_installed_wheel_locates_the_documents_it_carries(tmp_path: Path):
     takes the `src/` branch instead. Coverage said so outright: that line was
     executed by nothing in the suite (PR #350 review, finding 9).
 
-    What only this can catch is a force-include DESTINATION that is wrong
-    rather than absent. Retarget it to `partspec/docs` and the zip still
-    carries every tracked file, so the test above stays green while
-    `partspec --docs` refuses on every install.
+    What only this can catch is the WHEEL and the LOCATOR disagreeing. The
+    example first written here was wrong and the review re-ran it: retargeting
+    force-include to `partspec/docs` fails the namelist test above too, because
+    that test filters on the literal `partspec/_bundled/` prefix. The mutation
+    that isolates this one is a mismatch — leave the wheel shipping `_bundled/`
+    and have `docs_root()` look for `_bundle/`:
+
+        force-include destination -> partspec/docs   : BOTH tests fail
+        docs_root() -> package / "_bundle"           : only this one fails,
+                                                       exit 4 from the install
+
+    Which is the shape a rename would really take, and no zip listing can see
+    it: the archive is correct and every install still refuses.
 
     `--no-config`, like every other throwaway install here: `uv pip` reads
     `[tool.uv]` from the nearest pyproject.toml above the CWD and would apply
