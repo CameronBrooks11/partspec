@@ -18,16 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lock nothing exercises would reproduce the very root cause, the loop being
   unseen by the project's own gate. Verified green on 2021.01 and 2026.08.01,
   and exit 4 with all 8 checks skipped when `PLATE` moves without a re-pin.
-- **`--pin` names the claims it rewrote** (#294). It read the previous lock only
-  when a target had failed to resolve; on the ordinary path it rewrote a changed
-  claim and printed `pinned 1 part(s)`. `AGENT-CONTRACT.md` §4 rests the whole
-  guarantee on "the lock is committed, and its diff is the confession in your
-  PR" — so the one weakening move partspec computes the diff for was the one it
-  discarded. The differences now print on **stderr**, which `--quiet` does not
-  suppress, because `--quiet` is the invocation a weakening uses. It stays exit
-  0: §4 permits a deliberate re-pin, and the requirement was only that it cannot
-  be silent. The lock-shrink guard also fired only when a target failed to
-  resolve, so pinning a subset of a multi-part lock silently deleted the rest.
 - **Where a baseline comes from** (#291). `check` overwrites its report in place,
   so the second run of any loop destroys the only baseline the first produced —
   and `outputs/` is gitignored unanchored at every depth, making the default
@@ -735,6 +725,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   side effect of a policy PR.
 
 ### Fixed
+
+- **`--pin` names the claims it rewrote** (#294). It read the previous lock only
+  when a target had failed to resolve; on the ordinary path it rewrote a changed
+  claim and printed `pinned 1 part(s)`. `AGENT-CONTRACT.md` §4 rests the whole
+  guarantee on "the lock is committed, and its diff is the confession in your
+  PR" — so the one weakening move partspec computes the diff for was the one it
+  discarded. The differences now print on **stderr**, which `--quiet` does not
+  suppress, because `--quiet` is the invocation a weakening uses. It stays exit
+  0: §4 permits a deliberate re-pin, and the requirement was only that it cannot
+  be silent. The lock-shrink guard also fired only when a target failed to
+  resolve, so pinning a subset of a multi-part lock silently deleted the rest.
+
 
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
   counts the field this release added to it** (#295, #340). §2.4 lists that
