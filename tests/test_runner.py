@@ -1311,3 +1311,492 @@ def test_an_unread_include_is_named_rather_than_the_contract_blamed(tmp_path: Pa
     assert "or its includes" not in report.error, "the claim partspec cannot make"
     assert report.build_origin == "environment"
     assert _status(report, "builds") is not Status.FAIL, "not a statement about the part"
+
+
+# --------------------------------------------------------------------------
+# a data file the engine asked for and did not get (#309)
+# --------------------------------------------------------------------------
+#
+# #286's failure through a different channel. `import()`/`surface()` of an
+# absent target renders as nothing and the engine still exits 0, so the mesh is
+# well-formed and it is not the part. The depfile names the file -- and `unseen`
+# is empty precisely BECAUSE `engine_inputs.state` is `complete`: the engine
+# answered in full, and the full answer is that the file is absent.
+
+
+def _absent_data_part(tmp_path: Path, body: str, name: str = "probe") -> Part:
+    src = tmp_path / f"{name}.scad"
+    src.write_text(body)
+    p = Part(name, openscad(src))
+    p.envelope(max=(40, 30, 6))
+    p.watertight()
+    return p
+
+
+@needs_scad_tier
+def test_a_missing_import_target_on_a_successful_build_is_not_a_pass(tmp_path: Path):
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) import("missing.stl");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.exit_code == 4
+    assert _status(report, "builds") is Status.SKIPPED
+    assert _status(report, "watertight") is Status.SKIPPED
+    assert report.error is not None and "missing.stl" in report.error
+
+
+@needs_scad_tier
+def test_a_missing_surface_target_on_a_successful_build_is_not_a_pass(tmp_path: Path):
+    # The second file-reading construct, whose stderr wording shares nothing
+    # with `import()`'s. The depfile covers both uniformly, which is why this
+    # is read off `engine_inputs.missing` and not off prose.
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) surface(file="heights.dat");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.error is not None and "heights.dat" in report.error
+
+
+@needs_scad_tier
+def test_the_absent_input_is_not_a_statement_about_the_part(tmp_path: Path):
+    # SPEC-report §6.1, same reasoning as the unresolved-name arm: the source
+    # compiled, and whether the path is a typo or the file has simply not been
+    # generated yet is not something partspec can tell.
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) import("missing.stl");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "the premise: the run WAS refused"
+    assert _status(report, "builds") is not Status.FAIL
+    assert report.build_origin is None
+
+
+@needs_scad_tier
+def test_the_report_still_names_the_file_it_refused_over(tmp_path: Path):
+    # The refusal happens AFTER the closure is upgraded from the depfile, so the
+    # evidence for it survives in the artifact rather than being replaced by the
+    # static walk. Before #309 this block was the whole report of the problem
+    # and nothing read it.
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) import("missing.stl");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "the premise: the run WAS refused"
+    closure = report.source_closure
+    assert closure is not None
+    assert closure["engine_inputs"]["missing"] == ["missing.stl"]
+    assert closure["engine_inputs"]["state"] == "complete"
+    assert closure["unseen"] == [], "the trap: a complete answer leaves no gap to name"
+
+
+@needs_scad_tier
+def test_a_data_file_that_is_present_is_still_judged(tmp_path: Path):
+    # The guard must not fire on the ordinary case. `heights.dat` exists, the
+    # engine reads it, `missing` is empty and the envelope decides.
+    (tmp_path / "heights.dat").write_text("1 2 3\n4 5 6\n7 8 9\n")
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) surface(file="heights.dat");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is not Verdict.ERROR
+    assert _status(report, "builds") is Status.PASS
+
+
+# --------------------------------------------------------------------------
+# an origin partspec cannot attribute (#307)
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_an_unattributable_build_error_is_not_adjudicated_as_the_model(tmp_path: Path, monkeypatch):
+    """`BuildError.origin is None` MUST NOT reach the `builds: fail` arm.
+
+    The branch this pins is the whole reason widening the type was not a
+    one-liner. `runner.py` adjudicated `if origin == "environment": … else:
+    builds fail`, so a `None` fell through to the arm that says the DESIGN is
+    disproven — the exact misattribution `origin` exists to prevent
+    (SPEC-report §6.1).
+
+    Monkeypatched because the only producer today is `_hollowed_views`, inside
+    `render_views`, which the runner never calls: the branch is otherwise
+    unreachable from here and its mutant survives the whole suite. What is
+    asserted is the adjudication, not the producer — reverting the branch to
+    `== "environment"` turns this red with `FAIL is not ERROR`.
+    """
+    from partspec.backend import BuildError
+    from partspec.backends.mesh import MeshBackend
+
+    monkeypatch.setattr(
+        MeshBackend,
+        "build",
+        lambda *a, **k: BuildError("cannot say whose fault this is", origin=None),
+    )
+
+    src = tmp_path / "probe.scad"
+    src.write_text("cube([40,30,6], center=true);\n")
+    p = Part("probe", openscad(src))
+    p.watertight()
+    p.solid_count(1)
+
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "an unattributable fault is not a failing part"
+    assert report.exit_code == 4
+    assert report.build_origin is None, "the null must survive into the report"
+    assert _status(report, "builds") is Status.SKIPPED, "`builds: fail` would blame the design"
+    assert _status(report, "watertight") is Status.SKIPPED
+    assert report.error == "cannot say whose fault this is"
+
+
+@needs_openscad
+def test_the_environment_arm_is_unchanged_by_the_widening(tmp_path: Path, monkeypatch):
+    """The control for the branch above: `"environment"` still lands the same
+    way, and `"model"` still fails `builds`. Without these two the negation
+    could be replaced by an unconditional skip and nothing would notice."""
+    from partspec.backend import BuildError
+    from partspec.backends.mesh import MeshBackend
+
+    src = tmp_path / "probe.scad"
+    src.write_text("cube([40,30,6], center=true);\n")
+
+    def _report(origin):
+        monkeypatch.setattr(MeshBackend, "build", lambda *a, **k: BuildError("nope", origin=origin))
+        p = Part("probe", openscad(src))
+        p.watertight()
+        return run(p, out_dir=tmp_path)
+
+    env = _report("environment")
+    assert env.verdict is Verdict.ERROR
+    assert _status(env, "builds") is Status.SKIPPED
+    assert env.build_origin == "environment"
+
+    model = _report("model")
+    assert model.verdict is Verdict.FAIL, "a design that does not compile IS a statement"
+    assert _status(model, "builds") is Status.FAIL
+    assert model.build_origin == "model"
+
+
+# --------------------------------------------------------------------------
+# the guard is narrowed to files the export actually depended on (#354 B1)
+# --------------------------------------------------------------------------
+#
+# OpenSCAD EVALUATES a `%` subtree -- so the reference resolves, the engine warns,
+# and the depfile records the file -- and then excludes it from the export. The
+# bytes are identical whether or not the file is there, so refusing is refusing
+# more than the mathematics requires. `*` never evaluates and never reaches the
+# depfile. `#` is exported, so it stays a catch.
+
+
+def _bare_part(tmp_path: Path, body: str, name: str = "probe") -> Part:
+    src = tmp_path / f"{name}.scad"
+    src.write_text(body)
+    p = Part(name, openscad(src))
+    p.watertight()
+    return p
+
+
+_MODIFIER_SHAPES = [
+    # (name, body, refuses)
+    ("plain_import", 'cube([10,10,10]);\nimport("gone.stl");\n', True),
+    ("surface_absent", 'cube([10,10,10]);\nsurface(file="h.dat");\n', True),
+    ("hash_import", 'cube([10,10,10]);\n#import("hash.stl");\n', True),
+    ("pct_and_plain", 'cube([10,10,10]);\n%import("bg.stl");\nimport("fg.stl");\n', True),
+    ("pct_import", 'cube([10,10,10]);\n%import("mate.stl");\n', False),
+    ("pct_surface", 'cube([10,10,10]);\n%surface(file="bg.dat");\n', False),
+    ("star_import", 'cube([10,10,10]);\n*import("star.stl");\n', False),
+]
+
+
+@needs_scad_tier
+@pytest.mark.parametrize(
+    ("name", "body", "refuses"), _MODIFIER_SHAPES, ids=[s[0] for s in _MODIFIER_SHAPES]
+)
+def test_only_a_file_the_export_depended_on_holds_the_verdict(
+    tmp_path: Path, name: str, body: str, refuses: bool
+):
+    """All seven shapes, because the boundary is the whole claim.
+
+    `%` and `*` are excluded from the export, so a file named only from one of
+    them is not a build input and a missing one proves nothing about the part.
+    `#` IS exported — the source asked for that geometry and did not get it —
+    so it is a true positive and stays refused, the same `%`/`#` asymmetry
+    `FAILURE-MODES.md` entry 9a draws.
+    """
+    report = run(_bare_part(tmp_path, body, name), out_dir=tmp_path)
+
+    if refuses:
+        assert report.verdict is Verdict.ERROR, "an exported input is missing"
+        assert report.exit_code == 4
+    else:
+        assert report.verdict is not Verdict.ERROR, (
+            "the export does not depend on this file; refusing it is a false red"
+        )
+        assert _status(report, "builds") is Status.PASS
+
+
+@needs_scad_tier
+def test_the_refusal_names_the_exported_file_and_not_the_dropped_one(tmp_path: Path):
+    """The case a naive implementation gets wrong.
+
+    One file has both a `%` reference and a real one; another has only the `%`.
+    Refusing the run is right, and naming `bg.stl` in the sentence — or counting
+    it in the `(and N more)` suffix — would send a reader to a reference that
+    costs the export nothing. The closure still records BOTH under
+    `engine_inputs.missing`: that field reports what the engine said, and the
+    narrowing is a judgement laid over it, not an edit of it.
+    """
+    body = 'cube([10,10,10]);\n%import("bg.stl");\nimport("fg.stl");\n'
+    report = run(_bare_part(tmp_path, body), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.error is not None
+    assert "fg.stl" in report.error
+    assert "bg.stl" not in report.error
+    assert "more" not in report.error, "one file is missing from the export, not two"
+
+    closure = report.source_closure
+    assert closure is not None
+    assert closure["engine_inputs"]["missing"] == ["bg.stl", "fg.stl"]
+
+
+@needs_scad_tier
+def test_an_unreadable_csg_export_keeps_the_refusal(tmp_path: Path):
+    """Fail closed, on the failure that is real rather than hypothetical.
+
+    The `.csg` format prints string contents raw, so a quote inside one breaks
+    the parse — `CsgError: unexpected identifier in value position: 'hi'`,
+    measured on this exact source. A `%`-only reference would otherwise be
+    exonerated; it is not, because a false refusal here is the behaviour that
+    already shipped while a false pass would be the founding-property failure
+    #309 exists to close.
+    """
+    body = 'cube([10,10,10]);\n%import("q.stl");\nlinear_extrude(1) text("say \\"hi\\"");\n'
+    report = run(_bare_part(tmp_path, body), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "unreadable evidence may not exonerate"
+    assert report.error is not None and "q.stl" in report.error
+
+
+@needs_scad_tier
+def test_a_reference_from_an_included_file_is_joined_to_its_depfile_entry(tmp_path: Path):
+    """The `.csg` literal is ENTRY-relative even when the reference is not.
+
+    This test used to claim the join had to be a suffix match, because an
+    `import()` inside an included file resolves against that file's directory.
+    The premise was false and the join it justified was unsound (#354 round-2,
+    B3): OpenSCAD re-expresses the literal relative to the **entry** file's
+    directory before writing the `.csg`. Measured on this exact shape, where
+    the two engines do not even agree on where the reference resolves —
+    2021.01 writes `"deep.stl"` and the 2026.08.01 snapshot `"sub/deep.stl"` —
+    and each engine's literal, resolved against the entry's parent, reproduces
+    that same engine's own depfile entry. So `(base / literal).resolve()` is
+    exact on both, which is what the guard now relies on.
+    """
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "helper.scad").write_text('module h() { import("deep.stl"); }\n')
+    body = "include <sub/helper.scad>\ncube([10,10,10]);\nh();\n"
+    report = run(_bare_part(tmp_path, body), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.error is not None and "deep.stl" in report.error
+
+
+@needs_scad_tier
+def test_two_files_of_the_same_name_in_different_directories_are_told_apart(tmp_path: Path):
+    """The join is by path suffix, and a basename match is not good enough.
+
+    `a/x.stl` is referenced only from a `%` subtree and is absent; `b/x.stl` is
+    referenced for real and is there. Only the first is in `missing`, and the
+    export does not depend on it. Matching on the bare name instead would see
+    the missing file's name in the KEPT set too — because `b/x.stl` shares it —
+    and refuse a run whose export is complete.
+    """
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    (tmp_path / "b" / "x.stl").write_text("solid s\nendsolid s\n")
+    body = 'cube([10,10,10]);\n%import("a/x.stl");\nimport("b/x.stl");\n'
+    report = run(_bare_part(tmp_path, body), out_dir=tmp_path)
+
+    closure = report.source_closure
+    assert closure is not None
+    assert closure["engine_inputs"]["missing"] == ["a/x.stl"], "only the %-ed one is absent"
+    assert report.verdict is not Verdict.ERROR, "the export depends on b/x.stl, which is there"
+
+
+# --------------------------------------------------------------------------
+# the narrowing must not fail OPEN (#354 round-2, B3 and B4)
+# --------------------------------------------------------------------------
+#
+# Both defects passed a run whose exported geometry was provably short of what
+# the source asked for, which is the founding-property failure #309 exists to
+# close. B3: the join was by path suffix, and neither half of its premise held
+# -- the depfile entry is `.resolve()`d and the `.csg` literal is rewritten
+# entry-relative -- so a kept literal carrying `../` could not match its own
+# resolved path while a shorter dropped literal matched it by accident. B4: the
+# discriminating export was taken at the model's DEFAULTS, so a modifier behind
+# a parameter or a method wrapper adjudicated a different tree than the one the
+# depfile came from.
+
+
+def _nested_part(root: Path, body: str, name: str = "probe") -> Part:
+    """An entry file one directory DOWN, so `../` is expressible."""
+    (root / "m").mkdir(exist_ok=True)
+    src = root / "m" / f"{name}.scad"
+    src.write_text(body)
+    p = Part(name, openscad(src))
+    p.watertight()
+    return p
+
+
+@needs_scad_tier
+def test_a_dotdot_reference_the_export_used_still_holds_the_verdict(tmp_path: Path):
+    """`../mate.stl` is imported for real; `mate.stl` is only `%`-ed.
+
+    Two different files. The exported mesh goes from 12 triangles to 24 when
+    `../mate.stl` is present, so it is a build input by any definition, and the
+    same model without the `%` line exits 4. Under the suffix join the resolved
+    `.../mate.stl` could not match the kept literal `"../mate.stl"` and matched
+    the dropped `"mate.stl"` instead, and the run passed at exit 0.
+    """
+    body = 'cube([10,10,10]);\nimport("../mate.stl");\n%import("mate.stl");\n'
+    report = run(_nested_part(tmp_path, body, "dd"), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "an exported build input is missing"
+    assert report.error is not None and "mate.stl" in report.error
+
+
+@needs_scad_tier
+def test_a_symlinked_reference_the_export_used_still_holds_the_verdict(tmp_path: Path):
+    """Same defect through the other half of `.resolve()`.
+
+    The depfile entry has its symlink resolved, so it cannot end with the
+    literal the source wrote either.
+    """
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real", target_is_directory=True)
+    body = 'cube([10,10,10]);\nimport("../link/mate.stl");\n%import("mate.stl");\n'
+    report = run(_nested_part(tmp_path, body, "sym"), out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+
+
+@needs_scad_tier
+def test_a_dropped_reference_through_a_symlink_is_still_exonerated(tmp_path: Path):
+    """The mirror: the same unsoundness left false REDS behind too.
+
+    A `%`-ed reference whose resolved path does not end with its literal was
+    unaccounted for and refused, on an export that does not depend on it.
+    """
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real", target_is_directory=True)
+    body = 'cube([10,10,10]);\n%import("../link/mate.stl");\n'
+    report = run(_nested_part(tmp_path, body, "fr1"), out_dir=tmp_path)
+
+    assert report.verdict is not Verdict.ERROR
+    assert _status(report, "builds") is Status.PASS
+
+
+@needs_scad_tier
+def test_a_dropped_reference_by_absolute_path_is_exonerated(tmp_path: Path):
+    """An absolute literal never had a `/`-prefixed suffix to match either."""
+    body = f'cube([10,10,10]);\n%import("{(tmp_path / "nowhere" / "abs.stl").as_posix()}");\n'
+    report = run(_nested_part(tmp_path, body, "fr2"), out_dir=tmp_path)
+
+    assert report.verdict is not Verdict.ERROR
+    assert _status(report, "builds") is Status.PASS
+
+
+@needs_scad_tier
+def test_the_export_is_taken_with_the_parameters_the_build_used(tmp_path: Path):
+    """B4: a modifier behind a `-D` value.
+
+    At the model's defaults `ghost` is true and the reference is `%`-ed; the
+    contract overrides it to false, so the BUILT tree imports the file for real
+    — 24 triangles against 12. An export taken without the overrides sees only
+    the `%` branch and exonerates a file the run actually needed.
+    """
+    body = (
+        "ghost = true;\ncube([10,10,10]);\n"
+        'if (ghost) { %import("mate.stl"); } else { import("mate.stl"); }\n'
+    )
+    src = tmp_path / "g.scad"
+    src.write_text(body)
+
+    real = Part("g", openscad(src, ghost=False))
+    real.watertight()
+    assert run(real, out_dir=tmp_path).verdict is Verdict.ERROR, (
+        "with ghost=false the import is real and the file is absent"
+    )
+
+    ghosted = Part("g", openscad(src, ghost=True))
+    ghosted.watertight()
+    report = run(ghosted, out_dir=tmp_path)
+    assert report.verdict is not Verdict.ERROR, (
+        "with ghost=true it really is scaffolding — the override decides, both ways"
+    )
+
+
+@needs_scad_tier
+def test_the_export_is_taken_through_the_method_wrapper(tmp_path: Path):
+    """B4 again, by the other route into a different tree.
+
+    `mate.stl` is `%`-ed at the top level and imported for real inside the
+    method the contract names. Exporting the bare file sees only the `%` and
+    exonerates it; exporting through the same scratch entry `render()` builds
+    sees both, and a reference named anywhere outside a dropped subtree is a
+    build input.
+    """
+    src = tmp_path / "mm.scad"
+    src.write_text(
+        '%import("mate.stl");\nmodule make() {\n  cube([10,10,10]);\n  import("mate.stl");\n}\n'
+    )
+    p = Part("mm", openscad(src, method="make"))
+    p.watertight()
+
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert not list(tmp_path.glob(".partspec-*.scad")), "the method scratch must be cleaned up"
+
+
+@needs_scad_tier
+def test_the_discriminating_export_honours_the_contracts_timeout(tmp_path: Path):
+    """L8: it is the one subprocess in the runner that ignored the budget.
+
+    It ran with a hardcoded `timeout=120` while the call site passed nothing,
+    so `--timeout 1` could still spend two minutes here. Asserted on the
+    argument rather than on a stopwatch: a wall-clock test needs a model slow
+    enough to fold, which is a different thing to be flaky about.
+    """
+    import subprocess as sp
+
+    seen: list[float | None] = []
+    real_run = sp.run
+
+    def _recording(cmd, **kwargs):
+        if any(str(a).endswith(".csg") for a in cmd):
+            seen.append(kwargs.get("timeout"))
+        return real_run(cmd, **kwargs)
+
+    body = 'cube([10,10,10]);\n%import("mate.stl");\n'
+    p = _bare_part(tmp_path, body)
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(sp, "run", _recording)
+        run(p, out_dir=tmp_path, timeout_s=7.0)
+    finally:
+        monkey.undo()
+
+    assert seen == [7.0], f"the .csg export ran with {seen}, not the contract's budget"

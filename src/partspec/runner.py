@@ -17,6 +17,7 @@ Spec: SPEC-report.md sections 4, 5, 6; SPEC-contract.md sections 4, 6.
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
 import time
 from pathlib import Path
@@ -24,7 +25,7 @@ from typing import Any
 
 from . import expr as expr_mod
 from . import imports
-from .backend import BuildError, Unsupported
+from .backend import BuildError, Unsupported, effective_timeout
 from .contract import GEOMETRY, GEOMETRY_KINDS, CheckSpec, Part
 from .region import CylinderRegion
 from .report import CheckResult, Report, tool_version
@@ -189,13 +190,27 @@ def _evaluate(
         report.build_origin = artifact.origin
         report.build_stderr = artifact.stderr
 
-        if artifact.origin == "environment":
-            # Not a statement about the part. No engine on PATH, a mistyped pin,
-            # a missing package, an absent source, a render out of time -- none
-            # of these disprove anything, and reporting them as `builds: fail`
-            # made a CI run on a machine without OpenSCAD say the *design* was
-            # disproven. `builds` is not emitted as failing at all; every
-            # declared check is skipped and the verdict is `error`.
+        if artifact.origin != "model":
+            # Not a statement about the part, on either of the two ways to get
+            # here -- and the branch is written as "not `model`" rather than
+            # "is `environment`" precisely so the third state cannot fall
+            # through (#307). `"environment"` is no engine on PATH, a mistyped
+            # pin, a missing package, an absent source, a render out of time:
+            # none of these disprove anything, and reporting them as
+            # `builds: fail` made a CI run on a machine without OpenSCAD say the
+            # *design* was disproven. `None` is "partspec cannot attribute
+            # this", and an if/else on `== "environment"` would have adjudicated
+            # it as a MODEL fault -- the misattribution the field exists to
+            # prevent, and the reason widening the type was not a one-liner.
+            # Both land here: `builds` is not emitted as failing at all, every
+            # declared check is skipped, the verdict is `error`.
+            #
+            # Stated as a negation rather than as `in ("environment", None)` so
+            # it fails CLOSED: `builds: fail` is the only arm that makes a
+            # claim about the design, so it is the arm that must be reached
+            # deliberately. A fourth origin added later is adjudicated as
+            # unattributable until someone decides otherwise, which is the
+            # direction this tool errs in everywhere else.
             report.error = artifact.message
             reason = f"not evaluated: {artifact.message}"
             results.append(_skipped(_builds_spec(), reason))
@@ -334,6 +349,47 @@ def _evaluate(
         # build from a static read of the source; the engine has since said what
         # it actually opened, which is the one thing no static reader can know.
         report.source_closure = _closure(part.source, engine_deps[0])
+
+        unexported = _only_in_dropped_subtrees(
+            _engine_source(part), engine_deps[0].missing, out_dir, timeout_s
+        )
+        absent = [
+            _relative(f, part.source.path) or f.name
+            for f in engine_deps[0].missing
+            if f not in unexported
+        ]
+        if absent:
+            # The build SUCCEEDED, the depfile is `complete` -- a success-path
+            # read is never anything else -- and the complete answer is that a
+            # file the model asked for is not on disk. `import()` of an absent
+            # target renders as nothing and `surface()` the same, so this is
+            # #286's failure through a different channel: the artifact is
+            # well-formed and it is not the part (#309).
+            #
+            # This is why `unseen` could never have caught it. That token is
+            # emitted only when `engine_inputs.state` is NOT `complete` --
+            # "the gap is then closed by evidence rather than assumed away"
+            # (SPEC-report §8.3) -- and here the evidence IS the state, so the
+            # one field that would hold the verdict below `pass` is empty
+            # precisely because the engine answered in full. The list is read
+            # instead, at the point it comes into hand.
+            #
+            # Skipped rather than failed, and no `build_origin`, for §6.1's
+            # reason: the source compiled, and whether the path is a typo or
+            # the file simply has not been generated yet is not something
+            # partspec can tell.
+            report.hint = _ABSENT_INPUT_HINT
+            report.error = (
+                f"{_ABSENT_INPUT_CAUSE}, so the geometry measured is not the "
+                f"geometry this source describes: {sorted(absent)[0]}"
+            )
+            if len(absent) > 1:
+                report.error += f" (and {len(absent) - 1} more)"
+            reason = f"not evaluated: {report.error}"
+            results.append(_skipped(_builds_spec(), reason))
+            results.extend(_skipped(spec, reason) for spec in geometry_specs)
+            report.checks = results
+            return
 
     results.append(CheckResult(id="builds", kind="builds", phase=GEOMETRY, status=Status.PASS))
     if artifact_out is not None:
@@ -1574,6 +1630,150 @@ _UNRESOLVED_NAME_HINT = (
     "the engine exited 0 and wrote a mesh, so this is not a compile error — "
     "either the source misspells the name, or whatever defines it is not on "
     "OPENSCADPATH. Fix the name or install the library, then re-run"
+)
+
+_CSG_FILE_LITERAL = re.compile(r'\bfile\s*=\s*"([^"\n]*)"')
+
+
+def _only_in_dropped_subtrees(
+    source: Any, missing: tuple[Path, ...], out_dir: Path, timeout_s: float | None
+) -> set[Path]:
+    """Of `missing`, the entries the export provably did not depend on.
+
+    OpenSCAD **evaluates** a `%` subtree -- so the file is resolved, the engine
+    warns it could not open it, and the depfile records it -- and then excludes
+    it from the export. Measured on both pinned engines: `cube([10,10,10]);
+    %import("mate.stl");` exports the same bytes whether or not `mate.stl` is
+    there. Refusing that is refusing more than the mathematics requires (#354
+    review, B1); `*` never evaluates and never reaches the depfile at all, so it
+    needs nothing here.
+
+    **Why the `.csg` and not stderr.** The warning is worded identically for a
+    `%`-ed and a plain `import()`, differing only in the line number, so the
+    stderr route needs the line-number correlation #336 ruled against. The
+    `.csg` carries the modifier next to the filename on both engines, and
+    `csg.parse_csg` already drops `%` and `*` subtrees -- "a %-ed cutter is not
+    part of the part" (PR #125 review, F2). The discriminator this needs is the
+    one that parser already implements, for the same reason, so nothing in
+    `csg.py` changes.
+
+    **The export must be of the model that was BUILT, not of its defaults.**
+    A modifier can be behind a parameter -- `if (ghost) { %import(f); } else {
+    import(f); }` -- so an export taken without `-D` or without the method
+    wrapper adjudicates a different tree than the one the depfile came from,
+    and passes a run whose geometry is provably short (#354 round-2, B4). The
+    entry is prepared exactly as `render()` prepares it, and a method scratch
+    that cannot be written refuses rather than falls back to the defaults.
+
+    **Joined by resolved path, not by suffix.** The depfile entry is
+    `.resolve()`d, and the `.csg` literal is not the literal as written either:
+    OpenSCAD re-expresses it relative to the ENTRY file's directory. Measured on
+    an `import()` inside an included file, where the two engines even disagree
+    about where it resolves -- 2021.01 writes `"mate.stl"` and the 2026.08.01
+    snapshot `"lib/mate.stl"` -- and each engine's literal, resolved against the
+    entry's parent, reproduces that same engine's own depfile entry. So
+    `(base / literal).resolve()` is exact where a suffix match is not: a kept
+    literal carrying `../` could not match its own resolved path, while a
+    shorter dropped literal matched it by accident, and the run passed with a
+    real build input missing (#354 round-2, B3).
+
+    **Fail closed at every step.** An export that will not run, will not parse,
+    or names no literal that resolves onto a `missing` entry returns nothing,
+    and the caller refuses as before. The known parse failure is real and is
+    why: the `.csg` prints string contents raw, so `text("say \"hi\"")` is a
+    `CsgError` -- a false refusal there is the behaviour that already shipped,
+    while a false pass would be the founding-property failure #309 exists to
+    close.
+    """
+    import subprocess
+    import tempfile
+
+    from . import csg
+    from .engines.openscad import _define_args, _method_scratch, find_executable
+
+    if not missing:
+        return set()
+    executable = find_executable()
+    if executable is None:
+        return set()
+
+    scratch: Path | None = None
+    if source.method:
+        prepared = _method_scratch(source, out_dir)
+        if isinstance(prepared, BuildError):
+            # No usable entry, so no evidence: refuse. Falling back to
+            # `source.path` would export the module definitions without the
+            # call that uses them, which is the wrong tree stated confidently.
+            return set()
+        scratch, render_path, defines = prepared, prepared, []
+    else:
+        render_path, defines = source.path, _define_args(source.params)
+
+    # A deliberate duplicate of `lint.lint_scad_tier2`'s exporter, not a shared
+    # helper. Factoring that out is a refactor of a second module for one
+    # caller, and this one needs neither its per-rule refusal vocabulary nor its
+    # raw-quote pre-check -- a quote here is simply a `CsgError`, which is
+    # already the fail-closed answer. It does differ in one way that matters:
+    # the contract's own budget is honoured, because this runs inside a `check`
+    # the caller may have bounded with `--timeout` (#354 round-2, L8).
+    try:
+        with tempfile.TemporaryDirectory(prefix="partspec-csg-") as tmp:
+            out = Path(tmp) / "tree.csg"
+            try:
+                proc = subprocess.run(
+                    [executable, "-o", str(out), *defines, str(render_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=effective_timeout(timeout_s),
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return set()
+            if proc.returncode != 0 or not out.is_file():
+                return set()
+            raw = out.read_text(encoding="utf-8", errors="replace")
+            try:
+                nodes = csg.parse_csg(raw)
+            except csg.CsgError:
+                return set()
+    finally:
+        if scratch is not None:
+            scratch.unlink(missing_ok=True)
+
+    def _kept(items: list, acc: set[str]) -> set[str]:
+        for node in items:
+            value = node.kwargs.get("file")
+            if isinstance(value, str):
+                acc.add(value)
+            _kept(node.children, acc)
+        return acc
+
+    # Like against like: both sides are `file=` literals out of one `.csg`, so
+    # the difference is exactly what the modifier removed. Reading the dropped
+    # set off the raw text is the only way to see it -- the parser's whole job
+    # here is to not return those nodes.
+    kept = _kept(nodes, set())
+    dropped = set(_CSG_FILE_LITERAL.findall(raw)) - kept
+
+    base = Path(render_path).resolve().parent
+
+    def _resolved(literals: set[str]) -> set[Path]:
+        return {(base / lit).resolve() for lit in literals}
+
+    kept_paths, dropped_paths = _resolved(kept), _resolved(dropped)
+    # Exonerated only when the export names it in a dropped subtree AND nowhere
+    # else. A file referenced from both is a build input, and an entry matching
+    # neither set is unaccounted for and stays refused.
+    return {f for f in missing if f in dropped_paths and f not in kept_paths}
+
+
+_ABSENT_INPUT_CAUSE = (
+    "the engine asked for a build input that is not on disk and rendered without it"
+)
+_ABSENT_INPUT_HINT = (
+    "the engine exited 0 and wrote a mesh, so this is not a compile error — "
+    "an import()/surface() target the model names is absent, and OpenSCAD "
+    "renders it as nothing. Create the file or fix the path, then re-run"
 )
 
 _SUBSTITUTED_VALUE_CAUSE = "the engine could not convert a value and built a default in place of it"

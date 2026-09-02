@@ -871,6 +871,110 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be silent. The lock-shrink guard also fired only when a target failed to
   resolve, so pinning a subset of a multi-part lock silently deleted the rest.
 
+- **A data file the model asked for and did not get no longer reports `pass`**
+  (#309, epic #305). `import("missing.stl")` renders as nothing and the engine
+  still exits `0` with a well-formed mesh, so `check` measured a part the source
+  does not describe and called it green — while `report.json` already named the
+  file, under `source_closure.engine_inputs.missing`, and nothing read it.
+  Measured identically on 2021.01 and on the 2026.08.01 snapshot. The run is now
+  `verdict: "error"`, exit `4`, every check `skipped`, with the console naming
+  the file the way #286's refusal does.
+  **`unseen` could never have caught this, and the reason is worth stating**:
+  `SPEC-report.md` §8.3 emits `external_data_reads` only when
+  `engine_inputs.state` is *not* `complete` — "the gap is then closed by evidence
+  rather than assumed away" — and here the state **is** `complete`. The engine
+  answered in full, and the full answer is that the file is absent, so the one
+  field that would have held the verdict below `pass` was empty *because* the
+  problem is provable. The depfile list is read directly instead, at the point in
+  `runner.py` where the closure is upgraded from it, which covers `import()` and
+  `surface()` uniformly without matching two stderr strings that share no
+  wording. §6.1 records this as the third way a successful build reaches `error`;
+  `build_origin` stays `null`, because whether the path is a typo or a file a
+  two-pass workflow has not produced yet is not something partspec can tell.
+  **The guard is narrowed to files the export actually depended on**, because the
+  depfile records what the engine *resolved*, not what it exported. OpenSCAD
+  **evaluates** a `%` subtree and then excludes it from the export, so
+  `cube([10,10,10]); %import("mate.stl");` lands `mate.stl` in `missing` while
+  exporting byte-identical STLs with and without the file — measured, both
+  pinned engines. Refusing that is refusing more than the mathematics requires,
+  and it is `FAILURE-MODES.md` entry 9a's class arriving through a second
+  channel. stderr cannot tell the two apart — the warning is worded identically
+  for a `%`-ed and a plain `import()`, differing only in the line number, which
+  is the correlation #336 declined to build — but the `.csg` export keeps the
+  modifier beside the filename on both engines, and `csg.py`'s reader already
+  drops `%` and `*` subtrees for the same stated reason. So a file named only
+  from a dropped subtree is exonerated, one named from both is not, `*` never
+  reaches the depfile at all, and `#` stays a catch because its geometry IS
+  exported. One extra `.csg` export, measured at 21–31 ms, and only on a run
+  that was going to exit `4`: correct runs pay nothing. **Fail closed** — an
+  export that will not run, will not parse, or names no literal that resolves
+  onto a missing entry keeps the refusal, which matters because the format
+  prints string contents raw and `text("say \"hi\"")` is a genuine parse
+  failure.
+  **Two things the narrowing has to get exactly right, because getting either
+  wrong fails OPEN** — it passes a part whose export is provably short, which is
+  the failure this guard exists to prevent, and both shipped broken in this
+  PR's first cut before review caught them. The `.csg` literal is joined to a
+  depfile entry by **resolved path**, not by suffix: the depfile entry is
+  `.resolve()`d (so `..` is collapsed and symlinks followed) and the literal is
+  rewritten relative to the ENTRY file's directory, so a kept literal carrying
+  `../` could not match its own resolved path while a shorter dropped literal
+  matched it by accident. Measured on an `import()` inside an included file the
+  two engines do not even agree where it resolves — 2021.01 writes
+  `"mate.stl"`, the 2026.08.01 snapshot `"lib/mate.stl"` — and each engine's
+  literal resolved against the entry's parent reproduces that engine's own
+  depfile entry, so the exact test is right on both where a suffix test is
+  right on neither. And the export is taken **of the model that was built**,
+  with the contract's `-D` values and through the method scratch entry, because
+  a modifier can sit behind a parameter: `if (ghost) { %import(f); } else {
+  import(f); }` with `ghost=false` adjudicated the default tree and passed a run
+  whose mesh was 12 triangles instead of 24.
+  `!` (root) is a residual false red in the safe direction, described in
+  `FAILURE-MODES.md` 9a: the engine writes only the rooted subtree to the
+  `.csg`, so a reference outside it is unaccounted for and refused.
+  `measure` and `render` still emit numbers and views on this shape — they are
+  guarded for #286's channel, which is a stderr marker, and this one is visible
+  only in the depfile. Measured and tracked as #355.
+
+- **`render` no longer writes views of a part the engine hollowed out** (#307,
+  epic #305). #286 made `check` and `measure` refuse a build whose stderr says
+  the engine could not resolve a name, and left `render` out; it went on writing
+  four PNGs at exit `0` of a bare cube whose declared bore is absent. A picture
+  is the one output a reader trusts without checking. The refusal is now asked
+  inside `render_views`, immediately after the STL render it already performs and
+  **before the first view is drawn** — not in the caller, because the four views
+  are rendered to a scratch directory and moved into place as a batch, so a guard
+  bolted on afterwards leaves four wrong PNGs on disk (measured during #306's
+  review). **No view is rendered and an earlier run's four PNGs are
+  byte-for-byte untouched** — measured. Not "nothing is written": the STL export
+  is how the fault is detected, so it lands in `--out` and replaces the previous
+  run's, and the stale `render.json` is removed as it is on every failing render
+  (#21). A consumer reads its absence as "this run wrote no payload".
+  **`BuildError.origin` gains a third state, `None`.** `render`'s failure payload
+  publishes `origin` (#191) and the field was `Literal["environment", "model"]`,
+  so this refusal would have shipped the default `"model"` — asserting the DESIGN
+  is at fault on the one failure partspec is certain it cannot attribute, which is
+  the exact misattribution `origin` exists to prevent. `render.json` carries
+  `origin: null` here, matching what `report.build_origin` has always said on
+  `check`'s path. Widening the type was not a one-liner for the same reason:
+  `runner.py` adjudicated `if origin == "environment": … else: builds fail`, and a
+  `None` would have fallen through to the model arm. That branch is now written as
+  `!= "model"`, so it fails closed — the only arm that makes a claim about the
+  design is the only one that must be reached deliberately.
+  **`check --render` was never affected** and is pinned so: `cli.py` gates the
+  views on `report.error is None`, so a run #286 already refused never reached the
+  render path.
+
+- **`measure` emits `axes` on an empty vector measurement** (#346).
+  `SPEC-report.md` §2.1 makes `axes` REQUIRED on vector measurements, and a
+  measurement is vector iff `value` is an array — so an empty array is one. The
+  payload gated the field on truthiness rather than presence, so a `Box(20,10,5)`
+  emitted `bores: {"value": []}` and `blend_radii: {"value": []}` with no `axes`,
+  while the same part with two bores carried it. The field's presence tracked the
+  *part* rather than the shape, and it went missing on exactly the parts that are
+  simplest. `report.py` had been presence-based all along, which is the asymmetry
+  that made the gate look accidental. Additive; `schema_version` does not move.
+
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
   counts the field this release added to it** (#295, #340). §2.4 lists that
   payload's keys as "Measured … exactly `engine`, `error`, `geometry`, `hint`,

@@ -48,11 +48,12 @@ quietly-wrong part shows you.
   read only after a failed build, so this shape was invisible: the gear above was caught
   by the envelope check, which needed a contract carrying theory-derived bounds and a
   second engine to compare against. The stderr line is now evidence on its own, and
-  needs neither. **`render` is not yet guarded** (tracked separately): it still writes
-  views of a part the engine hollowed out. Alongside that: `PARTSPEC_OPENSCAD`
-  pins the binary; the version is recorded in every
-  report because it changes the artifact; bounds derived from theory, not measured off
-  the part (see `docs/SPEC-contract.md` §10 on reference-derived limits).
+  needs neither. **`render` refuses on the same evidence** (#307): the guard is asked
+  before the first view is drawn, so a hollowed part yields `origin: null` and exit `4`
+  rather than four pictures of a part the source does not describe. Alongside that:
+  `PARTSPEC_OPENSCAD` pins the binary; the version is recorded in every report because it
+  changes the artifact; bounds derived from theory, not measured off the part (see
+  `docs/SPEC-contract.md` §10 on reference-derived limits).
 
 ## 2. The default backend emits a broken mesh and certifies it valid **[corpus]**
 
@@ -219,6 +220,28 @@ cost is written down here rather than paid quietly.
   The three modifiers differ, and only one of them has this property: `*` (disable) is
   never evaluated, so it emits nothing and costs nothing; `#` (highlight) **is** exported,
   so its warnings are about the mesh; `%` alone is evaluated and not exported.
+  A fourth, `!` (root), leaves a residual false red in the safe direction: it exports
+  *only* its own subtree, and the engine writes only that subtree to the `.csg` — measured
+  on both engines, `!cube(10);` followed by `import("outside.stl")` produces a one-line
+  export naming no file at all. So a reference discarded by `!` appears in neither the kept
+  nor the dropped set, is unaccounted for, and is refused. That is the fail-closed rule
+  behaving correctly on absent evidence rather than a second instance of this entry's
+  class, and it is left alone: `!` is a debugging modifier that is not meant to survive
+  into a checked-in source, and refusing is the direction to be wrong in.
+  **stderr is not the only channel that loses the modifier, and the other one is now
+  narrowed.** The engine's dependency file records what it *resolved*, not what it
+  exported, for the same reason stderr records the line but not the modifier: `%` is
+  evaluated, so an `import("mate.stl")` inside one is resolved, recorded in the depfile,
+  and reported under `source_closure.engine_inputs.missing` when the file is not there —
+  while the export is byte-identical either way, measured on both pinned engines. `*`
+  records nothing on this channel either, because it is never evaluated. So the guard that
+  reads `missing` (#309) would have produced a second false red of exactly this class.
+  It does not, because on this channel the cheap discriminator that stderr lacks does
+  exist: the `.csg` export **keeps the modifier next to the filename** —
+  `%import(file = "ref.stl", …)` on both engines — and `csg.py`'s reader already drops
+  `%` and `*` subtrees, so the refusal is narrowed to files the export actually depended
+  on with no line-number correlation and no second parser (#354). `#` stays a catch there
+  too, on the asymmetry above.
 - **Detected by.** The engine's own stderr on the path that succeeded — the same guard as
   entries 1 and 5 (`SPEC-report.md` §6.1). Nothing here needed a contract carrying theory.
 - **When it's green.** It isn't, and that is the entry: this is the one shape in this
@@ -227,7 +250,10 @@ cost is written down here rather than paid quietly.
   whatever it costs today; the modifier is one character, so the scaffolding routinely
   becomes the part; and the alternative — correlating stderr's line numbers against the
   `%` nodes in a `.csg` export — buys silence on a real defect at the price of a second
-  parser between the engine and the verdict. What was wrong was that the trade was
+  parser between the engine and the verdict. (That reasoning is about **stderr**, whose
+  evidence is a line number; it does not carry to the depfile channel, where the `.csg`
+  names the file itself and no correlation is needed. Hence the narrowing above and the
+  refusal here, in one catalogue entry.) What was wrong was that the trade was
   **silent**: an agent hitting exit 4 on a byte-perfect mesh had no way to reach this
   conclusion from the report.
 - **Guards.** `AGENT-CONTRACT.md` §2.3 now says it, at the bullet that routes a

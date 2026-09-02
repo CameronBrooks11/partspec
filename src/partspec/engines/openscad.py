@@ -1329,6 +1329,32 @@ def _display_failure(returncode: int, stderr: str) -> bool:
     return returncode in (139, -11)
 
 
+def _hollowed_views(first_line: str) -> BuildError:
+    """`render` refusing to draw a part the engine built out of something it lost.
+
+    Sibling of `cli._hollowed_measurements`, and the cause and hint come from
+    the same classifier both of those read, so one engine line cannot be
+    diagnosed three ways depending on which verb reached it (#308).
+
+    `origin=None`, and that is the point of the change (#307). `render`'s
+    failure payload publishes `origin` (#191), and until the field had a third
+    spelling this refusal would have published the default `"model"` -- a claim
+    that the DESIGN is at fault, on the one failure partspec is certain it
+    cannot attribute. `render.json` now carries `origin: null`, matching what
+    `check` has always written to `report.build_origin` here (SPEC-report §6.1).
+    """
+    from ..runner import _unresolved_diagnosis
+
+    cause, hint = _unresolved_diagnosis(first_line)
+    return BuildError(
+        f"{cause}, so these would be views of something other than what this "
+        f"source describes: {first_line}",
+        hint=hint,
+        origin=None,
+        unresolved=(first_line,),
+    )
+
+
 def render_views(
     source: OpenSCADSource,
     out_dir: Path,
@@ -1344,6 +1370,12 @@ def render_views(
     frames that *look* like a rendered part. It also supplies the bounding box
     the camera framing derives from. The images carry no verdict: rendering
     never substitutes for measurement.
+
+    It also carries #286's success-path guard, and since #307 this function
+    acts on it: a render whose stderr says the engine could not resolve a name,
+    or defaulted a value it could not convert, is refused before the first view
+    is drawn rather than published as four pictures of a part the source does
+    not describe.
 
     All four views are rendered into a scratch directory and moved into place
     together, the shape `render()` settled on (#208, #224). Here the hazard the
@@ -1396,11 +1428,28 @@ def render_views(
     # PNG invocations would only re-read what one parse of one source already
     # said.
     stl_deps: list[RenderDeps] = []
-    stl = render(source, out_dir, timeout_s=timeout_s, deps_out=stl_deps)
+    unresolved: list[str] = []
+    stl = render(source, out_dir, timeout_s=timeout_s, deps_out=stl_deps, unresolved_out=unresolved)
     if deps_out is not None:
         deps_out.extend(stl_deps)
     if isinstance(stl, BuildError):
         return stl
+    if unresolved:
+        # HERE, and not in the caller (#307). Below this point the four views
+        # are rendered into a scratch directory and moved into place as a
+        # batch, so a guard asked after `_render_files` returns leaves four
+        # PNGs of the wrong part on disk -- measured during #306's review. This
+        # is the seam the docstring's "before any view moves" constraint
+        # already names, reached one step earlier: no view has been rendered
+        # yet at all, so a previous run's four PNGs are byte-for-byte untouched.
+        # Not "writes nothing" -- the STL above IS written, and is how the fault
+        # was detected; measured, it replaces the previous run's export. The
+        # caller separately removes a stale `render.json`, as it does on every
+        # failing render (`cli.py`, #21).
+        #
+        # A picture is the one output a reader trusts without checking, which
+        # is why `render` could not keep the exemption #286 gave it.
+        return _hollowed_views(unresolved[0])
     closure = include_closure(source.path)
     executable = find_executable()
     assert executable is not None  # render() just used it

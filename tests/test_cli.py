@@ -286,6 +286,31 @@ def test_a_tier_that_answers_everything_omits_both_optional_blocks(tmp_path: Pat
     assert "genus" in two["refused"] and "genus" not in two["measurements"]
 
 
+@needs_build123d
+def test_an_empty_vector_measurement_still_names_its_axes(tmp_path: Path, capsys):
+    """SPEC-report §2.1: `axes` is REQUIRED on vector measurements.
+
+    A measurement is vector iff `value` is an array, so an empty array is a
+    vector. `measure` gated the field on truthiness, so a plain box — no bores,
+    no blends — emitted `{"value": []}` with no `axes`, while the same part
+    with two bores carried it. The field's presence tracked the PART rather
+    than the shape, and it went missing on exactly the parts that are simplest
+    (#346). `report.py` was already presence-based; this is the payload
+    catching up.
+    """
+    (tmp_path / "m.py").write_text(
+        "from build123d import Box\n\n\ndef make_part():\n    return Box(20, 10, 5)\n"
+    )
+    doc = _measure(py_target(tmp_path), capsys)
+
+    empty = {n: m for n, m in doc["measurements"].items() if m["value"] == []}
+    assert set(empty) == {"bores", "blend_radii"}, "the box defeats neither, it has none"
+    for name, m in doc["measurements"].items():
+        if isinstance(m["value"], list):
+            assert "axes" in m, f"{name} is a vector measurement with no axes"
+            assert len(m["axes"]) == len(m["value"])
+
+
 @needs_scad_tier
 def test_measure_produces_no_verdict_on_a_broken_part(tmp_path: Path, capsys):
     """Exit 0 on an open box is correct here and would be a bug in `check`.
@@ -2510,3 +2535,81 @@ def test_the_docs_flag_refuses_to_stand_in_for_a_verb(capsys):
     captured = capsys.readouterr()
     assert captured.out == "", "a path on stdout would read as a check that ran"
     assert "check" in captured.err
+
+
+# --------------------------------------------------------------------------
+# the `render` verb refuses a hollowed part; `check --render` is unaffected (#307)
+# --------------------------------------------------------------------------
+
+
+def _hollowed_scad_target(tmp_path: Path, claims: str = "") -> str:
+    (tmp_path / "um.scad").write_text(
+        "difference() { cube([40,30,6], center=true); bore_hole(d=8); }\n"
+    )
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n\n\ndef make():\n"
+        "    p = Part('subject', openscad('um.scad'))\n"
+        f"{claims}"
+        "    return p\n"
+    )
+    return f"{spec}:make"
+
+
+@needs_openscad
+def test_render_refuses_a_hollowed_part_and_says_it_cannot_attribute_it(tmp_path: Path, capsys):
+    """#307. `render` wrote four PNGs of the wrong part at exit 0.
+
+    `origin` is the field #191 added so a consumer can tell a degenerate solid
+    from a library that would not load. It had two spellings, so this refusal
+    would have published the default `"model"` -- asserting the design is at
+    fault on the one failure partspec is certain it cannot attribute. It is
+    `null`, matching `report.build_origin` on `check`'s path (SPEC-report §6.1).
+    """
+    out = tmp_path / "out"
+    assert main(["render", _hollowed_scad_target(tmp_path), "--out", str(out)]) == exit_code(
+        Verdict.ERROR
+    )
+    doc = json.loads(capsys.readouterr().out)
+
+    assert doc["renders"] == {}
+    assert doc["origin"] is None
+    assert "bore_hole" in doc["error"]
+    assert not list(out.glob("renders/*.png")), "no view of a part the source does not describe"
+
+    # What a refusing `render` DOES leave, pinned because the first draft said
+    # "nothing is written" and that is false (#354 review, M4). The STL export
+    # is how the fault is detected, so it lands; `render.json` is removed as it
+    # is on every failing render (#21), and a consumer reads its absence as
+    # "this run wrote no payload" rather than as the last one surviving.
+    assert (out / "um.stl").is_file()
+    assert not (out / "render.json").exists()
+
+
+@needs_scad_tier
+def test_check_render_is_unaffected_by_the_render_refusal(tmp_path: Path):
+    """The note on #307: `check --render` never reached the render path.
+
+    `cli.py` gates the views on `report.error is None`, so a run #286 already
+    refused never got as far as drawing anything. Pinned because the fix lands
+    in `render_views`, which both verbs share -- a regression here would look
+    like a `check` bug and be a `render` one.
+
+    `needs_scad_tier`, not `needs_openscad`: this drives a `check` through the
+    runner, so without the mesh extra the build fails for an ENVIRONMENT reason
+    first and the run errors on a different path entirely -- `build_origin`
+    reads `"environment"` there rather than the `null` #286's refusal leaves.
+    Caught by `just test-no-extras`, which is the job that exists for exactly
+    this (see `support.needs_scad_tier`).
+    """
+    out = tmp_path / "out"
+    target = _hollowed_scad_target(tmp_path, claims="    p.watertight()\n")
+    assert main(["check", "--render", target, "--out", str(out), "--quiet"]) == exit_code(
+        Verdict.ERROR
+    )
+
+    report = report_of(out)
+    assert report["verdict"] == "error"
+    assert report["build_origin"] is None
+    assert "renders" not in report
+    assert not out.joinpath("renders").exists()

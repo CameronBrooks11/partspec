@@ -418,12 +418,16 @@ reported as one. It is `verdict: "error"`, exit `4`, with every declared check `
 and `builds` never `fail`. A CI run on a machine with no OpenSCAD installed must not
 report the design as disproven.
 
-The distinction is carried in `BuildError.origin` (`"environment"` or `"model"`) and
-surfaced in the report as a field a consumer can branch on — not as prose in `detail`.
+The distinction is carried in `BuildError.origin` and surfaced in the report as a field a
+consumer can branch on — not as prose in `detail`. It has **three** values, not two:
+`"environment"`, `"model"`, and `null` for a failure partspec cannot attribute to either.
+The third is not a gap in the enumeration but a claim of its own, and the paragraphs below
+on a build that succeeded are where it is earned — a reader must not treat `null` as a
+missing answer, nor as a licence to assume `"model"`.
 
 A third case reaches `error` by neither route: the build **succeeded** and the engine
 built something other than what the source describes, so what the contract names is not
-what was measured. It arrives two ways.
+what was measured. It arrives three ways.
 
 A **name did not resolve**. For a module or an include the mechanism is direct — OpenSCAD
 renders an unresolved call's children *not at all*, so a misspelt module or an include
@@ -440,6 +444,37 @@ substituted **that module's own default** and said so. `cube(size=[o, 30, 6])` w
 pinned engines. This is not a name failing to resolve and MUST NOT be reported as one: the
 diagnosis and the remedy differ, and `error` MUST carry the cause it actually found.
 
+A **build input was not there**. Every name resolved and no value was substituted, but a
+file-reading construct named a path that does not exist, so the engine rendered it as
+nothing and exited `0`. Measured on both pinned engines for `import()` and for
+`surface()`. The evidence is `part.source_closure.engine_inputs.missing` (§8.3), taken
+from the engine's own dependency file rather than from stderr, so it covers every such
+construct in one shape and needs no per-construct wording. Note that `unseen` is **empty**
+in this case and MUST NOT be consulted for it: the `external_data_reads` token is emitted
+only when `engine_inputs.state` is not `complete`, and here the engine answered in full —
+the full answer being that the file is absent. A consumer reading `unseen` alone sees a
+closure with no gaps, which is correct and is not the same question.
+
+**`missing` is evidence, not the verdict, and a producer MUST NOT read one off the other.**
+The dependency file records what the engine *resolved*, which is a wider set than what it
+*exported*: OpenSCAD evaluates a `%` (background) subtree and then leaves it out of the
+export, so a file referenced only from one is listed in `missing` while the exported
+geometry is byte-identical with and without it — measured on both pinned engines. Such a
+file is not a build input and MUST NOT hold the verdict; `*` (disable) is never evaluated
+and never appears; `#` (highlight) IS exported and MUST be treated like an unmodified
+reference. Distinguishing them is the producer's obligation, on evidence that carries the
+modifier — the `.csg` export does, engine stderr does not — and where no such evidence can
+be obtained the producer MUST keep the refusal rather than assume the file was scaffolding.
+Two properties of that evidence are load-bearing, and a producer that gets either wrong
+fails **open** — it passes a part whose export is provably short, which is the failure this
+whole arrival exists to catch. The evidence MUST describe **the model that was built**,
+with the same parameter values and the same entry file, because a modifier may sit behind a
+parameter. And a name in it MUST be matched to a dependency-file entry by **resolved
+path**: that entry is canonicalised, while the reference as written need not be, so any
+textual comparison between the two is unsound in both directions.
+`engine_inputs.missing` itself still reports what the engine said, unnarrowed: it is a
+record of the run, and narrowing it would destroy the evidence the judgement was made on.
+
 In none of these cases can the tool claim it measured the part the contract describes, so
 no geometry check is evaluated:
 `builds` and every geometry check are `skipped`, `verdict: "error"`, exit `4`, and `error`
@@ -449,12 +484,39 @@ arithmetic over the contract's inputs and need no engine.
 Here `builds` MUST NOT be reported as `fail` and `build_origin` MUST remain `null`: the
 source compiled, so a failing `builds` would be a statement about the design that has not
 been earned, and whether an unresolved name is a typo in the source or a library absent
-from this machine is exactly what partspec cannot determine. It claims neither, and states
-only what it knows — that it did not measure the part it was given.
+from this machine is exactly what partspec cannot determine — as is whether an absent
+build input is a mistyped path or a file a two-pass workflow has not produced yet. It
+claims neither, and states only what it knows — that it did not measure the part it was
+given.
+
+**A sibling payload that refuses for one of these reasons attributes it the same way.**
+`measure` and `render` produce no verdict, so they carry the refusal as their own
+`error`/`hint` and exit `4`. This holds today for the first two arrivals — a name that did
+not resolve and a value that was defaulted, which share one stderr signal. The third is
+`check`-only so far: `measure` and `render` do not yet read `engine_inputs.missing`, and
+until they do a reader MUST NOT infer one verb's answer from another's on that arrival
+(#355).
+
+`render` additionally publishes an `origin`, and on both arrivals it refuses for that
+field is `null` — a defaulted `"model"` would assert the very attribution the report
+declines to make.
+
+**What a refusing `render` leaves on disk**, stated positively because "nothing is
+written" is not true and a consumer would plan around it: no view is rendered, and the
+views a previous run left are byte-for-byte untouched. Two things do move, and both are
+pre-existing rules rather than consequences of the refusal. The engine's STL export is how
+the fault is detected at all, so it lands in `--out` and replaces whatever was there. And
+`render.json` is **removed**, as it is on every failing render, so a later `vdiff` cannot
+read the previous run's payload as this one's (§8 rule 4). A consumer must therefore read
+the *absence* of `render.json` as "this run wrote no payload", never as "the run left the
+last one intact".
+
+(`check --render` is unaffected by any of this, because it never reaches the render path —
+the run has already errored.)
 
 | verdict | condition |
 |---|---|
-| `error` | the contract raised, the build could not be *attempted*, or the build succeeded and the engine reported that it built something other than the source — a name it could not resolve, or a value it could not convert and defaulted (see above) |
+| `error` | the contract raised, the build could not be *attempted*, or the build succeeded and the engine reported that it built something other than the source — a name it could not resolve, a value it could not convert and defaulted, or a build input it asked for and did not get (see above) |
 | `empty` | zero checks were declared |
 | `fail` | ≥1 `fail` |
 | `incomplete` | no `fail`, but ≥1 `approximate` / `unsupported` / `skipped` |
@@ -1345,10 +1407,13 @@ the report speaks for the part, the exit code for the run. (The `render` verb's 
 sibling payload is the opposite by design — its failure artifact carries `renders: {}`
 beside an `error`, per the Scope above — because there the empty map sits next to the
 error that explains it, while in a report it would sit next to a verdict it has nothing
-to do with.) That payload MUST also carry `origin`, `"model"` or `"environment"`, on the
-same §6.1 grounds every other engine-side failure does: a degenerate solid the kernel
-cannot mesh and an OCCT library that will not load are different facts, and a consumer
-that cannot tell them apart will read the second as a statement about the part (#191).
+to do with.) That payload MUST also carry `origin` — `"model"`, `"environment"`, or
+`null` — on the same §6.1 grounds every other engine-side failure does: a degenerate solid
+the kernel cannot mesh and an OCCT library that will not load are different facts, and a
+consumer that cannot tell them apart will read the second as a statement about the part
+(#191). `null` is the third of those grounds and carries the same weight as the other two:
+§6.1 records that a build which succeeded and lost geometry is attributable to neither, so
+a payload refusing for that reason MUST spell it `null` rather than default to `"model"`.
 Additive; `SCHEMA_VERSION` does not move.
 
 `render_bbox` MUST sit beside `renders` whenever they are present (#21): `{min, max}`
