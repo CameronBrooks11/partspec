@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A backwards range is engine-defined, and neither engine says so where it
+  matters** (#356). `for (i = [1 : n])` at `n = 0` — the shape a loop takes when
+  a count falls to zero — is normalised and iterated **ascending** by 2021.01 and
+  iterated not at all by 2026.08.01. Measured on a 40 × 8 × 6 rail with a
+  6 × 8 × 4 stud: 36 triangles and bbox z 9.99, two studs the source did not ask
+  for, against a bare-rail 12 and bbox z 6 — both at exit 0, both watertight and
+  single-solid. That is `FAILURE-MODES.md` entry 1's F13 class, and the stderr
+  guard added for it does not reach this one: 2021.01's `DEPRECATED: Using ranges
+  of the form [begin:end] …` is not among the lines read off a render that
+  succeeded and `build_stderr` is `null` in the report either way, measured under both
+  engines on this part, while 2026.08.01
+  warns only when the range is a *literal* and a count that falls to zero always
+  arrives through a variable. So the issue's premise that the older engine is
+  silent is corrected here: it narrates, into a channel nothing reads.
+  `skills/openscad-authoring/SKILL.md` gains rule 7 — guard the count with
+  `if (n > 0)`, measured identical on both engines at `n = -1`, `0` and `2`, as
+  is the three-argument `[1 : 1 : n]` — and entry 1 gains the sibling shape with
+  its measurement. What does catch it is the guard entry 1 already names: a
+  two-sided `envelope` on the `n = 0` part gives `FAIL envelope — z=9.98999977`,
+  exit 1, on 2021.01 against `PASS: 4 pass`, exit 0, on 2026.08.01, with
+  `watertight` and `solid_count` passing on both. `tests/test_docs.py` executes
+  rule 7 on whichever engine is pinned.
+
 - **`measure` answers every quantity it can, whatever defeated one of them**
   (#365). A zero-thickness part — `intersection()` of two cubes meeting on a
   face, which 2021.01 and 2026.08.01 both export as a closed, consistently

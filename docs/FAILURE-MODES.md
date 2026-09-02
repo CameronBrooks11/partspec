@@ -57,6 +57,25 @@ quietly-wrong part shows you.
   `PARTSPEC_OPENSCAD` pins the binary; the version is recorded in every report because it
   changes the artifact; bounds derived from theory, not measured off the part (see
   `docs/SPEC-contract.md` §10 on reference-derived limits).
+- **A second shape of the same class, which the guard above does not reach** **[repo]**
+  — unlike the gear, this one needs nothing but the two pinned binaries. A two-argument
+  range that runs backwards, `for (i = [1 : n])` at `n = 0`, is the shape a loop takes
+  when a count falls to zero. 2021.01 normalises it and iterates **ascending**;
+  2026.08.01 iterates nothing. Measured on a 40 × 8 × 6 rail with a 6 × 8 × 4 stud at an
+  8 mm pitch: 2021.01 exports 36 triangles and a bbox z of 9.99 — two studs the source
+  did not ask for — against 2026.08.01's bare-rail 12 and bbox z of 6, both at exit 0,
+  both watertight and single-solid. What differs from `assign()` is that **no stderr
+  line reaches the guard**: 2021.01's `DEPRECATED: Using ranges of the form
+  [begin:end] …` is not one of the lines read off a render that succeeded, and
+  `build_stderr` is `null` in the report either way, measured under both engines on this
+  part; 2026.08.01 warns only when the range is a *literal*, and a count that falls to
+  zero always arrives through a variable. So the older half of this entry's Guards is
+  what catches it, on its own: pin the binary, and write the bound two-sided and from
+  theory. Measured, `envelope min=(40, 8, 5.9) max=(40, 8, 6.1)` on the `n = 0` part —
+  `FAIL envelope — z=9.98999977`, exit 1 on 2021.01 against `PASS: 4 pass`, exit 0 on
+  2026.08.01, with `watertight` and `solid_count` passing on both, so the envelope is
+  the only check that moves. The authoring remedy is
+  `skills/openscad-authoring/SKILL.md` rule 7 (#356).
 
 ## 2. The default backend emits a broken mesh and certifies it valid **[corpus]**
 

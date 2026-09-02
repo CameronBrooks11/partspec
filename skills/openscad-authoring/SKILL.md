@@ -157,6 +157,85 @@ design parameter, model the radius explicitly so the number exists to check —
 `minkowski` against a sphere also multiplies facet counts, which is a render-time
 cost, not a correctness one.
 
+## Rule 7 — Guard the loop count; `[1 : n]` at `n = 0` is engine-defined
+
+`for (i = [1 : n])` is the ordinary way to place `n` features, and `n = 0` is an
+ordinary thing a parameterised part does. It makes the range `[1 : 0]` — begin past
+end, with an implied positive step — and the two engines this project pins do not
+agree on what that means. With `n` arriving as a parameter, measured on both:
+
+| `n` | 2021.01 | 2026.08.01 |
+|---|---|---|
+| `0` | iterates **ascending**, `i = 0` then `i = 1` — two features the source did not ask for | iterates nothing |
+| `-1` | iterates `i = -1, 0, 1` — three | iterates nothing |
+| `2` | two, as asked | two, as asked |
+
+So the same source is a different part, which is the class of FAILURE-MODES entry 1.
+`[0 : n - 1]` — the other common spelling — carries it identically: at `n = 0` its
+`.csg` export holds two `multmatrix` nodes on 2021.01 and none on 2026.08.01.
+
+**Do not count on being told.** 2021.01 does print `DEPRECATED: Using ranges of the
+form [begin:end] with begin value greater than the end value is deprecated`, on every
+shape measured — but it is not one of the lines partspec reads off a render that
+succeeded, and `build_stderr` is `null` in the report either way (measured on this
+part under both engines), so it reaches neither the guard nor a reader of the report.
+2026.08.01 does not print it at all here: it warns only when the range is a
+**literal** — `[1 : 0]` written out draws `WARNING: begin is greater than the end, but
+step is positive` — and is silent when the same range arrives through a variable or a
+module parameter, which is the only way a count falls to zero.
+
+```scad
+// rule-7-before — stud_n = 0 makes this `[1 : 0]`; 2021.01 builds two studs
+rail_l = 40;
+rail_w = 8;
+rail_t = 6;
+stud = [6, 8, 4];
+stud_pitch = 8;
+stud_n = 0;
+eps = 0.01;  // rule 3: the stud overlaps the rail, it does not sit on it
+
+cube([rail_l, rail_w, rail_t]);
+for (i = [1 : stud_n])
+    translate([i * stud_pitch, 0, rail_t - eps]) cube(stud);
+```
+
+```scad
+// rule-7-after — the empty case is a branch in the source, not a property of
+// range semantics: 12 triangles on both engines at stud_n = 0 and at -1,
+// 44 on both at stud_n = 2
+rail_l = 40;
+rail_w = 8;
+rail_t = 6;
+stud = [6, 8, 4];
+stud_pitch = 8;
+stud_n = 0;
+eps = 0.01;
+
+cube([rail_l, rail_w, rail_t]);
+if (stud_n > 0)
+    for (i = [1 : stud_n])
+        translate([i * stud_pitch, 0, rail_t - eps]) cube(stud);
+```
+
+The three-argument form `[1 : 1 : n]` also agrees on both engines — measured, same
+triangle counts as the guarded form at `n = -1`, `0` and `2`. Prefer the `if` anyway:
+it states "no studs" where a reader sees it, and it does not depend on the reader
+knowing that adding an explicit step changes the semantics of a range that already
+had one.
+
+**An ordinary contract does catch this**, which is the point of pinning the binary.
+A two-sided `envelope` on the `n = 0` part — `min=(40, 8, 5.9)`, `max=(40, 8, 6.1)` —
+run against the before-form:
+
+```
+2021.01     FAIL envelope — z=9.98999977 outside min=5.9 and max=6.1     exit 1
+2026.08.01  ok   envelope ... PASS: 4 pass                               exit 0
+```
+
+`watertight` and `solid_count` pass on both, so the envelope is the only check that
+moves. Write the bound two-sided and from theory, run under both pinned binaries, and
+the engine that builds the wrong part is the one that fails.
+
 ## The language moves — pin the binary, avoid removed constructs
 
 `assign()` was removed, and modern OpenSCAD *ignores* unknown modules — their children
