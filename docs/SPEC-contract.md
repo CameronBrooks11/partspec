@@ -1001,6 +1001,16 @@ what the kernel keeps. Not "the parts do not touch", not "there is clearance", a
 interference whatsoever": that last qualifier is load-bearing, and §4.11 states
 `min_wall`'s interval for the same reason.
 
+**So `empty` over a bare pair is not a clearance**, and a contract that wants one MUST
+intersect against a part **grown by the clearance it requires**: a violation with any
+margin then encloses positive volume rather than a sheet, which makes the claim numeric;
+how thin a violation still survives the kernel is the floor question below, and this
+pattern does not escape it. At a gap of *exactly* the declared clearance the probe is a
+zero-thickness sheet again and the pinned engines disagree — the degeneracy moves to the
+boundary rather than disappearing. §9.1 rule 3 is the worked form and says to grade a
+design gap strictly greater than the clearance; `partspec lint`'s
+`csg-two-part-intersection` is the finding that says so at the source.
+
 **Why it cannot mean more, and why it sometimes means less.** Past the unresolved-name
 guard above, the check adjudicates on one thing: *did the engine produce anything*. That
 coincides with "no interference" only where the kernel both refuses to represent a contact
@@ -1123,7 +1133,8 @@ intersection() { a(); grown_b(0.5); }
 
 Declared with `empty` the second says *no part of `b`, plus 0.5 mm, meets `a`*. A
 violation with any margin encloses volume rather than a sheet — only exact equality
-between the gap and the declared clearance is degenerate — so every kernel agrees, and the
+between the gap and the declared clearance is degenerate — so every kernel agrees down to
+its own floor, and the
 bound is a number in the contract where a reviewer can see it. `partspec lint` flags the
 bare form advisorily (`csg-two-part-intersection`, `LINT.md`) — the bare claim is valid,
 it is simply narrower than it reads.
@@ -1136,8 +1147,10 @@ partspec pin `--backend cgal` were refused.
 other geometry check on it is skipped and the run reports `incomplete` (§3.1) rather than
 a pass bought by silence. Declare `empty` alone on a probe.
 
-Related: #237; #270 for the decision above; and #236 for the case a probe is a workaround
-*for* — declaring part-versus-part interference directly is an assemblies question (D19).
+Related: #237; #270 for the decision above; and §9.1 for the pattern this check
+completes — a clearance probe's outcomes, worked in `examples/clearance/`.
+Declaring part-versus-part interference with a first-class verb remains an
+assemblies question (D19, #236).
 
 ---
 
@@ -1340,6 +1353,159 @@ constraints, adopted now at no cost:
 3. **The `skipped` status already exists** with the semantics assemblies need — *"absence is
    a legitimate run state, not an input error"* — so a standalone sub-assembly run can
    evaluate the same check list without the absent parts.
+
+### 9.1 Part-versus-part interference, with the unit of verification v0 has
+
+Until an assembly verb exists, interference between two parts is declared by modelling
+`intersection() { A; B; }` **at assembly pose** as a part of its own and claiming the
+outcome the design intends. `examples/clearance/` is the worked pattern.
+
+**`partspec lint` flags every probe written this way, and that is expected.**
+`csg-two-part-intersection`'s predicate is the shape — one top-level node, an
+`intersection()` of exactly two children — which a part-versus-part probe has by
+construction, whether or not it grows a part per rule 3 below. The finding is advisory and
+never a verdict on the part (`docs/LINT.md`, "Known noise, owned"), and on a grown probe
+its own advice has already been taken. Read it, satisfy yourself that the clearance you
+meant is the clearance you wrote, and accept it. This section recommends a pattern the
+tool's own lint remarks on; an author should meet that in the spec rather than in a
+surprising run.
+
+Every pair of parts is in exactly one of three states, and each grades on a different
+measurand. **Two of the three answer the same way on every engine and are what this
+section recommends; the third does not and MUST NOT be declared as if it did:**
+
+| the two parts | the probe builds to | the claim | in the example |
+|---|---|---|---|
+| interpenetrate | a solid | `volume(min=, max=)` | 24.0 mm3 |
+| stand off by a stated amount | nothing | `empty()` over a **grown** part | pass |
+| touch on a face | a sheet | `area(min=)` | not portable — see below |
+
+**Both recommended rows are recent, and one was a hard failure before its own fix.** A
+null intersection failed its build before any claim could be evaluated, so `volume(max=0)`
+was *skipped rather than satisfied* until §4.12 (#237, a companion of #236). §4.2's
+admission of `area` as the measurand for a part that is not a solid (#238) is what makes
+the third row expressible at all — but expressible is not portable, and the two are
+different questions.
+
+**Face contact is kernel-dependent and is excluded on that ground.** A probe of two parts
+that merely touch is a zero-thickness result, and what an engine does with one is a
+property of its kernel. Measured on the two pinned OpenSCAD versions, `intersection()` of
+two 10 mm cubes offset by exactly their own width: 2021.01 exports a 284-byte sheet and
+`check` exits 1; 2026.08.01 exports nothing, and `check` exits 0. One source, two engines,
+opposite verdicts. Under #270's settled semantics — `empty()` means *no positive-volume
+interference* — the newer engine is the correct one, so the divergence cannot be resolved
+by preferring the richer result. And retention is not the only axis: on
+`examples/clearance/`'s own seated face the two engines each write a four-triangle sheet
+and **disagree about its shape**, 384.0 mm2 against 268.8 mm2. A producer that could
+record whether the kernel retains a zero-thickness result (#314) is the enabler; until a
+report can state which behaviour was in force, an `area` claim over a contact patch means
+whichever engine ran it. An author who needs bearing area SHOULD give the seat a
+deliberate interference and grade the volume.
+
+**Three rules the pattern depends on.**
+
+1. **Poses live in one file.** The probe intersects two modules *as placed*, so an
+   interference number is the assembly's and not a number about geometry at the origin.
+2. **`empty` goes on the probe that should be empty and on no other.** On an interference
+   probe an empty build is the *loose joint* — the failure — so declaring `empty` there
+   would grade the fault as the pass. And declare it alone (§4.12).
+3. **A clearance probe MUST intersect against a part grown by the clearance.** `empty()`
+   over a bare `intersection() { A; B; }` says only that the two do not interpenetrate:
+   it is equally satisfied at 9 mm of standoff, at 0.01 mm, and — on a kernel that drops
+   a zero-thickness sheet — at exact contact. A clearance is a number and that probe
+   carries none. Grow one part by the standoff the fit requires and a violation with any
+   margin is a **solid with positive volume** rather than a sheet, which every kernel agrees
+   about down to its own floor (§4.12). Measured in
+   `examples/clearance/` by dropping the lid to a 1.0 mm standoff against a required
+   1.5 mm: the grown probe fails on both pinned engines at 31.5 mm3, and the ungrown one
+   passes on both. This is the remedy `partspec lint`'s `csg-two-part-intersection`
+   names, and the rule fires on the probe either way — its predicate is the shape, which
+   every part-versus-part probe has by construction (`docs/LINT.md`).
+
+   **Growing relocates the degenerate case, it does not remove it, so grade a design gap
+   strictly greater than the clearance.** At a gap of exactly `CLEAR` the probe is a
+   zero-thickness sheet — the same artifact this section refuses above — and the two
+   pinned engines disagree about it. Swept on `examples/clearance/`:
+
+   | design gap, `CLEAR` = 1.5 | 2021.01 | 2026.08.01 |
+   |---|---|---|
+   | 1.6 mm | exit 0 | exit 0 |
+   | **1.5 mm — exactly `CLEAR`** | **exit 1** (284-byte sheet, "may not be a valid 2-manifold") | **exit 0** (exports nothing) |
+   | 1.49 mm | exit 1 | exit 1 |
+
+   Only exact equality is degenerate (§4.12 states the same), but it is the value a
+   designer working *to* the requirement lands on. This is why the example designs a
+   2.0 mm standoff against a required 1.5 mm: the margin is load-bearing, not arbitrary.
+
+   **A box grow measures Chebyshev distance, not Euclidean.** Growing an axis-aligned box
+   by `CLEAR` per axis strictly contains the true offset, so the error is false FAIL only
+   and never false PASS, and both engines agree — this is not F13. Measured: a body whose
+   nearest corner sits 1.2 mm away on each axis is 2.0785 mm away in a straight line and
+   still fails a 1.5 mm requirement, on both engines.
+
+   **If the fit cares about Euclidean distance, `minkowski()` with a sphere is the
+   spelling — but the sphere MUST be compensated by `cos²`, and the segment count MUST be
+   a named variable rather than `$fn` in the argument list.** The form is:
+
+   ```openscad
+   CLEAR = 1.5;   // the standoff the fit requires, mm
+   SEG   = 32;    // one name for the radius AND the facet count
+   sphere(r = CLEAR / pow(cos(180 / SEG), 2), $fn = SEG);
+   ```
+
+   OpenSCAD's `sphere()` is a faceted solid whose vertices lie *on* the ideal ball, so it
+   is inscribed and the envelope falls short of the true offset. It is faceted in **two**
+   angular directions, so the worst-case shortfall goes as `cos²`, not `cos`: a one-axis
+   check does not see it, because the axial direction is not the worst one. Measured from
+   the exported ball on both engines, `CLEAR` = 1.5, `SEG` = 32:
+
+   | grow (all with `$fn = SEG`) | guaranteed offset (min face plane) | max offset (vertex) |
+   |---|---|---|
+   | `sphere(r = CLEAR)` | 1.485589 | 1.500000 |
+   | `sphere(r = CLEAR / cos(180 / SEG))` | 1.492777 | 1.507258 |
+   | **`sphere(r = CLEAR / pow(cos(180 / SEG), 2))`** | **1.500000** | 1.514551 |
+
+   Only the third reaches the required 1.5 in **every** direction, and it does so exactly
+   at `SEG` = 8, 16 and 32. End to end against a body approaching along the sphere's worst
+   direction, both engines: the first two **pass** violations at 1.495 mm and 1.499 mm,
+   the third fails both and passes at 1.520 mm. The bare shortfall is 0.057090 mm at
+   `SEG = 16` — inside a printed fit's tolerance.
+
+   **Why the segment count must be a named variable.** A module call's arguments are
+   evaluated in the **caller's** scope, so `$fn = 32` in the argument list applies inside
+   `sphere` and not to the sibling `r =` expression. Spelled
+   `pow(cos(180 / $fn), 2), $fn = 32`, the radius reads the *caller's* `$fn` — 0 by
+   default — so `180/$fn` is infinite and the radius is `nan`. The engines then disagree:
+   measured, that envelope reaches 1.507257 on 2021.01 and **nothing at all** on
+   2026.08.01, where `minkowski()` yields the bare ungrown part, and the probe passes a
+   0.1 mm gap against a 1.5 mm requirement at exit 0. One source, two engines, different
+   geometry — F13, on this section's own prescribed spelling, which is why the named
+   variable is normative and not style. Measured in five caller shapes — top level, inside
+   a module, with a global `$fn` of 64, with a global `$fn` of 8, and with `$fa`/`$fs` and
+   no `$fn` — the `SEG` form gives an identical envelope in all five on both engines.
+
+   Compensated this way the residual error is **one-sided toward false FAIL**, out to the
+   vertex column above — the same property the box grow has. Uncompensated, or compensated
+   only by `cos`, it is one-sided toward false **PASS**, which is why this is a MUST.
+
+   `empty` carries no bound, so the clearance number lives in the model rather than in
+   the contract. That is the one place this pattern is weaker than a bound-carrying
+   check, and an author should know it rather than discover it.
+
+**What it costs, stated plainly**, because this is a pattern and not a feature: one extra
+source and one extra target per pair, the pair modelled at assembly pose, a grown module
+for every clearance stated numerically, and no automatic all-pairs sweep. A first-class verb taking N sources and reporting pairwise shared volume
+needs `intersect_volume` and nothing else — no offsetting, no shell, no bisection — and is
+what the problem actually is. It is an assemblies feature, so it lands after 1.0 under D19.
+
+**Not `keep_out`/`keep_in`.** Those take a declared region — box or cylinder — because
+their shell is mandatory and a shell is an offset of the region, which a rendered solid
+can only supply through 3D offsetting: measured, `manifold3d`'s Minkowski gives the
+outward offset in 13 ms and the inward one in 1290 ms, inside a 24-iteration bisection.
+The shell exists to stop a `keep_out` passing vacuously when the feature is simply absent,
+and for part-versus-part interference that risk does not arise — the other part is a real
+rendered solid, and its absence is a build failure rather than a silent pass. So the
+expensive machinery would be bought for a guarantee this case does not need (#236).
 
 ---
 
