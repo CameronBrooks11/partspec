@@ -120,18 +120,20 @@ $ partspec check examples/spacer/spec.py:spacer --expect examples/spacer/claims.
 $ echo $?
 0                                    # green: not one claim moved
 $ partspec check examples/spacer/spec.py:spacer --out o --quiet
-$ partspec diff baseline.json o/report.json
+$ partspec diff baseline.json o/report.json > drift.json
 different: example-spacer — 2 drifted
   covered: source closure (1 file)
 $ echo $?
 1
 ```
 
-Both `drifted` entries are still `pass`. They are the two `requires`, whose
-captured operands moved with the bore:
+The redirect is not decoration. `diff` writes its **artifact** to stdout because
+that is the product and it pipes; the two lines above are the courtesy summary,
+and they are on stderr. Both `drifted` entries in `drift.json` are still `pass`
+— they are the two `requires`, whose captured operands moved with the bore:
 
 ```json
-{"id": "bore_d_gt_0", "change": "drifted", "status": "pass",
+{"id": "bore_d_gt_0", "kind": "requires", "change": "drifted", "status": "pass",
  "operands": {"old": {"bore_d": 8.0}, "new": {"bore_d": 12.0}}}
 ```
 
