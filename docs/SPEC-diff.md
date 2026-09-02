@@ -57,6 +57,23 @@ they are not suppressible; the bounded ones appear here on the `different` path,
 headline says nothing about them and "1 regressed" alone invites the reading that the named
 regression is the whole story.
 
+Owning no run, `diff` also keeps no history: both inputs are artifacts the caller already
+has, and `check` does not supply the earlier one. `check` writes to one deterministic
+destination, `<contract dir>/outputs/<slug>/report.json` or `<--out DIR>/report.json`, and
+**overwrites it every run**, so the second run of a loop destroys the only baseline the
+first produced. A baseline therefore has to be copied or committed before re-running
+(`cp o/report.json baseline.json`), and the copy has to be taken before the run that might
+change something. Left where `check` put it a report is overwritten and then untracked:
+`outputs/` is gitignored at every depth in this repository and in the layout the exemplars
+use, so the default disposition of a baseline is *deleted, then not in the history either*.
+`examples/spacer/README.md` is the worked copy; `vdiff` needs two `render.json` and takes
+the same step. Closing this in tooling — an `--out` that refuses to clobber, or one
+accepting a run label — is a real option and is deliberately NOT built: the missing thing
+was the statement, and a flag would leave every existing invocation exactly as silent about
+it. It matters here rather than in `check`'s own documentation because §2 makes "no
+differences found" a positive claim, and a baseline that was overwritten defeats that claim
+in the same way an unidentified input does — by never reaching the comparison at all.
+
 ## 2. Outcomes and exit codes
 
 Silence must never read as "no difference". "No differences found" is a **positive claim**

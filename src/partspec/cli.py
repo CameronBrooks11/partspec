@@ -855,7 +855,23 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         codes.append(code)
 
     if args.pin is not None and pinned_parts:
-        from .expectation import LockError, read_lock, write_lock
+        from .expectation import LockError, read_lock, repin_differences, write_lock
+
+        # The previous pin is read on EVERY re-pin over an existing lock, not
+        # only when a target crashed. Until #294 the read lived inside the
+        # `unresolved` guard below, so the ordinary path — lock present, every
+        # target resolved, a claim loosened — rewrote the claim set and printed
+        # `pinned 1 part(s)`. Measured on 0.7.6: `envelope max=[40,30,6]`
+        # became `max=[40,30,9]` in the lock at exit 0 with no other output.
+        # `compare()` was already in this function, computing exactly the line
+        # `--expect` prints one flag over, and unused on this branch.
+        previous: dict[str, dict[str, str]] | None = None
+        unreadable: LockError | None = None
+        if args.pin.is_file():
+            try:
+                previous = read_lock(args.pin)
+            except LockError as exc:
+                unreadable = exc
 
         # A lock that SHRINKS because a target crashed is silent weakening, and
         # `expectation.py` states the design goal it violates: "the tool's job
@@ -868,9 +884,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         # Refused rather than warned: `--pin` overwrites, so by the time a
         # warning is read the claim set is already gone.
         if unresolved and args.pin.is_file():
-            try:
-                existing = read_lock(args.pin)
-            except LockError as exc:
+            if unreadable is not None:
                 # NOT `{}`. Inside `is_file()` a LockError means unreadable,
                 # malformed, or a schema this build does not know — never "no
                 # lock yet", which the branch already excluded. Treating it as
@@ -881,7 +895,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
                 # crashed (round-3 review of #243). Failing open is the one
                 # direction this guard must not fail.
                 print(
-                    f"partspec: refusing to re-pin: {exc}, so partspec cannot tell "
+                    f"partspec: refusing to re-pin: {unreadable}, so partspec cannot tell "
                     f"whether writing it would drop a claim set — and {
                         ', '.join(repr(s) for s in sorted(set(unresolved)))
                     } did not resolve",
@@ -894,7 +908,8 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
                 )
                 codes.append(exit_code(Verdict.ERROR))
                 return _batch_exit(codes)
-            lost = sorted(existing.keys() - pinned_parts.keys())
+            assert previous is not None
+            lost = sorted(previous.keys() - pinned_parts.keys())
             if lost:
                 failed = ", ".join(repr(s) for s in sorted(set(unresolved)))
                 print(
@@ -916,6 +931,39 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         write_lock(args.pin, pinned_parts)
         if not args.quiet:
             print(f"pinned {len(pinned_parts)} part(s) -> {args.pin}")
+            # Flushed so the differences below land UNDER that line and not
+            # above it: stdout is block-buffered whenever it is not a tty, and
+            # a confession that sorts above the headline it qualifies reads as
+            # belonging to the previous target in a batch.
+            sys.stdout.flush()
+
+        # stderr, and NOT suppressed by --quiet, like every other confession on
+        # this branch. A re-pin under `--quiet` is exactly the invocation a
+        # weakening would use, and #294's requirement is that the move be
+        # impossible to make SILENTLY — not that it be refused, which §4 of the
+        # agent contract permits.
+        if unreadable is not None:
+            print(
+                f"partspec: rewrote {args.pin}, which could not be read first "
+                f"({unreadable}), so partspec cannot say which claims moved",
+                file=sys.stderr,
+            )
+        elif previous is not None:
+            moved = repin_differences(previous, pinned_parts)
+            if moved:
+                print(
+                    f"partspec: --pin rewrote claims the previous {args.pin} already covered:",
+                    file=sys.stderr,
+                )
+                for line in moved:
+                    print(f"    {line}", file=sys.stderr)
+                print(
+                    f"  hint: the lock's diff is the whole record of this change "
+                    f"— review it as you would the contract edit itself "
+                    f"(docs/AGENT-CONTRACT.md §4). `git diff {args.pin}` shows it; "
+                    f"`git checkout {args.pin}` undoes it",
+                    file=sys.stderr,
+                )
 
     if batch and not args.quiet:
         # Tallied before the coverage check joins `codes`: the synthetic
