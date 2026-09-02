@@ -48,8 +48,10 @@ quietly-wrong part shows you.
   read only after a failed build, so this shape was invisible: the gear above was caught
   by the envelope check, which needed a contract carrying theory-derived bounds and a
   second engine to compare against. The stderr line is now evidence on its own, and
-  needs neither. **`render` is not yet guarded** (tracked separately): it still writes
-  views of a part the engine hollowed out. Alongside that: `PARTSPEC_OPENSCAD`
+  needs neither. **`render` refuses on the same evidence** (#307): the guard is asked
+  before the first view is drawn, so a hollowed part yields `origin: null` and exit `4`
+  rather than four pictures of a part the source does not describe. Alongside that:
+  `PARTSPEC_OPENSCAD`
   pins the binary; the version is recorded in every
   report because it changes the artifact; bounds derived from theory, not measured off
   the part (see `docs/SPEC-contract.md` §10 on reference-derived limits).

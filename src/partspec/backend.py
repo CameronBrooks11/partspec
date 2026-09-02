@@ -133,11 +133,24 @@ class BuildError:
     a mistyped pin, a missing package, an absent source file, a render that ran
     out of time. Every one of those used to land on `builds: fail`, so a CI run
     on a machine without OpenSCAD reported the *design* as disproven.
+
+    `None` is the third state, and it is a claim of its own: partspec CANNOT
+    attribute this failure. A name the engine did not resolve is genuinely
+    ambiguous -- a misspelt module is the model's, a library absent from
+    `OPENSCADPATH` is the environment's -- and SPEC-report §6.1 already refuses
+    to guess, which is why `report.build_origin` is null there. The field had
+    only two spellings until #307, so the render path's failure payload
+    published `"model"` by default: the exact misattribution `origin` exists to
+    prevent, asserted where the tool knows nothing. Every consumer MUST handle
+    it explicitly, and `runner.py`'s adjudication branches on `!= "model"`
+    rather than on `== "environment"` for this reason: `builds: fail` is the
+    only arm that makes a claim about the design, so it is the only one a
+    `None` may not fall into.
     """
 
     message: str
     hint: str | None = None
-    origin: Literal["environment", "model"] = "model"
+    origin: Literal["environment", "model"] | None = "model"
     stderr: str | None = None
     """The engine's full stderr, when the failure came from a subprocess.
 

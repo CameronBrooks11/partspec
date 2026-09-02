@@ -1310,3 +1310,104 @@ def test_an_unread_include_is_named_rather_than_the_contract_blamed(tmp_path: Pa
     assert "or its includes" not in report.error, "the claim partspec cannot make"
     assert report.build_origin == "environment"
     assert _status(report, "builds") is not Status.FAIL, "not a statement about the part"
+
+
+# --------------------------------------------------------------------------
+# a data file the engine asked for and did not get (#309)
+# --------------------------------------------------------------------------
+#
+# #286's failure through a different channel. `import()`/`surface()` of an
+# absent target renders as nothing and the engine still exits 0, so the mesh is
+# well-formed and it is not the part. The depfile names the file -- and `unseen`
+# is empty precisely BECAUSE `engine_inputs.state` is `complete`: the engine
+# answered in full, and the full answer is that the file is absent.
+
+
+def _absent_data_part(tmp_path: Path, body: str, name: str = "probe") -> Part:
+    src = tmp_path / f"{name}.scad"
+    src.write_text(body)
+    p = Part(name, openscad(src))
+    p.envelope(max=(40, 30, 6))
+    p.watertight()
+    return p
+
+
+@needs_scad_tier
+def test_a_missing_import_target_on_a_successful_build_is_not_a_pass(tmp_path: Path):
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) import("missing.stl");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.exit_code == 4
+    assert _status(report, "builds") is Status.SKIPPED
+    assert _status(report, "watertight") is Status.SKIPPED
+    assert report.error is not None and "missing.stl" in report.error
+
+
+@needs_scad_tier
+def test_a_missing_surface_target_on_a_successful_build_is_not_a_pass(tmp_path: Path):
+    # The second file-reading construct, whose stderr wording shares nothing
+    # with `import()`'s. The depfile covers both uniformly, which is why this
+    # is read off `engine_inputs.missing` and not off prose.
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) surface(file="heights.dat");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR
+    assert report.error is not None and "heights.dat" in report.error
+
+
+@needs_scad_tier
+def test_the_absent_input_is_not_a_statement_about_the_part(tmp_path: Path):
+    # SPEC-report §6.1, same reasoning as the unresolved-name arm: the source
+    # compiled, and whether the path is a typo or the file has simply not been
+    # generated yet is not something partspec can tell.
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) import("missing.stl");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "the premise: the run WAS refused"
+    assert _status(report, "builds") is not Status.FAIL
+    assert report.build_origin is None
+
+
+@needs_scad_tier
+def test_the_report_still_names_the_file_it_refused_over(tmp_path: Path):
+    # The refusal happens AFTER the closure is upgraded from the depfile, so the
+    # evidence for it survives in the artifact rather than being replaced by the
+    # static walk. Before #309 this block was the whole report of the problem
+    # and nothing read it.
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) import("missing.stl");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is Verdict.ERROR, "the premise: the run WAS refused"
+    closure = report.source_closure
+    assert closure is not None
+    assert closure["engine_inputs"]["missing"] == ["missing.stl"]
+    assert closure["engine_inputs"]["state"] == "complete"
+    assert closure["unseen"] == [], "the trap: a complete answer leaves no gap to name"
+
+
+@needs_scad_tier
+def test_a_data_file_that_is_present_is_still_judged(tmp_path: Path):
+    # The guard must not fire on the ordinary case. `heights.dat` exists, the
+    # engine reads it, `missing` is empty and the envelope decides.
+    (tmp_path / "heights.dat").write_text("1 2 3\n4 5 6\n7 8 9\n")
+    p = _absent_data_part(
+        tmp_path,
+        'cube([40,30,6], center=true);\ntranslate([0,0,10]) surface(file="heights.dat");\n',
+    )
+    report = run(p, out_dir=tmp_path)
+
+    assert report.verdict is not Verdict.ERROR
+    assert _status(report, "builds") is Status.PASS

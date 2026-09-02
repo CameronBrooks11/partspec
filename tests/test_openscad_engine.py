@@ -2009,3 +2009,76 @@ def test_every_hint_on_the_engine_faults_names_only_remedies_the_readme_carries(
                 f"README moved and the hint was left behind -- check both before "
                 f"changing either."
             )
+
+
+# --------------------------------------------------------------------------
+# render_views refuses a part the engine hollowed out (#307)
+# --------------------------------------------------------------------------
+
+
+@needs_openscad
+def test_render_views_refuses_a_part_the_engine_hollowed_out(tmp_path: Path):
+    """#286 guarded `check` and `measure` and deliberately left `render` out.
+
+    The engine drops an unresolved call's children, exports a bare cube and
+    exits 0, so the four views were pictures of a part the source does not
+    describe -- and a picture is the one output a reader trusts without
+    checking. Display-independent by construction: the refusal happens before
+    any view is rendered, so this asserts the same thing on a headless runner.
+    """
+    src = tmp_path / "um.scad"
+    src.write_text("difference() { cube([40,30,6], center=true); bore_hole(d=8); }\n")
+    out = tmp_path / "out"
+
+    result = openscad.render_views(OpenSCADSource(src), out)
+
+    assert isinstance(result, BuildError)
+    assert "bore_hole" in result.message
+    assert result.origin is None, "partspec cannot say whose fault an unresolved name is"
+    assert not (out / "renders").exists(), "the refusal must render nothing at all"
+
+
+@needs_openscad
+def test_the_refusal_leaves_an_earlier_set_of_views_untouched(tmp_path: Path):
+    """The reason the guard is inside `render_views` and not in its caller.
+
+    The four PNGs are rendered into a scratch directory and moved into place as
+    a batch, so a guard asked after the function returns leaves four wrong
+    views on disk -- measured during #306's review. Asked before the first
+    render, nothing is written and whatever a previous run left is still there.
+    """
+    out = tmp_path / "out"
+    (out / "renders").mkdir(parents=True)
+    keep = {}
+    for view in openscad.VIEWS:
+        path = out / "renders" / f"{view}.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\nprevious run")
+        keep[view] = path.read_bytes()
+
+    src = tmp_path / "um.scad"
+    src.write_text("difference() { cube([40,30,6], center=true); bore_hole(d=8); }\n")
+
+    assert isinstance(openscad.render_views(OpenSCADSource(src), out), BuildError)
+    for view, before in keep.items():
+        assert (out / "renders" / f"{view}.png").read_bytes() == before
+
+
+@needs_openscad
+def test_the_render_refusal_names_the_same_cause_check_would(tmp_path: Path):
+    """One engine line, one diagnosis, whichever verb reached it (#308).
+
+    `render` is the third caller of `_unresolved_diagnosis`, after `check`'s
+    report `error` and `measure`'s refusal. The sentences differ because the
+    verbs do; the cause and the remedy may not.
+    """
+    from partspec.runner import _unresolved_diagnosis
+
+    src = tmp_path / "um.scad"
+    src.write_text("difference() { cube([40,30,6], center=true); bore_hole(d=8); }\n")
+
+    result = openscad.render_views(OpenSCADSource(src), tmp_path / "out")
+
+    assert isinstance(result, BuildError)
+    cause, hint = _unresolved_diagnosis(result.unresolved[0])
+    assert result.message.startswith(cause)
+    assert result.hint == hint

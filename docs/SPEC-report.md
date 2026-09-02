@@ -423,7 +423,7 @@ surfaced in the report as a field a consumer can branch on — not as prose in `
 
 A third case reaches `error` by neither route: the build **succeeded** and the engine
 built something other than what the source describes, so what the contract names is not
-what was measured. It arrives two ways.
+what was measured. It arrives three ways.
 
 A **name did not resolve**. For a module or an include the mechanism is direct — OpenSCAD
 renders an unresolved call's children *not at all*, so a misspelt module or an include
@@ -440,6 +440,17 @@ substituted **that module's own default** and said so. `cube(size=[o, 30, 6])` w
 pinned engines. This is not a name failing to resolve and MUST NOT be reported as one: the
 diagnosis and the remedy differ, and `error` MUST carry the cause it actually found.
 
+A **build input was not there**. Every name resolved and no value was substituted, but a
+file-reading construct named a path that does not exist, so the engine rendered it as
+nothing and exited `0`. Measured on both pinned engines for `import()` and for
+`surface()`. The evidence is `part.source_closure.engine_inputs.missing` (§8.3), taken
+from the engine's own dependency file rather than from stderr, so it covers every such
+construct in one shape and needs no per-construct wording. Note that `unseen` is **empty**
+in this case and MUST NOT be consulted for it: the `external_data_reads` token is emitted
+only when `engine_inputs.state` is not `complete`, and here the engine answered in full —
+the full answer being that the file is absent. A consumer reading `unseen` alone sees a
+closure with no gaps, which is correct and is not the same question.
+
 In none of these cases can the tool claim it measured the part the contract describes, so
 no geometry check is evaluated:
 `builds` and every geometry check are `skipped`, `verdict: "error"`, exit `4`, and `error`
@@ -449,12 +460,23 @@ arithmetic over the contract's inputs and need no engine.
 Here `builds` MUST NOT be reported as `fail` and `build_origin` MUST remain `null`: the
 source compiled, so a failing `builds` would be a statement about the design that has not
 been earned, and whether an unresolved name is a typo in the source or a library absent
-from this machine is exactly what partspec cannot determine. It claims neither, and states
-only what it knows — that it did not measure the part it was given.
+from this machine is exactly what partspec cannot determine — as is whether an absent
+build input is a mistyped path or a file a two-pass workflow has not produced yet. It
+claims neither, and states only what it knows — that it did not measure the part it was
+given.
+
+**A sibling payload that refuses for one of these reasons attributes it the same way.**
+`measure` and `render` produce no verdict, so they carry the refusal as their own
+`error`/`hint` and exit `4`. `render` additionally publishes an `origin`, and on the
+name-did-not-resolve case that field is `null` for the reason just given — a defaulted
+`"model"` there would assert the very attribution the report declines to make. `render`
+MUST NOT write a view of a part it refused, and MUST NOT disturb the views a previous run
+left: nothing is rendered at all. (`check --render` is unaffected, because it never
+reaches the render path — the run has already errored.)
 
 | verdict | condition |
 |---|---|
-| `error` | the contract raised, the build could not be *attempted*, or the build succeeded and the engine reported that it built something other than the source — a name it could not resolve, or a value it could not convert and defaulted (see above) |
+| `error` | the contract raised, the build could not be *attempted*, or the build succeeded and the engine reported that it built something other than the source — a name it could not resolve, a value it could not convert and defaulted, or a build input it asked for and did not get (see above) |
 | `empty` | zero checks were declared |
 | `fail` | ≥1 `fail` |
 | `incomplete` | no `fail`, but ≥1 `approximate` / `unsupported` / `skipped` |

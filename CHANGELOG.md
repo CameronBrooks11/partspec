@@ -710,6 +710,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A data file the model asked for and did not get no longer reports `pass`**
+  (#309, epic #305). `import("missing.stl")` renders as nothing and the engine
+  still exits `0` with a well-formed mesh, so `check` measured a part the source
+  does not describe and called it green — while `report.json` already named the
+  file, under `source_closure.engine_inputs.missing`, and nothing read it.
+  Measured identically on 2021.01 and on the 2026.08.01 snapshot. The run is now
+  `verdict: "error"`, exit `4`, every check `skipped`, with the console naming
+  the file the way #286's refusal does.
+  **`unseen` could never have caught this, and the reason is worth stating**:
+  `SPEC-report.md` §8.3 emits `external_data_reads` only when
+  `engine_inputs.state` is *not* `complete` — "the gap is then closed by evidence
+  rather than assumed away" — and here the state **is** `complete`. The engine
+  answered in full, and the full answer is that the file is absent, so the one
+  field that would have held the verdict below `pass` was empty *because* the
+  problem is provable. The depfile list is read directly instead, at the point in
+  `runner.py` where the closure is upgraded from it, which covers `import()` and
+  `surface()` uniformly without matching two stderr strings that share no
+  wording. §6.1 records this as the third way a successful build reaches `error`;
+  `build_origin` stays `null`, because whether the path is a typo or a file a
+  two-pass workflow has not produced yet is not something partspec can tell.
+  `measure` and `render` still emit numbers and views on this shape — they are
+  guarded for #286's channel and not yet for this one, tracked separately.
+
+- **`render` no longer writes views of a part the engine hollowed out** (#307,
+  epic #305). #286 made `check` and `measure` refuse a build whose stderr says
+  the engine could not resolve a name, and left `render` out; it went on writing
+  four PNGs at exit `0` of a bare cube whose declared bore is absent. A picture
+  is the one output a reader trusts without checking. The refusal is now asked
+  inside `render_views`, immediately after the STL render it already performs and
+  **before the first view is drawn** — not in the caller, because the four views
+  are rendered to a scratch directory and moved into place as a batch, so a guard
+  bolted on afterwards leaves four wrong PNGs on disk (measured during #306's
+  review). Nothing is written, and an earlier run's views are left untouched.
+  **`BuildError.origin` gains a third state, `None`.** `render`'s failure payload
+  publishes `origin` (#191) and the field was `Literal["environment", "model"]`,
+  so this refusal would have shipped the default `"model"` — asserting the DESIGN
+  is at fault on the one failure partspec is certain it cannot attribute, which is
+  the exact misattribution `origin` exists to prevent. `render.json` carries
+  `origin: null` here, matching what `report.build_origin` has always said on
+  `check`'s path. Widening the type was not a one-liner for the same reason:
+  `runner.py` adjudicated `if origin == "environment": … else: builds fail`, and a
+  `None` would have fallen through to the model arm. That branch is now written as
+  `!= "model"`, so it fails closed — the only arm that makes a claim about the
+  design is the only one that must be reached deliberately.
+  **`check --render` was never affected** and is pinned so: `cli.py` gates the
+  views on `report.error is None`, so a run #286 already refused never reached the
+  render path.
+
+- **`measure` emits `axes` on an empty vector measurement** (#346).
+  `SPEC-report.md` §2.1 makes `axes` REQUIRED on vector measurements, and a
+  measurement is vector iff `value` is an array — so an empty array is one. The
+  payload gated the field on truthiness rather than presence, so a `Box(20,10,5)`
+  emitted `bores: {"value": []}` and `blend_radii: {"value": []}` with no `axes`,
+  while the same part with two bores carried it. The field's presence tracked the
+  *part* rather than the shape, and it went missing on exactly the parts that are
+  simplest. `report.py` had been presence-based all along, which is the asymmetry
+  that made the gate look accidental. Additive; `schema_version` does not move.
+
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
   counts the field this release added to it** (#295, #340). §2.4 lists that
   payload's keys as "Measured … exactly `engine`, `error`, `geometry`, `hint`,

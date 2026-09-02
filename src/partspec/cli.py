@@ -1462,7 +1462,11 @@ def _measure_resolved(
             # approximate value without its bounds reads more certain than
             # it is, in the verb whose job is showing the numbers.
             entry["bounds"] = list(result.bounds)
-        if result.axes:
+        if result.axes is not None:
+            # Presence, not truthiness: a measurement is vector iff `value` is
+            # an array (status.py), so an empty array is a vector and SPEC-report
+            # 2.1 makes `axes` REQUIRED on it. Truthiness dropped the field on
+            # exactly the parts that are simplest -- a part with no bores (#346).
             entry["axes"] = list(result.axes)
         measurements[name] = entry
 
