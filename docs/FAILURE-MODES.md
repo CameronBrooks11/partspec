@@ -1,5 +1,8 @@
 # Observed CAD-as-code failure modes
 
+**Applies to:** v0.7.7 — the release this text describes. The `Status:` line records when
+this document was last revised in substance; it is provenance, not currency (#300).
+
 **Status:** v1 · 2026-08-08 · closes #24
 **Source:** the 2026-08-03–06 dogfood runs (partspec 0.1.0, 15 targets, 18-library
 OpenSCAD corpus plus community CadQuery/build123d models), distilled from the scratch

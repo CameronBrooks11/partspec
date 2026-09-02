@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-09-02
+
 ### Added
 
 - **The drift loop ships as something you can run** (#290, #291, #294). `--pin`
@@ -4079,7 +4081,8 @@ callouts, and reports become comparable.
 [convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
 [dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.6...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.7...HEAD
+[0.7.7]: https://github.com/CameronBrooks11/partspec/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/CameronBrooks11/partspec/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/CameronBrooks11/partspec/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/CameronBrooks11/partspec/compare/v0.7.3...v0.7.4

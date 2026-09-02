@@ -1,5 +1,8 @@
 # SPEC — the `partspec` contract
 
+**Applies to:** v0.7.7 — the release this text describes. The `Status:` line records when
+this document was last revised in substance; it is provenance, not currency (#300).
+
 **Status:** draft 3 · 2026-08-09 · adds §4.8–4.11 (draft_angle, self_intersection_free,
 step_roundtrip, min_wall) to the vocabulary table and the dimensional set; corrects the
 constructor signatures in §3

@@ -889,3 +889,93 @@ def test_the_installed_wheel_locates_the_documents_it_carries(tmp_path: Path):
     assert venv in root.parents, f"--docs named {root}, which is outside the install"
     for entry in ("docs/AGENT-CONTRACT.md", "skills/contract-authoring/SKILL.md"):
         assert (root / entry).is_file(), f"the install cannot open {entry} under {root}"
+
+
+# ---------------------------------------------------------------------------
+# what binds a document to a version (#300)
+# ---------------------------------------------------------------------------
+
+
+VERSIONED_DOCS = (
+    "docs/SPEC-contract.md",
+    "docs/SPEC-report.md",
+    "docs/SPEC-backend.md",
+    "docs/SPEC-diff.md",
+    "docs/AGENT-CONTRACT.md",
+    "docs/LINT.md",
+    "docs/FAILURE-MODES.md",
+)
+"""The normative surface. `DECISIONS.md`, `POST-V0.md` and `PLAN.md` are absent
+on purpose: the first two are reasoning that outlives any release and the third
+says "HISTORICAL" in its own second line."""
+
+
+def _declared_version() -> str:
+    return PYPROJECT["project"]["version"]
+
+
+def test_the_changelog_names_the_version_the_package_declares():
+    """`pyproject` and the changelog were two claims with nothing between them.
+
+    Two gates already existed and neither covered this: `release.yml`'s
+    tag-vs-version check, and the changelog's own link-definition test. Bump
+    `pyproject` to a version with no `## [x.y.z]` section, tag it, and both
+    pass — the release then publishes a version the changelog never described.
+    """
+    headings = re.findall(r"^## \[([^\]]+)\]", (REPO / "CHANGELOG.md").read_text(), re.M)
+    released = [h for h in headings if h != "Unreleased"]
+    assert released, "no released sections at all; this test has lost its subject"
+    assert released[0] == _declared_version(), (
+        f"pyproject declares {_declared_version()} and the newest changelog section is "
+        f"{released[0]}; a release must not describe a version nobody can install"
+    )
+
+
+def test_the_readme_and_agents_status_lines_name_that_same_version():
+    """`AGENTS.md` says status claims are "part of the gate". Nothing gated them.
+
+    Asserted as "the declared version appears in the status line", not as an
+    exact sentence: the prose around it is narrative and moves every release,
+    while the number is the part that must not drift.
+    """
+    version = _declared_version()
+    for name in ("README.md", "AGENTS.md"):
+        text = (REPO / name).read_text()
+        status = next(
+            (line for line in text.splitlines() if "Status:" in line and "pre-alpha" in line),
+            None,
+        )
+        assert status is not None, f"{name} has no status line to check"
+        assert version in status, (
+            f"{name}'s status line does not name {version}: {status.strip()!r}"
+        )
+
+
+def test_every_normative_document_says_which_version_it_describes():
+    """The root cause #300 names: nothing bound a document to a version.
+
+    Seven documents carried a `Status:` line with a draft number and a date, and
+    five of the seven were stale against their own last content commit — one by
+    24 days, across three releases. The date could not discriminate: `git show
+    v0.7.0:docs/SPEC-contract.md` and `git show v0.7.6:` printed the identical
+    line while the documents differed by whole sections.
+
+    So the date is not what is gated. An **Applies to:** line naming the
+    declared version is, because it is the claim a reader actually needs — which
+    release this text describes — and it is mechanically checkable. The
+    `Status:` line stays as provenance: when the document was last revised in
+    substance, which is a fact about history rather than a claim about currency.
+    """
+    version = _declared_version()
+    missing, stale = [], []
+    for name in VERSIONED_DOCS:
+        head = "\n".join((REPO / name).read_text().splitlines()[:12])
+        match = re.search(r"^\*\*Applies to:\*\* (.+)$", head, re.M)
+        if match is None:
+            missing.append(name)
+        elif version not in match.group(1):
+            stale.append(f"{name} -> {match.group(1).strip()}")
+    assert not missing, f"no `Applies to:` line in: {missing}"
+    assert not stale, (
+        f"these describe a version other than the declared {version}:\n  " + "\n  ".join(stale)
+    )

@@ -1,5 +1,30 @@
 # Python (uv) task runner
 
+# Everything a release must have consistent, before the tag.
+#
+# The three gates this runs were added by #300: nothing tied `pyproject`'s
+# version to a changelog section, to README/AGENTS' status lines, or to the
+# documents themselves. Two gates already existed and neither covered it --
+# `release.yml`'s tag-vs-version check and the changelog's link definitions --
+# so a bump with no `## [x.y.z]` section tagged and published clean.
+#
+# What it CANNOT check is the part that needs a person: that the changelog
+# section describes what actually changed. The steps are listed so the manual
+# half is written down rather than remembered.
+[doc("Check everything a release needs consistent, before tagging")]
+release-check:
+    @echo "gates:"
+    uv run pytest tests/test_packaging.py -q -k "changelog_names or status_lines or normative_document or changelog_version_is_a_link"
+    @echo ""
+    @echo "by hand, in this order:"
+    @echo "  1. pyproject.toml version"
+    @echo "  2. CHANGELOG: rename [Unreleased], add a new empty one, and BOTH link definitions"
+    @echo "  3. README.md and AGENTS.md status lines"
+    @echo "  4. **Applies to:** in docs/SPEC-*.md, AGENT-CONTRACT.md, LINT.md, FAILURE-MODES.md"
+    @echo "  5. read the new section: does it describe what changed?"
+    @echo "  6. tag on main -- release.yml refuses a tag that is not"
+
+
 set dotenv-load := false
 
 # Default: show available recipes

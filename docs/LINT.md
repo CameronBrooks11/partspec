@@ -1,5 +1,8 @@
 # partspec lint — the rules
 
+**Applies to:** v0.7.7 — the release this text describes. The `Status:` line records when
+this document was last revised in substance; it is provenance, not currency (#300).
+
 **Status:** v2 · 2026-08-22 · closes #26 (tier 1) and #118 (tier 2) · `csg-two-part-intersection` added (#270); refusals reach the console (#288)
 **Scope:** `partspec lint <source>…` over `.scad` and `.py` model sources. Findings are
 **advisory and never a verdict on the part — it is about the source** (#26, verbatim):

@@ -1,5 +1,8 @@
 # SPEC — the `partspec` geometry backend
 
+**Applies to:** v0.7.7 — the release this text describes. The `Status:` line records when
+this document was last revised in substance; it is provenance, not currency (#300).
+
 **Status:** draft 4 · 2026-08-09 · the protocol block gains the five primitives it was
 missing, the `decompose()` and winding claims are corrected; `build()` grows `timeout_s` with the blown-budget
 MUSTs and the stated in-process enforcement ceiling
