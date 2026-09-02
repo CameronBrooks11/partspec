@@ -23,7 +23,10 @@ module foot() {
 }
 
 // Seated on the rail rather than fastened into it, so the two parts touch
-// across a face and share no volume at all.
+// across a face and share no volume at all. Deliberately NOT probed: a
+// zero-thickness intersection is where the two pinned engines disagree, and
+// the README measures how. Kept because it is the case an author has to be
+// warned about, and a warning with no referent is one nobody checks.
 module cover() {
     translate([2, 0, RAIL[2]]) cube(COVER);
 }

@@ -4,7 +4,6 @@ partspec has: the single part.
 Run them:
 
     partspec check examples/clearance/spec.py:interference
-    partspec check examples/clearance/spec.py:seat
     partspec check examples/clearance/spec.py:clearance
 
 An assembly verb that takes N parts at their poses and reports pairwise shared
@@ -16,11 +15,14 @@ Every pair of parts in an assembly is in exactly one of three states, and each
 one grades on a different measurand:
 
     they interpenetrate   the probe is a solid   `volume`
-    they touch on a face  the probe is a sheet   `area`
     they share no space   the probe is nothing   `empty`
+    they touch on a face  the probe is a sheet   NOT PORTABLE -- see the README
 
-All three are declared below, against one assembly whose poses live in
-`assembly.scad`.
+The two declared below are the two that answer the same way on every engine,
+against one assembly whose poses live in `assembly.scad`. Face contact is a
+zero-thickness result and the kernels disagree about it; the README measures
+the disagreement and #314 is what would let a report state which behaviour was
+in force.
 """
 
 from partspec import Part, openscad
@@ -29,7 +31,6 @@ from partspec import Part, openscad
 # claim's number has to come from the design, not from a measurement of it.
 CRUSH_MIN, CRUSH_MAX = 0.1, 0.3  # what the fit is allowed to be, mm
 FOOT_X, FOOT_Z = 20.0, 6.0  # the flank the fit acts over
-SEAT_BEARING_MIN = 150.0  # the cover must land on at least this much rail, mm2
 
 
 def interference() -> Part:
@@ -48,19 +49,6 @@ def interference() -> Part:
     p.volume(min=FOOT_X * FOOT_Z * CRUSH_MIN, max=FOOT_X * FOOT_Z * CRUSH_MAX)
     # One continuous ribbon, not a scatter of slivers along the flank.
     p.solid_count(1)
-    return p
-
-
-def seat() -> Part:
-    """They touch on a face: the cover lands flat on the rail.
-
-    A probe of two parts that touch is a zero-thickness sheet, so `volume` is
-    0 and `area` is the measurand (`SPEC-contract.md` §4.2). **The sheet has
-    two sides and `area` counts both**, so the bearing area wanted is doubled
-    into the claim rather than written as if the sheet were a face.
-    """
-    p = Part("clearance-seat", openscad("seat.scad"))
-    p.area(min=2 * SEAT_BEARING_MIN)
     return p
 
 

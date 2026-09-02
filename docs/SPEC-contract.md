@@ -846,7 +846,7 @@ other geometry check on it is skipped and the run reports `incomplete` (§3.1) r
 a pass bought by silence. Declare `empty` alone on a probe.
 
 Related: #237, and §9.1 for the pattern this check completes — a clearance probe's
-three outcomes, worked in `examples/clearance/`. Declaring part-versus-part interference
+outcomes, worked in `examples/clearance/`. Declaring part-versus-part interference
 with a first-class verb remains an assemblies question (D19, #236).
 
 ---
@@ -1025,28 +1025,42 @@ Until an assembly verb exists, interference between two parts is declared by mod
 outcome the design intends. `examples/clearance/` is the worked pattern.
 
 Every pair of parts is in exactly one of three states, and each grades on a different
-measurand. All three are gradable as of v0.7.7; before that only the first was, which is
-why this pattern was previously described as a workaround that did not work:
+measurand. **Two of the three answer the same way on every engine and are what this
+section recommends; the third does not and MUST NOT be declared as if it did:**
 
 | the two parts | the probe builds to | the claim | in the example |
 |---|---|---|---|
 | interpenetrate | a solid | `volume(min=, max=)` | 24.0 mm3 |
-| touch on a face | a sheet | `area(min=)` | 384.0 mm2 |
 | share no space | nothing | `empty()` | pass |
+| touch on a face | a sheet | `area(min=)` | not portable — see below |
 
-**The second and third rows are recent and each was a hard failure before its own fix.**
-A sheet has no volume, and `volume` on it was a refusal until §4.2 admitted `area` as the
-measurand for a part that is not a solid; a null intersection failed its build before any
-claim could be evaluated, so `volume(max=0)` was *skipped rather than satisfied* until
-§4.12 (#238 and #237 respectively, both companions of #236).
+**Both recommended rows are recent, and one was a hard failure before its own fix.** A
+null intersection failed its build before any claim could be evaluated, so `volume(max=0)`
+was *skipped rather than satisfied* until §4.12 (#237, a companion of #236). §4.2's
+admission of `area` as the measurand for a part that is not a solid (#238) is what makes
+the third row expressible at all — but expressible is not portable, and the two are
+different questions.
 
-**Three rules the pattern depends on.**
+**Face contact is kernel-dependent and is excluded on that ground.** A probe of two parts
+that merely touch is a zero-thickness result, and what an engine does with one is a
+property of its kernel. Measured on the two pinned OpenSCAD versions, `intersection()` of
+two 10 mm cubes offset by exactly their own width: 2021.01 exports a 284-byte sheet and
+`check` exits 1; 2026.08.01 exports nothing, and `check` exits 0. One source, two engines,
+opposite verdicts. Under #270's settled semantics — `empty()` means *no positive-volume
+interference* — the newer engine is the correct one, so the divergence cannot be resolved
+by preferring the richer result. And retention is not the only axis: on
+`examples/clearance/`'s own seated face the two engines each write a four-triangle sheet
+and **disagree about its shape**, 384.0 mm2 against 268.8 mm2. A producer that could
+record whether the kernel retains a zero-thickness result (#314) is the enabler; until a
+report can state which behaviour was in force, an `area` claim over a contact patch means
+whichever engine ran it. An author who needs bearing area SHOULD give the seat a
+deliberate interference and grade the volume.
+
+**Two rules the pattern depends on.**
 
 1. **Poses live in one file.** The probe intersects two modules *as placed*, so an
    interference number is the assembly's and not a number about geometry at the origin.
-2. **A sheet has two sides and `area` counts both.** A 16 x 12 seated face measures 384,
-   not 192. The claim carries the doubling; the measurand does not hide it.
-3. **`empty` goes on the probe that should be empty and on no other.** On an interference
+2. **`empty` goes on the probe that should be empty and on no other.** On an interference
    probe an empty build is the *loose joint* — the failure — so declaring `empty` there
    would grade the fault as the pass. And declare it alone (§4.12).
 
