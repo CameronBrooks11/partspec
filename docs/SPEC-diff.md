@@ -1,6 +1,8 @@
 # SPEC — `partspec diff`
 
-**Status:** draft 6 · 2026-08-24 · §3 states three rules the reasons behind draft 5 already
+**Status:** draft 7 · 2026-09-02 · §4 puts `payload` in this artifact, the discriminator
+#295 named and PR #342 shipped to the other five (#345);
+draft 6 · 2026-08-24 · §3 states three rules the reasons behind draft 5 already
 implied: an entry carries every delta the comparison computed whatever bucket it landed in
 (#330), the comparison tolerance keys on `phase` because that is where the report records a
 value's provenance (#335), and a status-change entry says when the new report does not
@@ -468,6 +470,9 @@ It does not change the outcome: an old report that predates the field still diff
 ```jsonc
 {
   "schema_version": 2,              // this artifact's own version, not the report's
+  "payload": "diff",                // which artifact this is (SPEC-report.md §7.1),
+                                    // in the same position as the other five. Additive,
+                                    // so `schema_version` did not move for it (#345)
   "tool": { "name": "partspec-diff", "version": "0.7.6" },
                                     // partspec's own version. `diff` has none of its own
                                     // and never has, so a sample showing one invites a
@@ -582,7 +587,11 @@ this one what changed in the part's appearance. It consumes two on-disk render a
 document (`vdiff_schema_version: 1`) with the same outcome vocabulary — `identical`
 (exit 0) / `different` (exit 1) / `indeterminate` (exit 2).
 
-Keys: `inputs` (file, part id and engine block per side), `views` (per view:
+Keys: `schema_version` and `payload` (`"vdiff"`) first, the identity prefix every other
+artifact carries — this document spelled its version `vdiff_schema_version` alone, so a
+consumer reading `doc["schema_version"]`, the key `SPEC-report.md` §7 tells it to key on,
+found nothing; both spellings are emitted for one release (#295). Then
+`inputs` (file, part id and engine block per side), `views` (per view:
 `pixels_changed`, `fraction`, `image` — the diff image, the new run faded to grey with
 changed pixels in magenta), `bbox_delta_mm`, `magnitude`, and on refusal `refused
 {reason[, hint]}`.

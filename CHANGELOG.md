@@ -78,12 +78,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test, at exit 64; what the discriminator adds is that a consumer which is not
   `diff` can now make the same distinction, by name, without reverse-engineering
   it from the key set.
-  **Five of the six payloads #295 names, not six: `partspec diff`'s own output
-  carries no discriminator (#345)**, its module having belonged to another lane
-  this wave. §7.1's "absent means an older partspec wrote it" reading is
-  therefore scoped to the five that do carry the field — a `diff.json` from this
-  release has none, and `tool.name: "partspec-diff"` is what identifies it until
-  #345 lands.
+  **All six payloads #295 names, `partspec diff`'s own artifact included
+  (#345).** It shipped without one — its module belonged to another lane during
+  #342 — which left §7.1's "absent means an older partspec wrote it" reading
+  scoped to five artifacts, drawing a false conclusion about every `diff.json`
+  this release had written, and left a consumer switching on `payload`
+  special-casing that one document by `tool.name`. It now carries
+  `"payload": "diff"` in the same position as the rest, `DIFF_SCHEMA_VERSION`
+  unmoved at 2 by the same additive rule, and §7.1 states the plain rule with
+  no exception attached.
 
 - **`csg-two-part-intersection`, an advisory lint rule** (#270). Fires when a
   file's entire top level is a single `intersection()` of exactly two children.

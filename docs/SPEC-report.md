@@ -667,18 +667,14 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
 ### 7.1 Field rules
 
 - **`payload`** — which artifact this document is. The three this specification governs
-  are `report`, `measure` and `render`; `lint` and `vdiff` name the sibling artifacts that
-  carry the same field. A consumer MUST key on it rather than on `tool.name` or on the
-  presence of a block: `check`, `measure` and `render` all emit `schema_version: 1` under
-  `tool.name: "partspec"` and share the whole identity prefix by design (Scope), so until
-  this field existed the three were told apart only by guessing from the keys further down
-  (#295). Additive (no schema bump), and therefore **optional to a reader**: an artifact of
-  one of those five kinds written before the field existed carries none, and its absence
-  there means "an older partspec wrote this", never "not a report". **That reading is
-  scoped to those five.** `partspec diff`'s own artifact does not carry the field at any
-  version yet (#345), so its absence from a `diff.json` says nothing about which release
-  wrote it. A consumer that must tell the two cases apart reads `tool.name`, which is
-  `partspec-diff` there and has been since that artifact existed.
+  are `report`, `measure` and `render`; `lint`, `diff` and `vdiff` name the sibling
+  artifacts that carry the same field. A consumer MUST key on it rather than on `tool.name`
+  or on the presence of a block: `check`, `measure` and `render` all emit
+  `schema_version: 1` under `tool.name: "partspec"` and share the whole identity prefix by
+  design (Scope), so until this field existed the three were told apart only by guessing
+  from the keys further down (#295). Additive (no schema bump), and therefore **optional to
+  a reader**: an artifact written before the field existed carries none, and its absence
+  means "an older partspec wrote this", never "not a report".
   The optionality is also why a structural test — does this document declare a `verdict`
   and `counts`? — remains the right guard for "is this a report", and `partspec diff`
   keeps that one: a guard keyed on `payload` would refuse every report the tool wrote

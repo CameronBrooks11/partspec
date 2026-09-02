@@ -1241,6 +1241,15 @@ def diff_reports(old: dict[str, Any], new: dict[str, Any], *, tool_version: str)
 
     return {
         "schema_version": DIFF_SCHEMA_VERSION,
+        # Immediately after `schema_version`, the position the other five
+        # artifacts put it in (#295). Additive, so `DIFF_SCHEMA_VERSION` does
+        # NOT move — SPEC-report.md §7.1: adding a field is non-breaking and
+        # MUST NOT bump the version. Until this landed, §7.1's rule that a
+        # missing `payload` means "an older partspec wrote this" drew a false
+        # conclusion about every `diff.json` this release had ever written,
+        # and a consumer switching on the field had to special-case this one
+        # artifact by `tool.name` (#345).
+        "payload": "diff",
         "tool": {"name": "partspec-diff", "version": tool_version},
         "part": old_part.get("id"),
         "outcome": outcome,

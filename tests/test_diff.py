@@ -15,6 +15,7 @@ import pytest
 
 from partspec.diff import (
     CLAIM_FIELDS,
+    DIFF_SCHEMA_VERSION,
     DiffUsageError,
     diff_reports,
     exit_code_of,
@@ -3082,3 +3083,21 @@ def test_reach_may_attribute_an_import_but_never_dismiss_one():
             f"reached={reached!r} must not dismiss the qualification"
         )
         assert "appeared" not in summary_of(doc, new)
+
+
+def test_the_diff_artifact_says_which_payload_it_is():
+    """#345, following #295. `SPEC-report.md` §7.1 makes a missing `payload`
+    mean "an older partspec wrote this"; a `diff.json` from this release
+    carrying none made that rule draw a false conclusion about it.
+
+    The POSITION is pinned with the value, because §7.1's whole argument is
+    that the six artifacts share one identity prefix — a consumer reading
+    `doc["payload"]` after `doc["schema_version"]` must find it in the same
+    place here as in the other five.
+    """
+    doc = _diff(_doc(), _doc())
+    assert doc["payload"] == "diff"
+    assert list(doc)[:2] == ["schema_version", "payload"]
+    assert doc["schema_version"] == DIFF_SCHEMA_VERSION == 2, (
+        "additive: SPEC-report.md §7.1 says adding a field MUST NOT bump the version"
+    )
