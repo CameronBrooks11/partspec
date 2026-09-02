@@ -978,8 +978,12 @@ def test_every_normative_document_says_which_version_it_describes():
     substance, which is a fact about history rather than a claim about currency.
     """
     version = _declared_version()
-    present = {p.name for p in (REPO / "docs").glob("*.md")}
-    classified = UNVERSIONED_DOCS | {Path(n).name for n in VERSIONED_DOCS}
+    # rglob, keyed on the path relative to `docs/`: a flat glob missed
+    # `docs/adr/SPEC-newthing.md` entirely, which is MEDIUM-1's own defect one
+    # level down (PR #363 review, NEW-2). `docs/` is flat today, so this is
+    # latent rather than live -- which is exactly when it is cheap to close.
+    present = {p.relative_to(REPO / "docs").as_posix() for p in (REPO / "docs").rglob("*.md")}
+    classified = UNVERSIONED_DOCS | {n[len("docs/") :] for n in VERSIONED_DOCS}
     assert present == classified, (
         "every document in docs/ must be classified as versioned or exempt; "
         f"unclassified: {sorted(present - classified)}, "

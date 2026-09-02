@@ -34,7 +34,7 @@ release-check:
     @echo "  4. **Applies to:** in docs/SPEC-*.md, AGENT-CONTRACT.md, LINT.md, FAILURE-MODES.md"
     @echo "  5. the tool version sampled in the spec examples"
     @echo "  6. read the new section: does it describe what changed?"
-    @echo "  7. tag on main -- release.yml refuses a tag that is not"
+    @echo "  7. re-run this recipe, then tag on main -- release.yml refuses a tag that is not"
     @echo ""
     @echo "gates:"
     uv run pytest tests/test_packaging.py tests/test_docs.py -q -k "changelog_names or status_lines or normative_document or changelog_version_is_a_link or spec_samples_show_the_version"
