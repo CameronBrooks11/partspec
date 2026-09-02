@@ -17,31 +17,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reproduce a smooth progression, the rules of rounding off are not always
   used", and that where the computed and tabulated values differ, **the tables
   govern**. Executing every clause-10.2 formula against Table 1 with the R40
-  rounding §10.1 prescribes: **149 of 197 cells agree, 48 do not** — the best of
-  fifteen rounding models swept. The standard rounds half-to-even, which its own
-  tables give away: the images only half-up can produce (13, 27, 43) appear
-  nowhere in Tables 1–5, while the half-even-only images (26, 42) appear five
-  times in Table 1.
-  Not a rounding artefact — `es_d = -(65 + 19P)` at P = 8 gives -217 raw and
-  -212 rounded against a tabulated -180, and column `d` carries -105, -110,
-  -115, -130, -135, -155, none of them the rounded image of any R40 member.
-  `es_g = -(15 + 11P)`, the formula #246 cited as its corroboration when it
-  narrowed the exclusion, reproduces 24 of 25 cells and misses at P = 0.75 —
-  right often enough that a reader stops checking, which is the shape the
-  exception exists to catch. Both routes therefore fail: the tabulated values
-  cannot execute the formula, and the computed values are ones the standard says
-  shall not be used, under a citation naming that standard — the "worse than no
-  data" case the exception exists to prevent. The near miss was considered and
-  rejected: `EI_G`/`es_g` hold for all 15 cells at P >= 0.8, but that bound is
-  chosen after seeing where the formula fails, it excludes exactly M4.5 coarse
-  — a size this module ships — and the standard's tables govern at every pitch.
-  Nor is the tie rule constant: Table 1 breaks `es_g`'s P = 8 tie downward while
-  Table 2 breaks the identical `TD1(6)` tie at P = 1 upward, and under the upward
-  reading `es_g` is 23 of 25. The exception is unchanged and may still reach a standard whose
-  formulae are normative. `iso_metric_thread`'s claim that the ruling licensed
-  this data is corrected, the released #261 entry's "verifiable by construction"
-  claim for `es_g` is falsified by the same measurement, and §10.1 records it so
-  the work is not repeated.
+  rounding §10.1 prescribes: **149 of 197 cells agree, 48 do not** — the best
+  of fifteen rounding models swept. The standard rounds half-to-even, which
+  its own tables give away: the images only half-up can produce (13, 27, 43)
+  appear nowhere in Tables 1–5, while the half-even-only images (26, 42)
+  appear five times in Table 1. Not a rounding artefact — `es_d = -(65 + 19P)`
+  at P = 8 gives -217 raw and -212 rounded against a tabulated -180, and
+  column `d` carries -105, -110, -115, -130, -135, -155, none of them the
+  rounded image of any R40 member. `es_g = -(15 + 11P)`, the formula #246
+  cited as its corroboration when it narrowed the exclusion, reproduces 24 of
+  25 cells and misses at P = 0.75 — right often enough that a reader stops
+  checking, which is the shape the exception exists to catch. Both routes
+  therefore fail: the tabulated values cannot execute the formula, and the
+  computed values are ones the standard says shall not be used, under a
+  citation naming that standard — the "worse than no data" case the exception
+  exists to prevent. The near miss was considered and rejected: `EI_G`/`es_g`
+  hold for all 15 cells at P >= 0.8, but that bound is chosen after seeing
+  where the formula fails, and it excludes ten of Table 1's twenty-five
+  pitches — with them thirteen of the forty coarse sizes this module ships, M1
+  through M4.5, **including M3**, one of the two sizes every fleet-01 arm-C
+  replicate hand-wrote 6g/6H data for (#194). The standard's tables govern at
+  every pitch regardless. Nor is the tie rule constant: Table 1 breaks
+  `es_g`'s P = 8 tie downward while Table 2 breaks the same kind of tie at
+  `TD1(6)`, P = 1 upward; under the upward reading `es_g` is 23 of 25 and the
+  P >= 0.8 set is 14 of 15. The exception is unchanged and may still reach a
+  standard whose formulae are normative. `iso_metric_thread`'s claim that the
+  ruling licensed this data is corrected, the released #261 entry's
+  "verifiable by construction" claim for `es_g` is falsified by the same
+  measurement, and §10.1 records it so the work is not repeated.
 
 ## [0.7.7] - 2026-09-02
 
