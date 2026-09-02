@@ -20,9 +20,10 @@ run means what you think it means.
 **[SPEC-contract.md](SPEC-contract.md)** — the check vocabulary and its grammar,
 normatively. Long, and structured for lookup rather than a sitting.
 
-The `skills/contract-authoring` skill in this repo is the worked version of the
-same material, and [`examples/`](../examples) has four parts whose READMEs say
-what each is meant to teach.
+The `skills/contract-authoring` skill is the worked version of the same
+material, and
+[`examples/`](https://github.com/CameronBrooks11/partspec/tree/main/examples)
+has four parts whose READMEs say what each is meant to teach.
 
 ## I want to read what the tool produced
 
@@ -56,6 +57,18 @@ Four of them document the false positives they knowingly accept; findings are
 data about the source and never a verdict on the part.
 
 ---
+
+**Where these files are.** `partspec --docs` prints the directory `docs/` and
+`skills/` sit in: the repository root in a checkout, and a bundled copy inside
+the package in an install, because the wheel carries both trees (#349). A path
+written `docs/SPEC-contract.md` or `skills/contract-authoring/SKILL.md`
+resolves against it; the sibling links above are relative to this file, so they
+resolve against `<that>/docs`.
+
+What the wheel does **not** carry is the rest of the repository. The 27
+citations in these documents that name a file under `notes/`, `tests/`, `src/`
+or `examples/` are pointers into the repository rather than paths an install
+can open — and `notes/` is not in the sdist either.
 
 The specs are normative and were written before the implementation. Where code
 and spec disagree, that is a bug in one of them — say which, rather than

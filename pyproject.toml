@@ -97,7 +97,9 @@ build-backend = "hatchling.build"
 # down: it moves on every added test, which is the same reason the byte count
 # came out of `.pre-commit-config.yaml` in this commit's own diff.
 #
-# The wheel needs no such list: it was already exactly the package.
+# The wheel used to need no such list, "because it was already exactly the
+# package" — which was the defect, not the design (#349). See the force-include
+# block below the sdist table.
 [tool.hatch.build.targets.sdist]
 exclude = [
   "uv.lock",
@@ -107,6 +109,48 @@ exclude = [
   "notes",
   "evals",
 ]
+
+# The agent-facing corpus, shipped (#349).
+#
+# The wheel was the package and nothing else, so every spec a diagnostic cites
+# by section, and `AGENT-CONTRACT.md`'s own opening route to
+# `skills/contract-authoring/SKILL.md`, were dead paths for anyone who
+# installed rather than cloned. Measured against an installed 0.7.6 rather
+# than read off this file: `find` over the uv tool tree for
+# `AGENT-CONTRACT.md` returned nothing.
+#
+# `_bundled/` mirrors the REPOSITORY ROOT rather than flattening the two trees
+# into one documentation directory, and that is the whole point of the layout:
+# the citations inside these files read `docs/SPEC-contract.md` and
+# `skills/contract-authoring/SKILL.md`, and under this shape both resolve
+# verbatim against what `partspec --docs` prints — in an install and in a
+# checkout alike. Nothing gets rewritten for the install, and no path acquires
+# a second spelling that can drift from the first.
+#
+# Costs about +160 KiB on the built wheel (161 KiB the last time it was run,
+# 163 KiB earlier in this same PR). Deliberately not written down as a
+# before-and-after pair: a first draft did, and the pair was already stale
+# inside its own PR, because these two trees ARE the delta and every line of
+# prose added to them moves it. Re-measure by commenting the table out and
+# building both ways; do not write the answer here.
+#
+# These two trees ONLY. `examples/` is a deliberate omission despite the docs
+# citing it: its tracked content is only 29 KiB (`git ls-files examples | xargs
+# wc -c`), but `force-include` copies what is on DISK rather than what git
+# tracks — measured, by adding it and building: ten untracked `outputs/`
+# artifacts landed in the wheel. (Not `__pycache__`, which hatchling already
+# excludes and which stayed out even with the `.pyc` files sitting on disk. The
+# count of ten was right the first time and the mechanism was not, so both are
+# now stated as measured.) A dev-built wheel and a CI-built one would then
+# differ, which is #218 again, in the artifact that goes to PyPI. `docs/` and
+# `skills/` hold no untracked files, and
+# `test_the_wheel_carries_exactly_the_documents_git_tracks` fails if either
+# ever gains one — an untracked file, note, not a generated one: three specs
+# are partly generated and committed, and the set-equality test is indifferent
+# to that.
+[tool.hatch.build.targets.wheel.force-include]
+"docs" = "partspec/_bundled/docs"
+"skills" = "partspec/_bundled/skills"
 
 [tool.uv]
 # THE OCP LANDMINE, and the fix.

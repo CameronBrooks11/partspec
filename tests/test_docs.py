@@ -832,12 +832,14 @@ def test_every_spec_a_diagnostic_cites_is_locatable_from_the_tool():
     """A citation an installed user cannot follow is not a citation.
 
     Diagnostics cite the specs by section — `(SPEC-report.md 7.1)`,
-    `SPEC-contract.md 10` — and the wheel ships the package and nothing else,
-    on purpose. So for anyone who installed rather than cloned, the tool names
-    documents it gives no way to reach. Found by dropping an agent on a cold
+    `SPEC-contract.md 10` — and the wheel used to ship the package and nothing
+    else, so for anyone who installed rather than cloned the tool named
+    documents it gave no way to reach. Found by dropping an agent on a cold
     install with an objective and no other context: it went looking for
     SPEC-contract.md after the attribution advisory named it, did not find it,
-    and inferred the contract API from `inspect.getdoc` instead.
+    and inferred the contract API from `inspect.getdoc` instead. The wheel
+    carries the documents since #349, which changes where `--help` should send
+    that agent but not whether this test has a subject.
 
     Two halves, both derived rather than matched: every spec the source names
     must exist, and `--help` must say where the specs are. Neither is a phrase
@@ -861,6 +863,26 @@ def test_every_spec_a_diagnostic_cites_is_locatable_from_the_tool():
     assert "docs" in epilog, (
         "the CLI cites specs by section but never says where they live; an "
         "installed user has no docs/ directory to look in"
+    )
+
+    # And since #349 the answer can be a local one, so the weaker half above
+    # is no longer the whole assertion: where this copy carries the documents,
+    # `--help` must name THAT directory rather than only the URL. A phrase
+    # search would not have caught the epilog going stale against a moved
+    # bundle, because the word "docs" survives every such move.
+    #
+    # The entry point is opened UNDERNEATH the named directory rather than
+    # compared to `docs_root()`. Asserting the two agree pins consistency, not
+    # correctness: pointed at a plausible wrong root, `docs_root()` and the
+    # epilog move together and this stayed green (PR #350 review, mutation 2).
+    from partspec.docs import docs_root
+
+    root = docs_root()
+    assert root is not None, "the checkout should locate its own documents"
+    named = [line.strip() for line in epilog.splitlines() if line.startswith("  /")]
+    assert named, f"--help names no directory:\n{epilog}"
+    assert any(Path(line, "docs", "AGENT-CONTRACT.md").is_file() for line in named), (
+        f"--help names {named}, and the contract is under none of them"
     )
 
 
@@ -1213,3 +1235,42 @@ def test_the_docs_index_routes_to_every_document_beside_it():
     # can point at what it recommends rather than naming it in backticks.
     dead = sorted(t for t in targets if not (index.parent / t).exists())
     assert dead == [], f"docs/README.md links targets that are not there: {dead}"
+
+
+def test_every_citation_of_a_bundled_tree_resolves_where_the_reader_is_sent():
+    """The regression #349 was, stated as a property of the corpus.
+
+    `docs/` and `skills/` ship in the wheel and the citations inside them are
+    repo-relative, so each one has to open against the directory
+    `partspec --docs` returns — which is the repository root here and the
+    bundled copy in an install, by construction of the same layout.
+
+    Scoped to those two trees on purpose. A citation of `examples/`, `tests/`
+    or the source tree names something the wheel does not carry, and
+    `docs/README.md` says so rather than pretending otherwise; policing those
+    here would demand churn this test cannot justify. What it does police is
+    the class that routes a reader between the shipped documents, which is the
+    one that was silently dead.
+    """
+    from partspec.docs import docs_root
+
+    root = docs_root()
+    assert root is not None, "the checkout should locate its own documents"
+
+    cite = re.compile(r"`((?:docs|skills)/[\w./-]*\.\w+)`")
+    bundled = [p for p in shipped_markdown() if p.is_relative_to(DOCS) or "skills" in p.parts]
+    assert bundled, "no bundled documents scanned — this guard has lost its subject"
+
+    checked, dangling = 0, []
+    for doc in bundled:
+        text = prose_of(doc.read_text())
+        for m in cite.finditer(text):
+            checked += 1
+            if not (root / m.group(1)).is_file():
+                line = text[: m.start()].count("\n") + 1
+                dangling.append(f"{doc.relative_to(ROOT)}:{line} -> {m.group(1)}")
+    assert checked, "matched no citations at all; the regex has stopped reaching them"
+    assert not dangling, (
+        "these route a reader to a path that does not exist under "
+        f"{root}:\n  " + "\n  ".join(dangling)
+    )

@@ -725,3 +725,154 @@ def test_the_install_hint_names_the_installer_this_interpreter_has(monkeypatch):
     monkeypatch.setattr(importlib.util, "find_spec", real)
     if real("pip") is not None:  # pragma: no cover - depends on the venv
         assert install_hint("'partspec[mesh]'") == "pip install 'partspec[mesh]'"
+
+
+# ---------------------------------------------------------------------------
+# the wheel
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def wheel_names(tmp_path_factory) -> set[str]:
+    """Every path inside the built wheel.
+
+    Same guards as `sdist_names`, and the `.git`-is-a-directory one matters
+    here for a different reason: this asks what THIS repository publishes, and
+    a worktree cannot answer it.
+    """
+    import shutil
+    import zipfile
+
+    if shutil.which("uv") is None or not (REPO / ".git").is_dir():
+        pytest.skip(
+            "inspects what this checkout publishes; needs the uv frontend and a checkout "
+            "whose .git is a directory (in a worktree hatchling cannot read the ignores)"
+        )
+    out = tmp_path_factory.mktemp("wheel")
+    subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(out)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    with zipfile.ZipFile(next(out.glob("*.whl"))) as archive:
+        return set(archive.namelist())
+
+
+def test_the_wheel_carries_exactly_the_documents_git_tracks(wheel_names: set[str]):
+    """#349, both halves: the documents ship, and only the tracked ones do.
+
+    The first half is the bug as filed — on 0.7.6, `find` over an installed
+    tree for `AGENT-CONTRACT.md` returned nothing, so every spec citation in
+    every diagnostic and the contract's own routing line were dead paths for
+    anyone who installed rather than cloned.
+
+    The second half is the hazard the fix introduces. `force-include` copies
+    what is on DISK, not what git tracks: measured, by adding `examples/` to
+    the block and building, ten untracked `outputs/` artifacts landed in the
+    wheel. Not `__pycache__`, which hatchling excludes on its own — this
+    docstring said `outputs/` and `__pycache__` until the review re-ran the
+    probe and found the `.pyc` files on disk and absent from the zip. A
+    dev-built wheel differing from a CI-built one is #218 again, on the
+    artifact that reaches PyPI where inspection cannot catch it later.
+
+    Set EQUALITY, therefore, rather than a subset in either direction. What
+    that catches is an UNTRACKED file, not a generated one: three specs carry
+    generated blocks and are committed, and they ship exactly as tracked.
+    """
+    tracked = set(
+        subprocess.run(
+            ["git", "ls-files", "docs", "skills"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+    )
+    assert tracked, "no tracked documents at all; this test has lost its subject"
+
+    prefix = "partspec/_bundled/"
+    bundled = {name[len(prefix) :] for name in wheel_names if name.startswith(prefix)}
+    assert bundled == tracked, (
+        "the wheel's bundled documents are not the tracked ones:\n"
+        f"  missing from the wheel: {sorted(tracked - bundled)}\n"
+        f"  in the wheel, untracked: {sorted(bundled - tracked)}"
+    )
+
+    # Non-vacuous in the direction that matters: the two files the corpus
+    # routes to first, named outright.
+    for entry in ("docs/AGENT-CONTRACT.md", "skills/contract-authoring/SKILL.md"):
+        assert prefix + entry in wheel_names, f"the wheel does not carry {entry}"
+    assert "partspec/cli.py" in wheel_names, "and it is still a package, not a docs bundle"
+
+
+def test_the_installed_wheel_locates_the_documents_it_carries(tmp_path: Path):
+    """The claim the whole slice rests on, executed against an install.
+
+    Everything else about #349 is checked from inside a checkout, where the
+    paths always resolved — and `docs_root()`'s installed branch (`_bundled`)
+    is dead code there, because every throwaway recipe installs `-e '.'` and
+    takes the `src/` branch instead. Coverage said so outright: that line was
+    executed by nothing in the suite (PR #350 review, finding 9).
+
+    What only this can catch is the WHEEL and the LOCATOR disagreeing. The
+    example first written here was wrong and the review re-ran it: retargeting
+    force-include to `partspec/docs` fails the namelist test above too, because
+    that test filters on the literal `partspec/_bundled/` prefix. The mutation
+    that isolates this one is a mismatch — leave the wheel shipping `_bundled/`
+    and have `docs_root()` look for `_bundle/`:
+
+        force-include destination -> partspec/docs   : BOTH tests fail
+        docs_root() -> package / "_bundle"           : only this one fails,
+                                                       exit 4 from the install
+
+    Which is the shape a rename would really take, and no zip listing can see
+    it: the archive is correct and every install still refuses.
+
+    `--no-config`, like every other throwaway install here: `uv pip` reads
+    `[tool.uv]` from the nearest pyproject.toml above the CWD and would apply
+    this repo's OCP overrides to the wheel under test.
+    """
+    import shutil
+
+    if shutil.which("uv") is None or not (REPO / ".git").is_dir():
+        pytest.skip("needs the uv frontend and a checkout, like the wheel fixture")
+
+    out = tmp_path / "dist"
+    subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(out)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    venv = tmp_path / "venv"
+    subprocess.run(["uv", "venv", "--no-config", str(venv)], capture_output=True, check=True)
+    subprocess.run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--no-config",
+            "--python",
+            str(venv / "bin" / "python"),
+            str(next(out.glob("*.whl"))),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    located = subprocess.run(
+        [str(venv / "bin" / "partspec"), "--docs"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert located.returncode == 0, f"--docs failed on an install: {located.stderr}"
+    root = Path(located.stdout.strip())
+    assert root.is_dir(), f"--docs named {root}, which is not a directory"
+    assert venv in root.parents, f"--docs named {root}, which is outside the install"
+    for entry in ("docs/AGENT-CONTRACT.md", "skills/contract-authoring/SKILL.md"):
+        assert (root / entry).is_file(), f"the install cannot open {entry} under {root}"

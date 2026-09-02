@@ -55,6 +55,7 @@ src/partspec/
   csg.py          # a reader for OpenSCAD's .csg export — the folded tree tier 2 walks (#118)
   target.py       # <module>[:<factory>] resolution
   install.py      # phrases install hints for the interpreter reading them (uv venvs have no pip)
+  docs.py         # locates the docs/ and skills/ the wheel carries, or refuses to guess (#349)
   imports.py      # source closure: what the build actually read, and how honestly (SPEC-report 8.3)
   runner.py       # phase orchestration: parameters -> build -> geometry -> report
   cli.py          # argparse entry point
@@ -85,6 +86,14 @@ docs/             # the specs and decision log — normative, not background rea
   SPEC-contract.md    # how to AUTHOR a contract: the check vocabulary and its grammar
   FAILURE-MODES.md    # the observed ways a build passes while the part is wrong
 ```
+
+`docs/` and `skills/` are the two trees that also ship **inside the wheel**, copied to
+`partspec/_bundled/` at build time so an installed copy can read the corpus it cites;
+`partspec --docs` prints that directory, and it mirrors the repository root so the
+citations inside those files resolve unchanged (#349). Nothing in either tree may be
+UNTRACKED — `force-include` copies what is on disk, not what git tracks, so a stray file
+would ride into the wheel and make a dev build differ from a CI one. (Generated content is
+fine, and already there: three specs carry `BEGIN GENERATED` blocks.)
 
 ## Commands
 

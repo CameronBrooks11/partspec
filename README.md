@@ -360,8 +360,12 @@ counting through and counting across disagree, makes it refuse. An unnecessary
 ## Documentation
 
 Start at [`docs/README.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/README.md),
-which routes by what you are trying to do. The full set, of which the four `SPEC-*`
-documents are normative and were written before the implementation:
+which routes by what you are trying to do. **These documents install with the package** —
+`partspec --docs` prints the directory holding `docs/` and `skills/`, so an agent working
+from an install reads them without the network. Citations pointing outside those two trees
+(`notes/`, `tests/`, `examples/`, the source) still need the repository. The full set,
+of which the four `SPEC-*` documents are normative and were written before the
+implementation:
 
 - [`docs/AGENT-CONTRACT.md`](https://github.com/CameronBrooks11/partspec/blob/main/docs/AGENT-CONTRACT.md) — how to drive the tool: read the
   report, not the console, and what each exit code obliges you to do.

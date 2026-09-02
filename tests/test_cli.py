@@ -28,7 +28,7 @@ from support import (
 
 from partspec import cli
 from partspec.cli import main
-from partspec.status import Verdict, exit_code
+from partspec.status import EXIT_USAGE, Verdict, exit_code
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -2385,3 +2385,128 @@ def test_the_out_default_is_anchored_to_the_contract_and_every_out_says_so(tmp_p
                     f"{verb} --out carries no help at all; a caller who omits it has no "
                     f"way to learn where the artifact went short of reading _out_dir"
                 )
+
+
+def test_the_docs_flag_prints_a_directory_the_citations_actually_resolve_against(capsys):
+    """#349: `--docs` exists so the documents' own paths can be followed.
+
+    Not "it prints a path" — the assertion is that the two files the corpus
+    routes to first open UNDERNEATH what it printed. A directory named `docs`
+    holding neither would satisfy any spelling-based check, and an installed
+    0.7.6 had no such directory at all: `find` over the uv tool tree for
+    `AGENT-CONTRACT.md` returned nothing, which is the whole of the issue.
+
+    One line on stdout, because the documented use is `cd "$(partspec --docs)"`.
+    """
+    assert main(["--docs"]) == 0
+    printed = capsys.readouterr().out.splitlines()
+    assert len(printed) == 1, f"stdout must carry the path alone, got {printed}"
+    root = Path(printed[0])
+    assert (root / "docs" / "AGENT-CONTRACT.md").is_file(), f"{root} carries no contract"
+    assert (root / "skills" / "contract-authoring" / "SKILL.md").is_file(), (
+        f"{root} does not answer AGENT-CONTRACT's own first-paragraph route"
+    )
+
+
+def test_a_copy_carrying_no_documents_refuses_rather_than_naming_the_url_as_a_path(
+    capsys, monkeypatch
+):
+    """The refusal branch, which no checkout and no wheel reaches on its own.
+
+    A locator's failure mode is answering anyway. Here the failure is narrower
+    and worth pinning separately: printing the URL to STDOUT would put a string
+    no shell can enter where the caller reads a path, so `cd "$(partspec
+    --docs)"` would fail on a nonexistent directory named after a URL instead
+    of on the non-zero exit. Stdout stays empty; the pointer goes to stderr.
+
+    `ERROR`, not `EXIT_USAGE`: the arguments were fine and the tool could not
+    answer them.
+    """
+    monkeypatch.setattr(cli, "docs_root", lambda: None)
+    assert main(["--docs"]) == exit_code(Verdict.ERROR)
+    captured = capsys.readouterr()
+    assert captured.out == "", f"stdout must stay empty, got {captured.out!r}"
+    assert "https://github.com/CameronBrooks11/partspec" in captured.err
+
+
+def test_the_locator_refuses_a_tree_that_holds_only_half_the_corpus(tmp_path: Path):
+    """Directory presence is not the question; the entry points are.
+
+    A partially-copied install — `docs/` there, `skills/` missing — is exactly
+    where a confident path is worse than none, because the reader following
+    `skills/contract-authoring/SKILL.md` gets a plausible root and a missing
+    file rather than a refusal that names the URL.
+    """
+    from partspec.docs import _carries_the_documents
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "AGENT-CONTRACT.md").write_text("")
+    assert not _carries_the_documents(tmp_path)
+
+    (tmp_path / "skills" / "contract-authoring").mkdir(parents=True)
+    (tmp_path / "skills" / "contract-authoring" / "SKILL.md").write_text("")
+    assert _carries_the_documents(tmp_path)
+
+
+def test_the_locator_answers_each_layout_it_can_meet(tmp_path: Path, monkeypatch):
+    """`docs_root()`'s refusal, executed rather than stood in for.
+
+    The CLI test above monkeypatches `cli.docs_root`, so it exercises the
+    refusal MESSAGE and not the decision behind it — coverage showed the
+    `return None` line unexecuted by the whole suite (PR #350 review, finding
+    9). The locator reads `__file__` at call time, so a package directory that
+    carries neither a `_bundled/` nor a `src/` parent is the real thing: a
+    partial copy, or an install this project did not build.
+    """
+    from partspec import docs as docs_module
+
+    package = tmp_path / "site-packages" / "partspec"
+    package.mkdir(parents=True)
+    monkeypatch.setattr(docs_module, "__file__", str(package / "docs.py"))
+    assert docs_module.docs_root() is None
+
+    # And the checkout branch, from the same probe: `src/` above the package,
+    # with both entry points under its parent.
+    checkout = tmp_path / "checkout"
+    (checkout / "src" / "partspec").mkdir(parents=True)
+    (checkout / "docs").mkdir()
+    (checkout / "docs" / "AGENT-CONTRACT.md").write_text("")
+    (checkout / "skills" / "contract-authoring").mkdir(parents=True)
+    (checkout / "skills" / "contract-authoring" / "SKILL.md").write_text("")
+    monkeypatch.setattr(docs_module, "__file__", str(checkout / "src" / "partspec" / "docs.py"))
+    assert docs_module.docs_root() == checkout
+
+    # And the INSTALLED branch, which the suite otherwise reaches only through
+    # a subprocess (`test_the_installed_wheel_locates_the_documents_it_carries`
+    # runs a real venv's entry point, so nothing in-process executes this
+    # line).
+    #
+    # The order is a preference, not a tie-break: no shipped layout presents
+    # both candidates. An editable install does put a `_bundled/` in
+    # site-packages, but its `.pth` redirects the import to `src/`, so
+    # `__file__` — which is what the locator reads — only ever sees one of
+    # them. Claiming it disambiguated an editable-then-built checkout was
+    # invented; `src/partspec/_bundled` is never created by a build (PR #350
+    # review, NEW-C).
+    bundled = tmp_path / "site-packages2" / "partspec" / "_bundled"
+    (bundled / "docs").mkdir(parents=True)
+    (bundled / "docs" / "AGENT-CONTRACT.md").write_text("")
+    (bundled / "skills" / "contract-authoring").mkdir(parents=True)
+    (bundled / "skills" / "contract-authoring" / "SKILL.md").write_text("")
+    monkeypatch.setattr(docs_module, "__file__", str(bundled.parent / "docs.py"))
+    assert docs_module.docs_root() == bundled
+
+
+def test_the_docs_flag_refuses_to_stand_in_for_a_verb(capsys):
+    """`partspec --docs check part.py` printed a path and exited 0.
+
+    It ran no check. Exit 0 on a check the caller asked for is the one reading
+    this tool exists to refuse, and the same command without a target already
+    exited 64 — so the two spellings of one mistake disagreed (PR #350 review,
+    finding 10). `--version` discards a command the same way, which is the
+    argument this followed until the exit code was looked at.
+    """
+    assert main(["--docs", "check", "part.py"]) == EXIT_USAGE
+    captured = capsys.readouterr()
+    assert captured.out == "", "a path on stdout would read as a check that ran"
+    assert "check" in captured.err

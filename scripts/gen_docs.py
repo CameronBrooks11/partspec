@@ -384,6 +384,10 @@ def _layout_rows() -> list[tuple[str, str]]:
             "phrases install hints for the interpreter reading them (uv venvs have no pip)",
         ),
         (
+            "docs.py",
+            "locates the docs/ and skills/ the wheel carries, or refuses to guess (#349)",
+        ),
+        (
             "imports.py",
             "source closure: what the build actually read, and how honestly (SPEC-report 8.3)",
         ),

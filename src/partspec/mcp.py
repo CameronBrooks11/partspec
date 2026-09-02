@@ -74,8 +74,12 @@ exported artifact — and `vdiff` takes exactly those: a `render.json` or
 none.
 
 The documents these tools cite by section — AGENT-CONTRACT.md for the repair
-loop, SPEC-contract.md for authoring, SPEC-report.md for the artifact — are at
-https://github.com/CameronBrooks11/partspec/tree/main/docs
+loop, SPEC-contract.md for authoring, SPEC-report.md for the artifact — ship
+with the package: `partspec --docs`, in a shell, prints the directory holding
+them — `docs/AGENT-CONTRACT.md` and `skills/contract-authoring/SKILL.md` are
+underneath it (#349). An MCP client has a tool list
+and nothing else, so this paragraph is the only place it can learn that. They
+are also at https://github.com/CameronBrooks11/partspec/tree/main/docs
 """
 
 
