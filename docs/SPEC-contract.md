@@ -1352,6 +1352,16 @@ Until an assembly verb exists, interference between two parts is declared by mod
 `intersection() { A; B; }` **at assembly pose** as a part of its own and claiming the
 outcome the design intends. `examples/clearance/` is the worked pattern.
 
+**`partspec lint` flags every probe written this way, and that is expected.**
+`csg-two-part-intersection`'s predicate is the shape — one top-level node, an
+`intersection()` of exactly two children — which a part-versus-part probe has by
+construction, whether or not it grows a part per rule 3 below. The finding is advisory and
+never a verdict on the part (`docs/LINT.md`, "Known noise, owned"), and on a grown probe
+its own advice has already been taken. Read it, satisfy yourself that the clearance you
+meant is the clearance you wrote, and accept it. This section recommends a pattern the
+tool's own lint remarks on; an author should meet that in the spec rather than in a
+surprising run.
+
 Every pair of parts is in exactly one of three states, and each grades on a different
 measurand. **Two of the three answer the same way on every engine and are what this
 section recommends; the third does not and MUST NOT be declared as if it did:**

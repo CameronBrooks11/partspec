@@ -99,10 +99,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a lattice trimmed to its envelope — all four fire, measured, and none is a
   probe. The discriminator is the contract's `empty()` and `partspec lint` never
   sees a contract, so the finding is phrased conditionally and the noise is
-  owned in `LINT.md` beside `csg-coincident-face`'s. Nothing this repo ships
-  trips it — 0 of the tracked `.scad` files whose export can be read (21 of 25
-  on 2021.01, 22 of 25 on 2026.08.01; the rest are refused whole for string
-  content) — and a test now pins that rather than three documents asserting it.
+  owned in `LINT.md` beside `csg-coincident-face`'s. Two of this repo's tracked
+  `.scad` files trip it — `examples/clearance/`'s two probes, of the 24 of 28
+  whose export can be read on 2021.01 and 25 of 28 on 2026.08.01; the rest are
+  refused whole for string content — and a test pins that match list **by name
+  and by equality** rather than three documents asserting a count. Those two are
+  §9.1's worked probe pattern and are expected: the predicate is the shape, and
+  every part-versus-part probe has it by construction.
   It reads the `.csg` tree **before any boolean runs**, so the predicate answers
   the same on every kernel — which is the point, the kernels being exactly what
   disagree about the result. It consults no engine verdict and needs none.

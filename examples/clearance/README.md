@@ -123,13 +123,23 @@ $ echo $?
 (One finding per file, wrapped and elided here; the JSON payload on stdout
 carries them in full.)
 
-The rule's predicate is the **shape** — one top-level node, an `intersection()`
-of exactly two children — and every part-versus-part probe has that shape by
-construction, grown or not. It is advisory, exits 0, and is a statement about
-the source rather than a verdict on the part. Read it, satisfy yourself that the
-clearance you mean is the clearance you wrote, and accept it: on `clearance.scad`
-its own remedy is already taken, and on `interference.scad` the claim is a volume
-band whose violation has volume anyway.
+**Expect this, and do not try to author it away.** The rule's predicate is the
+**shape** — one top-level node, an `intersection()` of exactly two children — and
+every part-versus-part probe has that shape by construction, grown or not. Three
+spellings of "grown by the clearance" were measured against it (an enlarged
+module, a `minkowski()`, a `hull()` sweep) and all three still match, on both
+pinned engines. The remedy makes the *claim* numeric; it was never a way to
+silence the finding.
+
+The finding is advisory, exits 0, and is a statement about the source rather than
+a verdict on the part — `LINT.md`'s "Known noise, owned" paragraph under
+`csg-two-part-intersection` is where that standing is set out. Read it, satisfy
+yourself that the clearance you mean is the clearance you wrote, and accept it:
+on `clearance.scad` its own advice is already taken, and on `interference.scad`
+the claim is a volume band whose violation has volume anyway.
+
+`tests/test_lint.py` pins these two files by name, so the repo notices a *third*
+`.scad` joining them.
 
 ## What the pattern costs
 
