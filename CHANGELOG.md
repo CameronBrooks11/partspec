@@ -722,15 +722,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which is the same shape: `Box(...)` is already a compound over its solid,
   so the two counts differ by one.) Every one was
   flagged `exact`, on a shape reporting `solid_count 1`, `watertight true` and
-  `cavities 0` — nothing adjacent moved, which is why none of this was caught by
-  the measurements beside it. All three now sum over `a.solids()`.
+  `cavities 0`. On the shell-over-its-own-faces shape and the nested one,
+  nothing adjacent moved at all — which is why the measurements beside them
+  caught none of it. (Not a blanket claim: the stray standing 100 mm away is a
+  separate body, so `bbox` and `topology_counts` do move for it. `SPEC-backend`
+  §4 states which primitives name which shape.) All three now sum over
+  `a.solids()`.
   **`area` keeps its fallback where there is no solid**: a naive sum reports a
   closed box shell as `0.0` exact, which is the same defect in a new place, and
   `area` is deliberately defined for a face and a shell as much as for a solid.
   **`step_roundtrip` read the same collapsed property on both sides** and
   reported a total volume degradation on an exchange that preserved the part
   exactly — the one member of this class that moved a verdict.
-
 
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
   counts the field this release added to it** (#295, #340). §2.4 lists that
