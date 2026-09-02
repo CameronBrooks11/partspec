@@ -1003,9 +1003,9 @@ intersect against a part **grown by the clearance it requires**: a violation wit
 margin then encloses positive volume, which puts it above every floor tabulated below and
 makes the claim numeric. At a gap of *exactly* the declared clearance the probe is a
 zero-thickness sheet again and the pinned engines disagree — the degeneracy moves to the
-boundary rather than disappearing, which is why §9.1 rule 3 says to grade a design gap
-strictly greater than it. §9.1 rule 3 is the worked form, and `partspec lint`'s `csg-two-part-intersection`
-is the finding that says so at the source.
+boundary rather than disappearing. §9.1 rule 3 is the worked form and says to grade a
+design gap strictly greater than the clearance; `partspec lint`'s
+`csg-two-part-intersection` is the finding that says so at the source.
 
 **Why it cannot mean more, and why it sometimes means less.** Past the unresolved-name
 guard above, the check adjudicates on one thing: *did the engine produce anything*. That
