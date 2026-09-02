@@ -7,25 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **OCCT `volume`, `area` and `center_of_mass` measure the material, not the
-  shape** (#344, #347). All three read a build123d property off the whole shape,
-  and none of those properties is about material. On a 20 mm cube bored Ø6
-  through — honestly 7434.51 mm³ — a `Shell` over the solid's own faces read
-  **14869.03**, exactly double; a closed 10 mm shell standing 100 mm away read
-  **8434.51** and dragged the centroid to **x = 11.856 mm** from −3.8e−16; and
-  the same solid two `Compound` wrappings deep read **0.0**. Every one was
-  flagged `exact`, on a shape reporting `solid_count 1`, `watertight true` and
-  `cavities 0` — nothing adjacent moved, which is why none of this was caught by
-  the measurements beside it. All three now sum over `a.solids()`.
-  **`area` keeps its fallback where there is no solid**: a naive sum reports a
-  closed box shell as `0.0` exact, which is the same defect in a new place, and
-  `area` is deliberately defined for a face and a shell as much as for a solid.
-  **`step_roundtrip` read the same collapsed property on both sides** and
-  reported a total volume degradation on an exchange that preserved the part
-  exactly — the one member of this class that moved a verdict.
-
 ### Added
 
 - **The documents install with the package** (#349). `docs/` and `skills/` now
@@ -728,6 +709,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   side effect of a policy PR.
 
 ### Fixed
+
+- **OCCT `volume`, `area` and `center_of_mass` measure the material, not the
+  shape** (#344, #347). All three read a build123d property off the whole shape,
+  and none of those properties is about material. On a 20 mm cube bored Ø6
+  through — honestly 7434.51 mm³ — a `Shell` over the solid's own faces read
+  **14869.03**, exactly double; a closed 10 mm shell standing 100 mm away read
+  **8434.51** and dragged the centroid to **x = 11.856 mm** from −3.8e−16; and
+  the same solid two `Compound` wrappings deep read **0.0**. Every one was
+  flagged `exact`, on a shape reporting `solid_count 1`, `watertight true` and
+  `cavities 0` — nothing adjacent moved, which is why none of this was caught by
+  the measurements beside it. All three now sum over `a.solids()`.
+  **`area` keeps its fallback where there is no solid**: a naive sum reports a
+  closed box shell as `0.0` exact, which is the same defect in a new place, and
+  `area` is deliberately defined for a face and a shell as much as for a solid.
+  **`step_roundtrip` read the same collapsed property on both sides** and
+  reported a total volume degradation on an exchange that preserved the part
+  exactly — the one member of this class that moved a verdict.
+
 
 - **`AGENT-CONTRACT`'s measured enumeration of `measure`'s failure payload
   counts the field this release added to it** (#295, #340). §2.4 lists that
