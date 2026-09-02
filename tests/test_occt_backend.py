@@ -1280,8 +1280,19 @@ def test_step_roundtrip_fails_the_stray_shell_that_the_accessors_cannot_see(
     counts move where nothing else does. `genus` refuses this shape at exit 2;
     this FAILS it at exit 1, which is a verdict rather than a refusal.
 
-    Pinned so a future refactor cannot deduplicate these counts and give the
-    detection away silently.
+    **The deduplication is what makes the drift visible, not what threatens
+    it.** An earlier revision of this docstring and of SPEC-backend said the
+    opposite -- that a refactor must not deduplicate these counts -- which is
+    the rule inverted: obeying it deletes the detector. Measured on this shape,
+    the two refactors that lose the detection are raw occurrence counting and
+    reduction to the solids' own, and the accessor the code uses is the only
+    one of the three that sees anything:
+
+        .faces() both sides            (7, 14)   drift -> FAIL
+        raw TopExp occurrences        (14, 14)   no drift, detector gone
+        summed over a.solids()         (7,  7)   no drift, detector gone
+
+    Both losing forms are pinned below, so neither can be introduced silently.
     """
     honest = backend.step_roundtrip(_bored_cube())
     assert not isinstance(honest, Unsupported)
@@ -1291,6 +1302,22 @@ def test_step_roundtrip_fails_the_stray_shell_that_the_accessors_cannot_see(
     stray = _cube_beside_a_shell_over_its_own_faces()
     assert backend.topology_counts(stray).value == (7, 15, 10), (
         "premise: the accessors cannot see this stray at all"
+    )
+
+    # The mechanism, executed rather than described: the `a` side must stay
+    # deduplicated for the round-trip's expansion to show up as drift.
+    from OCP.TopAbs import TopAbs_ShapeEnum  # pyright: ignore[reportAttributeAccessIssue]
+    from OCP.TopExp import TopExp_Explorer  # pyright: ignore[reportAttributeAccessIssue]
+
+    explorer = TopExp_Explorer(stray.wrapped, TopAbs_ShapeEnum.TopAbs_FACE)
+    occurrences = 0
+    while explorer.More():
+        occurrences += 1
+        explorer.Next()
+    assert occurrences == 14, "premise: raw occurrence counting already reads 14 before"
+    assert len(stray.faces()) == 7, "premise: the deduplicating accessor reads 7"
+    assert sum(len(solid.faces()) for solid in stray.solids()) == 7, (
+        "premise: reducing to the solids' own also reads 7"
     )
     result = backend.step_roundtrip(stray)
     assert not isinstance(result, Unsupported)
