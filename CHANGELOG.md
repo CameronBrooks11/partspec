@@ -731,7 +731,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `build_origin` stays `null`, because whether the path is a typo or a file a
   two-pass workflow has not produced yet is not something partspec can tell.
   `measure` and `render` still emit numbers and views on this shape — they are
-  guarded for #286's channel and not yet for this one, tracked separately.
+  guarded for #286's channel, which is a stderr marker, and this one is visible
+  only in the depfile. Measured and tracked as #355.
 
 - **`render` no longer writes views of a part the engine hollowed out** (#307,
   epic #305). #286 made `check` and `measure` refuse a build whose stderr says
