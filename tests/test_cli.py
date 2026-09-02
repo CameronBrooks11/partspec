@@ -28,7 +28,7 @@ from support import (
 
 from partspec import cli
 from partspec.cli import main
-from partspec.status import Verdict, exit_code
+from partspec.status import EXIT_USAGE, Verdict, exit_code
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -2446,3 +2446,61 @@ def test_the_locator_refuses_a_tree_that_holds_only_half_the_corpus(tmp_path: Pa
     (tmp_path / "skills" / "contract-authoring").mkdir(parents=True)
     (tmp_path / "skills" / "contract-authoring" / "SKILL.md").write_text("")
     assert _carries_the_documents(tmp_path)
+
+
+def test_the_locator_answers_each_layout_it_can_meet(tmp_path: Path, monkeypatch):
+    """`docs_root()`'s refusal, executed rather than stood in for.
+
+    The CLI test above monkeypatches `cli.docs_root`, so it exercises the
+    refusal MESSAGE and not the decision behind it — coverage showed the
+    `return None` line unexecuted by the whole suite (PR #350 review, finding
+    9). The locator reads `__file__` at call time, so a package directory that
+    carries neither a `_bundled/` nor a `src/` parent is the real thing: a
+    partial copy, or an install this project did not build.
+    """
+    from partspec import docs as docs_module
+
+    package = tmp_path / "site-packages" / "partspec"
+    package.mkdir(parents=True)
+    monkeypatch.setattr(docs_module, "__file__", str(package / "docs.py"))
+    assert docs_module.docs_root() is None
+
+    # And the checkout branch, from the same probe: `src/` above the package,
+    # with both entry points under its parent.
+    checkout = tmp_path / "checkout"
+    (checkout / "src" / "partspec").mkdir(parents=True)
+    (checkout / "docs").mkdir()
+    (checkout / "docs" / "AGENT-CONTRACT.md").write_text("")
+    (checkout / "skills" / "contract-authoring").mkdir(parents=True)
+    (checkout / "skills" / "contract-authoring" / "SKILL.md").write_text("")
+    monkeypatch.setattr(docs_module, "__file__", str(checkout / "src" / "partspec" / "docs.py"))
+    assert docs_module.docs_root() == checkout
+
+    # And the INSTALLED branch, which the suite otherwise reaches only through
+    # a subprocess (`test_the_installed_wheel_locates_the_documents_it_carries`
+    # runs a real venv's entry point, so nothing in-process executes this
+    # line). `_bundled/` wins over any `src/` reading, which is what an
+    # editable install of a checkout that was later built into a wheel would
+    # otherwise make ambiguous.
+    bundled = tmp_path / "site-packages2" / "partspec" / "_bundled"
+    (bundled / "docs").mkdir(parents=True)
+    (bundled / "docs" / "AGENT-CONTRACT.md").write_text("")
+    (bundled / "skills" / "contract-authoring").mkdir(parents=True)
+    (bundled / "skills" / "contract-authoring" / "SKILL.md").write_text("")
+    monkeypatch.setattr(docs_module, "__file__", str(bundled.parent / "docs.py"))
+    assert docs_module.docs_root() == bundled
+
+
+def test_the_docs_flag_refuses_to_stand_in_for_a_verb(capsys):
+    """`partspec --docs check part.py` printed a path and exited 0.
+
+    It ran no check. Exit 0 on a check the caller asked for is the one reading
+    this tool exists to refuse, and the same command without a target already
+    exited 64 — so the two spellings of one mistake disagreed (PR #350 review,
+    finding 10). `--version` discards a command the same way, which is the
+    argument this followed until the exit code was looked at.
+    """
+    assert main(["--docs", "check", "part.py"]) == EXIT_USAGE
+    captured = capsys.readouterr()
+    assert captured.out == "", "a path on stdout would read as a check that ran"
+    assert "check" in captured.err

@@ -832,12 +832,14 @@ def test_every_spec_a_diagnostic_cites_is_locatable_from_the_tool():
     """A citation an installed user cannot follow is not a citation.
 
     Diagnostics cite the specs by section — `(SPEC-report.md 7.1)`,
-    `SPEC-contract.md 10` — and the wheel ships the package and nothing else,
-    on purpose. So for anyone who installed rather than cloned, the tool names
-    documents it gives no way to reach. Found by dropping an agent on a cold
+    `SPEC-contract.md 10` — and the wheel used to ship the package and nothing
+    else, so for anyone who installed rather than cloned the tool named
+    documents it gave no way to reach. Found by dropping an agent on a cold
     install with an objective and no other context: it went looking for
     SPEC-contract.md after the attribution advisory named it, did not find it,
-    and inferred the contract API from `inspect.getdoc` instead.
+    and inferred the contract API from `inspect.getdoc` instead. The wheel
+    carries the documents since #349, which changes where `--help` should send
+    that agent but not whether this test has a subject.
 
     Two halves, both derived rather than matched: every spec the source names
     must exist, and `--help` must say where the specs are. Neither is a phrase
@@ -868,12 +870,19 @@ def test_every_spec_a_diagnostic_cites_is_locatable_from_the_tool():
     # `--help` must name THAT directory rather than only the URL. A phrase
     # search would not have caught the epilog going stale against a moved
     # bundle, because the word "docs" survives every such move.
+    #
+    # The entry point is opened UNDERNEATH the named directory rather than
+    # compared to `docs_root()`. Asserting the two agree pins consistency, not
+    # correctness: pointed at a plausible wrong root, `docs_root()` and the
+    # epilog move together and this stayed green (PR #350 review, mutation 2).
     from partspec.docs import docs_root
 
     root = docs_root()
     assert root is not None, "the checkout should locate its own documents"
-    assert str(root / "docs") in epilog, (
-        f"--help does not name the documents this copy carries ({root / 'docs'})"
+    named = [line.strip() for line in epilog.splitlines() if line.startswith("  /")]
+    assert named, f"--help names no directory:\n{epilog}"
+    assert any(Path(line, "docs", "AGENT-CONTRACT.md").is_file() for line in named), (
+        f"--help names {named}, and the contract is under none of them"
     )
 
 

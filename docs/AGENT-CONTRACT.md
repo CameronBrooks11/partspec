@@ -10,10 +10,12 @@ the routing document, and it sends you to the source-side skill for your engine
 (`openscad-authoring`, or `build123d-authoring` for build123d and CadQuery). The spec is
 normative and closes the vocabulary; the skill is how to choose within it.
 
-Every path cited here is relative to the directory **`partspec --docs`** prints: the
-repository root in a checkout, and the copy of `docs/` and `skills/` that the wheel
-carries in an install (#349). Before that, this paragraph's own routing path resolved to
-nothing for anyone who installed rather than cloned.
+A path beginning `docs/` or `skills/` — the routing path above is one — is relative to
+the directory **`partspec --docs`** prints: the repository root in a checkout, and the
+copy of both trees that the wheel carries in an install (#349). A bare `SPEC-report.md`
+means `docs/SPEC-report.md`. A path under `tests/` is a pointer into the repository, which
+an install does not carry. Before #349 the routing path above resolved to nothing at all
+for anyone who installed rather than cloned.
 
 **The `partspec-mcp` tools cannot execute this document.** They run the same CLI per call,
 but the four registered tools are `check` / `measure` / `render` / `vdiff`, and the check

@@ -24,11 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when there is not; `partspec --docs` prints the path alone on stdout, or
   exits `4` printing nothing there — a caller writes `cd "$(partspec --docs)"`,
   and a URL on stdout would be a string no shell can enter standing in for the
-  answer. Costs +163 KiB on the wheel, measured. `examples/` deliberately does
-  not ship: `force-include` copies what is on disk rather than what git tracks,
-  and adding it put ten untracked `outputs/` and `__pycache__` entries in the
-  wheel — a dev build and a CI build would no longer agree (#218's failure, on
-  the artifact that reaches PyPI).
+  answer. Combined with a verb (`partspec --docs check part.py`) it exits `64`
+  rather than printing a path and exiting 0 on a check it never ran. Costs
+  about +160 KiB on the wheel. `examples/` deliberately does not ship:
+  `force-include` copies what is on disk rather than what git tracks, and
+  adding it put ten untracked `outputs/` artifacts in the wheel — a dev build
+  and a CI build would no longer agree (#218's failure, on the artifact that
+  reaches PyPI).
+
+  **What an install still cannot open**: the 27 citations in these documents
+  that name a file under `notes/`, `tests/`, `src/` or `examples/`. Those are
+  pointers into the repository, and `docs/README.md` now says so rather than
+  implying the corpus is self-contained.
 
 - **`payload` — every artifact now says which artifact it is** (#295, epic
   #305). `check`, `measure` and `render` all emit `schema_version: 1` under

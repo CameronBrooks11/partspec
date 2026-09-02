@@ -111,28 +111,38 @@ OUT_DEFAULT_DOC = (
 
 
 def _docs_epilog() -> str:
-    """`--help`'s last line: where the cited specs are, for this copy.
+    """`--help`'s last lines: where the cited specs are, for this copy.
 
     Computed rather than constant because the answer differs between an
     install and a checkout, and a constant would have to name whichever one
-    its author had. Both branches name something a reader can open.
+    its author had.
+
+    Hard-wrapped, and the parser takes `RawDescriptionHelpFormatter` for it.
+    The default formatter re-fills the epilog to the terminal width, which
+    broke the path across a line — measured at COLUMNS=80 against a real
+    `uv tool install` root, which wrapped over three lines and put a hyphen
+    where `site-packages` breaks. A located path that cannot be copied is
+    barely better than the URL it replaced, and this is the one line whose
+    whole value is being pasteable.
     """
     root = docs_root()
     if root is None:
         return (
-            "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) are not "
-            f"installed with this copy; read them at {DOCS_URL}"
+            "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) are\n"
+            f"not installed with this copy; read them at {DOCS_URL}"
         )
     return (
-        "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) ship with this "
-        f"copy: {root / 'docs'} (`partspec --docs` prints the directory they resolve "
-        f"against). Online: {DOCS_URL}"
+        "Specs cited in diagnostics (SPEC-report.md, SPEC-contract.md, ...) ship\n"
+        "with this copy, under `docs/` and `skills/` of:\n"
+        f"  {root}\n"
+        f"which `partspec --docs` prints. Online:\n  {DOCS_URL}"
     )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="partspec",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         description="Verify CAD-as-code parts against declared engineering intent.",
         # Diagnostics cite the specs by section ("SPEC-report.md 7.1"), and for
         # anyone who installed rather than cloned every one of those citations
@@ -2181,6 +2191,8 @@ def _cmd_docs() -> int:
             file=sys.stderr,
         )
         return exit_code(Verdict.ERROR)
+    # The root, not `root / "docs"`: `skills/` is under it too, and the
+    # citations that made this flag necessary are written from here.
     print(root)
     return 0
 
@@ -2215,6 +2227,19 @@ def main(argv: list[str] | None = None) -> int:
     # *unanticipated* failures land on ERROR rather than on a verdict about the
     # part. Placed after `parse_args`, so argparse keeps its own SystemExit.
     if args.docs:
+        # Refused rather than silently won. `--version` discards a command the
+        # same way, but `partspec --docs check foo` would have printed a path
+        # and exited **0** having checked nothing -- and exit 0 on a check the
+        # caller asked for is the one reading this tool exists to refuse. It is
+        # also what the shape already does without a target, where argparse
+        # rejects the subcommand's missing argument at 64 (PR #350 review).
+        if args.command is not None:
+            print(
+                f"partspec: --docs locates the documents and runs nothing; "
+                f"drop `{args.command}` or drop --docs",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
         return _cmd_docs()
 
     try:

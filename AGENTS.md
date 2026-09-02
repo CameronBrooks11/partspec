@@ -91,7 +91,9 @@ docs/             # the specs and decision log — normative, not background rea
 `partspec/_bundled/` at build time so an installed copy can read the corpus it cites;
 `partspec --docs` prints that directory, and it mirrors the repository root so the
 citations inside those files resolve unchanged (#349). Nothing in either tree may be
-generated or untracked — `force-include` copies what is on disk, not what git tracks.
+UNTRACKED — `force-include` copies what is on disk, not what git tracks, so a stray file
+would ride into the wheel and make a dev build differ from a CI one. (Generated content is
+fine, and already there: three specs carry `BEGIN GENERATED` blocks.)
 
 ## Commands
 

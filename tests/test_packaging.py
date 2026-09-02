@@ -770,11 +770,16 @@ def test_the_wheel_carries_exactly_the_documents_git_tracks(wheel_names: set[str
 
     The second half is the hazard the fix introduces. `force-include` copies
     what is on DISK, not what git tracks: measured, by adding `examples/` to
-    the block and building, ten untracked `outputs/` and `__pycache__` entries
-    landed in the wheel. `docs/` and `skills/` hold no generated files today,
-    and a dev-built wheel differing from a CI-built one is #218 again — on the
-    artifact that reaches PyPI, where it cannot be caught by inspection later.
-    Set EQUALITY, therefore, rather than a subset check in either direction.
+    the block and building, ten untracked `outputs/` artifacts landed in the
+    wheel. Not `__pycache__`, which hatchling excludes on its own — this
+    docstring said `outputs/` and `__pycache__` until the review re-ran the
+    probe and found the `.pyc` files on disk and absent from the zip. A
+    dev-built wheel differing from a CI-built one is #218 again, on the
+    artifact that reaches PyPI where inspection cannot catch it later.
+
+    Set EQUALITY, therefore, rather than a subset in either direction. What
+    that catches is an UNTRACKED file, not a generated one: three specs carry
+    generated blocks and are committed, and they ship exactly as tracked.
     """
     tracked = set(
         subprocess.run(
@@ -800,3 +805,65 @@ def test_the_wheel_carries_exactly_the_documents_git_tracks(wheel_names: set[str
     for entry in ("docs/AGENT-CONTRACT.md", "skills/contract-authoring/SKILL.md"):
         assert prefix + entry in wheel_names, f"the wheel does not carry {entry}"
     assert "partspec/cli.py" in wheel_names, "and it is still a package, not a docs bundle"
+
+
+def test_the_installed_wheel_locates_the_documents_it_carries(tmp_path: Path):
+    """The claim the whole slice rests on, executed against an install.
+
+    Everything else about #349 is checked from inside a checkout, where the
+    paths always resolved — and `docs_root()`'s installed branch (`_bundled`)
+    is dead code there, because every throwaway recipe installs `-e '.'` and
+    takes the `src/` branch instead. Coverage said so outright: that line was
+    executed by nothing in the suite (PR #350 review, finding 9).
+
+    What only this can catch is a force-include DESTINATION that is wrong
+    rather than absent. Retarget it to `partspec/docs` and the zip still
+    carries every tracked file, so the test above stays green while
+    `partspec --docs` refuses on every install.
+
+    `--no-config`, like every other throwaway install here: `uv pip` reads
+    `[tool.uv]` from the nearest pyproject.toml above the CWD and would apply
+    this repo's OCP overrides to the wheel under test.
+    """
+    import shutil
+
+    if shutil.which("uv") is None or not (REPO / ".git").is_dir():
+        pytest.skip("needs the uv frontend and a checkout, like the wheel fixture")
+
+    out = tmp_path / "dist"
+    subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(out)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    venv = tmp_path / "venv"
+    subprocess.run(["uv", "venv", "--no-config", str(venv)], capture_output=True, check=True)
+    subprocess.run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--no-config",
+            "--python",
+            str(venv / "bin" / "python"),
+            str(next(out.glob("*.whl"))),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    located = subprocess.run(
+        [str(venv / "bin" / "partspec"), "--docs"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert located.returncode == 0, f"--docs failed on an install: {located.stderr}"
+    root = Path(located.stdout.strip())
+    assert root.is_dir(), f"--docs named {root}, which is not a directory"
+    assert venv in root.parents, f"--docs named {root}, which is outside the install"
+    for entry in ("docs/AGENT-CONTRACT.md", "skills/contract-authoring/SKILL.md"):
+        assert (root / entry).is_file(), f"the install cannot open {entry} under {root}"

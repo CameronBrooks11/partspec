@@ -58,12 +58,17 @@ data about the source and never a verdict on the part.
 
 ---
 
-**Where these files are.** `partspec --docs` prints the directory that every
-repo-relative path above — into `docs/` or into `skills/` — resolves against:
-the repository root in a checkout, and a bundled copy inside the package in an install, because the
-wheel carries both trees (#349). What it does **not** carry is the rest of the
-repository, so a citation naming `examples/`, `tests/` or the source tree is a
-pointer into the repository rather than a path an install can open.
+**Where these files are.** `partspec --docs` prints the directory `docs/` and
+`skills/` sit in: the repository root in a checkout, and a bundled copy inside
+the package in an install, because the wheel carries both trees (#349). A path
+written `docs/SPEC-contract.md` or `skills/contract-authoring/SKILL.md`
+resolves against it; the sibling links above are relative to this file, so they
+resolve against `<that>/docs`.
+
+What the wheel does **not** carry is the rest of the repository. The 27
+citations in these documents that name a file under `notes/`, `tests/`, `src/`
+or `examples/` are pointers into the repository rather than paths an install
+can open — and `notes/` is not in the sdist either.
 
 The specs are normative and were written before the implementation. Where code
 and spec disagree, that is a bug in one of them — say which, rather than
