@@ -262,8 +262,8 @@ cost is written down here rather than paid quietly.
 - **Detected by.** The engine's own stderr on the path that succeeded (#333), the same
   guard as 9a.
 - **When it's green.** Three of the five rows above are byte-perfect and refused. `main`
-  passes all five at exit 0; this guard errors four of them at exit 4 (the silent fifth is
-  below).
+  passes all five at exit 0; this guard errors **all five** at exit 4 (a sixth shape,
+  silent on both engines, is below).
 - **Guards.** The refusal stands. An over-long rotate vector, a string where an axis
   belongs, and an angle that never arrived are all bugs in the source; the marker cannot
   tell which of the four situations it is in, and the two that *do* damage the mesh are
