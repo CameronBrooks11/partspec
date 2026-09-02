@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documented
+
+- **ISO 965-1 does not meet §10.1's formula-executed exception, measured** (#260,
+  #246). The exception admits a standard's tolerance grades and fundamental
+  deviations where the standard states them as a formula *and* the suite executes
+  that formula against every shipped value. ISO 965-1:2013's clause 10 states the
+  formulae — and its §10.1 also states that "in order to reproduce a smooth
+  progression, the rules of rounding off are not always used", and that where the
+  computed and tabulated values differ, **the tables govern**. Executing every
+  clause-10.2 formula against Table 1 with the R40 rounding §10.1 prescribes:
+  **144 of 197 cells agree, 53 do not**. Not a rounding artefact —
+  `es_d = -(65 + 19P)` at P = 8 gives -217 against a tabulated -180, and Table 1
+  carries values off the R40 grid entirely, so no single rule reproduces it. Even
+  `es_g = -(15 + 11P)`, the formula #246 cited as its corroboration when it
+  narrowed the exclusion, misses at four pitches. Both routes therefore fail: the
+  tabulated values cannot execute the formula, and the computed values are ones
+  the standard says shall not be used — under a citation naming that standard,
+  which is the "worse than no data" case the exception exists to prevent. The
+  exception is unchanged and may still reach a standard whose formulae are
+  normative. `iso_metric_thread`'s claim that the ruling licensed this data is
+  corrected, and the measurement is recorded in §10.1 so the work is not repeated.
+
+
 ## [0.7.7] - 2026-09-02
 
 ### Added

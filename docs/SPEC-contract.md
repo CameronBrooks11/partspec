@@ -1568,6 +1568,21 @@ derives it and states the derivation in the citation's `note` (§11 rule 3). A t
 cannot execute the formula ships nothing: the exception is the test, not the subject
 matter.
 
+**ISO 965-1 was tested against this exception and does not meet it — recorded so the work
+is not repeated.** Its clause 10 states the deviation and grade formulae the exception
+anticipated, and its §10.1 also states that "in order to reproduce a smooth progression,
+the rules of rounding off are not always used" and that "when the tolerance values
+calculated from the formulae are different from the values specified by the tolerance
+tables, the values in the tolerance tables shall be used". Measured against
+ISO 965-1:2013 Table 1, executing every clause-10.2 formula with the R40 rounding §10.1
+prescribes: **144 of 197 cells agree and 53 do not**, and the divergence is not a rounding
+artefact — `es_d = −(65 + 19P)` at P = 8 gives −217 against a tabulated −180, and Table 1
+carries values off the R40 grid entirely. Even `es_g = −(15 + 11P)`, the formula #246 cited
+as its corroboration, misses at four pitches. So both routes fail: the tabulated values
+cannot execute the formula, and the computed values are ones the standard says shall not
+be used. The exception is unchanged and may still reach a standard whose formulae are
+normative; it does not reach this one (#260).
+
 ### 10.2 `build_input` — forcing byte identity for a named distribution
 
 A second, separate declaration on the same axis, and it declares **provenance rather than a
