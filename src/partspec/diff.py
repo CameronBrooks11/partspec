@@ -871,7 +871,10 @@ def _contract_target(old_part: dict[str, Any], new_part: dict[str, Any]) -> dict
     cannot say which target it was, so no change may be claimed from it in
     either direction. That is a **stated gap**, not a match: §2's opening makes
     "no differences found" a positive claim rather than a fallthrough, so the
-    summary says the comparison declined rather than saying nothing (§3).
+    summary says the comparison declined rather than saying nothing. It does
+    not reach the outcome, and §3 gives the argument on its own terms rather
+    than borrowing §2 rule 3's taxonomy, which classifies the closure's
+    `unseen` vocabulary and reaches nothing else (PR #353 review, R2).
     """
     old_target, new_target = old_part.get("contract"), new_part.get("contract")
     if not (isinstance(old_target, str) and isinstance(new_target, str)):

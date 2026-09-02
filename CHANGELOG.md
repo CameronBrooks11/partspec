@@ -1278,7 +1278,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   side predates it. That pair is a **stated gap**, not a match: it is recorded
   as `contract.target_incomparable` and named on the summary line, because §2's
   opening makes "no differences found" a positive claim rather than a
-  fallthrough.
+  fallthrough. It does not move the outcome, on an argument of its own rather
+  than a borrowed one: an unsuffixed value written by the CLI proves the module
+  declared exactly one factory at the time, so a matching path and digest make
+  the pair one run spelled two ways, and `SPEC-diff.md` §3 names the two
+  residues the caveat carries.
   **The default `--out` directory does not move**: `Target.slug` keys on the
   factory the *invocation* named, so `partspec check spec.py` still writes
   `outputs/spec` and not `outputs/spec-spacer` — moving it would relocate

@@ -446,9 +446,23 @@ side cannot say which target it was, so no change may be claimed from it in eith
 direction. Declining is right, and declining *silently* is not: §2's opening makes "no
 differences found" a positive claim requiring comparable inputs rather than a fallthrough.
 The pair is recorded as `contract.target_incomparable` and named on the summary line on
-every outcome, exactly as a bounded closure gap is — it does not reach the outcome, because
-the two spellings are the overwhelmingly likely reading and a permanently indeterminate
-verdict protects less than a permanently printed caveat (§2 rule 3's own reasoning).
+every outcome.
+
+**It does not reach the outcome, and §2 rule 3 is not the authority for that.** That rule
+classifies the gaps a closure names in `source_closure.unseen`; it governs that vocabulary
+and no other, and borrowing its taxonomy here would misfile this gap rather than justify it.
+This gap is not constant across every possible input — it fires only where one side predates
+the resolution, never where both were written by this release — which is that rule's own
+description of a **bounded** gap, and a bounded gap MUST make the outcome `indeterminate`.
+The reason this one does not is its own, and it is an argument about what the pair can
+prove. An unsuffixed value written by the CLI is evidence that the module declared **exactly
+one** factory when that report was written, since a module declaring several refuses to
+resolve without a name. So where the module path and the contract digest also match, the two
+sides ran that one factory and the pair is one run spelled two ways — nothing to report. Two
+residues remain: a factory renamed between the runs, which moves the digest and is reported
+on the same line; and a library caller invoking `run()` with a factory it did not record,
+which nothing else in either artifact can recover. The caveat is what carries them, and it
+is why the pair is named on every outcome rather than dropped.
 
 The default `--out` directory does not move with any of this: `Target.slug` keys on the
 factory the *invocation* named, and `partspec check spec.py` still writes `outputs/spec`,

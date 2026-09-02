@@ -121,7 +121,7 @@ $ echo $?
 0                                    # green: not one claim moved
 $ partspec check examples/spacer/spec.py:spacer --out o --quiet
 $ partspec diff baseline.json o/report.json > drift.json
-different: example-spacer — 2 drifted
+different: example-spacer — 2 drifted; contract module edited: the digest moved — module-scoped, so it over-fires and is never by itself a difference
   covered: source closure (1 file)
 $ echo $?
 1
@@ -129,7 +129,10 @@ $ echo $?
 
 The redirect is not decoration. `diff` writes its **artifact** to stdout because
 that is the product and it pipes; the two lines above are the courtesy summary,
-and they are on stderr. Both `drifted` entries in `drift.json` are still `pass`
+and they are on stderr. The clause after the semicolon is the edit you just made:
+`BORE_D` lives in the contract module, so its digest moved. That digest is
+module-scoped and never by itself a difference — the exit 1 is the drift, not the
+edit. Both `drifted` entries in `drift.json` are still `pass`
 — they are the two `requires`, whose captured operands moved with the bore:
 
 ```json
