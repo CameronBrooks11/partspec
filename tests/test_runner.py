@@ -1845,3 +1845,51 @@ def test_the_discriminating_export_honours_the_contracts_timeout(tmp_path: Path)
         monkey.undo()
 
     assert seen == [7.0], f"the .csg export ran with {seen}, not the contract's budget"
+
+
+@needs_openscad
+def test_a_method_scratch_that_failed_refuses_rather_than_exporting_the_bare_file(
+    tmp_path: Path, monkeypatch
+):
+    """B4's other half, and the one arm nothing else reaches (#362).
+
+    `_only_in_dropped_subtrees` refuses when `_method_scratch` returns a
+    `BuildError` instead of falling back to `source.path`. That refusal is
+    load-bearing -- the control below exports the bare file and exonerates a
+    real build input -- and it is unreachable through the runner's own
+    ordering: the build called `_method_scratch` moments earlier, and a genuine
+    failure becomes an environment refusal (`could not write the method scratch
+    file in ...`, `build_origin: "environment"`) before the guard is reached.
+    So deleting the branch changes no test, while forcing it changes behaviour
+    in the unsafe direction, which is what the monkeypatch pins.
+
+    Same route as `test_an_unattributable_build_error_is_not_adjudicated_as_the_model`,
+    for the same reason: what is asserted is the adjudication, not the producer.
+    """
+    from partspec.backend import BuildError
+    from partspec.engines import openscad as engine
+    from partspec.runner import _engine_source, _only_in_dropped_subtrees
+
+    src = tmp_path / "ms.scad"
+    src.write_text(
+        '%import("mate.stl");\nmodule make() {\n  cube([10,10,10]);\n  import("mate.stl");\n}\n'
+    )
+    missing = ((tmp_path / "mate.stl").resolve(),)
+    out = tmp_path / "out"
+    out.mkdir()
+
+    # The control, and the whole reason the branch matters: the BARE file's top
+    # level carries only the `%`-ed reference, so an export of it exonerates
+    # `mate.stl` -- while the method the contract names imports it plainly.
+    bare = _engine_source(Part("bare", openscad(src)))
+    assert _only_in_dropped_subtrees(bare, missing, out, None) == set(missing)
+
+    monkeypatch.setattr(
+        engine,
+        "_method_scratch",
+        lambda source, out_dir: BuildError("no scratch here", origin="environment"),
+    )
+    wrapped = _engine_source(Part("ms", openscad(src, method="make")))
+    assert _only_in_dropped_subtrees(wrapped, missing, out, None) == set(), (
+        "no usable entry is no evidence; falling back to source.path fails OPEN"
+    )
