@@ -541,6 +541,65 @@ def test_the_scad_skills_loop_guard_holds_on_whichever_engine_is_pinned(tmp_path
     assert bbox("rule-7-before", 2.0) == pytest.approx(studded, abs=1e-6)
 
 
+@needs_scad_tier
+def test_the_scad_skills_undef_dimension_is_the_engines_number(tmp_path: Path):
+    """Rule 8's claim, executed: the two blocks build to the two heights it
+    quotes, and the silent one is the taller.
+
+    Rule 8 is a measured claim with no gate until here (#308). Its before-form
+    lets `undef` reach `linear_extrude()`, which substitutes a default of its
+    own: a 40 x 30 x **100** part where the author wrote no 100 anywhere, and
+    the after-form names the number instead at 40 x 30 x **6**. Both measured
+    on 2021.01 and 2026.08.01 for this test, not taken from the table.
+
+    Unlike rule 7 there is no branch on `engine.version`: the two engines agree
+    here, and that agreement is half the point — a second binary catches rule
+    7's divergence and cannot catch this one.
+
+    The rest of the assertions are the hazard rather than the height. The
+    before-form builds at all -- partspec's own success-path guard reads
+    stderr for a name that did not resolve and a value the engine defaulted,
+    and neither fires, because nothing failed to resolve and nothing failed to
+    convert -- and what it builds is clean: watertight, one solid. A silent,
+    plausible, wrong part is what makes this worth a rule.
+    """
+    from partspec.backend import BuildError
+    from partspec.backends.mesh import MeshBackend
+    from partspec.engines.openscad import OpenSCADSource, top_level_variables
+
+    blocks = _scad_blocks()
+    assert {"rule-8-before", "rule-8-after"} <= set(blocks), (
+        "rule 8's worked blocks have been renamed; this gate has lost its subject"
+    )
+
+    def build(name: str, **params: float):
+        scad = tmp_path / f"{name}.scad"
+        scad.write_text(blocks[name])
+        backend = MeshBackend()
+        suffix = "".join(f"-{k}{v:g}" for k, v in params.items())
+        artifact = backend.build(
+            OpenSCADSource(path=scad, params=params), tmp_path / f"{name}{suffix}"
+        )
+        assert not isinstance(artifact, BuildError), f"{name}: {artifact}"
+        return backend, artifact
+
+    # The engine's number, not the author's: 100 mm of height nobody wrote.
+    silent, defaulted = build("rule-8-before")
+    assert silent.bbox(defaulted).value == pytest.approx((40.0, 30.0, 100.0), abs=1e-6)
+    assert silent.watertight(defaulted).value is True
+    assert measured(silent.solid_count(defaulted)).value == 1
+
+    named, plate = build("rule-8-after")
+    assert named.bbox(plate).value == pytest.approx((40.0, 30.0, 6.0), abs=1e-6)
+    assert named.watertight(plate).value is True
+    assert measured(named.solid_count(plate)).value == 1
+
+    # "a real number a -D can drive and a contract can name" — both halves.
+    assert "plate_t" in top_level_variables(tmp_path / "rule-8-after.scad")
+    driven, thicker = build("rule-8-after", plate_t=9.0)
+    assert driven.bbox(thicker).value == pytest.approx((40.0, 30.0, 9.0), abs=1e-6)
+
+
 # --------------------------------------------------------------------------
 # skills/build123d-authoring — the skill's examples build and mean what they say
 # --------------------------------------------------------------------------
