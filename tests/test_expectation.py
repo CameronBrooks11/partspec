@@ -15,7 +15,7 @@ import pytest
 from support import needs_openscad, needs_scad_tier, report_of
 
 from partspec.cli import main
-from partspec.expectation import LockError, compare, read_lock, repin_differences
+from partspec.expectation import LockError, compare, read_lock, repin_differences, write_lock
 
 # --------------------------------------------------------------------------
 # the comparison, engine-free
@@ -829,3 +829,73 @@ def test_the_confession_lands_under_the_headline_it_qualifies(tmp_path: Path):
     headline = merged.index("pinned 1 part(s)")
     confession = merged.index("--pin rewrote claims")
     assert headline < confession, f"the confession sorted above its headline:\n{merged}"
+
+
+@needs_scad_tier
+def test_a_repin_that_rewrote_a_claim_says_so_in_the_report(tmp_path: Path, capsys):
+    """#294's other half, and the reason it is a half at all.
+
+    §4 of the agent contract rests the whole re-pin guarantee on "the lock is
+    committed, and its diff is the confession in your PR" — and both of the
+    records that existed can be absent from what a reviewer reads. A lock
+    nobody committed has no diff (no example tracked one until #351), and
+    stderr is not an artifact: `--quiet` scripts keep it, MCP callers and CI
+    log scrapes do not. The report is the one medium the tool controls, and it
+    carried nothing.
+
+    Not a refusal and not an adjudication: the verdict is `pass`, because §4
+    permits a deliberate re-pin and the requirement is only that it be
+    impossible to make silently.
+    """
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    out = tmp_path / "out"
+    assert main(["check", target, "--quiet", "--pin", str(lock), "--out", str(out)]) == 0
+    assert "expectation" not in report_of(out), "a first pin overwrites nothing"
+    capsys.readouterr()
+
+    loosened = _target(tmp_path, "    p.envelope(max=(500, 500, 500))\n    p.watertight()\n")
+    assert main(["check", loosened, "--quiet", "--pin", str(lock), "--out", str(out)]) == 0
+
+    report = report_of(out)
+    assert report["verdict"] == "pass", "a deliberate re-pin is permitted, not adjudicated"
+    moved = report["expectation"]["repinned"]
+    assert len(moved) == 1
+    assert moved[0].startswith("changed: envelope")
+    assert "max=[31, 21, 11]" in moved[0] and "max=[500, 500, 500]" in moved[0], (
+        "both slugs, so the reader needs neither file"
+    )
+
+    # Disjoint from the `--expect` form, which SPEC-report §7.1 binds to a
+    # verdict: a consumer keying on `matched is False` reads it as `error`,
+    # and this run passed. Sharing either key would make that reader wrong.
+    assert set(report["expectation"]) == {"repinned"}
+
+    # One `compare()`, so the artifact and the console cannot word one move
+    # two ways.
+    assert f"subject: {moved[0]}" in capsys.readouterr().err
+
+    # And a re-pin that overwrites nothing is not an overwrite.
+    assert main(["check", loosened, "--quiet", "--pin", str(lock), "--out", str(out)]) == 0
+    assert "expectation" not in report_of(out)
+
+
+@needs_scad_tier
+def test_a_part_the_lock_never_covered_carries_no_block(tmp_path: Path, capsys):
+    """The same exclusion the stderr half makes, and the division of labour.
+
+    A part the previous lock did not cover is a FIRST pin for that part, not
+    an overwrite; reporting each of its claims as `added` is how the loud case
+    stops being read. The loss on the other side — a claim set the lock
+    covered and this invocation did not produce — has no report to live in at
+    all, so it stays where `repin_differences` puts it, on stderr.
+    """
+    target = _target(tmp_path, STRICT)
+    lock = tmp_path / "claims.lock"
+    write_lock(lock, {"someone-else": {"watertight": "watertight"}})
+    out = tmp_path / "out"
+
+    assert main(["check", target, "--quiet", "--pin", str(lock), "--out", str(out)]) == 0
+
+    assert "expectation" not in report_of(out)
+    assert "someone-else: dropped" in capsys.readouterr().err

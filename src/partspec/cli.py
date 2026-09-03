@@ -839,6 +839,22 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
     # crashed" without knowing one happened (#201).
     unresolved: list[str] = []
     codes: list[int] = []
+
+    # The lock as it stood when the run began, read BEFORE the first target so
+    # each part's own report can carry what the re-pin overwrites (#294). The
+    # write happens after the loop; every report is written inside it, so a
+    # read taken there would arrive after the artifact it belongs in. The
+    # post-loop block below reuses this rather than reading a second time.
+    previous_pin: dict[str, dict[str, str]] | None = None
+    unreadable: Exception | None = None
+    if args.pin is not None and args.pin.is_file():
+        from .expectation import LockError, read_lock
+
+        try:
+            previous_pin = read_lock(args.pin)
+        except LockError as exc:
+            unreadable = exc
+
     for spec in targets:
         code = _check_one(
             spec,
@@ -850,6 +866,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             pins=pinned_parts,
             covered_ids=covered_ids,
             unresolved=unresolved,
+            previous_pin=previous_pin,
         )
         if code == 130:
             # The user's own abort is the one failure that DOES stop a batch.
@@ -857,7 +874,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         codes.append(code)
 
     if args.pin is not None and pinned_parts:
-        from .expectation import LockError, read_lock, repin_differences, write_lock
+        from .expectation import repin_differences, write_lock
 
         # The previous pin is read on EVERY re-pin over an existing lock, not
         # only when a target crashed. Until #294 the read lived inside the
@@ -867,13 +884,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         # became `max=[40,30,9]` in the lock at exit 0 with no other output.
         # `compare()` was already in this function, computing exactly the line
         # `--expect` prints one flag over, and unused on this branch.
-        previous: dict[str, dict[str, str]] | None = None
-        unreadable: LockError | None = None
-        if args.pin.is_file():
-            try:
-                previous = read_lock(args.pin)
-            except LockError as exc:
-                unreadable = exc
+        previous = previous_pin
 
         # A lock that SHRINKS because a target crashed is silent weakening, and
         # `expectation.py` states the design goal it violates: "the tool's job
@@ -1127,6 +1138,7 @@ def _check_one(
     pins: dict[str, dict[str, str]] | None = None,
     covered_ids: set[str] | None = None,
     unresolved: list[str] | None = None,
+    previous_pin: dict[str, dict[str, str]] | None = None,
 ) -> int:
     # Before the contract is resolved, because resolving it IMPORTS it: a
     # contract's own imports are this part's, and a snapshot taken any later
@@ -1162,10 +1174,20 @@ def _check_one(
         expected_claims = expect_lock.get(part.id, {})
     if covered_ids is not None:
         covered_ids.add(part.id)
+    repinned: list[str] | None = None
     if pins is not None and args.pin is not None:
-        from .expectation import claims_of
+        from .expectation import claims_of, compare
 
-        pins[part.id] = claims_of(part)
+        declared = claims_of(part)
+        pins[part.id] = declared
+        if previous_pin is not None and part.id in previous_pin:
+            # A part the lock did not cover is a FIRST pin, not an overwrite,
+            # and reporting each of its claims as `added` is how the loud case
+            # stops being read — the same exclusion `repin_differences` makes
+            # for the stderr half. `compare()` and not `repin_differences()`
+            # because this report speaks for one part: the part-id prefix and
+            # the dropped-part lines belong to the run, which is stderr's.
+            repinned = compare(previous_pin[part.id], declared) or None
 
     try:
         return _check_resolved(
@@ -1179,6 +1201,7 @@ def _check_one(
             expected_claims,
             loaded_before,
             batch=batch,
+            repinned=repinned,
         )
     finally:
         # Every exit path evicts — an early `--render` refusal (the
@@ -1200,6 +1223,7 @@ def _check_resolved(
     loaded_before: frozenset[str],
     *,
     batch: bool,
+    repinned: list[str] | None = None,
 ) -> int:
     built: list[object] = []
     report = run(
@@ -1210,6 +1234,7 @@ def _check_resolved(
         factory=target.factory,
         timeout_s=timeout_s,
         expected_claims=expected_claims,
+        repinned_claims=repinned,
         artifact_out=built,
         loaded_before=loaded_before,
     )

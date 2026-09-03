@@ -53,6 +53,7 @@ def run(
     factory: str | None = None,
     timeout_s: float | None = None,
     expected_claims: dict[str, str] | None = None,
+    repinned_claims: list[str] | None = None,
     artifact_out: list[Any] | None = None,
     loaded_before: frozenset[str] = frozenset(),
 ) -> Report:
@@ -69,6 +70,14 @@ def run(
     differences are named in the artifact, because "the contract is not the
     one reviewed" must survive `--quiet` and MCP the same way `attribution`
     does. An empty dict means the pin does not vouch for this part at all.
+
+    `repinned_claims` is the other arrival at the same block (#294): the
+    differences between a lock `--pin` is about to overwrite and the claims
+    this contract declares. It adjudicates nothing -- §4 of the agent contract
+    permits a deliberate re-pin -- so the run proceeds to a real verdict and
+    the block only records what moved. It cannot arrive with `expected_claims`
+    from the CLI, where the two flags are mutually exclusive; a library caller
+    passing both gets the adjudicating form, which is the one that can refuse.
 
     `factory` is the symbol the target resolved to — the CLI passes it whether
     the invocation named it or the module's single factory was inferred (#343)
@@ -95,6 +104,14 @@ def run(
         argv=argv or [],
         timeout_s=timeout_s,
     )
+
+    if repinned_claims:
+        # Before the `--expect` block, so the adjudicating form wins if a
+        # library caller supplies both: only that one can refuse, and a
+        # `matched: false` this overwrote would be a mismatch with no verdict
+        # attached. Nothing else about the run changes -- a re-pin is
+        # permitted, and this is the artifact half of saying it happened.
+        report.expectation = {"repinned": list(repinned_claims)}
 
     if expected_claims is not None:
         from . import expectation

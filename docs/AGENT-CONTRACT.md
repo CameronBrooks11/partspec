@@ -330,9 +330,13 @@ pinned part from the invocation — from where you sit these are indistinguishab
   with **no report evidence**: the surviving parts' reports look normal (`verdict: "pass"`,
   no `error`), the confession is stderr + exit 4 alone — a harness must watch the exit, not
   only the artifacts;
-- **re-pinning after weakening** (`--pin`) defeats nothing: the lock is committed, and
-  its diff is the confession in your PR — treat running `--pin` as requiring the same
-  human sign-off as the contract edit itself;
+- **re-pinning after weakening** (`--pin`) defeats nothing, and it leaves three records,
+  not one: the committed lock's diff in your PR, a stderr line naming every claim the
+  rewrite overwrote, and — in each rewritten part's own report — `expectation.repinned`
+  carrying the same lines (#294). The report half matters because the first two can both
+  be absent from what a reviewer reads: a lock nobody committed has no diff, and stderr
+  is not an artifact. None of the three is a refusal; a deliberate re-pin is permitted.
+  Treat running `--pin` as requiring the same human sign-off as the contract edit itself;
 - `partspec diff old/report.json new/report.json` reports `removed` and `limit_changed`
   on comparison, including a stripped citation. The **first** comparison against a
   baseline recorded before v0.7.5 is a migration, not a finding about the part: a Python
@@ -402,7 +406,10 @@ On the first `pass` for an unfamiliar part, confirm in `report.json`:
    the Python tier and reaches no verdict — it is printed on every outcome as `not covered:`
    — while every other token, recognised or not, still blocks `identical` (SPEC-diff §2
    rule 3). Read the `not covered:` line; do not filter it out;
-4. when a pin is in play, `expectation.matched` is `true` in this same report.
+4. when a pin is in play, `expectation.matched` is `true` in this same report. That field
+   belongs to the `--expect` form of the block; a `--pin` run writes the other form,
+   `expectation.repinned`, and its presence says this run rewrote claims the committed
+   lock already covered — read those lines before believing the green (SPEC-report §7.1).
 
 ---
 

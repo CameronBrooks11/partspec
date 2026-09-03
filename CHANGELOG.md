@@ -105,6 +105,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for `FAILURE-MODES.md` 9b's reason: the source is wrong whatever the mesh
   is. `SPEC-contract.md` §4.12 and `AGENT-CONTRACT.md` §2.3 move with it.
 
+- **A re-pin confesses in the artifact, not only on the console** (#294). The
+  stderr half shipped in #351; the report's `expectation` block still carried
+  nothing, and `SPEC-report.md` §7.1 said the block was "present only when the
+  run was invoked with `--expect`". Both move together here. A `--pin` run over
+  a lock that already covered this part, whose declared claims differ from it,
+  now writes `{"repinned": [...]}` into that part's own report — the same lines
+  `compare()` gives the console, so the artifact and stderr cannot word one
+  move two ways. Measured on `examples/spacer`: pin, edit `PLATE` from
+  (40, 30, 6) to (40, 30, 9), re-pin — the report went from no `expectation`
+  key to `repinned: ["changed: envelope — pinned 'envelope max=[40.0, 30.0,
+  6.0]', declared 'envelope max=[40.0, 30.0, 9.0]'"]`, at `verdict: "pass"`,
+  exit 0. **Still not a refusal and not an adjudication**: §4 of the agent
+  contract permits a deliberate re-pin. The two forms of the block are
+  therefore **disjoint** — they share no key — because §7.1 binds
+  `matched: false` to `verdict: "error"`, and a permitted re-pin is exactly a
+  mismatch that is not one, so a consumer keying on `matched` may never meet
+  this form. Absent on a first pin, on a part the lock did not cover, and on a
+  re-pin that moved nothing; that the flag was passed at all is
+  `invocation.argv`'s to say. The lock is read once now, **before** the first
+  target, because every report is written inside the target loop and the lock
+  write comes after it. `AGENT-CONTRACT.md` §4 and §5 name the third record.
+
 ## [0.7.7] - 2026-09-02
 
 ### Added
