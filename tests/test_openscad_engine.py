@@ -1959,38 +1959,75 @@ def test_an_ambiguous_engine_input_is_left_unresolved_rather_than_guessed(tmp_pa
     assert openscad.include_closure(entry, engine_inputs=both[:1]).unresolved_includes == ()
 
 
-def test_a_shared_basename_is_ambiguous_whatever_the_directories_say(tmp_path: Path):
-    """The ambiguity guard counts basenames, because the suffix can lie.
+def test_the_reference_is_matched_against_the_token_the_depfile_wrote(tmp_path: Path):
+    """A symlink must not defeat the suffix, and one file is not two (#311 round 2).
 
-    `_parse_depfile` resolves every path it reads and the reference is a
-    literal, so a library reached through a symlink arrives under its real
-    name and no longer ends with what was written. A decoy that does end that
-    way is then the unique full-suffix hit, and the caller would read one
-    library's variables behind another library's name -- turning #287's honest
-    refusal into an artifact for a `-D` that never reached the geometry.
-    Measured before the guard widened: this resolved, to the decoy.
+    OpenSCAD writes each depfile token as `searchdir + reference`, so the
+    literal written in the source is always a suffix of it. Resolving the token
+    first throws that away: a library reached through a symlink arrives under
+    its real name, and a decoy that still ends with the literal becomes the
+    unique hit -- one library's variables read behind another library's name.
+    Measured before this was fixed: exit 1 at `origin="model"`, blaming a
+    correct contract off the decoy's contents, where main refused honestly.
 
-    The second assertion is the other half: matching on the basename ALONE
-    would resolve `MCAD/units.scad` to an unrelated `misc/units.scad`, which
-    is the same fail-open arriving from the opposite direction.
+    Both halves are asserted here because the fix has two: match on the
+    as-written token, and count ambiguity over resolved IDENTITY so that a
+    render which opened one file by two spellings is not called ambiguous.
     """
     entry = _scad(tmp_path, "part.scad", "include <MCAD/units.scad>\ncube([10 * mm, 10, 10]);\n")
-    (tmp_path / "vendor" / "MCAD").mkdir(parents=True)
-    (tmp_path / "vendor" / "MCAD" / "units.scad").write_text("mm_decoy = 1;\n")
-    (tmp_path / "real" / "mcad-1.0").mkdir(parents=True)
-    (tmp_path / "real" / "mcad-1.0" / "units.scad").write_text("mm = 1;\n")
 
-    spliced = tmp_path / "real" / "mcad-1.0" / "units.scad"
-    decoy = tmp_path / "vendor" / "MCAD" / "units.scad"
-    assert openscad.include_closure(entry, engine_inputs=[decoy, spliced]).unresolved_includes == (
+    # The library is a FILE symlink: the token says MCAD/units.scad, the file is metric.scad.
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "metric.scad").write_text("mm = 1;\n")
+    (tmp_path / "libs" / "MCAD").mkdir(parents=True)
+    (tmp_path / "libs" / "MCAD" / "units.scad").symlink_to(tmp_path / "real" / "metric.scad")
+    token = tmp_path / "libs" / "MCAD" / "units.scad"
+
+    seeing = openscad.include_closure(entry, engine_inputs=[token])
+    assert seeing.unresolved_includes == (), seeing
+    assert openscad.unbound_parameters(entry, {"mm": 2.0}, closure=seeing) == []
+
+    # Two spellings of that ONE file are not an ambiguity.
+    (tmp_path / "alt").mkdir()
+    (tmp_path / "alt" / "MCAD").mkdir()
+    (tmp_path / "alt" / "MCAD" / "units.scad").symlink_to(tmp_path / "real" / "metric.scad")
+    twice = [token, tmp_path / "alt" / "MCAD" / "units.scad"]
+    assert openscad.include_closure(entry, engine_inputs=twice).unresolved_includes == ()
+
+    # A different file under the same reference still is one.
+    (tmp_path / "other" / "MCAD").mkdir(parents=True)
+    (tmp_path / "other" / "MCAD" / "units.scad").write_text("mm_decoy = 1;\n")
+    decoyed = [token, tmp_path / "other" / "MCAD" / "units.scad"]
+    assert openscad.include_closure(entry, engine_inputs=decoyed).unresolved_includes == (
         "MCAD/units.scad",
     )
 
+    # And the basename alone never resolves the reference.
     (tmp_path / "misc").mkdir()
     (tmp_path / "misc" / "units.scad").write_text("mm = 1;\n")
     alone = openscad.include_closure(entry, engine_inputs=[tmp_path / "misc" / "units.scad"])
     assert alone.unresolved_includes == ("MCAD/units.scad",)
     assert openscad.unbound_parameters(entry, {"mm": 2.0}, closure=alone) == ["mm"]
+
+
+def test_the_depfile_is_kept_in_both_spellings(tmp_path: Path):
+    """`files` is resolved, `listed` is as written, and the pair is the fix.
+
+    Nothing else may key on `listed` -- identity comparisons, `missing` and the
+    overwrite guard all need the resolved path, because two spellings of one
+    file must not read as two files.
+    """
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "metric.scad").write_text("mm = 1;\n")
+    (tmp_path / "libs" / "MCAD").mkdir(parents=True)
+    (tmp_path / "libs" / "MCAD" / "units.scad").symlink_to(tmp_path / "real" / "metric.scad")
+    dep = tmp_path / "o.d"
+    dep.write_text(f"{tmp_path}/o.stl: \\\n\t{tmp_path}/libs/MCAD/units.scad\n")
+
+    deps = openscad._read_depfile(dep, ok=True)
+    assert deps.state == "complete"
+    assert deps.files == ((tmp_path / "real" / "metric.scad").resolve(),)
+    assert deps.listed == (tmp_path / "libs" / "MCAD" / "units.scad",)
 
 
 @pytest.mark.parametrize("state", ["absent", "partial"])

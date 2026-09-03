@@ -110,14 +110,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   claimed — and that is the ordinary Debian/Ubuntu case, not an exotic one: an
   engine can have `-d`, write a `complete` depfile, and still be as blind to
   the library as partspec is, in which case the render is paid for and the
-  answer does not improve. Ambiguity is not guessed at — two files sharing the
-  **basename** leave the reference unresolved, whatever their directories say.
-  Counting only the full suffix was a fail-open found in review: the depfile's
-  paths are resolved and the reference is a literal, so a library reached
-  through a symlink arrives under its real name, and a decoy that does end
-  with the literal becomes the unique hit — one library's variables read
-  behind another library's name, turning #287's refusal into an artifact for
-  a `-D` that never reached the geometry. The cost is one render on the path
+  answer does not improve. Ambiguity is not guessed at — two files ending in the
+  same reference leave it unresolved. The suffix is matched against the token
+  the depfile **wrote**, which is the half review found missing twice: partspec
+  resolved every token while the reference stayed a literal, so a library
+  reached through a symlink arrived under its real name and a decoy that still
+  ended with the literal became the unique hit — one library's variables read
+  behind another library's name. Measured, that returned an artifact for a `-D`
+  that never reached the geometry, and in a second shape an `origin="model"`
+  verdict blaming a correct contract off the decoy's contents, where main had
+  refused honestly. OpenSCAD writes each token as `searchdir + reference`, so
+  the literal is always a suffix of it — measured through a directory symlink
+  and a file symlink, both engines — and `RenderDeps` now keeps both spellings:
+  `files` resolved for identity, `missing` and the overwrite guard, `listed` as
+  written for this one question. A first attempt counted basenames instead; it
+  closed the directory-symlink shape, left the file-symlink shape open, and
+  refused a case main resolved. Two spellings of one file are not an ambiguity,
+  so the count is over resolved identity. The cost is one render on the path
   that used to exit 4 before rendering anything, and exactly one: +110 ms on a
   sphere whose bare engine render is 102 ms, +28 ms on the six-facet
   reproduction.
