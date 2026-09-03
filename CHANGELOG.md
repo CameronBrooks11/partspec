@@ -87,6 +87,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "verifiable by construction" claim for `es_g` is falsified by the same
   measurement, and §10.1 records it so the work is not repeated.
 
+- **A library only the engine can read no longer makes every `-D` unjudgeable**
+  (#311, #287). `unbound_parameters` answers from the files *partspec*
+  resolved, and #287 made the refusal honest when that list is short. It could
+  not finish the job when the engine could open a file partspec could not: on
+  the pinned 2026.08.01 AppImage, which bundles `MCAD` inside its own squashfs,
+  `include <MCAD/units.scad>` with `mm=2.0` renders a 20 mm cube and partspec
+  refused it at exit 4, on a correct part and a correct contract — while the
+  report carried the disproof, `engine_inputs.state: complete` naming the
+  resolved path. The refusal is now **deferred** when, and only when, the
+  parameter binds nothing *and* an `include` did not resolve: the render goes
+  ahead, and on a `complete` depfile the closure is walked again with the
+  engine's own input list as a last-resort search path, matched back to the
+  reference by path suffix. Measured on that arm: exit 4 → exit 0, bbox
+  20 × 20 × 20, so the `-D` demonstrably reached the geometry. The other arm
+  must not move and does not — the issue's own `bore_diamter` transposition
+  beside the same unread library stays refused, now at `origin="model"` under
+  the ordinary sentence, because the re-asked list holds `bore_diameter`, `mm`,
+  `cm` … and still not `bore_diamter`. On apt 2021.01, which cannot read
+  `MCAD` either, both arms keep #287's `environment` refusal verbatim: the
+  depfile does not name the file, so nothing better is available and none is
+  claimed. Ambiguity is not guessed at — two candidates ending in the same
+  reference leave it unresolved. The cost is one render on the path that used
+  to exit 4 before rendering anything, and exactly one: +110 ms on a sphere
+  whose bare engine render is 102 ms, +28 ms on the six-facet reproduction.
+
 ## [0.7.7] - 2026-09-02
 
 ### Added
