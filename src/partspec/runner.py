@@ -53,6 +53,7 @@ def run(
     factory: str | None = None,
     timeout_s: float | None = None,
     expected_claims: dict[str, str] | None = None,
+    repinned_claims: list[str] | None = None,
     artifact_out: list[Any] | None = None,
     loaded_before: frozenset[str] = frozenset(),
 ) -> Report:
@@ -69,6 +70,14 @@ def run(
     differences are named in the artifact, because "the contract is not the
     one reviewed" must survive `--quiet` and MCP the same way `attribution`
     does. An empty dict means the pin does not vouch for this part at all.
+
+    `repinned_claims` is the other arrival at the same block (#294): the
+    differences between a lock `--pin` is about to overwrite and the claims
+    this contract declares. It adjudicates nothing -- §4 of the agent contract
+    permits a deliberate re-pin -- so the run proceeds to a real verdict and
+    the block only records what moved. It cannot arrive with `expected_claims`
+    from the CLI, where the two flags are mutually exclusive; a library caller
+    passing both gets the adjudicating form, which is the one that can refuse.
 
     `factory` is the symbol the target resolved to — the CLI passes it whether
     the invocation named it or the module's single factory was inferred (#343)
@@ -95,6 +104,14 @@ def run(
         argv=argv or [],
         timeout_s=timeout_s,
     )
+
+    if repinned_claims:
+        # Before the `--expect` block, so the adjudicating form wins if a
+        # library caller supplies both: only that one can refuse, and a
+        # `matched: false` this overwrote would be a mismatch with no verdict
+        # attached. Nothing else about the run changes -- a re-pin is
+        # permitted, and this is the artifact half of saying it happened.
+        report.expectation = {"repinned": list(repinned_claims)}
 
     if expected_claims is not None:
         from . import expectation
@@ -1785,26 +1802,69 @@ _SUBSTITUTED_VALUE_HINT = (
     "then re-run"
 )
 
+_DEFAULTED_VALUE_MARKER = "Unable to convert"
+"""The one substitution marker for which a default is CERTAIN.
+
+`engines.openscad._SUBSTITUTED_VALUE_MARKERS` carries two, measured on both
+pinned engines, and only this one always means a default went in. The other,
+`Problem converting rotate(`, substitutes nothing at all in ONE of its five
+measured shapes -- 2021.01's `transform.cc` reads
+`default: ok &= false; /* fallthrough */ case 3:`, so `rotate([90,0,0,0])`
+has its first three components read and applied, and its export is
+byte-identical (`cmp -s`, both pinned engines) to `rotate([90,0,0])`'s. One is
+enough: the sentence asserts a MECHANISM, and a mechanism that did not occur
+once is a sentence that is false once (#360). How many of the five leave a
+correct mesh is a different count, and not the one this constant turns on.
+
+Named here rather than imported because the choice being made is which
+SENTENCE to print, which is this module's, and because the fallback is the
+weaker one: a marker added to that tuple and not to this constant lands on the
+sentence that claims less, not on the one that claims a mechanism nobody
+observed. `_message` is borrowed rather than re-implemented so the test is
+anchored at the head of the engine's own sentence -- unanchored, a model can
+put this string in a literal and pick its own diagnosis (see
+`_unresolved_lines`)."""
+
+_UNUSABLE_VALUE_CAUSE = "the engine could not use a value as written"
+_UNUSABLE_VALUE_HINT = (
+    "the engine exited 0 and wrote a mesh, so this is not a compile error — "
+    "the warning names the parameter the engine would not take as written, and "
+    "stderr does not say what it did next: it may have applied the value "
+    "anyway, substituted a default, or dropped the transform entirely. Nothing "
+    "here is about the include path. The source is wrong either way "
+    "(docs/FAILURE-MODES.md 9b): fix the parameter, then re-run"
+)
+
 
 def _unresolved_diagnosis(line: str) -> tuple[str, str]:
     """The (cause, hint) pair for one success-path marker line.
 
-    One function and one pair of strings for two callers, because `check` and
-    `measure` refusing the same engine line must not drift into two accounts of
-    it. Their SENTENCES differ -- a report's `error` against a refusal to
-    measure -- and the cause and the remedy do not, so only the sentences live
-    at the call sites.
+    One function and one set of strings for four callers, because `check`,
+    `measure` and `render` refusing the same engine line must not drift into
+    three accounts of it. Their SENTENCES differ -- a report's `error` against
+    a refusal to measure or to draw -- and the cause and the remedy do not, so
+    only the sentences live at the call sites.
 
-    Both causes were one message until #308, which added the second: a value
-    the engine could not convert, so it substituted a default into a dimension.
-    Told to check `OPENSCADPATH` for that, a reader goes looking for a library
-    that is not missing. Naming a name that did not resolve is equally wrong in
-    the other direction, so the name text is unchanged and pinned.
+    Three causes now. There was one until #308, which added a value the engine
+    could not convert, so it substituted a default into a dimension: told to
+    check `OPENSCADPATH` for that, a reader goes looking for a library that is
+    not missing. Naming a name that did not resolve is equally wrong in the
+    other direction, so the name text is unchanged and pinned.
+
+    #333 then put `Problem converting rotate(` into the same marker tuple, and
+    the substitution sentence was printed for it too -- asserting a default
+    that an over-long `rotate` vector never takes, over an export that is
+    byte-identical to the correct source's (#360). So the third cause: the
+    engine could not use the value AS WRITTEN, which is all that line supports.
+    The substitution text is unchanged for the marker it was measured on, and
+    the weaker text is what an unrecognised substitution marker falls to.
     """
-    from .engines.openscad import is_substituted_value
+    from .engines.openscad import _message, is_substituted_value
 
     if is_substituted_value(line):
-        return _SUBSTITUTED_VALUE_CAUSE, _SUBSTITUTED_VALUE_HINT
+        if _message(line).startswith(_DEFAULTED_VALUE_MARKER):
+            return _SUBSTITUTED_VALUE_CAUSE, _SUBSTITUTED_VALUE_HINT
+        return _UNUSABLE_VALUE_CAUSE, _UNUSABLE_VALUE_HINT
     return _UNRESOLVED_NAME_CAUSE, _UNRESOLVED_NAME_HINT
 
 

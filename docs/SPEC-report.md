@@ -812,7 +812,10 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   Module-scoping is deliberate, not an oversight: digesting only the resolved symbol would
   miss an edit to a module-level constant such as `MIN_WALL`, which is precisely the
   attack. Over-firing is the right direction of error here.
-- **`expectation`** — present only when the run was invoked with `--expect`: the claims-pin
+- **`expectation`** — the claims pin's record, in one of **two disjoint forms**, which
+  share no key so a consumer can never read one as the other.
+
+  The first is present only when the run was invoked with `--expect`: the claims-pin
   adjudication `{claims, matched[, differences]}` (#31). "Make the check pass" and "delete
   the check" are the same action from where a model sits; `diff` catches the second on
   comparison, and the pin catches it with no previous artifact in hand — a fresh CI
@@ -829,6 +832,44 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   and `diff` own source identity), and the lock is regenerable by design — the tool makes
   weakening impossible to do *silently*, while forbidding re-pin-after-weakening is the
   agent contract's job.
+
+  The second form is `{repinned: [...]}`, present when the run was invoked with `--pin`
+  over a lock that **already covered this part** and this contract's declared claims
+  differ from it (#294). Same strings as the `--expect` differences and as the stderr
+  confession, from one `compare()` — computed against the lock as this run **found** it.
+  The confession is computed a second time at the write, against the lock as it stands
+  **then**, because the guard must speak for the file it is about to overwrite while a
+  report already written cannot be revised. Under a single writer those are the same
+  bytes and the two wordings are identical; where the file moved under the run they
+  differ, and that is deliberate rather than a drift between them (#294). It is a **record, not an adjudication**: `--pin` is the deliberate-update
+  path (`AGENT-CONTRACT.md` §4), so the run proceeds to a real verdict and MAY be
+  `pass`. That is why the two forms may not share `matched` — the MUST above binds a
+  mismatch to `verdict: "error"`, and a permitted re-pin is exactly a mismatch that is
+  not one. What the field says was compared, not what was written: the write is refused
+  when a crashed target would drop a claim set from the lock (that refusal is stderr and
+  exit 4, `--pin`'s counterpart to the uncovered-pin failure above), and the differences
+  named here are then what the run declined to overwrite.
+
+  Absent in **four** cases, three of which say nothing moved: a **first** pin, a part the
+  lock did not cover, and a re-pin that moved nothing — an overwrite that overwrites
+  nothing is not one, and reporting a new part's every claim as `added` is how the loud
+  case stops being read. That the flag was passed
+  at all is `invocation.argv`'s to say, not this field's, so an always-emitted empty list
+  would state twice what the artifact already carries once and dilute the signal this
+  field exists for.
+
+  **The fourth case does not say that, and a reader MUST NOT take it to.** A lock that
+  could not be READ — malformed, or a schema this build does not know — is still
+  overwritten when nothing failed to resolve, since overwriting one is the documented way
+  out of it; there is then no previous claim set to compare against, so every report in
+  that run carries no `expectation` at all while the lock on disk was rewritten. It is
+  the arrival where the silence bites hardest: the stderr line saying partspec cannot
+  tell which claims moved is the run's only record, and a lock whose bytes will not parse
+  is also a lock whose diff a reviewer cannot read. Absence of this field therefore means
+  "nothing was overwritten" only for a run whose lock was readable, which
+  `invocation.argv` plus that stderr line are what establish. Recording the unreadable
+  arrival *in* the block would need a second shape for it, which is a schema question and
+  is deliberately not answered here.
 - **`invocation.timeout_s`** — the build budget that governed the run, in seconds. The CLI
   always records the fully resolved value (`--timeout`, then `PARTSPEC_TIMEOUT`, then the
   300 s default); `0` records an explicit waiver of the bound, and `null` means a library

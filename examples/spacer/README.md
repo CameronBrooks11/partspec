@@ -97,9 +97,18 @@ partspec: --pin rewrote claims the previous examples/spacer/claims.lock already 
   hint: the lock's diff is the whole record of this change — ...
 ```
 
-That line is the whole guarantee, and it is why the lock is **committed**: the
-tool makes weakening impossible to do *silently*, not impossible to do. The
-diff of this file in a pull request is the confession.
+That line is one of **three** records of the same move, and it is why the lock
+is **committed**: the tool makes weakening impossible to do *silently*, not
+impossible to do. The diff of this file in a pull request is the second. The
+third is in the report `check` just wrote — `expectation.repinned`, carrying
+that same line — and it is the one a reviewer still has when the other two are
+missing, since an uncommitted lock has no diff and stderr is not an artifact
+(`AGENT-CONTRACT.md` §4, `SPEC-report.md` §7.1):
+
+```console
+$ python3 -c "import json;print(json.load(open('examples/spacer/outputs/spec-spacer/report.json'))['expectation'])"
+{'repinned': ["changed: envelope — pinned 'envelope max=[40.0, 30.0, 6.0]', declared 'envelope max=[40.0, 30.0, 9.0]'"]}
+```
 
 ## The drift the pin cannot see
 
