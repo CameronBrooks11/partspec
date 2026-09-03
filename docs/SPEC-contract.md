@@ -977,7 +977,7 @@ names the line. Engines own those strings, so the classification is made in the 
 and carried on `BuildError` (`produced_nothing`, `unresolved`) rather than by the runner
 reading stderr.
 
-Two causes reach the guard and the detail MUST name the one it found, because the
+Three causes reach the guard and the detail MUST name the one it found, because the
 remedies do not overlap. A name that did not resolve is *the engine could not resolve a
 name*; a value the engine could not convert — where it substitutes the module's own
 default — is *the engine could not convert a value and built a default in place of it*.
@@ -985,6 +985,14 @@ Sending a reader after `OPENSCADPATH` for the second is advice about a library t
 not missing. Measured on both pinned engines, an `intersection()` whose second child is
 displaced by `scale(undef)` renders genuinely empty at exit 1 and fails this check with
 the conversion clause (#308).
+
+The third is `Problem converting rotate(...)`, which OpenSCAD emits where the `rotate`
+parameters could not be used *as written* (#333). It is **not** the second cause: an
+over-long vector such as `rotate([90,0,0,0])` has its first three components read and
+applied and substitutes nothing, so the detail says only *the engine could not use a
+value as written* (#360). The refusal is the same — the source is wrong, and stderr
+cannot say which of the shapes it is in (`FAILURE-MODES.md` 9b) — and the sentence
+claims only what was observed.
 
 A Python model has no equivalent hazard on either cause: an unresolved name raises, and
 so does a value of the wrong type — neither silently renders empty, and no Python CAD

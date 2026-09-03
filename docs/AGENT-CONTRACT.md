@@ -184,7 +184,10 @@ Read the non-`pass` statuses in `checks[]`:
   **A second spelling, and it does not mean quite the same thing.** `rotate()` words its
   failure `Problem converting rotate(a=undef) parameter in file part.scad, line 2` — also
   identical on both engines — and it says the engine could not use the `rotate` parameters
-  *as written* (#333). Sometimes that is a default going in and the rotation being lost:
+  *as written* (#333). `error` says so too, and says no more than that: **the engine could
+  not use a value as written**, never the substitution sentence above, because for one of
+  these shapes no default is taken (#360). Sometimes that is a default going in and the
+  rotation being lost:
   `rotate(undef)` and `rotate([undef,0,0])` leave the part at identity, nothing having
   changed size, standing in an orientation nobody wrote down. Sometimes it is not.
   `rotate(a=45, v="z")` substitutes the **default axis** `[0,0,1]`, so the part really is

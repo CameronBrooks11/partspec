@@ -1785,26 +1785,65 @@ _SUBSTITUTED_VALUE_HINT = (
     "then re-run"
 )
 
+_DEFAULTED_VALUE_MARKER = "Unable to convert"
+"""The one substitution marker for which a default is CERTAIN.
+
+`engines.openscad._SUBSTITUTED_VALUE_MARKERS` carries two, measured on both
+pinned engines, and only this one always means a default went in. The other,
+`Problem converting rotate(`, fires beside a byte-identical export in three of
+its five measured shapes -- 2021.01's `transform.cc` reads
+`default: ok &= false; /* fallthrough */ case 3:`, so `rotate([90,0,0,0])`
+has its first three components read and applied and substitutes nothing (#360).
+
+Named here rather than imported because the choice being made is which
+SENTENCE to print, which is this module's, and because the fallback is the
+weaker one: a marker added to that tuple and not to this constant lands on the
+sentence that claims less, not on the one that claims a mechanism nobody
+observed. `_message` is borrowed rather than re-implemented so the test is
+anchored at the head of the engine's own sentence -- unanchored, a model can
+put this string in a literal and pick its own diagnosis (see
+`_unresolved_lines`)."""
+
+_UNUSABLE_VALUE_CAUSE = "the engine could not use a value as written"
+_UNUSABLE_VALUE_HINT = (
+    "the engine exited 0 and wrote a mesh, so this is not a compile error — "
+    "the warning names the parameter the engine would not take as written, and "
+    "stderr does not say what it did next: it may have applied the value "
+    "anyway, substituted a default, or dropped the transform entirely. Nothing "
+    "here is about the include path. The source is wrong either way "
+    "(docs/FAILURE-MODES.md 9b): fix the parameter, then re-run"
+)
+
 
 def _unresolved_diagnosis(line: str) -> tuple[str, str]:
     """The (cause, hint) pair for one success-path marker line.
 
-    One function and one pair of strings for two callers, because `check` and
-    `measure` refusing the same engine line must not drift into two accounts of
-    it. Their SENTENCES differ -- a report's `error` against a refusal to
-    measure -- and the cause and the remedy do not, so only the sentences live
-    at the call sites.
+    One function and one set of strings for four callers, because `check`,
+    `measure` and `render` refusing the same engine line must not drift into
+    three accounts of it. Their SENTENCES differ -- a report's `error` against
+    a refusal to measure or to draw -- and the cause and the remedy do not, so
+    only the sentences live at the call sites.
 
-    Both causes were one message until #308, which added the second: a value
-    the engine could not convert, so it substituted a default into a dimension.
-    Told to check `OPENSCADPATH` for that, a reader goes looking for a library
-    that is not missing. Naming a name that did not resolve is equally wrong in
-    the other direction, so the name text is unchanged and pinned.
+    Three causes now. There was one until #308, which added a value the engine
+    could not convert, so it substituted a default into a dimension: told to
+    check `OPENSCADPATH` for that, a reader goes looking for a library that is
+    not missing. Naming a name that did not resolve is equally wrong in the
+    other direction, so the name text is unchanged and pinned.
+
+    #333 then put `Problem converting rotate(` into the same marker tuple, and
+    the substitution sentence was printed for it too -- asserting a default
+    that an over-long `rotate` vector never takes, over an export that is
+    byte-identical to the correct source's (#360). So the third cause: the
+    engine could not use the value AS WRITTEN, which is all that line supports.
+    The substitution text is unchanged for the marker it was measured on, and
+    the weaker text is what an unrecognised substitution marker falls to.
     """
-    from .engines.openscad import is_substituted_value
+    from .engines.openscad import _message, is_substituted_value
 
     if is_substituted_value(line):
-        return _SUBSTITUTED_VALUE_CAUSE, _SUBSTITUTED_VALUE_HINT
+        if _message(line).startswith(_DEFAULTED_VALUE_MARKER):
+            return _SUBSTITUTED_VALUE_CAUSE, _SUBSTITUTED_VALUE_HINT
+        return _UNUSABLE_VALUE_CAUSE, _UNUSABLE_VALUE_HINT
     return _UNRESOLVED_NAME_CAUSE, _UNRESOLVED_NAME_HINT
 
 

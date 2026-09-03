@@ -1144,6 +1144,51 @@ def test_a_value_that_would_not_convert_gets_a_different_diagnosis_than_a_name()
     assert "OPENSCADPATH" not in convert_hint
 
 
+def test_an_over_long_rotate_vector_is_not_diagnosed_as_a_substitution():
+    """A third cause, because the second one asserts a mechanism (#360).
+
+    `Problem converting rotate(` joined the substitution markers in #333, and
+    the substitution SENTENCE went with it: "built a default in place of it",
+    printed over `rotate([90,0,0,0]) cube([10,5,2])` -- whose export is
+    byte-identical to `rotate([90,0,0]) cube([10,5,2])` on both pinned engines,
+    because 2021.01's `transform.cc` reads
+    `default: ok &= false; /* fallthrough */ case 3:` and applies the first
+    three components. Nothing is substituted, and the message said one was.
+
+    Both directions are pinned. `Unable to convert` keeps the substitution text
+    unchanged to the byte -- that marker really is always a default, and
+    weakening it to cover this one would have cost the precision that makes it
+    actionable -- while the rotate line gets a cause that claims only what
+    stderr supports. Engine-free: `_unresolved_diagnosis` reads a string.
+    """
+    rotate_cause, rotate_hint = _unresolved_diagnosis(
+        "WARNING: Problem converting rotate(a=[90, 0, 0, 0]) parameter in file q.scad, line 1"
+    )
+    convert_cause, convert_hint = _unresolved_diagnosis(
+        "WARNING: Unable to convert cube(size=[undef, 30, 6], ...) parameter to a"
+        " number or a vec3 of numbers in file q.scad, line 2"
+    )
+
+    assert "default" not in rotate_cause, "no default is taken for an over-long vector"
+    assert rotate_cause == "the engine could not use a value as written"
+    assert "OPENSCADPATH" not in rotate_hint, "still not the include path"
+
+    # Unchanged for the marker it was measured on, and the two are not merged.
+    assert convert_cause == (
+        "the engine could not convert a value and built a default in place of it"
+    )
+    assert "built its own default" in convert_hint
+    assert rotate_hint != convert_hint
+
+    # Anchored, so a model cannot pick its own diagnosis by echoing the marker
+    # back: OpenSCAD prints string literals into the warning verbatim.
+    literal, _ = _unresolved_diagnosis(
+        'WARNING: Problem converting rotate(a=["Unable to convert", 0, 0]) parameter'
+        " in file q.scad, line 1"
+    )
+    assert literal == rotate_cause
+
+
 @needs_scad_tier
 def test_a_defaulted_dimension_is_refused_with_the_conversion_diagnosis(tmp_path: Path):
     """The conversion message out of a real build, rather than off a literal.

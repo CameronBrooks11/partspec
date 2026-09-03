@@ -87,6 +87,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "verifiable by construction" claim for `es_g` is falsified by the same
   measurement, and §10.1 records it so the work is not repeated.
 
+- **The substitution sentence no longer asserts a default nothing took**
+  (#360). `Problem converting rotate(...)` joined the substituted-value
+  markers in #333 and inherited that marker's diagnosis — *the engine could
+  not convert a value and built a default in place of it* — which is false for
+  one of its measured shapes. `rotate([90, 0, 0, 0]) cube([10, 5, 2])` exports
+  a mesh **byte-identical** to `rotate([90, 0, 0]) cube([10, 5, 2])` on both
+  pinned engines (`cmp -s`, 1485 bytes on 2021.01 and 1479 on 2026.08.01):
+  2021.01's `transform.cc` reads `default: ok &= false; /* fallthrough */
+  case 3:`, so an over-long vector has its first three components read and
+  applied and **nothing is substituted**. That line now gets a third cause —
+  *the engine could not use a value as written* — with a hint that says stderr
+  cannot tell which of the shapes it is in. `Unable to convert` keeps the
+  substitution text unchanged to the byte: for that marker a default really is
+  always taken, and one weaker sentence covering both would have cost the
+  precision that makes it actionable. **The refusal is unchanged**, at exit 4,
+  for `FAILURE-MODES.md` 9b's reason: the source is wrong whatever the mesh
+  is. `SPEC-contract.md` §4.12 and `AGENT-CONTRACT.md` §2.3 move with it.
+
 ## [0.7.7] - 2026-09-02
 
 ### Added
