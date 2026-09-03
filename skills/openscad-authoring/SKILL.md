@@ -250,11 +250,13 @@ of its own and tells you nothing. Measured on both pinned engines, each source p
 | `linear_extrude(o) square([40,30]);` | *(nothing)* | 0 | 12 facets — **100 mm tall** |
 | `cylinder(h=o, d=10);` | *(nothing)* | 0 | 60 facets — h = 1 |
 | `sphere(o);` | *(nothing)* | 0 | 26 facets — r = 1 |
-| `resize(o) cube(5);` | *(nothing)* | 0 | 12 facets |
+| `resize(o) cube(5);` | *(nothing)* | 0 | 12 facets — a **no-op**, the 5 mm cube |
 | `cube(o + 1);` | `WARNING: undefined operation (undefined + number)` | 0 | 12 facets |
 
-Every one exits 0 with a clean, watertight, single solid built to a number nobody wrote
-down. The two engines agree, so a second binary does not catch this the way it catches
+Every one exits 0 with a clean, watertight, single solid; in every row but `resize` it
+is built to a number nobody wrote down. `resize(undef)` instead does nothing at all —
+measured (5, 5, 5) on both engines — which is the same silence delivering a different
+shape of wrong. The two engines agree, so a second binary does not catch this the way it catches
 rule 7. Only `circle(r=o)` is refused, and only because a 2D result cannot be exported
 to STL at all (exit 1, no file, both engines).
 

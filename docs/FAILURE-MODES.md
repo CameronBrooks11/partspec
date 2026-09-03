@@ -287,9 +287,9 @@ cost is written down here rather than paid quietly.
 ### 9b. A `rotate()` parameter the engine ignored
 
 - **Symptom.** The same `ERROR: 3 skipped` at exit `4`, over a part that is rotated
-  exactly as the source asked. The report says the engine "could not convert a value and
-  built a default in place of it", and for this shape **no default went in** — the
-  defect #360 records. Since #377 this marker carries a cause of its own, "the engine
+  exactly as the source asked. Before #377 the report said the engine "could not convert
+  a value and built a default in place of it", and for this shape **no default went in**
+  — the defect #360 records. That marker now carries a cause of its own, "the engine
   could not use a value as written", which is all the stderr line supports;
   `Unable to convert` keeps the default-substitution wording unchanged to the byte,
   because for that marker a default is certain.

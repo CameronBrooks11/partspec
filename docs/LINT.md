@@ -71,7 +71,9 @@ was skipped and leave no way to find out which.
   read" on the same string, because dropping the assignment's line dropped the read with
   it. Both rules now ask the question over the assignment **statement**, which is what
   `scad-magic-number` already learned in the v0.7.0 pre-tag audit. The corpus answer is
-  unchanged: 2338 findings over the 126 tracked sources before and after, byte for byte.
+  unchanged: linting the same 126 tracked sources with the rule before and after this
+  change produces byte-identical output — 2348 findings at this writing, a count that
+  moves with the corpus where the byte-identity does not.
 - **A keyword argument is not a read.** `cylinder(h = 20)` names *cylinder's* parameter
   and cannot reference the caller's `h`, so a `name =` at bracket depth ≥ 1 is a keyword
   argument or a signature default, never a use — the same distinction the magic-number
@@ -80,6 +82,13 @@ was skipped and leave no way to find out which.
   genuinely dead `h = undef;` knob from `scad-unused-top-level` at the same time, so one
   rule stated a falsehood while no rule stated the fault. Both are fixed; the dead knob
   now reports as unused, which is what it is.
+- **`$name` is not a read of `name`.** The read scan was a `\b` word boundary, which
+  matches inside `$t` and `$fn`, so `t = 6;` beside `cube([10, 10, $t])` counted as
+  read. `$t` is a special variable and cannot reference the caller's `t`; the scan now
+  refuses a `$` before the name, and that source draws a `scad-unused-top-level` it did
+  not draw in v0.7.7 (measured against both implementations over the same file). This
+  is the third edge corrected here, and the only one that adds a finding to an existing
+  user's output.
 - **Rationale:** where an `undef` reaches a dimension, OpenSCAD substitutes its own
   default and **narrates nothing at all**. Measured on both pinned engines, each source
   prefixed `o = undef;` and rendered `--export-format binstl`: `cube(o)`,
