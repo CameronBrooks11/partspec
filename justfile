@@ -329,13 +329,23 @@ run *ARGS:
 # stdout and 0 to stderr — measured; the entire CI record becomes `error:
 # recipe example-spacer failed … with exit code 4`. That gates the exit code
 # and nothing else — which is not what the three comments around this recipe
-# claim it gates. (Nor is it what pytest covers: nothing in the suite runs the
-# spacer against its committed lock at all. `test_docs.py` runs `check` on it
-# in a subprocess with `check=False` and never reads `returncode`, asserting
-# the README's console lines instead.) Without the flag the adjudication lands
-# on stderr — roughly 1.4 KB, naming the claim that moved and both slugs. Not
-# an exact byte count on purpose: the last line is the absolute report path,
-# so it moves with the checkout.
+# claim it gates. (Pytest covers a different half since #361:
+# `test_docs.py::test_the_spacer_exemplars_diff_transcript_is_what_the_console_prints`
+# replays the exemplar README's whole drift loop — the `--expect` against the
+# committed lock included — reading every exit code, but against a COPY,
+# because the loop edits the contract. THIS checkout's tracked `spec.py`
+# against its tracked lock is what only the recipe runs.) Without the flag the
+# adjudication lands on stderr — roughly 1.4 KB, naming the claim that moved
+# and both slugs. Not an exact byte count on purpose: the last line is the
+# absolute report path, so it moves with the checkout.
+#
+# NO `diff` step either, and #361 asked for one: the exemplar's quoted `diff`
+# transcript went false through three green gates and this recipe was one of
+# them. A `diff` step here would not have caught it. The recipe gates the
+# console contract by PRINTING it for a human, and a `diff` over a drifted
+# baseline exits 1 whatever the summary line says — measured, with the line
+# falsified. Killing that mutation means comparing the quoted text to the
+# produced text, so the gate went where this file's tests already do that.
 [doc("Check the spacer exemplar against its committed claims pin")]
 example-spacer:
     uv run partspec check examples/spacer/spec.py:spacer \

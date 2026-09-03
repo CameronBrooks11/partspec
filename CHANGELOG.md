@@ -248,6 +248,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that used to exit 4 before rendering anything, and exactly one: +110 ms on a
   sphere whose bare engine render is 102 ms, +28 ms on the six-facet
   reproduction.
+- **`EXIT_USAGE` no longer claims it writes no report** (#358). `check` puts a
+  placeholder at every target's deterministic path before any target runs, and
+  `--expect` is read after it, so a refused lock exits 64 over a report that is
+  already on disk: `verdict: "error"`, `counts.total: 0`, no `checks`, and the
+  diagnosis on stderr only. Measured on two shapes — `--expect nosuch.lock` and
+  an unresolvable `nosuch.py:widget`, each leaving `outputs/<slug>/report.json`.
+  The docstring now says which 64s write nothing — the rule is *raised before
+  the placeholder loop*, and the examples given are not a closed list, because
+  `partspec --docs check …` and a bare `partspec` are two more that fit it —
+  and which leave an undiagnosable artifact, and `tests/test_cli.py` pins the
+  behaviour so the wording cannot go stale silently. The second clause, that a
+  64 never participates in batch aggregation, was independently true and is
+  kept — but no longer stated as a consequence of the false one.
+
+- **The fence guard reaches `examples/`, and reads more than the exit status**
+  (#366). `test_every_openscad_fence_in_the_docs_parses` globbed `docs/` and
+  `skills/` — the wrong half, since an exemplar README is where a snippet is
+  most likely to be copied verbatim: PR #364 shipped one broken fence into
+  `docs/` and an identical one into `examples/clearance/README.md`, and only
+  the first turned the suite red. Both halves are fixed. The glob now covers
+  `examples/**/*.md`, and a fence whose stderr carries an unresolved NAME
+  fails even at exit 0 — measured on both pinned engines, deleting the
+  `CLEAR = 1.5;` a fence depends on leaves both exporting rc 0 with `WARNING:
+  Ignoring unknown variable 'CLEAR'`, i.e. a sphere at the default radius
+  rather than the prescribed one. The vocabulary is the engine guard's own
+  `_UNRESOLVED_NAME_MARKERS`, so the two cannot drift apart, with three
+  **names** exempted rather than the marker — two shipped fences legitimately
+  call `a`/`b`/`grown_b`, which they do not define (`SPEC-contract.md` §4.12
+  and `skills/contract-authoring/SKILL.md`) — and an assertion that the
+  exempted marker is still spelled that way upstream. Exempting the marker
+  would have exempted the typo with it: appending `post_envelop();` to the
+  `examples/clearance` fence, a misspelling of the `post_envelope` that same
+  fence defines, renders nothing and passed on both engines under the
+  marker-wide form.
+
+- **The exemplar's `diff` transcript is now replayed, not read** (#361). PR
+  #353 changed what a `diff` summary line can say, `examples/spacer/README.md`
+  kept quoting the old text, and three gates stayed green over it: the console
+  test reads the ROOT README, nothing in the suite read the exemplar's README
+  at all, and `just example-spacer` runs `check --expect` and never `diff`.
+  `tests/test_docs.py` now executes that transcript — every `$` line run in a
+  copy of the exemplar, the narrative `# ... now edit BORE_D ...` applied as
+  the edit it describes, every quoted output line required to be a LINE the
+  tool printed, every `echo $?` matched against the exit code, the drift entry
+  quoted below it compared against `drift.json` verbatim, and a command shape
+  the replay does not know failed loudly rather than skipped. Falsifying the
+  summary line, the exit code, the `covered:` line or the quoted entry each
+  fails it on both pinned engines — including the falsification that actually
+  happened, which was an **append**: restoring the pre-#353 `different:
+  example-spacer — 2 drifted` fails on both engines, where a substring test
+  over the whole printed blob passed it, the stale line being a prefix of the
+  line that replaced it. The issue's other candidate — a `diff` step
+  in `just example-spacer` — is deliberately not taken and the recipe says
+  why: that recipe gates the console contract by printing it, and a `diff`
+  over a drifted baseline exits 1 whatever the summary line says.
 
 ## [0.7.7] - 2026-09-02
 
