@@ -9,6 +9,15 @@
 # `ok` gate's job, which every commit on main has already passed (main requires
 # a PR with `ok` green and linear history).
 #
+# It also creates the GitHub release, which it did not until #381. That step
+# lived only in habit, and habit missed it for v0.7.5, v0.7.6 and v0.7.7 — three
+# consecutive versions on PyPI whose release page did not exist, so the
+# repository's sidebar advertised v0.7.4 as current for three weeks. The tag and
+# the upload were correct every time; the only human-readable record of them was
+# the thing with no gate on it. `docs/`-style narrative is still worth writing by
+# hand, and the release created here is editable afterwards — but the page now
+# exists whether or not anyone remembers to write one.
+#
 # That reasoning only holds if the tag is ON main, and this workflow used to
 # say so in prose and enforce nothing — `git tag v9.9.9 <any-commit> && git
 # push --tags` would have published code that never passed `ok`, since no
@@ -21,6 +30,7 @@ on:
   push:
     tags: ["v*"]
 
+# Read at the top level; the `github-release` job raises its own to `write`.
 permissions:
   contents: read
 
@@ -139,3 +149,65 @@ jobs:
       # pin below is v1.14.2, which is what `release/v1` pointed at when it
       # was written; bump it deliberately, with the version in the comment.
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  github-release:
+    name: Create the GitHub release
+    needs: [publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # The notes are the CHANGELOG section for this exact version, and a
+      # missing section fails the job rather than publishing an empty page.
+      # That is the gate half: `release-check` asks a person to rename
+      # `[Unreleased]`, and nothing confirmed they had until the release was
+      # already on PyPI.
+      #
+      # Truncation is not hypothetical: v0.7.7's section is 170,793 bytes
+      # against GitHub's 125,000-character body limit, so the first draft of
+      # this job would have failed on the very release that motivated it.
+      # Measured, not assumed. A truncated page says so and points at the file.
+      - name: Extract this version's changelog section
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ ("^## \\[" v "\\]") { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > full.md
+          if [ ! -s full.md ]; then
+            echo "::error::CHANGELOG.md has no section for [$version]; rename [Unreleased] before tagging"
+            exit 1
+          fi
+          anchor="${version//./}"
+          limit=118000
+          if [ "$(wc -c < full.md)" -gt "$limit" ]; then
+            head -c "$limit" full.md | sed '$d' > notes.md
+            {
+              echo
+              echo '---'
+              echo
+              echo "*These notes are truncated: this version's changelog section is"
+              echo "$(wc -c < full.md) bytes, over GitHub's 125,000-character limit."
+              echo "The complete section is in"
+              echo "[CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md#${anchor}---)."
+              echo "*"
+            } >> notes.md
+            echo "::notice::Truncated $(wc -c < full.md) bytes to $(wc -c < notes.md)"
+          else
+            cp full.md notes.md
+          fi
+          echo "Notes: $(wc -l < notes.md) lines, $(wc -c < notes.md) bytes for $version"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --latest \
+            --verify-tag

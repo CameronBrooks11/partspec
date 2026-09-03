@@ -187,10 +187,27 @@ class MeshBackend:
     def center_of_mass(self, a: Any) -> Measurement | Unsupported:
         """Centroid of the enclosed solid — the same integral as `volume`, and
         refused on the same precondition. The open cube above put its centre of
-        mass at (-2.5, 0, 0), outside the material."""
+        mass at (-2.5, 0, 0), outside the material.
+
+        Closedness is necessary and not sufficient: the centroid is that
+        integral *divided by* the volume, so a closed surface enclosing none has
+        no centre of mass. trimesh divides in numpy, which yields `nan` rather
+        than raising, and `Measurement` then refuses that — correctly, but by
+        raising, which took the whole `measure` run down with it (#365). The
+        second precondition is stated here, where the inability to answer is
+        known, so the caller sees a refusal with a reason. `intersection()` of
+        two cubes meeting on a face reaches it: 2021.01 and 2026.08.01 both
+        export the same 4-facet zero-thickness sheet, closed and consistently
+        wound, area 480.0 mm2 and volume 0.0. The OCCT tier already refuses the
+        analogous shape, in almost these words.
+        """
         reason = _not_a_solid(a)
         if reason is not None:
             return Unsupported(f"centre of mass is an integral over a closed surface; {reason}")
+        if not float(a.volume):
+            return Unsupported(
+                "this mesh encloses no volume, so it has no centre of mass (check volume first)"
+            )
         com = tuple(float(v) for v in a.center_mass)
         return Measurement(com, "mm", exact=True, axes=("x", "y", "z"))
 

@@ -184,7 +184,10 @@ Read the non-`pass` statuses in `checks[]`:
   **A second spelling, and it does not mean quite the same thing.** `rotate()` words its
   failure `Problem converting rotate(a=undef) parameter in file part.scad, line 2` — also
   identical on both engines — and it says the engine could not use the `rotate` parameters
-  *as written* (#333). Sometimes that is a default going in and the rotation being lost:
+  *as written* (#333). `error` says so too, and says no more than that: **the engine could
+  not use a value as written**, never the substitution sentence above, because for one of
+  these shapes no default is taken (#360). Sometimes that is a default going in and the
+  rotation being lost:
   `rotate(undef)` and `rotate([undef,0,0])` leave the part at identity, nothing having
   changed size, standing in an orientation nobody wrote down. Sometimes it is not.
   `rotate(a=45, v="z")` substitutes the **default axis** `[0,0,1]`, so the part really is
@@ -327,9 +330,27 @@ pinned part from the invocation — from where you sit these are indistinguishab
   with **no report evidence**: the surviving parts' reports look normal (`verdict: "pass"`,
   no `error`), the confession is stderr + exit 4 alone — a harness must watch the exit, not
   only the artifacts;
-- **re-pinning after weakening** (`--pin`) defeats nothing: the lock is committed, and
-  its diff is the confession in your PR — treat running `--pin` as requiring the same
-  human sign-off as the contract edit itself;
+- **re-pinning after weakening** (`--pin`) defeats nothing, and it leaves three records,
+  not one: the committed lock's diff in your PR, a stderr line naming every claim the
+  rewrite overwrote, and — in the report of each part the lock already covered and whose
+  claims moved — `expectation.repinned` carrying the same lines (#294), which they are
+  under any single writer: the report answers for the lock the run found and the stderr
+  line for the lock it is about to overwrite, two reads that agree unless the file moved
+  under the run (SPEC-report §7.1). That block says
+  what was **compared, not what was written**: the write is refused when a crashed target
+  would drop a claim set, and the differences named are then what the run declined to
+  overwrite (SPEC-report §7.1). The report half matters because the first two can both be
+  absent from what a reviewer reads: a lock nobody committed has no diff, and stderr is
+  not an artifact. None of the three is a refusal; a deliberate re-pin is permitted.
+  Treat running `--pin` as requiring the same human sign-off as the contract edit itself.
+
+  **One arrival leaves none of the three.** A lock that could not be READ — malformed, or
+  a schema this build does not know — is still overwritten when nothing failed to resolve,
+  because overwriting one is the documented way out of it. partspec then says on stderr
+  that it cannot tell which claims moved, and no report carries `expectation` at all,
+  there being nothing to compare against; the lock's own diff is equally unreadable. That
+  path is the one where "the lock is committed" buys a reviewer nothing, so read the
+  stderr line and re-derive the claim set from the contract before signing anything off;
 - `partspec diff old/report.json new/report.json` reports `removed` and `limit_changed`
   on comparison, including a stripped citation. The **first** comparison against a
   baseline recorded before v0.7.5 is a migration, not a finding about the part: a Python
@@ -373,8 +394,10 @@ On the first `pass` for an unfamiliar part, confirm in `report.json`:
 
 1. `counts.total` is plausible for the part's complexity — one `watertight` on a bracket
    with four bolt holes proves almost nothing (exit 3 catches *zero* checks; it cannot
-   catch *too few*). With a pin in play the test is exact, not a judgment call:
-   `counts.total == expectation.claims + 1` (the implicit `builds` check);
+   catch *too few*). Under `--expect` the test is exact, not a judgment call:
+   `counts.total == expectation.claims + 1` (the implicit `builds` check). Only under
+   `--expect` — the `--pin` form of the block carries `repinned` and no `claims`, so read
+   that field with `.get`, never as a key;
 2. `attribution.dimensional > 0` with `attribution.attributed == 0` is the
    circular-contract signal — checkable from those two fields alone. Two honesty limits:
    `attributed` counts citations present, not pertinent; and arithmetic on a
@@ -399,7 +422,12 @@ On the first `pass` for an unfamiliar part, confirm in `report.json`:
    the Python tier and reaches no verdict — it is printed on every outcome as `not covered:`
    — while every other token, recognised or not, still blocks `identical` (SPEC-diff §2
    rule 3). Read the `not covered:` line; do not filter it out;
-4. when a pin is in play, `expectation.matched` is `true` in this same report.
+4. when a pin is in play, `expectation.matched` is `true` in this same report. That field
+   belongs to the `--expect` form of the block; a `--pin` run writes the other form,
+   `expectation.repinned`, and its presence says this run's declared claims differ from a
+   lock that already covered this part — a rewrite this run would perform, and did unless
+   the write was refused (§4) — so read those lines before believing the green
+   (SPEC-report §7.1).
 
 ---
 

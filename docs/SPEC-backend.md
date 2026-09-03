@@ -471,7 +471,8 @@ bars.
 |---|---|---|
 | `bbox`, `area`, `triangles`, `distinct_normals` | none — statements about the triangles as exported | always answered |
 | `watertight` | none — it *is* the closedness test | always answered |
-| `volume`, `center_of_mass` | closed, consistently wound **and outward-oriented**: the divergence theorem sums signed contributions, so a flipped triangle subtracts where it should add — and a uniformly inverted mesh is closed and consistent while every component encloses negative volume, which is refused too | `Unsupported` |
+| `volume` | closed, consistently wound **and outward-oriented**: the divergence theorem sums signed contributions, so a flipped triangle subtracts where it should add — and a uniformly inverted mesh is closed and consistent while every component encloses negative volume, which is refused too | `Unsupported` |
+| `center_of_mass` | `volume`'s precondition, **and a non-zero enclosed volume**: the centroid is that same integral divided by the volume, so a closed surface enclosing none has no centre of mass. trimesh divides in numpy and yields `nan`, which is not a measurement — the OCCT tier refuses the analogous shape (§4) | `Unsupported` |
 | `genus` | closed, and exactly one body | `Unsupported` |
 | `solid_count` | no edge shared by more than two faces | `Unsupported` |
 
@@ -484,6 +485,13 @@ answers, and nothing in the mesh says which was meant. Measured on the F10 gridf
 manifold3d welds and reports 1 body while the exported triangles give 3 (the bin plus two
 stray 2-triangle slivers). Both are defensible, which is exactly why neither may be reported
 as `exact`.
+
+`center_of_mass`'s extra clause is reached by a **sound** engine run and not only by a
+broken model: `intersection()` of two cubes meeting on a face exports a four-facet
+zero-thickness sheet — watertight, consistently wound, `area` 480.0 mm², `volume` 0.0 — on
+2021.01 and on 2026.08.01 alike. Before it was stated, that `nan` reached `Measurement`,
+which refuses a non-finite value by **raising**, and the raise ended the whole `measure`
+run: nothing at all was emitted, `area` and `bbox` included (#365).
 
 #### 5.1.2 Measure the artifact, not a library's rebuild of it
 

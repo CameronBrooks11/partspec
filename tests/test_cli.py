@@ -235,6 +235,58 @@ def test_the_three_measure_blocks_account_for_every_name(tmp_path: Path, capsys)
     )
 
 
+@needs_scad_tier
+def test_one_unmeasurable_quantity_does_not_suppress_the_other_thirteen(tmp_path: Path, capsys):
+    """#365. `measure` emitted NOTHING on a zero-thickness part.
+
+    `intersection()` of two cubes meeting on a face exports a closed,
+    consistently-wound sheet enclosing no volume. It has no centre of mass, and
+    the backend's `nan` reached `Measurement`, which refused it by raising —
+    out of the per-name loop, through the verb, to exit 4 with an empty stdout.
+    `area` and `bbox` need no volume and the same part answers both through
+    `check`, so the verb whose job is dumping every honest quantity produced
+    strictly less than the verb that decides.
+    """
+    doc = _measure(scad_target(tmp_path, source="zero_thickness.scad", claims=""), capsys)
+
+    assert doc["measurements"]["area"]["value"] == pytest.approx(480.0)
+    assert doc["measurements"]["bbox"]["value"] == pytest.approx([20.0, 12.0, 0.0])
+    assert doc["measurements"]["volume"]["value"] == 0.0, "0.0 is an answer, not an absence"
+    assert "no volume" in doc["refused"]["center_of_mass"]
+    assert "center_of_mass" not in doc["measurements"]
+    assert _accounted_names(doc), "the partition still covers the whole vocabulary"
+
+
+@needs_scad_tier
+def test_a_backend_that_raises_costs_one_name_and_not_the_run(tmp_path: Path, capsys, monkeypatch):
+    """The bound on the next backend that slips a non-finite value through.
+
+    The mesh tier's own case is fixed in the backend, where the inability to
+    answer is known. This pins what a backend fault may cost when the next one
+    is not: exactly the name that raised, recorded in `refused` — a property of
+    THIS artifact, where `unavailable` is a property of the tier
+    (SPEC-report.md §7.3) — with every other name still emitted, and no verdict.
+    """
+    from partspec.backends.mesh import MeshBackend
+    from partspec.status import ContractError
+
+    def explode(self, a):
+        raise ContractError("measurement value is nan, which is not a number")
+
+    monkeypatch.setattr(MeshBackend, "area", explode)
+    doc = _measure(scad_target(tmp_path, source="block_with_hole.scad", claims=""), capsys)
+
+    assert "nan" in doc["refused"]["area"] and "mesh" in doc["refused"]["area"]
+    assert "area" not in doc["measurements"]
+    assert doc["measurements"]["volume"]["value"] == pytest.approx(30 * 20 * 10 - 6 * 6 * 10)
+    assert "verdict" not in doc, "measure decides nothing, including here"
+    # SPEC-report 7.3's partition, on the backstop path as well as the
+    # fixture one: a name lost to a raise must still land in exactly one
+    # of the three blocks, or the payload stops accounting for the
+    # vocabulary (PR #369 review, N3).
+    assert _accounted_names(doc)
+
+
 @needs_build123d
 def test_a_tier_that_answers_everything_omits_both_optional_blocks(tmp_path: Path, capsys):
     """SPEC-report §7.3, the OCCT half — and the reason it is a MUST that a
@@ -1414,6 +1466,56 @@ def test_a_contract_that_raises_does_not_leave_the_previous_verdict(tmp_path: Pa
     assert json.loads(report.read_text())["verdict"] == "error", (
         "the previous run's pass survived a contract that raised"
     )
+
+
+@needs_scad_tier
+def test_a_usage_refusal_after_the_placeholder_leaves_an_undiagnosed_report(tmp_path, capsys):
+    """Exit 64 does NOT mean nothing was written, which `EXIT_USAGE` said until #358.
+
+    The placeholder goes down for every target before any target runs, and
+    `--expect` is read after it, so a refused lock exits 64 over a report that
+    is already on disk. That is the correct behaviour — it is exactly what the
+    placeholder exists to do — and the docstring on the constant encoding the
+    exit-code contract denied it, in a project whose thesis is that the tool
+    must not claim more than it has established.
+
+    The second half is the part a consumer has to plan for: the placeholder
+    carries the generic "run did not complete" sentence and NOT the reason for
+    the refusal, which reaches stderr only. An agent that reads the artifact
+    and not the exit code gets an `error` document it cannot act on
+    (`AGENT-CONTRACT.md` §4).
+    """
+    scad = tmp_path / "box.scad"
+    scad.write_text("x = 10;\ncube([x, x, x]);\n")
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n"
+        "def part() -> Part:\n"
+        "    p = Part('refused', openscad('box.scad', x=10.0))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    out = tmp_path / "out"
+    assert main(["check", f"{spec}:part", "--out", str(out), "--quiet"]) == 0
+    assert report_of(out)["verdict"] == "pass", "premise: a green run on disk"
+    capsys.readouterr()
+
+    missing = tmp_path / "nosuch.lock"
+    code = main(["check", f"{spec}:part", "--out", str(out), "--expect", str(missing), "--quiet"])
+    assert code == EXIT_USAGE
+
+    written = (out / "report.json").read_text()
+    doc = json.loads(written)
+    assert doc["verdict"] == "error", "the refused run left the previous pass on disk"
+    assert doc["counts"]["total"] == 0
+    assert doc["checks"] == []
+    # The lock PATH is in the artifact, echoed inside `invocation.argv`; the
+    # sentence saying what went wrong with it is not, and that is the half a
+    # reader needs.
+    assert "no claims pin" not in written, (
+        "the refusal's diagnosis reached the artifact; the docstring says stderr only"
+    )
+    assert "no claims pin at" in capsys.readouterr().err
 
 
 def test_a_contract_calling_sys_exit_is_not_a_green_run(tmp_path: Path):

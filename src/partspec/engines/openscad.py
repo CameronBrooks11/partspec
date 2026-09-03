@@ -25,7 +25,7 @@ import tempfile
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ..backend import DEFAULT_TIMEOUT_S, BuildError
@@ -438,6 +438,73 @@ def _contradicts(deps: RenderDeps, closure: Closure) -> bool:
     return not any(f.resolve() not in walked for f in deps.files)
 
 
+def _still_unbound(
+    source: OpenSCADSource, unbound: list[str], closure: Closure, deps: RenderDeps
+) -> BuildError | None:
+    """Ask the parameter question again, from the files the engine opened (#311).
+
+    `unbound` is what the STATIC walk could not account for, on a source whose
+    walk was short a file. That verdict is not a fact about the part until the
+    list it was drawn from is whole: the engine resolves libraries partspec
+    cannot see -- the pinned 2026.08.01 AppImage bundles `MCAD` inside its own
+    squashfs -- and it had already proved so, in the depfile, before this is
+    called. Re-walking with `engine_inputs` reads the file the walk missed and
+    the question is answered by the same rule as everywhere else.
+
+    Three outcomes, and the middle one is the whole point:
+
+    - depfile `absent` or `partial` — nothing better than the static walk is
+      available, so #287's honest refusal stands verbatim, `environment`. So
+      does the `complete` depfile that names no such file: apt 2021.01 HAS
+      `-d` and is as blind to a system library as partspec is, so the common
+      case on that engine is a render paid for and an answer unimproved.
+    - the re-walk resolves the include and the name IS declared — return None.
+      The engine bound it, and refusing would be a false refusal on a correct
+      contract over a correct part.
+    - the re-walk resolves the include and the name is still not declared — the
+      ORDINARY refusal, `model`, because the list is now complete and the
+      `-D` really would be dropped. The issue's own reproduction is this arm: a
+      transposed `bore_diamter` beside an unread `MCAD/units.scad` must not be
+      excused by the unread file.
+
+    Deliberately NOT computed over `deps.files` directly, for two reasons. The
+    list is every file the render opened, `import()`/`surface()` targets
+    included, and `top_level_variables` would scan a `.dat` or `.dxf` for
+    `name =` and invent declarations out of data. And it says nothing about
+    whether anything is still missing, which is what picks the sentence below.
+    The re-walk answers both with the one mechanism every other closure
+    question already uses; the depfile only ever supplies *where does this
+    reference live*.
+    """
+    reasked = (
+        include_closure(source.path, engine_inputs=deps.listed)
+        if deps.state == "complete"
+        else closure
+    )
+    still = unbound_parameters(source.path, source.params, closure=reasked)
+    if not still:
+        return None
+    named = ", ".join(still)
+    known = ", ".join(sorted(top_level_variables(source.path, closure=reasked))) or "none"
+    if reasked.unresolved_includes:
+        could_not = ", ".join(reasked.unresolved_includes)
+        return BuildError(
+            f"parameter(s) {named} match no top-level variable partspec could "
+            f"read in {source.path.name}, and that list is INCOMPLETE: "
+            f"{could_not} could not be opened, so a variable declared there "
+            f"would be missing from it",
+            hint=f"variables read so far: {known}. Make {could_not} resolvable "
+            f"— then partspec can say whether the parameter binds; until it "
+            f"opens, neither the name nor the contract can be judged",
+            origin="environment",
+        )
+    return BuildError(
+        f"parameter(s) {named} match no top-level variable in "
+        f"{source.path.name} or its includes, so -D would be silently dropped",
+        hint=f"top-level variables: {known}",
+    )
+
+
 def render(
     source: OpenSCADSource,
     out_dir: Path,
@@ -532,6 +599,11 @@ def render(
         return refusal
 
     scratch: Path | None = None
+    # Parameters that bind nothing in the closure partspec could WALK, held
+    # back for `_still_unbound` to re-ask once the engine has named its own
+    # inputs. Empty on every path where the walk was complete, so the ordinary
+    # refusal still happens before a byte is written.
+    deferred: list[str] = []
     try:
         if source.method:
             prepared = _method_scratch(source, out_dir)
@@ -557,32 +629,23 @@ def render(
             #
             # What #287 actually reports is the SENTENCE: "match no top-level
             # variable in <file> or its includes" is a claim about includes
-            # that were never opened. So the incomplete case says what it read,
-            # what it could not, and that the list is therefore short --
-            # `origin="environment"`, because an include that will not open is
-            # not a statement about the part, and the remedy is to make it
-            # resolvable rather than to edit the contract.
-            unbound = unbound_parameters(source.path, source.params)
-            if unbound:
-                named = ", ".join(unbound)
-                known = ", ".join(sorted(top_level_variables(source.path))) or "none"
-                if closure.unresolved_includes:
-                    could_not = ", ".join(closure.unresolved_includes)
-                    return BuildError(
-                        f"parameter(s) {named} match no top-level variable partspec could "
-                        f"read in {source.path.name}, and that list is INCOMPLETE: "
-                        f"{could_not} could not be opened, so a variable declared there "
-                        f"would be missing from it",
-                        hint=f"variables read so far: {known}. Make {could_not} resolvable "
-                        f"— then partspec can say whether the parameter binds; until it "
-                        f"opens, neither the name nor the contract can be judged",
-                        origin="environment",
-                    )
+            # that were never opened. #311 goes one step further: when the
+            # engine can open a file partspec cannot -- the pinned AppImage
+            # bundles MCAD inside its own squashfs -- refusing on the short
+            # list refuses a correct part over a correct contract. So the
+            # unread-include arm is DEFERRED to `_still_unbound`, which asks
+            # the same question again from the depfile. Nothing is deferred
+            # when the walk was whole: there is no better answer coming, and
+            # rendering first would only cost time.
+            unbound = unbound_parameters(source.path, source.params, closure=closure)
+            if unbound and not closure.unresolved_includes:
+                known = ", ".join(sorted(top_level_variables(source.path, closure=closure)))
                 return BuildError(
-                    f"parameter(s) {named} match no top-level variable in "
+                    f"parameter(s) {', '.join(unbound)} match no top-level variable in "
                     f"{source.path.name} or its includes, so -D would be silently dropped",
-                    hint=f"top-level variables: {known}",
+                    hint=f"top-level variables: {known or 'none'}",
                 )
+            deferred = unbound
             render_path, defines = source.path, _define_args(source.params)
 
         backend_args = ["--backend", source.backend] if source.backend else []
@@ -735,6 +798,13 @@ def render(
                     closure=closure,
                     refuse_unanswered=would_overwrite,
                 )
+                if refusal is not None:
+                    return refusal
+            if deferred:
+                # After the overwrite guard and before the artifact is moved
+                # into place: a refusal here must leave nothing behind, exactly
+                # as the pre-render one did.
+                refusal = _still_unbound(source, deferred, closure, deps)
                 if refusal is not None:
                     return refusal
             # Read here, on the path that WORKED, and not only where a
@@ -1840,6 +1910,25 @@ class RenderDeps:
     files: tuple[Path, ...] = ()
     """Resolved dependencies, sorted. Absolute, except where noted in `missing`."""
 
+    listed: tuple[Path, ...] = ()
+    """The same dependencies, cwd-joined but **not** resolved.
+
+    `files` is what the render read; this is how the depfile SPELLED it, and
+    the difference is the whole of #311's second bug. OpenSCAD writes each
+    token as `searchdir + reference`, so the token always carries the
+    `include` literal as a suffix -- measured with a library reached through a
+    directory symlink and again through a file symlink, both engines, and in
+    every case the token was `<searchdir>/MCAD/units.scad`. Resolving it
+    throws that away: the symlink's target has a different tail, and a decoy
+    among the inputs that still ends with the literal becomes the unique
+    match. Suffix matching is exact against `listed` and a guess against
+    `files`, so `_from_engine_inputs` is fed this one.
+
+    `files` remains what everything else uses: identity comparisons, the
+    overwrite guard and `missing` all need the resolved path, and two spellings
+    of one file must not read as two files.
+    """
+
     missing: tuple[Path, ...] = ()
     """Listed dependencies that do not exist on disk.
 
@@ -1851,22 +1940,26 @@ class RenderDeps:
     """
 
 
-def _parse_depfile(text: str, cwd: Path) -> tuple[Path, ...]:
-    """Resolved dependencies from a make-style depfile, entry file included.
+def _parse_depfile(text: str, cwd: Path, *, resolve: bool = True) -> tuple[Path, ...]:
+    """Dependencies from a make-style depfile, entry file included.
 
     The target is everything up to the first colon and is dropped. Paths are
-    resolved against `cwd` because they are not uniformly absolute: OpenSCAD
+    joined to `cwd` because they are not uniformly absolute: OpenSCAD
     emits resolved dependencies absolute but **echoes the invoked source as it
     was given**, and partspec passes `source.path` unresolved (`contract.py`
     builds `Source` with a bare `Path(path)`), so a contract saying
     `openscad("part.scad")` puts a relative entry in this list.
+
+    `resolve=False` stops there and keeps the token's own spelling, which is
+    what `RenderDeps.listed` is for.
     """
     _, _, body = text.partition(":")
     out: set[Path] = set()
     for match in _DEP_TOKEN.finditer(body):
         token = re.sub(r"\\(.)", r"\1", match.group())
         if token:
-            out.add((cwd / token).resolve())
+            joined = cwd / token
+            out.add(joined.resolve() if resolve else joined)
     return tuple(sorted(out))
 
 
@@ -1880,6 +1973,7 @@ def _read_depfile(path: Path, *, ok: bool) -> RenderDeps:
     return RenderDeps(
         state="complete" if ok else "partial",
         files=files,
+        listed=_parse_depfile(text, Path.cwd(), resolve=False),
         missing=tuple(f for f in files if not f.exists()),
     )
 
@@ -1959,6 +2053,12 @@ class Closure:
         include** is named nowhere: the depfile lists what was opened, never
         what was asked for (`RenderDeps`), so no later signal supersedes this
         one and refusing early is the only honest answer there is.
+
+        For THIS guard, which is about not writing over a file the render may
+        read. The *variable-list* question an unresolved include also spoils is
+        answered later, by `_still_unbound` (#311) — a suffix match back from
+        the opened path recovers the reference, which is enough to name a
+        variable and not enough to prove a destination is not an input.
         """
         if self.unresolved:
             return f"has include(s) partspec could not resolve ({', '.join(self.unresolved)})"
@@ -1969,7 +2069,7 @@ _ASSIGNMENT = re.compile(r"([A-Za-z_$][A-Za-z0-9_]*)\s*=")
 _DIRECTIVE = re.compile(r"\b(?:include|use)\s*<[^>]*>")
 
 
-def top_level_variables(entry: Path) -> set[str]:
+def top_level_variables(entry: Path, *, closure: Closure | None = None) -> set[str]:
     """Names assignable by `-D`, across the include closure.
 
     OpenSCAD's `-D name=value` overrides a **top-level** variable. If no such
@@ -1984,9 +2084,13 @@ def top_level_variables(entry: Path) -> set[str]:
 
     Read across the whole closure rather than the entry alone, because a
     library's parameters routinely live in an included `standard.scad`.
+
+    `closure` is an already-walked closure to read instead of walking again —
+    in particular one walked with `engine_inputs`, which sees a library only
+    the engine could open (#311).
     """
     names: set[str] = set()
-    for path in include_closure(entry).files:
+    for path in (closure if closure is not None else include_closure(entry)).files:
         try:
             text = _strip_noise(path.read_text(encoding="utf-8", errors="replace"))
         except OSError:
@@ -2011,13 +2115,17 @@ def top_level_variables(entry: Path) -> set[str]:
     return names
 
 
-def unbound_parameters(entry: Path, params: dict[str, Any]) -> list[str]:
+def unbound_parameters(
+    entry: Path, params: dict[str, Any], *, closure: Closure | None = None
+) -> list[str]:
     """Declared parameters that no top-level variable would receive.
 
     Special variables (`$fn`, `$fa`, `$fs`) are exempt: they are built in, so a
     file need not assign one for `-D` to take effect.
+
+    `closure` is passed straight to `top_level_variables`.
     """
-    declared = top_level_variables(entry)
+    declared = top_level_variables(entry, closure=closure)
     return sorted(n for n in params if not n.startswith("$") and n not in declared)
 
 
@@ -2059,7 +2167,39 @@ def library_path() -> list[Path]:
     return dirs
 
 
-def include_closure(entry: Path) -> Closure:
+def _from_engine_inputs(ref: str, engine_inputs: Sequence[Path]) -> Path | None:
+    """The one file the render opened whose path ends with `ref`, or None.
+
+    A depfile names what was successfully opened and never what was asked for
+    (`RenderDeps`), so the suffix is the only way back from a listed path to
+    the `include` that wanted it. Ambiguity is not resolved by guessing: two
+    candidates ending in `MCAD/units.scad` leave the reference unresolved and
+    the caller keeps #287's honest refusal, which is the answer that does not
+    require knowing which one the engine spliced.
+
+    The suffix only means anything against the token as the depfile SPELLED
+    it, which is why the caller passes `RenderDeps.listed` and not `files`.
+    OpenSCAD writes each token as `searchdir + reference`, so the literal is
+    always a suffix of it; resolving first throws that away, and a library
+    reached through a symlink arrives under its real name while a decoy that
+    still ends with the literal becomes the unique hit. Measured, that read
+    one library's variables behind another library's name: an artifact for a
+    `-D` that never reached the geometry, and in a second shape an
+    `origin="model"` verdict blaming a correct contract off the decoy's
+    contents (#311, review round 2).
+
+    Two spellings of ONE file are not an ambiguity, so the count is over
+    resolved identity: a render that opened the same file by two search paths
+    has still opened one file.
+    """
+    want = tuple(part for part in PurePosixPath(ref).parts if part not in ("", "."))
+    if not want or ".." in want:
+        return None
+    hits = [f for f in engine_inputs if f.parts[-len(want) :] == want and f.is_file()]
+    return hits[0] if len({f.resolve() for f in hits}) == 1 else None
+
+
+def include_closure(entry: Path, *, engine_inputs: Sequence[Path] = ()) -> Closure:
     """Walk `include`/`use` transitively from `entry`.
 
     Resolution follows OpenSCAD's own rule: relative to the directory of the
@@ -2069,6 +2209,14 @@ def include_closure(entry: Path) -> Closure:
     A file that cannot be read is skipped rather than raised on: this is
     provenance, and failing a check because provenance was awkward would be the
     tail wagging the dog.
+
+    `engine_inputs` is a *last resort* search path: the files a render reported
+    opening (`RenderDeps.files`), consulted only where the ordinary rule finds
+    nothing. It exists because an engine can read a library partspec cannot —
+    the pinned 2026.08.01 AppImage carries `MCAD` inside its own squashfs, so
+    `include <MCAD/units.scad>` resolves for the render and for nothing else
+    (#311). Passing it makes the walk answer the question the render already
+    answered; passing nothing leaves the walk exactly as static as before.
     """
     entry = entry.resolve()
     seen: set[Path] = {entry}
@@ -2102,6 +2250,8 @@ def include_closure(entry: Path) -> Closure:
             found = next(
                 (c for c in ((b / ref) for b in (current.parent, *search)) if c.is_file()), None
             )
+            if found is None:
+                found = _from_engine_inputs(ref, engine_inputs)
             if found is None:
                 unresolved.add(ref)
                 if spliced_here:

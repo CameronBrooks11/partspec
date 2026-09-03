@@ -9,6 +9,127 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The release workflow creates the GitHub release** (#381). It built,
+  asserted the tag was on `main`, asserted the tag matched the package
+  version, smoke-tested the wheel and published to PyPI — and never made the
+  release page. That step lived only in habit, named in no workflow, no
+  recipe and no document, and habit missed it three times running: **v0.7.5,
+  v0.7.6 and v0.7.7 were tagged and on PyPI with no release**, so the
+  repository advertised v0.7.4 as current for three weeks while users
+  installed 0.7.7. The tag and the upload were right every time; the only
+  human-readable record of them was the one step with no gate on it — epic
+  #305's third state, which its "Done means" says may not exist. The new job
+  takes the notes from the CHANGELOG section for the tagged version and
+  **fails when there is none**, which is the first thing to confirm that
+  `[Unreleased]` was renamed before the version reached PyPI rather than
+  after. Notes over GitHub's 125,000-character body limit are truncated with
+  a pointer to the file: v0.7.7's section is 170,793 bytes, so the first
+  draft of this job would have failed on the release that motivated it —
+  measured rather than assumed. The three missing releases were published
+  retroactively.
+
+- **A dimension defaulted from `undef` is now narrated, and honestly not
+  refused** (#308, #332, #338). Prefixed `o = undef;`, seven spellings of five
+  builtins exit **0** with a clean watertight single solid built to a number
+  nobody wrote: `cube(o)` and `cube(size=o)` to 1 mm, `linear_extrude(o)` and
+  `linear_extrude(height=o)` to **100**, `cylinder(h=o, d=10)` to h = 1,
+  `sphere(o)` to r = 1 — stderr **empty** for all of them on both pinned
+  engines. (`resize(o) cube(5)` is silent too but is a **no-op**, 12 facets and
+  bbox 5 x 5 x 5 unchanged, because `newsize` defaults to `[0,0,0]` and a 0
+  there means *keep this axis* — the one row of the seven whose resulting
+  dimension IS a number the author wrote.) #332's eleven-row table was re-measured
+  here row for row, including both amendments it had already taken: `circle(r=o)`
+  exits **1** with no STL, and `linear_extrude(o + 1)` warns **twice** on
+  2021.01 and once on 2026.08.01. **No new refusal ships, and the reason is
+  provable rather than provisional.** stderr cannot decide it — the silent rows
+  emit nothing, and `undefined operation` fires beside a correct 272-facet bored
+  plate (measured, genus 1, exact 40 × 30 × 6, both engines), which is why
+  PR #306 reverted it. The `.csg` cannot decide it either: `o = undef; cube(o);`
+  exports **byte-identical** to `cube(1);` on both engines, as do the
+  `linear_extrude`, `cylinder` and `sphere` rows against hand-written correct
+  counterparts, so any tier-2 rule refusing the fault refuses ordinary code byte
+  for byte. What ships instead is `partspec lint`'s tier-1 **`scad-untested-undef`**
+  — a name bound to a literal `undef`, read, with no `is_*()` or `== undef` test
+  in its scope — advisory, engine-free, and firing on none of this repository's
+  29 tracked `.scad` files. `skills/openscad-authoring/SKILL.md` gains rule 8 and
+  `FAILURE-MODES.md` entry 10, both carrying the contract half, which is the part
+  that actually refuses: `envelope(max=(40,30,6))` turns #332 row 1 and #338(b)
+  from exit 0 into **FAIL, exit 1** on both engines, while #338(a)'s vanished loop
+  gets *smaller* and still passes it — only a two-sided
+  `envelope(min=(40,8,10), max=(40,8,10))` fails that one, exit 1 on both engines,
+  with the correct `n = 4` part passing. The rule's accepted noise is named rather
+  than denied: an `undef` read only by an `echo` fires, and that is exactly the
+  correct part PR #306 and PR #329 round 2 each refused at exit 4 — here it costs
+  nothing, because `lint` exits 0 whatever it finds. `tests/test_docs.py` executes
+  rule 8's two heights on whichever engine is pinned, and `docs/FAILURE-MODES.md`
+  gains **entry 10**; entry 9b's symptom is rewritten for the third cause #377
+  adds, so the two land in either order.
+
+  Adversarial review found the rule's edges wrong in three ways, all fixed here and
+  all with the corpus answer unchanged — **linting the same 126 tracked sources
+  with the rule before and after produces byte-identical output**. The stated
+  number is gone: two successive drafts quoted one, and both were stale within
+  hours, because the corpus moves whenever any branch adds a literal. The
+  byte-identity is the invariant and it does not move. Both this rule and
+  `scad-unused-top-level` asked their "is this name read elsewhere" question over
+  the **line**, so a packed `o = undef; h = o + 1; linear_extrude(h) …` — one legal
+  line, and the exact string `docs/LINT.md` printed as this rule's own example —
+  produced no finding here and a **false** "declared but never read" there. Both now
+  ask it over the assignment **statement**, which is what `scad-magic-number` learned
+  in the v0.7.0 pre-tag audit; `tests/test_lint.py` lints the documents' examples
+  verbatim out of the shipped files rather than re-rendering them, since the
+  harness's own newlines were what hid this. A `name =` at bracket depth >= 1 is a
+  **keyword argument**, never a read — `cylinder(h = 20)` names cylinder's parameter
+  and cannot reference the caller's `h` — which had said `'d'` was read by
+  `cylinder(d = 8)` on a correct 272-facet part while hiding a genuinely dead
+  `h = undef;` knob from `scad-unused-top-level`, so one rule stated a falsehood
+  while no rule stated the fault; both are now right. And a parameter's scope now
+  includes the parameter list, so `module m(a = undef, b = a)` is seen. The
+  remaining noise — a shadowing rebind, and a top-level name silenced by an
+  `is_undef` in an unrelated scope — is enumerated in `docs/LINT.md` rather than
+  left implicit.
+
+- **A backwards range is engine-defined, and neither engine says so where it
+  matters** (#356). `for (i = [1 : n])` at `n = 0` — the shape a loop takes when
+  a count falls to zero — is normalised and iterated **ascending** by 2021.01 and
+  iterated not at all by 2026.08.01. Measured on a 40 × 8 × 6 rail with a
+  6 × 8 × 4 stud: 36 triangles and bbox z 9.99, two studs the source did not ask
+  for, against a bare-rail 12 and bbox z 6 — both at exit 0, both watertight and
+  single-solid. That is `FAILURE-MODES.md` entry 1's F13 class, and the stderr
+  guard added for it does not reach this one: 2021.01's `DEPRECATED: Using ranges
+  of the form [begin:end] …` is not among the lines read off a render that
+  succeeded and `build_stderr` is `null` in the report either way, measured under both
+  engines on this part, while 2026.08.01
+  warns only when the range is a *literal* and a count that falls to zero always
+  arrives through a variable. So the issue's premise that the older engine is
+  silent is corrected here: it narrates, into a channel nothing reads.
+  `skills/openscad-authoring/SKILL.md` gains rule 7 — guard the count with
+  `if (n > 0)`, measured identical on both engines at `n = -1`, `0` and `2`, as
+  is the three-argument `[1 : 1 : n]` — and entry 1 gains the sibling shape with
+  its measurement. What does catch it is the guard entry 1 already names: a
+  two-sided `envelope` on the `n = 0` part gives `FAIL envelope — z=9.98999977`,
+  exit 1, on 2021.01 against `PASS: 4 pass`, exit 0, on 2026.08.01, with
+  `watertight` and `solid_count` passing on both. `tests/test_docs.py` executes
+  rule 7 on whichever engine is pinned.
+
+- **`measure` answers every quantity it can, whatever defeated one of them**
+  (#365). A zero-thickness part — `intersection()` of two cubes meeting on a
+  face, which 2021.01 and 2026.08.01 both export as a closed, consistently
+  wound four-facet sheet — has no centre of mass, because the centroid divides
+  by the volume. `trimesh` returned `nan`, `Measurement` refused it by
+  raising, and the raise escaped the per-name loop: exit 4, **stdout 0
+  bytes**, no `area`, no `bbox`, on a part whose other thirteen names the
+  payload accounts for — eight measured, five unavailable on that tier — and
+  whose `area` the same geometry answers through `check` (480.0 mm², pass,
+  exit 0). The mesh tier's `center_of_mass` now refuses that shape with a
+  reason — "this mesh encloses no volume, so it has no centre of mass (check
+  volume first)" — leaving `area` 480.0, `bbox` (20, 12, 0) and `volume` 0.0
+  emitted, all fourteen names accounted for across the three §7.3 blocks.
+  `measure` also catches a raising backend per name and records it in
+  `refused` rather than ending the run, so the next one can cost one name and
+  not the verb. The OCCT tier already guarded this case and was measured
+  unaffected; `render` builds no `Measurement` and has no equivalent path.
+
 - **ISO 965-1 does not meet §10.1's formula-executed exception, measured**
   (#260, #246, #261). The exception admits a standard's tolerance grades and
   fundamental deviations where the standard states them as a formula *and* the
@@ -45,6 +166,162 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ruling licensed this data is corrected, the released #261 entry's
   "verifiable by construction" claim for `es_g` is falsified by the same
   measurement, and §10.1 records it so the work is not repeated.
+
+- **The substitution sentence no longer asserts a default nothing took**
+  (#360). `Problem converting rotate(...)` joined the substituted-value
+  markers in #333 and inherited that marker's diagnosis — *the engine could
+  not convert a value and built a default in place of it* — which is false for
+  one of its measured shapes. `rotate([90, 0, 0, 0]) cube([10, 5, 2])` exports
+  a mesh **byte-identical** to `rotate([90, 0, 0]) cube([10, 5, 2])` on both
+  pinned engines (`cmp -s`, 1485 bytes on 2021.01 and 1479 on 2026.08.01):
+  2021.01's `transform.cc` reads `default: ok &= false; /* fallthrough */
+  case 3:`, so an over-long vector has its first three components read and
+  applied and **nothing is substituted**. That line now gets a third cause —
+  *the engine could not use a value as written* — with a hint that says stderr
+  cannot tell which of the shapes it is in. `Unable to convert` keeps the
+  substitution text unchanged to the byte: for that marker a default really is
+  always taken, and one weaker sentence covering both would have cost the
+  precision that makes it actionable. **The refusal is unchanged**, at exit 4,
+  for `FAILURE-MODES.md` 9b's reason: the source is wrong whatever the mesh
+  is. `SPEC-contract.md` §4.12 and `AGENT-CONTRACT.md` §2.3 move with it.
+
+- **A re-pin confesses in the artifact, not only on the console** (#294). The
+  stderr half shipped in #351; the report's `expectation` block still carried
+  nothing, and `SPEC-report.md` §7.1 said the block was "present only when the
+  run was invoked with `--expect`". Both move together here. A `--pin` run over
+  a lock that already covered this part, whose declared claims differ from it,
+  now writes `{"repinned": [...]}` into that part's own report — the same lines
+  `compare()` gives the console under any single writer, with the caveat the
+  two reads below make explicit. Measured on `examples/spacer`: pin, edit `PLATE` from
+  (40, 30, 6) to (40, 30, 9), re-pin — the report went from no `expectation`
+  key to `repinned: ["changed: envelope — pinned 'envelope max=[40.0, 30.0,
+  6.0]', declared 'envelope max=[40.0, 30.0, 9.0]'"]`, at `verdict: "pass"`,
+  exit 0. **Still not a refusal and not an adjudication**: §4 of the agent
+  contract permits a deliberate re-pin. The two forms of the block are
+  therefore **disjoint** — they share no key — because §7.1 binds
+  `matched: false` to `verdict: "error"`, and a permitted re-pin is exactly a
+  mismatch that is not one, so a consumer keying on `matched` may never meet
+  this form. Absent in **four** cases: a first pin, a part the lock did not
+  cover, a re-pin that moved nothing — and a lock that could not be READ, which
+  is still overwritten when nothing failed to resolve and leaves every report
+  without the block, all three records of the move vanishing together, since a
+  lock whose bytes will not parse is also a lock whose diff a reviewer cannot
+  read. §7.1 names that fourth case so absence is not read as "nothing moved".
+  That the flag was passed at all is `invocation.argv`'s to say. The lock is
+  read **twice**: once before the first target, because every report is written
+  inside the target loop while the lock write comes after it, and again
+  immediately before that write, because the two reads answer different
+  questions. Reusing one snapshot for both let a part another process added
+  during the build be written out of the lock with neither the `dropped` line
+  nor a refusal — measured with a writer adding a part 2 s into a 4 s build.
+  The cost is that the report and the console can word one move two ways when
+  the lock moves under the run: seeded at `envelope max=[10, 10, 10]` and
+  rewritten to `[20, 20, 20]` mid-build, the console names `[20, 20, 20]` and
+  the report `[10, 10, 10]`, each correct for the question it answers. §7.1
+  says so rather than promising an equality that only holds for one writer.
+  The block records what was **compared**, not a write that happened: a crashed
+  target that would drop a claim set makes `--pin` refuse, leaving the lock
+  byte-unchanged at exit 4 while the surviving part's report still names the
+  differences. `AGENT-CONTRACT.md` §4 and §5, and `examples/spacer/README.md`,
+  name the third record and say the same thing about it.
+- **A library only the engine can read no longer makes every `-D` unjudgeable**
+  (#311, #287). `unbound_parameters` answers from the files *partspec*
+  resolved, and #287 made the refusal honest when that list is short. It could
+  not finish the job when the engine could open a file partspec could not: on
+  the pinned 2026.08.01 AppImage, which bundles `MCAD` inside its own squashfs,
+  `include <MCAD/units.scad>` with `mm=2.0` renders a 20 mm cube and partspec
+  refused it at exit 4, on a correct part and a correct contract — while the
+  report carried the disproof, `engine_inputs.state: complete` naming the
+  resolved path. The refusal is now **deferred** when, and only when, the
+  parameter binds nothing *and* an `include` did not resolve: the render goes
+  ahead, and on a `complete` depfile the closure is walked again with the
+  engine's own input list as a last-resort search path, matched back to the
+  reference by path suffix. Measured on that arm: exit 4 → exit 0, bbox
+  20 × 20 × 20, so the `-D` demonstrably reached the geometry. The other arm
+  must not move and does not — the issue's own `bore_diamter` transposition
+  beside the same unread library stays refused, now at `origin="model"` under
+  the ordinary sentence, because the re-asked list holds `bore_diameter`, `mm`,
+  `cm` … and still not `bore_diamter`. On apt 2021.01, which cannot read
+  `MCAD` either, both arms keep #287's `environment` refusal verbatim: the
+  depfile does not name the file, so nothing better is available and none is
+  claimed — and that is the ordinary Debian/Ubuntu case, not an exotic one: an
+  engine can have `-d`, write a `complete` depfile, and still be as blind to
+  the library as partspec is, in which case the render is paid for and the
+  answer does not improve. Ambiguity is not guessed at — two files ending in the
+  same reference leave it unresolved. The suffix is matched against the token
+  the depfile **wrote**, which is the half review found missing twice: partspec
+  resolved every token while the reference stayed a literal, so a library
+  reached through a symlink arrived under its real name and a decoy that still
+  ended with the literal became the unique hit — one library's variables read
+  behind another library's name. Measured, that returned an artifact for a `-D`
+  that never reached the geometry, and in a second shape an `origin="model"`
+  verdict blaming a correct contract off the decoy's contents, where main had
+  refused honestly. OpenSCAD writes each token as `searchdir + reference`, so
+  the literal is always a suffix of it — measured through a directory symlink
+  and a file symlink, both engines — and `RenderDeps` now keeps both spellings:
+  `files` resolved for identity, `missing` and the overwrite guard, `listed` as
+  written for this one question. A first attempt counted basenames instead; it
+  closed the directory-symlink shape, left the file-symlink shape open, and
+  refused a case main resolved. Two spellings of one file are not an ambiguity,
+  so the count is over resolved identity. The cost is one render on the path
+  that used to exit 4 before rendering anything, and exactly one: +110 ms on a
+  sphere whose bare engine render is 102 ms, +28 ms on the six-facet
+  reproduction.
+- **`EXIT_USAGE` no longer claims it writes no report** (#358). `check` puts a
+  placeholder at every target's deterministic path before any target runs, and
+  `--expect` is read after it, so a refused lock exits 64 over a report that is
+  already on disk: `verdict: "error"`, `counts.total: 0`, no `checks`, and the
+  diagnosis on stderr only. Measured on two shapes — `--expect nosuch.lock` and
+  an unresolvable `nosuch.py:widget`, each leaving `outputs/<slug>/report.json`.
+  The docstring now says which 64s write nothing — the rule is *raised before
+  the placeholder loop*, and the examples given are not a closed list, because
+  `partspec --docs check …` and a bare `partspec` are two more that fit it —
+  and which leave an undiagnosable artifact, and `tests/test_cli.py` pins the
+  behaviour so the wording cannot go stale silently. The second clause, that a
+  64 never participates in batch aggregation, was independently true and is
+  kept — but no longer stated as a consequence of the false one.
+
+- **The fence guard reaches `examples/`, and reads more than the exit status**
+  (#366). `test_every_openscad_fence_in_the_docs_parses` globbed `docs/` and
+  `skills/` — the wrong half, since an exemplar README is where a snippet is
+  most likely to be copied verbatim: PR #364 shipped one broken fence into
+  `docs/` and an identical one into `examples/clearance/README.md`, and only
+  the first turned the suite red. Both halves are fixed. The glob now covers
+  `examples/**/*.md`, and a fence whose stderr carries an unresolved NAME
+  fails even at exit 0 — measured on both pinned engines, deleting the
+  `CLEAR = 1.5;` a fence depends on leaves both exporting rc 0 with `WARNING:
+  Ignoring unknown variable 'CLEAR'`, i.e. a sphere at the default radius
+  rather than the prescribed one. The vocabulary is the engine guard's own
+  `_UNRESOLVED_NAME_MARKERS`, so the two cannot drift apart, with three
+  **names** exempted rather than the marker — two shipped fences legitimately
+  call `a`/`b`/`grown_b`, which they do not define (`SPEC-contract.md` §4.12
+  and `skills/contract-authoring/SKILL.md`) — and an assertion that the
+  exempted marker is still spelled that way upstream. Exempting the marker
+  would have exempted the typo with it: appending `post_envelop();` to the
+  `examples/clearance` fence, a misspelling of the `post_envelope` that same
+  fence defines, renders nothing and passed on both engines under the
+  marker-wide form.
+
+- **The exemplar's `diff` transcript is now replayed, not read** (#361). PR
+  #353 changed what a `diff` summary line can say, `examples/spacer/README.md`
+  kept quoting the old text, and three gates stayed green over it: the console
+  test reads the ROOT README, nothing in the suite read the exemplar's README
+  at all, and `just example-spacer` runs `check --expect` and never `diff`.
+  `tests/test_docs.py` now executes that transcript — every `$` line run in a
+  copy of the exemplar, the narrative `# ... now edit BORE_D ...` applied as
+  the edit it describes, every quoted output line required to be a LINE the
+  tool printed, every `echo $?` matched against the exit code, the drift entry
+  quoted below it compared against `drift.json` verbatim, and a command shape
+  the replay does not know failed loudly rather than skipped. Falsifying the
+  summary line, the exit code, the `covered:` line or the quoted entry each
+  fails it on both pinned engines — including the falsification that actually
+  happened, which was an **append**: restoring the pre-#353 `different:
+  example-spacer — 2 drifted` fails on both engines, where a substring test
+  over the whole printed blob passed it, the stale line being a prefix of the
+  line that replaced it. The issue's other candidate — a `diff` step
+  in `just example-spacer` — is deliberately not taken and the recipe says
+  why: that recipe gates the console contract by printing it, and a `diff`
+  over a drifted baseline exits 1 whatever the summary line says.
 
 ## [0.7.7] - 2026-09-02
 

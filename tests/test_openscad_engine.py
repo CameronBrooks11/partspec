@@ -1915,6 +1915,219 @@ def test_an_unresolved_use_does_not_excuse_a_parameter_that_binds_nothing(tmp_pa
     assert result.origin == "model"
 
 
+def test_the_engines_own_inputs_resolve_a_reference_the_walk_could_not(tmp_path: Path):
+    """`include_closure(engine_inputs=...)`, the mechanism #311 rests on.
+
+    A depfile names what the render OPENED and never what it asked for, so the
+    only route back from a resolved path to the reference that wanted it is the
+    suffix. Nothing about this needs the engine: it is a search path of last
+    resort, consulted only where the ordinary rule found nothing.
+    """
+    hidden = tmp_path / "elsewhere" / "MCAD"
+    hidden.mkdir(parents=True)
+    (hidden / "units.scad").write_text("mm = 1;\ncm = 10;\n")
+    entry = _scad(tmp_path, "part.scad", "include <MCAD/units.scad>\ncube([10 * mm, 10, 10]);\n")
+
+    blind = openscad.include_closure(entry)
+    assert blind.unresolved_includes == ("MCAD/units.scad",), "the premise"
+    assert openscad.unbound_parameters(entry, {"mm": 2.0}) == ["mm"]
+
+    seeing = openscad.include_closure(entry, engine_inputs=[hidden / "units.scad"])
+    assert seeing.unresolved == (), seeing
+    assert seeing.unresolved_includes == ()
+    assert "mm" in openscad.top_level_variables(entry, closure=seeing)
+    assert openscad.unbound_parameters(entry, {"mm": 2.0}, closure=seeing) == []
+
+
+def test_an_ambiguous_engine_input_is_left_unresolved_rather_than_guessed(tmp_path: Path):
+    """Two files ending in the same reference, and no way to tell which was spliced.
+
+    Guessing would put one library's variable list behind another library's
+    name. Leaving it unresolved keeps #287's honest refusal, which is the
+    answer that does not require knowing the unknowable.
+    """
+    for stem in ("a", "b"):
+        (tmp_path / stem / "MCAD").mkdir(parents=True)
+        (tmp_path / stem / "MCAD" / "units.scad").write_text(f"mm_{stem} = 1;\n")
+    entry = _scad(tmp_path, "part.scad", "include <MCAD/units.scad>\ncube([1, 1, 1]);\n")
+
+    both = [tmp_path / "a" / "MCAD" / "units.scad", tmp_path / "b" / "MCAD" / "units.scad"]
+    assert openscad.include_closure(entry, engine_inputs=both).unresolved_includes == (
+        "MCAD/units.scad",
+    )
+    # And one alone is not ambiguous, so the mechanism is not simply inert.
+    assert openscad.include_closure(entry, engine_inputs=both[:1]).unresolved_includes == ()
+
+
+def test_the_reference_is_matched_against_the_token_the_depfile_wrote(tmp_path: Path):
+    """A symlink must not defeat the suffix, and one file is not two (#311 round 2).
+
+    OpenSCAD writes each depfile token as `searchdir + reference`, so the
+    literal written in the source is always a suffix of it. Resolving the token
+    first throws that away: a library reached through a symlink arrives under
+    its real name, and a decoy that still ends with the literal becomes the
+    unique hit -- one library's variables read behind another library's name.
+    Measured before this was fixed: exit 1 at `origin="model"`, blaming a
+    correct contract off the decoy's contents, where main refused honestly.
+
+    Both halves are asserted here because the fix has two: match on the
+    as-written token, and count ambiguity over resolved IDENTITY so that a
+    render which opened one file by two spellings is not called ambiguous.
+    """
+    entry = _scad(tmp_path, "part.scad", "include <MCAD/units.scad>\ncube([10 * mm, 10, 10]);\n")
+
+    # The library is a FILE symlink: the token says MCAD/units.scad, the file is metric.scad.
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "metric.scad").write_text("mm = 1;\n")
+    (tmp_path / "libs" / "MCAD").mkdir(parents=True)
+    (tmp_path / "libs" / "MCAD" / "units.scad").symlink_to(tmp_path / "real" / "metric.scad")
+    token = tmp_path / "libs" / "MCAD" / "units.scad"
+
+    seeing = openscad.include_closure(entry, engine_inputs=[token])
+    assert seeing.unresolved_includes == (), seeing
+    assert openscad.unbound_parameters(entry, {"mm": 2.0}, closure=seeing) == []
+
+    # Two spellings of that ONE file are not an ambiguity.
+    (tmp_path / "alt").mkdir()
+    (tmp_path / "alt" / "MCAD").mkdir()
+    (tmp_path / "alt" / "MCAD" / "units.scad").symlink_to(tmp_path / "real" / "metric.scad")
+    twice = [token, tmp_path / "alt" / "MCAD" / "units.scad"]
+    assert openscad.include_closure(entry, engine_inputs=twice).unresolved_includes == ()
+
+    # A different file under the same reference still is one.
+    (tmp_path / "other" / "MCAD").mkdir(parents=True)
+    (tmp_path / "other" / "MCAD" / "units.scad").write_text("mm_decoy = 1;\n")
+    decoyed = [token, tmp_path / "other" / "MCAD" / "units.scad"]
+    assert openscad.include_closure(entry, engine_inputs=decoyed).unresolved_includes == (
+        "MCAD/units.scad",
+    )
+
+    # And the basename alone never resolves the reference.
+    (tmp_path / "misc").mkdir()
+    (tmp_path / "misc" / "units.scad").write_text("mm = 1;\n")
+    alone = openscad.include_closure(entry, engine_inputs=[tmp_path / "misc" / "units.scad"])
+    assert alone.unresolved_includes == ("MCAD/units.scad",)
+    assert openscad.unbound_parameters(entry, {"mm": 2.0}, closure=alone) == ["mm"]
+
+
+def test_the_depfile_is_kept_in_both_spellings(tmp_path: Path):
+    """`files` is resolved, `listed` is as written, and the pair is the fix.
+
+    Nothing else may key on `listed` -- identity comparisons, `missing` and the
+    overwrite guard all need the resolved path, because two spellings of one
+    file must not read as two files.
+    """
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "metric.scad").write_text("mm = 1;\n")
+    (tmp_path / "libs" / "MCAD").mkdir(parents=True)
+    (tmp_path / "libs" / "MCAD" / "units.scad").symlink_to(tmp_path / "real" / "metric.scad")
+    dep = tmp_path / "o.d"
+    dep.write_text(f"{tmp_path}/o.stl: \\\n\t{tmp_path}/libs/MCAD/units.scad\n")
+
+    deps = openscad._read_depfile(dep, ok=True)
+    assert deps.state == "complete"
+    assert deps.files == ((tmp_path / "real" / "metric.scad").resolve(),)
+    assert deps.listed == (tmp_path / "libs" / "MCAD" / "units.scad",)
+
+
+@pytest.mark.parametrize("state", ["absent", "partial"])
+def test_without_a_complete_depfile_the_honest_refusal_stands(tmp_path: Path, state: str):
+    """#311 step 3: an engine with no `-d`, or one that stopped early, has said
+    nothing better than the static walk, so #287's sentence is what is left.
+
+    `absent` is not "the render read nothing" and `partial` is a floor, not a
+    set (`RenderDeps`) — reading either as the engine's full account is the
+    failure the three states exist to prevent, and it would turn a refusal into
+    a pass here.
+    """
+    entry = _scad(tmp_path, "part.scad", "include <MCAD/units.scad>\ncube([10 * mm, 10, 10]);\n")
+    source = OpenSCADSource(path=entry, params={"mm": 2.0})
+    closure = openscad.include_closure(entry)
+    # The file IS on disk and IS named, so a `complete` depfile would resolve it
+    # — which is what makes this a test of the state and not of the path.
+    (tmp_path / "MCAD").mkdir()
+    (tmp_path / "MCAD" / "units.scad").write_text("mm = 1;\n")
+    deps = openscad.RenderDeps(state=state, files=(tmp_path / "MCAD" / "units.scad",))
+
+    refusal = openscad._still_unbound(source, ["mm"], closure, deps)
+    assert refusal is not None, "nothing has superseded the short list"
+    assert refusal.origin == "environment"
+    assert "INCOMPLETE" in refusal.message
+    assert "MCAD/units.scad" in refusal.message
+
+    complete = openscad.RenderDeps(state="complete", files=deps.files)
+    assert openscad._still_unbound(source, ["mm"], closure, complete) is None
+
+
+@needs_openscad
+def test_a_library_only_the_engine_can_read_is_judged_from_the_depfile(tmp_path: Path, monkeypatch):
+    """The false refusal #311 names: a correct part, a correct contract, exit 4.
+
+    Measured first on the pinned 2026.08.01 AppImage, which carries `MCAD`
+    inside its own squashfs: `include <MCAD/units.scad>` with `mm=2.0` renders
+    at 20 mm and partspec refused it, because `mm` is declared in the one file
+    partspec could not open. The report carried the disproof of its own
+    refusal -- `engine_inputs.state: complete`, with the resolved path in
+    `data_files`.
+
+    The divergence is real here rather than simulated, by the idiom this file
+    already uses for it: `OPENSCADPATH` is set so the engine resolves the
+    library, and `library_path` is emptied so partspec does not. That is the
+    AppImage's bundle exactly -- a search path the engine has and partspec's
+    three known locations do not name -- and unlike the bundle it holds on
+    both engines in the matrix.
+    """
+    libs = tmp_path / "libs"
+    (libs / "MCAD").mkdir(parents=True)
+    (libs / "MCAD" / "units.scad").write_text("mm = 1;\ncm = 10;\n")
+    entry = _scad(tmp_path, "part.scad", "include <MCAD/units.scad>\ncube([10 * mm, 10, 10]);\n")
+
+    monkeypatch.setenv("OPENSCADPATH", str(libs))
+    monkeypatch.setattr(openscad, "library_path", lambda: [])
+    assert openscad.include_closure(entry).unresolved_includes == ("MCAD/units.scad",)
+
+    result = openscad.render(
+        OpenSCADSource(path=entry, params={"mm": 2.0}), tmp_path / "out", timeout_s=120
+    )
+    assert isinstance(result, Path), result
+
+
+@needs_openscad
+def test_a_transposed_parameter_stays_refused_when_the_engine_reads_the_library(
+    tmp_path: Path, monkeypatch
+):
+    """The other arm, and the fix is only correct if it moves one and not this.
+
+    #311's own reproduction uses `bore_diamter` -- a genuine transposition
+    beside an unread `MCAD/units.scad`. Re-asking from the depfile widens the
+    known-name list to `bore_diameter, cm, mm`; the transposition is in none of
+    them, so it must still be refused. And now with the ORDINARY sentence at
+    `origin="model"`: the list is complete, so the fault named is the one that
+    is really there, rather than the environment's.
+    """
+    libs = tmp_path / "libs"
+    (libs / "MCAD").mkdir(parents=True)
+    (libs / "MCAD" / "units.scad").write_text("mm = 1;\ncm = 10;\n")
+    entry = _scad(
+        tmp_path,
+        "part.scad",
+        "include <MCAD/units.scad>\nbore_diameter = 8;\ncube([bore_diameter, 10, 10]);\n",
+    )
+
+    monkeypatch.setenv("OPENSCADPATH", str(libs))
+    monkeypatch.setattr(openscad, "library_path", lambda: [])
+
+    result = openscad.render(
+        OpenSCADSource(path=entry, params={"bore_diamter": 20.0}), tmp_path / "out", timeout_s=120
+    )
+    assert isinstance(result, BuildError), "a dropped -D must never render as a pass"
+    assert "bore_diamter" in result.message
+    assert "INCOMPLETE" not in result.message, "the depfile completed the list"
+    assert result.origin == "model"
+    assert "mm" in (result.hint or ""), "the library's own names are in the list now"
+    assert not (tmp_path / "out" / "part.stl").exists(), "a refusal leaves no artifact"
+
+
 def test_only_an_unbroken_include_chain_shortens_the_variable_list(tmp_path: Path):
     """`use` stops the chain, and it stops it transitively.
 

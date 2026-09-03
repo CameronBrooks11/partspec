@@ -57,6 +57,25 @@ quietly-wrong part shows you.
   `PARTSPEC_OPENSCAD` pins the binary; the version is recorded in every report because it
   changes the artifact; bounds derived from theory, not measured off the part (see
   `docs/SPEC-contract.md` §10 on reference-derived limits).
+- **A second shape of the same class, which the guard above does not reach** **[repo]**
+  — unlike the gear, this one needs nothing but the two pinned binaries. A two-argument
+  range that runs backwards, `for (i = [1 : n])` at `n = 0`, is the shape a loop takes
+  when a count falls to zero. 2021.01 normalises it and iterates **ascending**;
+  2026.08.01 iterates nothing. Measured on a 40 × 8 × 6 rail with a 6 × 8 × 4 stud at an
+  8 mm pitch: 2021.01 exports 36 triangles and a bbox z of 9.99 — two studs the source
+  did not ask for — against 2026.08.01's bare-rail 12 and bbox z of 6, both at exit 0,
+  both watertight and single-solid. What differs from `assign()` is that **no stderr
+  line reaches the guard**: 2021.01's `DEPRECATED: Using ranges of the form
+  [begin:end] …` is not one of the lines read off a render that succeeded, and
+  `build_stderr` is `null` in the report either way, measured under both engines on this
+  part; 2026.08.01 warns only when the range is a *literal*, and a count that falls to
+  zero always arrives through a variable. So the older half of this entry's Guards is
+  what catches it, on its own: pin the binary, and write the bound two-sided and from
+  theory. Measured, `envelope min=(40, 8, 5.9) max=(40, 8, 6.1)` on the `n = 0` part —
+  `FAIL envelope — z=9.98999977`, exit 1 on 2021.01 against `PASS: 4 pass`, exit 0 on
+  2026.08.01, with `watertight` and `solid_count` passing on both, so the envelope is
+  the only check that moves. The authoring remedy is
+  `skills/openscad-authoring/SKILL.md` rule 7 (#356).
 
 ## 2. The default backend emits a broken mesh and certifies it valid **[corpus]**
 
@@ -268,8 +287,12 @@ cost is written down here rather than paid quietly.
 ### 9b. A `rotate()` parameter the engine ignored
 
 - **Symptom.** The same `ERROR: 3 skipped` at exit `4`, over a part that is rotated
-  exactly as the source asked. The report says the engine "could not convert a value and
-  built a default in place of it", and for this shape **no default went in**.
+  exactly as the source asked. Before #377 the report said the engine "could not convert
+  a value and built a default in place of it", and for this shape **no default went in**
+  — the defect #360 records. That marker now carries a cause of its own, "the engine
+  could not use a value as written", which is all the stderr line supports;
+  `Unable to convert` keeps the default-substitution wording unchanged to the byte,
+  because for that marker a default is certain.
 - **Root cause.** `Problem converting rotate(...)` means the engine could not use the
   `rotate` parameters *as written*. That is four different situations, and only some of
   them damage the mesh. Measured on both pinned engines, every byte comparison `cmp -s`
@@ -302,14 +325,58 @@ cost is written down here rather than paid quietly.
 - **Not narrated at all**, and therefore not caught: `rotate(a=90, v=undef)` is silent on
   both engines and exits `0`. `undef` is not "defined", so the engine reads it as "no axis
   given" and applies its default — the part is rotated 90° about Z, byte-identical to
-  `rotate(90)`. **It is not unrotated.** Same class as entry 5's silent shapes; tracked in
-  #332, which is about the dimensions nothing narrates.
+  `rotate(90)`. **It is not unrotated.** Same class as entry 5's silent shapes, and the
+  general case is entry 10 below.
+
+## 10. A dimension defaulted from `undef`, narrated by nothing at all **[repo]**
+
+- **Symptom.** A 40 × 30 plate comes out **100 mm tall**. Its thickness arrived `undef`,
+  and `linear_extrude` substituted its own default. Seven spellings do the same thing,
+  each measured under both pinned engines with the source prefixed `o = undef;`:
+  `cube(o)` and `cube(size=o)` build a 1 mm cube, `linear_extrude(o)` and
+  `linear_extrude(height=o)` extrude to 100, `cylinder(h=o, d=10)` takes h = 1,
+  `sphere(o)` takes r = 1. `resize(o) cube(5)` is the instructive exception: it is a
+  **no-op**, 12 facets and bbox 5 x 5 x 5 unchanged on both engines, because `newsize`
+  defaults to `[0, 0, 0]` and a 0 there means *keep this axis* — the one row of the seven
+  whose resulting dimension IS a number the author wrote. Only
+  `circle(r=o)` escapes, and only because a 2D result cannot be exported to STL at all
+  (exit 1, no file, both engines). #338's variant reaches the same place through a range
+  that would not convert — `n = undef; r = [0:n]; h = r[2];` — and its sibling loses a
+  loop's geometry entirely: `module rail(n = undef) { … for (i = [1:n]) … }` exports the
+  bare rail, 12 triangles against 76 at `n = 4`.
+- **Root cause.** `undef` is the language's own "not supplied", and every builtin has a
+  fallback for a parameter it cannot read. Nothing in the chain asks whether the author
+  meant the fallback.
+- **Detected by.** #308's reproduction, deliberately left uncovered by the guard PR #306
+  narrowed; #332 and #338 measured the surface. **The engines agree**, so unlike entries
+  1 and 9 a second pinned binary catches nothing here.
+- **When it's green.** Exit 0, empty stderr, a clean watertight single solid — and the
+  report's `build_stderr` is `null`, so there is not even a line for a reader to be
+  suspicious of. Where an arithmetic step is involved (`o + 1`) one
+  `WARNING: undefined operation (undefined + number)` appears, twice on 2021.01 and once
+  on 2026.08.01; it is not usable as a guard, because the same line prints beside
+  completely correct parts (`echo("holes: " + holes)` — measured, exit 0, 272 facets,
+  bore present, both engines), which is why PR #306 tried it and reverted.
+- **Guards.** **No refusal, on purpose, and the reason is provable rather than
+  provisional.** stderr cannot decide it — the silent rows emit nothing and the noisy one
+  fires on correct code. The `.csg` cannot decide it either: `o = undef; cube(o);`
+  exports **byte-identical** to `cube(1);` on both engines, as do the `linear_extrude`,
+  `cylinder` and `sphere` rows against hand-written correct counterparts, so any tier-2
+  rule refusing the fault refuses ordinary correct code byte for byte. What ships instead
+  is `partspec lint`'s **`scad-untested-undef`** (tier 1, engine-free, advisory —
+  `docs/LINT.md`), which names the binding, and an **ordinary dimensional claim**, which
+  refuses the part. Measured on both engines against `watertight()` + `solid_count(1)`
+  + an envelope: `envelope(max=(40,30,6))` turns the `linear_extrude` and range shapes
+  from exit 0 into **FAIL, exit 1**; the vanished loop still passes it, because the part
+  got *smaller*, and only a two-sided `envelope(min=(40,8,10), max=(40,8,10))` fails it
+  — exit 1 on both engines, while the correct `n = 4` part passes. The authoring remedy
+  is `skills/openscad-authoring/SKILL.md` rule 8 (#308, #332, #338).
 
 ---
 
 ## The shared moral
 
-Five of these nine (1, 2, 3, 5, and the header half of 4) have the same signature:
+Six of these ten (1, 2, 3, 5, 10, and the header half of 4) have the same signature:
 **exit 0, a clean watertight mesh, and an artifact that is not the part you asked for.**
 Nothing in the render pipeline is positioned to notice, because every stage's contract
 with the next is "produce *a* mesh", not "produce *the* mesh". The checks that caught
@@ -319,11 +386,19 @@ tool exists and the reason a contract derived from the model's own numbers prove
 nothing (entry 4).
 
 Entry 9 is the inverse, and it is here so the ledger has both columns: a guard sharp
-enough to catch the other eight refuses a byte-perfect mesh when the fault it can see is
+enough to catch entries 1–8 refuses a byte-perfect mesh when the fault it can see is
 in geometry that was never exported (9a), or in a parameter the engine ignored on its way
 to building the part correctly (9b). That cost is written down rather than paid quietly —
 the alternative to naming it is a reader who concludes the tool is unreliable, which is
 the more expensive mistake.
+
+Entry 10 is the same boundary approached from the other side, and it is the reason the
+ledger needs both: a fault the guard cannot see **at all**, where every channel that
+could carry a refusal was measured and each one refuses correct parts as readily as
+broken ones. What it gets instead is an advisory lint finding and a contract claim — a
+narration rather than a verdict, which is the honest answer when a verdict cannot be
+made safely, and a weaker one that should not be mistaken for the guard the other
+entries have.
 
 *Cross-references from the authoring skills (#22, #23) land with those skills; each
 entry above carries a stable heading for them to anchor to.*

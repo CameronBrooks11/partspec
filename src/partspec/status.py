@@ -110,8 +110,29 @@ _EXIT: dict[Verdict, int] = {
 }
 
 EXIT_USAGE = 64
-"""Unresolvable target or bad arguments (EX_USAGE). Writes no report, and so never
-participates in batch aggregation."""
+"""Unresolvable target or bad arguments (EX_USAGE). Never participates in batch
+aggregation — `_EXIT_PRECEDENCE` puts it above every verdict, so one refused target
+decides the batch.
+
+It said "Writes no report" until #358, and that was false for most of its own paths.
+`check` writes a placeholder to EVERY target's deterministic path before ANY target
+runs, so a run that refuses can never leave the previous run's `verdict: "pass"`
+standing (SPEC-report.md 5, rules 1-2). Every usage refusal raised after that write
+therefore exits 64 with a report already on disk — `verdict: "error"`, `counts.total:
+0`, no `checks` — and the diagnosis on stderr ONLY, never in the file. Measured on
+two: `check spec.py:spacer --expect nosuch.lock` and `check nosuch.py:widget`, each
+leaving `outputs/<slug>/report.json`. A consumer that reads the artifact and not the
+exit code sees an `error` document it cannot diagnose; `AGENT-CONTRACT.md` §4 is why
+it must read the exit code too.
+
+The refusals that genuinely write nothing are the ones raised before the placeholder
+loop — argparse's usage errors, `--out` over colliding slugs, and the pre-dispatch
+refusals in `main` — and every 64 from a verb other than `check`, which writes no
+report at all. That is the rule; the examples are not a closed list. `cli.py`'s
+"No enumeration here on purpose" comment makes the general argument, about a
+different set of paths: four drafts of it tried to say which copies existed, and
+every one was short.
+"""
 
 
 COMPARISON_EXITS = {"identical": 0, "different": 1, "indeterminate": 2}
@@ -259,14 +280,17 @@ class Measurement:
         Raising rather than returning a status is deliberate. Nothing downstream
         can honestly adjudicate this, and a non-finite value means either a
         parameter that is not a number or a backend that has miscomputed — both
-        of which are `verdict: "error"`, not a claim about the part.
+        of which are `verdict: "error"`, not a claim about the part. `measure`
+        adjudicates nothing, so it catches this per name and records a refusal
+        rather than ending the run (#365); the message therefore names both
+        halves of why the value is unusable, not only the comparison.
         """
         values = self.value if self.is_vector else (self.value,)
         for v in values:
             if isinstance(v, float) and not math.isfinite(v):
                 raise ContractError(
                     f"measurement value is {v}, which is not a number; a "
-                    f"non-finite value cannot be compared against a limit"
+                    f"non-finite value can be neither reported nor compared"
                 )
 
     @property

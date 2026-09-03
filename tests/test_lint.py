@@ -277,6 +277,214 @@ def test_the_overshoot_idiom_is_never_magic(tmp_path: Path):
     assert lint_path(scad) == []
 
 
+def _undef_findings(tmp_path: Path, body: str) -> list[tuple[str, int]]:
+    scad = tmp_path / "u.scad"
+    scad.write_text(body)
+    return [(f.rule, f.line) for f in lint_path(scad) if f.rule == "scad-untested-undef"]
+
+
+def test_an_untested_undef_that_reaches_geometry_is_named(tmp_path: Path):
+    """#332's and #338's shapes, which nothing else in partspec narrates.
+
+    Each of these exits 0 on both pinned engines with a clean watertight
+    single solid built to a number nobody wrote (`docs/FAILURE-MODES.md`
+    entry 10). stderr is empty for the silent rows and, for the arithmetic
+    one, carries a line that fires beside correct parts too — so the source
+    text is the only channel left, and it is advisory by construction.
+    """
+    # #332 row 1 / #308's headline, direct and through arithmetic.
+    assert _undef_findings(tmp_path, "o = undef;\nlinear_extrude(o) square([40,30]);\n") == [
+        ("scad-untested-undef", 1)
+    ]
+    assert _undef_findings(tmp_path, "o = undef;\nh = o + 1;\nlinear_extrude(h) square([4,3]);\n")
+
+    # #338(b): the same fault arriving through a range that would not convert.
+    # It fires on `n`, the actionable binding -- the rule is not a taint
+    # analysis and says nothing about `h`.
+    assert _undef_findings(
+        tmp_path, "n = undef;\nr = [0 : n];\nh = r[2];\nlinear_extrude(h) square([40, 30]);\n"
+    ) == [("scad-untested-undef", 1)]
+
+    # #338(a): a module parameter, where the loop's geometry vanishes instead.
+    assert _undef_findings(
+        tmp_path,
+        "module rail(n = undef) {\n"
+        "  cube([40, 8, 6]);\n"
+        "  for (i = [1 : n]) translate([i*8, 0, 6]) cube([6, 8, 4]);\n"
+        "}\nrail();\n",
+    ) == [("scad-untested-undef", 1)]
+
+    # `function f(x = undef) = ...;` has no braces; its body runs to the `;`.
+    assert _undef_findings(tmp_path, "function pad(x, m = undef) = x + m;\ncube([1, 1, pad(4)]);\n")
+
+
+def test_a_tested_undef_is_the_languages_own_idiom_and_is_left_alone(tmp_path: Path):
+    """`undef` is how OpenSCAD spells "not supplied" — BOSL2 and most
+    libraries use it, so the `undef` is not the fault and flagging it would
+    make the rule fire on the convention it is written against. The
+    UNTESTED-ness is the predicate."""
+    for guard in ("is_undef(c)", "c == undef", "undef == c", "!(c != undef)", "is_num(c)"):
+        assert (
+            _undef_findings(
+                tmp_path,
+                f"module m(c = undef) {{\n  d = {guard} ? 1 : c;\n  cube([10, 10, d]);\n}}\nm();\n",
+            )
+            == []
+        ), guard
+
+    # A binding nothing reads is `scad-unused-top-level`'s finding; reporting
+    # one fault twice teaches nothing.
+    scad = tmp_path / "unread.scad"
+    scad.write_text("o = undef;\ncube([1, 1, 2]);\n")
+    assert [f.rule for f in lint_path(scad)] == ["scad-unused-top-level"]
+
+    # A parameter's scope is its own body: a same-named top-level variable
+    # elsewhere is a different variable and is not a use of it.
+    assert (
+        _undef_findings(tmp_path, "module a(n = undef) { cube(1); }\nn = 5;\ncube([n, 2, 2]);\n")
+        == []
+    )
+
+
+def test_the_undef_rules_false_positives_are_the_ones_a_refusal_could_not_afford(tmp_path: Path):
+    """The accepted noise, asserted rather than described.
+
+    The echo case is the point: PR #306 and PR #329 round 2 each refused this
+    exact source at exit 4 with a diagnosis whose every clause was false, and
+    both were reverted. Here it is a FINDING on a correct part, which costs
+    nothing because `lint` exits 0 whatever it finds — that is the whole
+    reason the signal lives in the lint and not in the success-path guard.
+    """
+    assert _undef_findings(
+        tmp_path,
+        'module plate(w, h, holes = undef) {\n  echo("hole positions:", [0 : holes]);\n'
+        "  difference() { cube([w,h,6], center=true); cylinder(d=8,h=20,center=true,$fn=64); }\n"
+        "}\nplate(40, 30);\n",
+    ) == [("scad-untested-undef", 1)]
+
+    # A truthiness test is deliberately not read as a guard: it cannot tell
+    # `undef` from `0`, which for a count or a dimension is a second bug.
+    assert _undef_findings(
+        tmp_path, "module m(n = undef) {\n  c = n ? n : 1;\n  cube([10, 10, c]);\n}\nm();\n"
+    ) == [("scad-untested-undef", 1)]
+
+    # A guard reached through an alias is not followed: the rule tracks the
+    # bound name and does not chase assignments.
+    assert _undef_findings(
+        tmp_path,
+        "module m(c = undef) {\n  a = c;\n  d = is_undef(a) ? 1 : a;\n"
+        "  cube([10, 10, d]);\n}\nm();\n",
+    ) == [("scad-untested-undef", 1)]
+
+
+def test_the_documents_undef_examples_fire_exactly_as_printed(tmp_path: Path):
+    """The doc strings themselves, linted verbatim — not re-rendered by the test.
+
+    The #372 review's HIGH finding: every other test here writes its example
+    with explicit `\\n`, so the harness was supplying line breaks a reader
+    would not. `docs/LINT.md` prints its "Real example" as a packed one-liner,
+    which is legal OpenSCAD, and the line-based scan saw no binding in it —
+    the document's own named example did not fire, and `scad-unused-top-level`
+    printed a FALSE "declared but never read" beside it.
+
+    So this pulls the examples OUT of the shipped documents and lints them
+    byte for byte. A rewrap or a reword that breaks them fails here, and the
+    test cannot flatter the rule by reformatting its input.
+    """
+    import re
+
+    docs = {
+        "docs/LINT.md": (ROOT / "docs" / "LINT.md").read_text(),
+        "docs/FAILURE-MODES.md": (ROOT / "docs" / "FAILURE-MODES.md").read_text(),
+    }
+    examples: list[tuple[str, str]] = []
+    for name, text in docs.items():
+        for span in re.findall(r"`([^`]*\bundef\b[^`]*)`", text):
+            # Complete statements only: the prose also names fragments
+            # (`o = undef;` alone) and elided forms carrying an ellipsis.
+            if span.rstrip().endswith(";") and "…" not in span and span.count(";") >= 2:
+                examples.append((name, span.strip()))
+    assert len(examples) >= 3, f"the documents' worked examples vanished: {examples}"
+
+    scad = tmp_path / "printed.scad"
+    for name, body in examples:
+        scad.write_text(body + "\n")
+        rules = [f.rule for f in lint_path(scad)]
+        assert "scad-untested-undef" in rules, f"{name}: {body!r} does not fire as printed"
+        assert "scad-unused-top-level" not in rules, (
+            f"{name}: {body!r} draws a FALSE unused finding — the name IS read, "
+            f"one statement over on the same line"
+        )
+
+
+def test_a_keyword_argument_is_not_a_read_of_a_same_named_variable(tmp_path: Path):
+    """#372 review, MEDIUM. `cylinder(h = 20)` names cylinder's own parameter
+    and cannot reference the caller's `h`, so counting it as a use said `'d'`
+    was read by `cylinder(d = 8)` on a correct 272-facet part (measured, both
+    engines) — and hid a genuinely dead knob from `scad-unused-top-level` at
+    the same time, so one rule stated a falsehood while no rule stated the
+    fault."""
+    correct = tmp_path / "correct.scad"
+    correct.write_text(
+        "module plate(d = undef) {\n"
+        "  difference() { cube([40,30,6], center=true);\n"
+        "                 cylinder(d=8, h=20, center=true, $fn=64); }\n"
+        "}\nplate();\n"
+    )
+    assert [f.rule for f in lint_path(correct) if f.rule != "scad-magic-number"] == []
+
+    dead = tmp_path / "dead.scad"
+    dead.write_text("h = undef;\ncylinder(h = 20, d = 10, $fn = 32);\n")
+    assert [f.rule for f in lint_path(dead) if f.rule != "scad-magic-number"] == [
+        "scad-unused-top-level"
+    ], "the dead knob is unused, and that is the finding it should draw"
+
+
+def test_a_packed_assignment_statement_is_not_an_unused_variable(tmp_path: Path):
+    """The same line-vs-statement defect in the older rule, which the fix above
+    also removes: `w = 4; cube([10, 10, w]);` reported `w` as never read at
+    v0.7.7, because dropping the assignment's LINE dropped the read too."""
+    scad = tmp_path / "packed.scad"
+    scad.write_text("w = 4; cube([10, 10, w]);\n")
+    assert [f.rule for f in lint_path(scad) if f.rule != "scad-magic-number"] == []
+
+
+def test_a_parameter_read_by_another_parameters_default_is_read(tmp_path: Path):
+    """#372 review, finding 4: the scope was the body alone, so `b = a` in the
+    signature was invisible and `module m(a = undef, b = a)` missed."""
+    assert _undef_findings(tmp_path, "module m(a = undef, b = a) { cube([b,b,b]); }\nm(3);\n") == [
+        ("scad-untested-undef", 1)
+    ]
+
+
+def test_the_undef_rule_fires_on_the_skills_before_form_and_not_its_after(tmp_path: Path):
+    """docs/LINT.md's named real example, executed.
+
+    The skill's rule-8 blocks are also parsed and exported by
+    `tests/test_docs.py`; what is asserted here is the claim LINT.md makes
+    about them, so the document cannot drift from the blocks it cites.
+    """
+    import re
+
+    skill = (ROOT / "skills" / "openscad-authoring" / "SKILL.md").read_text()
+    blocks = {}
+    for body in re.findall(r"```scad\n(.*?)```", skill, re.S):
+        m = re.match(r"// (rule-\d+-(?:before|after))", body.splitlines()[0])
+        assert m, "every scad block in the skill carries a rule marker"
+        blocks[m.group(1)] = body
+    assert {"rule-8-before", "rule-8-after"} <= set(blocks), "rule 8 lost its worked example"
+
+    before = tmp_path / "before.scad"
+    before.write_text(blocks["rule-8-before"])
+    fired = [f for f in lint_path(before) if f.rule == "scad-untested-undef"]
+    assert len(fired) == 1, "the before-form's undef parameter is the finding"
+    assert "'t'" in fired[0].message
+
+    after = tmp_path / "after.scad"
+    after.write_text(blocks["rule-8-after"])
+    assert lint_path(after) == [], "the after-form lints clean, magic numbers included"
+
+
 def test_module_size_uses_its_documented_limit(tmp_path: Path):
     line = "    cube([a, a, a]);\n"
     big = tmp_path / "big.scad"
@@ -1078,12 +1286,16 @@ def test_every_declared_rule_has_a_description():
     assert emitted <= set(RULES), f"undescribed: {sorted(emitted - set(RULES))}"
 
 
-# The two files this repo ships that match `csg-two-part-intersection`, and the
-# only two that may. They are `SPEC-contract.md` 9.1's worked probe pattern, and
-# the rule is DESIGNED to fire on them -- see the test below for why.
+# The files this repo ships that match `csg-two-part-intersection`, and the only
+# ones that may. The first two are `SPEC-contract.md` 9.1's worked probe pattern,
+# and the rule is DESIGNED to fire on them -- see the test below for why. The
+# third is the degenerate result of that same shape, kept because #365 needs a
+# part with no centre of mass and a face-contact intersection is how one is
+# built; it matches for exactly the reason the other two do.
 EXPECTED_TWO_PART_MATCHES = {
     "examples/clearance/clearance.scad",
     "examples/clearance/interference.scad",
+    "tests/fixtures/zero_thickness.scad",
 }
 
 

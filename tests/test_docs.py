@@ -432,6 +432,8 @@ def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path)
         "rule-4-before",
         "rule-4-after",
         "rule-5-after",
+        "rule-7-before",
+        "rule-7-after",
     }
     # Rule 3's overshoot idiom is taught THROUGH the after-blocks it points
     # at; an exact-face cutter slipped every measurement (review mutation M4),
@@ -483,6 +485,119 @@ def test_the_scad_skills_examples_build_and_satisfy_their_claims(tmp_path: Path)
     assert measured(backend5.volume(decomposed)).value == pytest.approx(
         measured(backend.volume(after)).value, rel=1e-9
     )
+
+
+@needs_scad_tier
+def test_the_scad_skills_loop_guard_holds_on_whichever_engine_is_pinned(tmp_path: Path):
+    """Rule 7's claim, executed: the guarded loop builds one part on every
+    engine, and the unguarded one does not (#356).
+
+    The divergence needs two binaries and a run has one, so the unguarded
+    half is keyed to `engine.version` — CI pins 2021.01 and 2026.08.01 and
+    runs the whole suite under each, so both rows below are executed, one per
+    matrix leg. An unpinned third version is not skipped: it still has to land
+    on one of the two measured outcomes, which is what makes a NEW divergence
+    a failure here rather than a silence.
+    """
+    from partspec.backends.mesh import MeshBackend
+    from partspec.engines.openscad import OpenSCADSource, version
+
+    blocks = _scad_blocks()
+
+    def bbox(name: str, stud_n: float) -> tuple[float, ...]:
+        scad = tmp_path / f"{name}.scad"
+        scad.write_text(blocks[name])
+        backend = MeshBackend()
+        artifact = backend.build(
+            OpenSCADSource(path=scad, params={"stud_n": stud_n}),
+            tmp_path / f"{name}{stud_n:g}",
+        )
+        return backend.bbox(artifact).value
+
+    rail = (40.0, 8.0, 6.0)
+    studded = (40.0, 8.0, 6.0 - 0.01 + 4.0)
+
+    # The guard is the claim: no count reaches the range that the source has
+    # not already said is non-empty, so zero and negative counts are the bare
+    # rail on any engine, and a real count still places its studs.
+    for stud_n in (0.0, -1.0):
+        assert bbox("rule-7-after", stud_n) == pytest.approx(rail, abs=1e-6), stud_n
+    assert bbox("rule-7-after", 2.0) == pytest.approx(studded, abs=1e-6)
+
+    # Unguarded, `[1 : 0]` is engine-defined. 2021.01 normalises it and
+    # iterates ASCENDING — i = 0 and i = 1, two studs the source did not ask
+    # for; 2026.08.01 iterates nothing.
+    unguarded = bbox("rule-7-before", 0.0)
+    expected = {"2021.01": studded, "2026.08.01": rail}.get(version())
+    if expected is not None:
+        assert unguarded == pytest.approx(expected, abs=1e-6), version()
+    else:
+        assert unguarded == pytest.approx(rail, abs=1e-6) or unguarded == pytest.approx(
+            studded, abs=1e-6
+        ), f"{version()} reads a backwards range a third way: {unguarded}"
+
+    # A real count is the same part either way — the divergence is confined to
+    # the empty case, which is why it survives review.
+    assert bbox("rule-7-before", 2.0) == pytest.approx(studded, abs=1e-6)
+
+
+@needs_scad_tier
+def test_the_scad_skills_undef_dimension_is_the_engines_number(tmp_path: Path):
+    """Rule 8's claim, executed: the two blocks build to the two heights it
+    quotes, and the silent one is the taller.
+
+    Rule 8 is a measured claim with no gate until here (#308). Its before-form
+    lets `undef` reach `linear_extrude()`, which substitutes a default of its
+    own: a 40 x 30 x **100** part where the author wrote no 100 anywhere, and
+    the after-form names the number instead at 40 x 30 x **6**. Both measured
+    on 2021.01 and 2026.08.01 for this test, not taken from the table.
+
+    Unlike rule 7 there is no branch on `engine.version`: the two engines agree
+    here, and that agreement is half the point — a second binary catches rule
+    7's divergence and cannot catch this one.
+
+    The rest of the assertions are the hazard rather than the height. The
+    before-form builds at all -- partspec's own success-path guard reads
+    stderr for a name that did not resolve and a value the engine defaulted,
+    and neither fires, because nothing failed to resolve and nothing failed to
+    convert -- and what it builds is clean: watertight, one solid. A silent,
+    plausible, wrong part is what makes this worth a rule.
+    """
+    from partspec.backend import BuildError
+    from partspec.backends.mesh import MeshBackend
+    from partspec.engines.openscad import OpenSCADSource, top_level_variables
+
+    blocks = _scad_blocks()
+    assert {"rule-8-before", "rule-8-after"} <= set(blocks), (
+        "rule 8's worked blocks have been renamed; this gate has lost its subject"
+    )
+
+    def build(name: str, **params: float):
+        scad = tmp_path / f"{name}.scad"
+        scad.write_text(blocks[name])
+        backend = MeshBackend()
+        suffix = "".join(f"-{k}{v:g}" for k, v in params.items())
+        artifact = backend.build(
+            OpenSCADSource(path=scad, params=params), tmp_path / f"{name}{suffix}"
+        )
+        assert not isinstance(artifact, BuildError), f"{name}: {artifact}"
+        return backend, artifact
+
+    # The engine's number, not the author's: 100 mm of height nobody wrote.
+    silent, defaulted = build("rule-8-before")
+    assert silent.bbox(defaulted).value == pytest.approx((40.0, 30.0, 100.0), abs=1e-6)
+    assert silent.watertight(defaulted).value is True
+    assert measured(silent.solid_count(defaulted)).value == 1
+
+    named, plate = build("rule-8-after")
+    assert named.bbox(plate).value == pytest.approx((40.0, 30.0, 6.0), abs=1e-6)
+    assert named.watertight(plate).value is True
+    assert measured(named.solid_count(plate)).value == 1
+
+    # "a real number a -D can drive and a contract can name" — both halves.
+    assert "plate_t" in top_level_variables(tmp_path / "rule-8-after.scad")
+    driven, thicker = build("rule-8-after", plate_t=9.0)
+    assert driven.bbox(thicker).value == pytest.approx((40.0, 30.0, 9.0), abs=1e-6)
 
 
 # --------------------------------------------------------------------------
@@ -1006,6 +1121,149 @@ def test_the_readme_console_block_is_what_the_console_prints():
     )
 
 
+@needs_scad_tier
+def test_the_spacer_exemplars_diff_transcript_is_what_the_console_prints(tmp_path: Path):
+    """The exemplar quotes a `diff` run. The run must still say that.
+
+    #361: PR #351 committed this transcript, PR #353 changed what the summary
+    line can say, and the README kept the old text through three green gates —
+    `test_the_readme_console_block_is_what_the_console_prints` reads the ROOT
+    README, nothing in the suite read `examples/spacer/README.md` at all, and
+    `just example-spacer` runs `check --expect` and never `diff`. A falsified
+    document with `just check`, `just test` and a CI job all green over it.
+
+    The recipe was the issue's own preferred remedy and is the wrong half by
+    itself: `just example-spacer` gates the console contract by PRINTING it for
+    a human, so a `diff` step added there would have exited 1 over the very
+    summary line that had drifted and CI would still have been green. What
+    kills that mutation is comparing the quoted text to the produced text,
+    which is what this module is for.
+
+    So the transcript is REPLAYED rather than read: every `$` line is executed,
+    the narrative `# ... now edit BORE_D ...` line is applied as the edit it
+    describes, every quoted output line must appear in what the tool printed,
+    and every `echo $?` must match the exit code that came back. A command
+    shape the replay does not know fails loudly instead of being skipped —
+    silence must not read as success here either.
+
+    Run against a COPY. The transcript's second half edits the contract, and
+    the checkout's own `examples/spacer/spec.py` is the exemplar under `--pin`.
+    """
+    import shlex
+    import shutil
+
+    readme = ROOT / "examples" / "spacer" / "README.md"
+    text = readme.read_text()
+    block = next(
+        (
+            m.group(1)
+            for m in re.finditer(r"```console\n(.*?)```", text, re.S)
+            if "partspec diff" in m.group(1)
+        ),
+        None,
+    )
+    assert block is not None, "the exemplar no longer shows a diff run"
+
+    work = tmp_path / "examples" / "spacer"
+    work.mkdir(parents=True)
+    for name in ("spec.py", "spacer.scad", "claims.lock"):
+        shutil.copy(ROOT / "examples" / "spacer" / name, work / name)
+
+    steps: list[tuple[str, str, list[str]]] = []
+    for line in block.splitlines():
+        if line.startswith("$ "):
+            steps.append(("cmd", line[2:], []))
+        elif line.startswith("#"):
+            steps.append(("note", line, []))
+        elif line.strip():
+            assert steps, "the transcript opens with output and no command"
+            steps[-1][2].append(line)
+
+    edits = 0
+    last: subprocess.CompletedProcess[str] | None = None
+    for kind, line, quoted in steps:
+        if kind == "note":
+            edit = re.search(r"edit (\w+): ([\d.]+) -> ([\d.]+)", line)
+            if edit is None:
+                continue
+            name, before_v, after_v = edit.groups()
+            spec = work / "spec.py"
+            before, after = spec.read_text(), None
+            after = before.replace(f"{name} = {before_v}", f"{name} = {after_v}", 1)
+            assert after != before, f"the transcript says {line!r}; the contract has no such line"
+            spec.write_text(after)
+            edits += 1
+            continue
+
+        argv = shlex.split(line, comments=True)
+        redirect = None
+        if ">" in argv:
+            cut = argv.index(">")
+            redirect, argv = tmp_path / argv[cut + 1], argv[:cut]
+
+        if argv[0] == "partspec":
+            last = subprocess.run(
+                [sys.executable, "-m", "partspec", *argv[1:]],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if redirect is not None:
+                redirect.write_text(last.stdout)
+                printed = last.stderr
+            else:
+                printed = last.stdout + last.stderr
+            # Per produced LINE, not a substring of the whole blob: #353
+            # falsified this README by APPENDING to the summary line, and the
+            # stale line is a substring of the line that replaced it.
+            produced = {ln.strip() for ln in printed.splitlines()}
+            # A floor, because `quoted <= produced` is vacuous when `quoted` is
+            # empty: without it the README's whole console contract for this
+            # command can be DELETED and the gate stays green. A `--quiet` step
+            # legitimately prints nothing, so there the emptiness is the claim
+            # and is asserted in the other direction.
+            if "--quiet" in argv:
+                assert not quoted and not printed.strip(), (
+                    f"`{line}` is --quiet; the exemplar shows {quoted!r} and it printed {printed!r}"
+                )
+            else:
+                assert quoted, (
+                    f"the exemplar runs `{line}` and quotes nothing it printed; "
+                    "a step with no expected output asserts nothing"
+                )
+            missing = [q for q in quoted if q.strip() not in produced]
+            assert not missing, (
+                f"the exemplar quotes console output `{line}` no longer prints:\n  "
+                + "\n  ".join(missing)
+                + f"\n--- actual ---\n{printed}"
+            )
+        elif argv[0] == "cp":
+            shutil.copy(tmp_path / argv[1], tmp_path / argv[2])
+        elif argv[:2] == ["echo", "$?"]:
+            assert last is not None, "`echo $?` with nothing run before it"
+            assert [q.split()[0] for q in quoted] == [str(last.returncode)], (
+                f"the exemplar quotes {[q.split()[0] for q in quoted]} for the exit code and "
+                f"the run exited {last.returncode}\n--- stderr ---\n{last.stderr}"
+            )
+        else:
+            pytest.fail(f"the transcript grew a command this replay cannot run: {line!r}")
+
+    assert edits == 1, "the transcript no longer says which edit produces the drift it shows"
+
+    # The entry quoted below the transcript is the same artifact, so it is the
+    # same claim: `drift.json` must carry it verbatim, not merely resemble it.
+    fences = re.findall(r"```json\n(.*?)```", text, re.S)
+    assert len(fences) == 1, "the exemplar's quoted drift entry has moved; this test lost it"
+    entry = json.loads(fences[0])
+    produced = json.loads((tmp_path / "drift.json").read_text())["checks"]
+    match = [c for c in produced if c["id"] == entry["id"]]
+    assert match == [entry], (
+        f"the exemplar quotes a drift entry `diff` no longer produces:\n"
+        f"  quoted:   {entry}\n  produced: {match}"
+    )
+
+
 def test_the_spec_samples_show_the_version_the_tool_actually_emits():
     """A sample is what a consumer copies, so its values must be real.
 
@@ -1037,7 +1295,8 @@ def test_the_spec_samples_show_the_version_the_tool_actually_emits():
 
 @needs_openscad
 def test_every_openscad_fence_in_the_docs_parses():
-    """A fenced example a reader copies must at least be OpenSCAD.
+    """A fenced example a reader copies must at least be OpenSCAD, and must
+    build the part it is written to show.
 
     A mechanical rewrap of `SPEC-contract.md` once pushed the trailing word of
     a `//` comment onto its own line *inside* the fence, so the flagship
@@ -1048,19 +1307,58 @@ def test_every_openscad_fence_in_the_docs_parses():
 
     Covers ```openscad and ```scad alike -- `skills/openscad-authoring`
     uses the short form, and a guard that misses the document teaching
-    OpenSCAD would be the wrong half. Undefined modules are expected: the
-    blocks are fragments, and `Ignoring unknown module` is a warning, so the
-    assertion is on the exit status, which is what a rewrap breaks.
+    OpenSCAD would be the wrong half.
+
+    `examples/**` is globbed for the same reason and it is the half that was
+    missing (#366): an exemplar README is where a snippet is most likely to be
+    copied verbatim, and PR #364 shipped one broken fence into `docs/` and an
+    identical one into `examples/clearance/README.md`. The `docs/` copy turned
+    this suite red; the `examples/` copy was invisible to it.
+
+    Exit status alone is not the assertion, and used to be. Measured on both
+    pinned engines: delete the `CLEAR = 1.5;` line a fence depends on and both
+    export rc 0 with `WARNING: Ignoring unknown variable 'CLEAR'` -- a sphere
+    at the default radius instead of the prescribed one, which is precisely the
+    defect this guard exists to catch. So an unresolved NAME fails the fence,
+    using the engine guard's own vocabulary (`_UNRESOLVED_NAME_MARKERS`) so the
+    two cannot drift apart.
+
+    Three NAMES are exempted, not the module marker: the blocks are fragments
+    and two of them legitimately call modules they do not define
+    (`SPEC-contract.md` §4.12 and `skills/contract-authoring/SKILL.md`,
+    `a`/`b`/`grown_b`). An unknown MODULE renders nothing where it is called,
+    which a reader of a fragment expects; an unknown VARIABLE substitutes
+    `undef` into a dimension, which nobody does. Exempting the marker would
+    have exempted the typo too: a fence that calls the module it defines and
+    misspells the call renders nothing and used to pass.
     """
     import re
     import subprocess
     import tempfile
 
+    from partspec.engines.openscad import _UNRESOLVED_NAME_MARKERS
+
+    exempt = "Ignoring unknown module"
+    exempt_names = {"a", "b", "grown_b"}
+    assert exempt in _UNRESOLVED_NAME_MARKERS, (
+        "the engine guard no longer spells the module marker this way; the fence "
+        "exemption is now silently wider or narrower than it was measured to be"
+    )
+    fatal = tuple(m for m in _UNRESOLVED_NAME_MARKERS if m != exempt)
+    assert fatal, "every name marker was exempted; this guard asserts nothing"
+
     fences: list[tuple[str, str]] = []
-    for md in sorted(ROOT.glob("docs/*.md")) + sorted(ROOT.glob("skills/**/*.md")):
+    for md in (
+        sorted(ROOT.glob("docs/*.md"))
+        + sorted(ROOT.glob("skills/**/*.md"))
+        + sorted(ROOT.glob("examples/**/*.md"))
+    ):
         for block in re.findall(r"```(?:openscad|scad)\n(.*?)```", md.read_text(), re.S):
             fences.append((md.relative_to(ROOT).as_posix(), block))
     assert fences, "no openscad fences found; the query is wrong, not the docs"
+    assert any(name.startswith("examples/") for name, _ in fences), (
+        "no fence under examples/ -- the glob widened in #366 has lost its subject"
+    )
     assert OPENSCAD is not None  # guaranteed by @needs_openscad
 
     with tempfile.TemporaryDirectory(prefix="partspec-fence-") as tmp:
@@ -1078,6 +1376,27 @@ def test_every_openscad_fence_in_the_docs_parses():
             # docstring claims the export succeeds.
             assert proc.returncode == 0, (
                 f"{name}: fenced openscad did not export\n{proc.stderr}\n---\n{block}"
+            )
+            unresolved = [
+                line
+                for line in proc.stderr.splitlines()
+                if any(marker in line for marker in fatal)
+                or (
+                    exempt in line
+                    # A name the pattern cannot read is NOT exempt: both engines
+                    # print `Ignoring unknown module '$weird'`, and `\w+` would
+                    # return None, drop the line, and say nothing -- a guard
+                    # degrading to silence, which is the shape this file refuses.
+                    and (named := re.search(rf"{re.escape(exempt)} '([\w$]+)'", line)) is not None
+                    and named.group(1) not in exempt_names
+                )
+                or (exempt in line and re.search(rf"{re.escape(exempt)} '", line) is None)
+            ]
+            assert not unresolved, (
+                f"{name}: the fence exported, and the engine could not resolve a name in "
+                f"it -- so what it built is not what it shows\n"
+                + "\n".join(unresolved)
+                + f"\n---\n{block}"
             )
 
 

@@ -28,7 +28,7 @@ from .docs import DOCS_URL, docs_root
 from .install import install_hint
 from .report import tool_version, write_placeholder
 from .runner import run
-from .status import EXIT_USAGE, Status, Verdict, exit_code
+from .status import EXIT_USAGE, ContractError, Status, Verdict, exit_code
 from .target import Target, TargetError, resolve
 
 __all__ = ["main"]
@@ -839,6 +839,32 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
     # crashed" without knowing one happened (#201).
     unresolved: list[str] = []
     codes: list[int] = []
+
+    # The lock as it stood when the run BEGAN, read before the first target so
+    # each part's own report can carry what the re-pin overwrites (#294). Every
+    # report is written inside the loop below while the lock write comes after
+    # it, so a read taken there would arrive after the artifact it belongs in.
+    #
+    # This snapshot answers for the REPORTS only. The guard and the stderr
+    # confession re-read at the point of the write, because a build is seconds
+    # long and this one is not: reusing it there let a part another process
+    # added mid-run be compared away and dropped from the lock without the
+    # `dropped` line `main` prints (adversarial review of #377, N1). Reports
+    # are the one consumer that cannot re-read, having already been written.
+    #
+    # A lock that will not parse leaves this None, so no report carries the
+    # block. That arrival is named in SPEC-report §7.1: absence means "nothing
+    # was overwritten" only for a run whose lock was READABLE, and the
+    # unreadable one is confessed on stderr at the write below.
+    previous_pin: dict[str, dict[str, str]] | None = None
+    if args.pin is not None and args.pin.is_file():
+        from .expectation import LockError, read_lock
+
+        try:
+            previous_pin = read_lock(args.pin)
+        except LockError:
+            previous_pin = None
+
     for spec in targets:
         code = _check_one(
             spec,
@@ -850,6 +876,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
             pins=pinned_parts,
             covered_ids=covered_ids,
             unresolved=unresolved,
+            previous_pin=previous_pin,
         )
         if code == 130:
             # The user's own abort is the one failure that DOES stop a batch.
@@ -867,6 +894,16 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         # became `max=[40,30,9]` in the lock at exit 0 with no other output.
         # `compare()` was already in this function, computing exactly the line
         # `--expect` prints one flag over, and unused on this branch.
+        #
+        # Re-read HERE, immediately before the write, rather than reusing the
+        # pre-loop snapshot the reports were given. The two reads answer
+        # different questions: the reports say what this run's claims moved
+        # against the lock it started from, and cannot be rewritten afterwards;
+        # the guard and the confession must speak for the file about to be
+        # overwritten. Measured with a concurrent writer adding a part 2 s into
+        # a 4 s build, the snapshot made the guard fail OPEN -- the added part
+        # was written out of the lock with neither the `dropped` line nor a
+        # refusal (adversarial review of #377, N1).
         previous: dict[str, dict[str, str]] | None = None
         unreadable: LockError | None = None
         if args.pin.is_file():
@@ -1127,6 +1164,7 @@ def _check_one(
     pins: dict[str, dict[str, str]] | None = None,
     covered_ids: set[str] | None = None,
     unresolved: list[str] | None = None,
+    previous_pin: dict[str, dict[str, str]] | None = None,
 ) -> int:
     # Before the contract is resolved, because resolving it IMPORTS it: a
     # contract's own imports are this part's, and a snapshot taken any later
@@ -1162,10 +1200,20 @@ def _check_one(
         expected_claims = expect_lock.get(part.id, {})
     if covered_ids is not None:
         covered_ids.add(part.id)
+    repinned: list[str] | None = None
     if pins is not None and args.pin is not None:
-        from .expectation import claims_of
+        from .expectation import claims_of, compare
 
-        pins[part.id] = claims_of(part)
+        declared = claims_of(part)
+        pins[part.id] = declared
+        if previous_pin is not None and part.id in previous_pin:
+            # A part the lock did not cover is a FIRST pin, not an overwrite,
+            # and reporting each of its claims as `added` is how the loud case
+            # stops being read — the same exclusion `repin_differences` makes
+            # for the stderr half. `compare()` and not `repin_differences()`
+            # because this report speaks for one part: the part-id prefix and
+            # the dropped-part lines belong to the run, which is stderr's.
+            repinned = compare(previous_pin[part.id], declared) or None
 
     try:
         return _check_resolved(
@@ -1179,6 +1227,7 @@ def _check_one(
             expected_claims,
             loaded_before,
             batch=batch,
+            repinned=repinned,
         )
     finally:
         # Every exit path evicts — an early `--render` refusal (the
@@ -1200,6 +1249,7 @@ def _check_resolved(
     loaded_before: frozenset[str],
     *,
     batch: bool,
+    repinned: list[str] | None = None,
 ) -> int:
     built: list[object] = []
     report = run(
@@ -1210,6 +1260,7 @@ def _check_resolved(
         factory=target.factory,
         timeout_s=timeout_s,
         expected_claims=expected_claims,
+        repinned_claims=repinned,
         artifact_out=built,
         loaded_before=loaded_before,
     )
@@ -1344,7 +1395,6 @@ def _measure_resolved(
     from .backend import Unsupported
     from .report import SCHEMA_VERSION
     from .runner import _backend_for, _engine_source, engine_block, identity
-    from .status import ContractError
 
     try:
         backend = _backend_for(part.source.engine)
@@ -1498,7 +1548,26 @@ def _measure_resolved(
         if name not in backend.capabilities():
             unavailable.append(name)
             continue
-        result = getattr(backend, name)(artifact)
+        try:
+            result = getattr(backend, name)(artifact)
+        except ContractError as exc:
+            # A backend that constructs an impossible `Measurement` -- a
+            # non-finite value, an approximate one without bounds -- raises, and
+            # before #365 that raise escaped this loop and ended the run: one
+            # name aborted the verb and emitted NOTHING, `area` and `bbox`
+            # included, on a part whose other thirteen quantities were perfectly
+            # well defined. The backend is where such an inability belongs
+            # (AGENTS.md: return `Unsupported`, never a plausible-looking
+            # number), and the mesh tier's own case is fixed there; this is the
+            # bound on what the next one can cost, which is one name.
+            #
+            # `refused`, not `unavailable`: SPEC-report.md 7.3 makes
+            # `unavailable` a property of the TIER -- "the same list every time
+            # that backend measures anything" -- and this name is one the tier
+            # answers for other parts. What defeated it arrived with this
+            # artifact, which is what `refused` is for.
+            refused[name] = f"the {backend.kind} backend could not measure {name} here: {exc}"
+            continue
         if isinstance(result, Unsupported):
             refused[name] = result.reason
             continue
@@ -1948,7 +2017,6 @@ def _render_resolved(
 ) -> int:
     from .report import SCHEMA_VERSION
     from .runner import _backend_for, engine_block, identity
-    from .status import ContractError
 
     if part.source.engine == "openscad":
         from .engines import openscad
