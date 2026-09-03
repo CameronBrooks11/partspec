@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The release workflow creates the GitHub release** (#381). It built,
+  asserted the tag was on `main`, asserted the tag matched the package
+  version, smoke-tested the wheel and published to PyPI — and never made the
+  release page. That step lived only in habit, named in no workflow, no
+  recipe and no document, and habit missed it three times running: **v0.7.5,
+  v0.7.6 and v0.7.7 were tagged and on PyPI with no release**, so the
+  repository advertised v0.7.4 as current for three weeks while users
+  installed 0.7.7. The tag and the upload were right every time; the only
+  human-readable record of them was the one step with no gate on it — epic
+  #305's third state, which its "Done means" says may not exist. The new job
+  takes the notes from the CHANGELOG section for the tagged version and
+  **fails when there is none**, which is the first thing to confirm that
+  `[Unreleased]` was renamed before the version reached PyPI rather than
+  after. Notes over GitHub's 125,000-character body limit are truncated with
+  a pointer to the file: v0.7.7's section is 170,793 bytes, so the first
+  draft of this job would have failed on the release that motivated it —
+  measured rather than assumed. The three missing releases were published
+  retroactively.
+
 - **A dimension defaulted from `undef` is now narrated, and honestly not
   refused** (#308, #332, #338). Prefixed `o = undef;`, seven spellings of five
   builtins exit **0** with a clean watertight single solid built to a number
