@@ -87,6 +87,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "verifiable by construction" claim for `es_g` is falsified by the same
   measurement, and §10.1 records it so the work is not repeated.
 
+- **`EXIT_USAGE` no longer claims it writes no report** (#358). `check` puts a
+  placeholder at every target's deterministic path before any target runs, and
+  `--expect` is read after it, so a refused lock exits 64 over a report that is
+  already on disk: `verdict: "error"`, `counts.total: 0`, no `checks`, and the
+  diagnosis on stderr only. Measured on two shapes — `--expect nosuch.lock` and
+  an unresolvable `nosuch.py:widget`, each leaving `outputs/<slug>/report.json`.
+  The docstring now says which 64s write nothing (argparse's own usage errors,
+  `--out` over colliding slugs, and every verb other than `check`) and which
+  leave an undiagnosable artifact, and `tests/test_cli.py` pins the behaviour
+  so the wording cannot go stale silently. The second clause, that a 64 never
+  participates in batch aggregation, was independently true and is kept — but
+  no longer stated as a consequence of the false one.
+
 ## [0.7.7] - 2026-09-02
 
 ### Added

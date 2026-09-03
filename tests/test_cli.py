@@ -1468,6 +1468,56 @@ def test_a_contract_that_raises_does_not_leave_the_previous_verdict(tmp_path: Pa
     )
 
 
+@needs_scad_tier
+def test_a_usage_refusal_after_the_placeholder_leaves_an_undiagnosed_report(tmp_path, capsys):
+    """Exit 64 does NOT mean nothing was written, which `EXIT_USAGE` said until #358.
+
+    The placeholder goes down for every target before any target runs, and
+    `--expect` is read after it, so a refused lock exits 64 over a report that
+    is already on disk. That is the correct behaviour — it is exactly what the
+    placeholder exists to do — and the docstring on the constant encoding the
+    exit-code contract denied it, in a project whose thesis is that the tool
+    must not claim more than it has established.
+
+    The second half is the part a consumer has to plan for: the placeholder
+    carries the generic "run did not complete" sentence and NOT the reason for
+    the refusal, which reaches stderr only. An agent that reads the artifact
+    and not the exit code gets an `error` document it cannot act on
+    (`AGENT-CONTRACT.md` §4).
+    """
+    scad = tmp_path / "box.scad"
+    scad.write_text("x = 10;\ncube([x, x, x]);\n")
+    spec = tmp_path / "spec.py"
+    spec.write_text(
+        "from partspec import Part, openscad\n"
+        "def part() -> Part:\n"
+        "    p = Part('refused', openscad('box.scad', x=10.0))\n"
+        "    p.watertight()\n"
+        "    return p\n"
+    )
+    out = tmp_path / "out"
+    assert main(["check", f"{spec}:part", "--out", str(out), "--quiet"]) == 0
+    assert report_of(out)["verdict"] == "pass", "premise: a green run on disk"
+    capsys.readouterr()
+
+    missing = tmp_path / "nosuch.lock"
+    code = main(["check", f"{spec}:part", "--out", str(out), "--expect", str(missing), "--quiet"])
+    assert code == EXIT_USAGE
+
+    written = (out / "report.json").read_text()
+    doc = json.loads(written)
+    assert doc["verdict"] == "error", "the refused run left the previous pass on disk"
+    assert doc["counts"]["total"] == 0
+    assert doc["checks"] == []
+    # The lock PATH is in the artifact, echoed inside `invocation.argv`; the
+    # sentence saying what went wrong with it is not, and that is the half a
+    # reader needs.
+    assert "no claims pin" not in written, (
+        "the refusal's diagnosis reached the artifact; the docstring says stderr only"
+    )
+    assert "no claims pin at" in capsys.readouterr().err
+
+
 def test_a_contract_calling_sys_exit_is_not_a_green_run(tmp_path: Path):
     """`sys.exit(0)` raises SystemExit, which sailed past `except Exception` and
     exited the process 0 — green, silent, zero checks evaluated. The exit code
