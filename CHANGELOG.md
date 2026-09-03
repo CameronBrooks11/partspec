@@ -107,10 +107,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cm` … and still not `bore_diamter`. On apt 2021.01, which cannot read
   `MCAD` either, both arms keep #287's `environment` refusal verbatim: the
   depfile does not name the file, so nothing better is available and none is
-  claimed. Ambiguity is not guessed at — two candidates ending in the same
-  reference leave it unresolved. The cost is one render on the path that used
-  to exit 4 before rendering anything, and exactly one: +110 ms on a sphere
-  whose bare engine render is 102 ms, +28 ms on the six-facet reproduction.
+  claimed — and that is the ordinary Debian/Ubuntu case, not an exotic one: an
+  engine can have `-d`, write a `complete` depfile, and still be as blind to
+  the library as partspec is, in which case the render is paid for and the
+  answer does not improve. Ambiguity is not guessed at — two files sharing the
+  **basename** leave the reference unresolved, whatever their directories say.
+  Counting only the full suffix was a fail-open found in review: the depfile's
+  paths are resolved and the reference is a literal, so a library reached
+  through a symlink arrives under its real name, and a decoy that does end
+  with the literal becomes the unique hit — one library's variables read
+  behind another library's name, turning #287's refusal into an artifact for
+  a `-D` that never reached the geometry. The cost is one render on the path
+  that used to exit 4 before rendering anything, and exactly one: +110 ms on a
+  sphere whose bare engine render is 102 ms, +28 ms on the six-facet
+  reproduction.
 
 ## [0.7.7] - 2026-09-02
 

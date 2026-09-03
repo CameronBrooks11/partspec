@@ -454,7 +454,10 @@ def _still_unbound(
     Three outcomes, and the middle one is the whole point:
 
     - depfile `absent` or `partial` — nothing better than the static walk is
-      available, so #287's honest refusal stands verbatim, `environment`.
+      available, so #287's honest refusal stands verbatim, `environment`. So
+      does the `complete` depfile that names no such file: apt 2021.01 HAS
+      `-d` and is as blind to a system library as partspec is, so the common
+      case on that engine is a render paid for and an answer unimproved.
     - the re-walk resolves the include and the name IS declared — return None.
       The engine bound it, and refusing would be a false refusal on a correct
       contract over a correct part.
@@ -2149,12 +2152,23 @@ def _from_engine_inputs(ref: str, engine_inputs: Sequence[Path]) -> Path | None:
     candidates ending in `MCAD/units.scad` leave the reference unresolved and
     the caller keeps #287's honest refusal, which is the answer that does not
     require knowing which one the engine spliced.
+
+    Ambiguity is counted over the BASENAME, not over the full suffix, and the
+    difference is a fail-open. `_parse_depfile` resolves every token while the
+    reference is a literal, so a library reached through a symlink arrives as
+    `real/mcad-1.0/units.scad` — which no longer ends with `MCAD/units.scad`.
+    A decoy elsewhere in the render's inputs that does end that way is then
+    the unique full-suffix hit, and the caller reads one library's variables
+    behind another library's name: measured, that turned #287's refusal into
+    an artifact for a `-D` that never reached the geometry. Two files named
+    `units.scad` are ambiguous whatever their directories say.
     """
     want = tuple(part for part in PurePosixPath(ref).parts if part not in ("", "."))
     if not want or ".." in want:
         return None
-    hits = [f for f in engine_inputs if f.parts[-len(want) :] == want and f.is_file()]
-    return hits[0] if len(hits) == 1 else None
+    named = [f for f in engine_inputs if f.name == want[-1] and f.is_file()]
+    hits = [f for f in named if f.parts[-len(want) :] == want]
+    return hits[0] if len(hits) == 1 and len(named) == 1 else None
 
 
 def include_closure(entry: Path, *, engine_inputs: Sequence[Path] = ()) -> Closure:

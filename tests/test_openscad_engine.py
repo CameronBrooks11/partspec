@@ -1959,6 +1959,40 @@ def test_an_ambiguous_engine_input_is_left_unresolved_rather_than_guessed(tmp_pa
     assert openscad.include_closure(entry, engine_inputs=both[:1]).unresolved_includes == ()
 
 
+def test_a_shared_basename_is_ambiguous_whatever_the_directories_say(tmp_path: Path):
+    """The ambiguity guard counts basenames, because the suffix can lie.
+
+    `_parse_depfile` resolves every path it reads and the reference is a
+    literal, so a library reached through a symlink arrives under its real
+    name and no longer ends with what was written. A decoy that does end that
+    way is then the unique full-suffix hit, and the caller would read one
+    library's variables behind another library's name -- turning #287's honest
+    refusal into an artifact for a `-D` that never reached the geometry.
+    Measured before the guard widened: this resolved, to the decoy.
+
+    The second assertion is the other half: matching on the basename ALONE
+    would resolve `MCAD/units.scad` to an unrelated `misc/units.scad`, which
+    is the same fail-open arriving from the opposite direction.
+    """
+    entry = _scad(tmp_path, "part.scad", "include <MCAD/units.scad>\ncube([10 * mm, 10, 10]);\n")
+    (tmp_path / "vendor" / "MCAD").mkdir(parents=True)
+    (tmp_path / "vendor" / "MCAD" / "units.scad").write_text("mm_decoy = 1;\n")
+    (tmp_path / "real" / "mcad-1.0").mkdir(parents=True)
+    (tmp_path / "real" / "mcad-1.0" / "units.scad").write_text("mm = 1;\n")
+
+    spliced = tmp_path / "real" / "mcad-1.0" / "units.scad"
+    decoy = tmp_path / "vendor" / "MCAD" / "units.scad"
+    assert openscad.include_closure(entry, engine_inputs=[decoy, spliced]).unresolved_includes == (
+        "MCAD/units.scad",
+    )
+
+    (tmp_path / "misc").mkdir()
+    (tmp_path / "misc" / "units.scad").write_text("mm = 1;\n")
+    alone = openscad.include_closure(entry, engine_inputs=[tmp_path / "misc" / "units.scad"])
+    assert alone.unresolved_includes == ("MCAD/units.scad",)
+    assert openscad.unbound_parameters(entry, {"mm": 2.0}, closure=alone) == ["mm"]
+
+
 @pytest.mark.parametrize("state", ["absent", "partial"])
 def test_without_a_complete_depfile_the_honest_refusal_stands(tmp_path: Path, state: str):
     """#311 step 3: an engine with no `-d`, or one that stopped early, has said
