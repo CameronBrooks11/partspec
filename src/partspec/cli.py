@@ -840,20 +840,30 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
     unresolved: list[str] = []
     codes: list[int] = []
 
-    # The lock as it stood when the run began, read BEFORE the first target so
-    # each part's own report can carry what the re-pin overwrites (#294). The
-    # write happens after the loop; every report is written inside it, so a
-    # read taken there would arrive after the artifact it belongs in. The
-    # post-loop block below reuses this rather than reading a second time.
+    # The lock as it stood when the run BEGAN, read before the first target so
+    # each part's own report can carry what the re-pin overwrites (#294). Every
+    # report is written inside the loop below while the lock write comes after
+    # it, so a read taken there would arrive after the artifact it belongs in.
+    #
+    # This snapshot answers for the REPORTS only. The guard and the stderr
+    # confession re-read at the point of the write, because a build is seconds
+    # long and this one is not: reusing it there let a part another process
+    # added mid-run be compared away and dropped from the lock without the
+    # `dropped` line `main` prints (adversarial review of #377, N1). Reports
+    # are the one consumer that cannot re-read, having already been written.
+    #
+    # A lock that will not parse leaves this None, so no report carries the
+    # block. That arrival is named in SPEC-report §7.1: absence means "nothing
+    # was overwritten" only for a run whose lock was READABLE, and the
+    # unreadable one is confessed on stderr at the write below.
     previous_pin: dict[str, dict[str, str]] | None = None
-    unreadable: Exception | None = None
     if args.pin is not None and args.pin.is_file():
         from .expectation import LockError, read_lock
 
         try:
             previous_pin = read_lock(args.pin)
-        except LockError as exc:
-            unreadable = exc
+        except LockError:
+            previous_pin = None
 
     for spec in targets:
         code = _check_one(
@@ -874,7 +884,7 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         codes.append(code)
 
     if args.pin is not None and pinned_parts:
-        from .expectation import repin_differences, write_lock
+        from .expectation import LockError, read_lock, repin_differences, write_lock
 
         # The previous pin is read on EVERY re-pin over an existing lock, not
         # only when a target crashed. Until #294 the read lived inside the
@@ -884,7 +894,23 @@ def _cmd_check(args: argparse.Namespace, argv: list[str]) -> int:
         # became `max=[40,30,9]` in the lock at exit 0 with no other output.
         # `compare()` was already in this function, computing exactly the line
         # `--expect` prints one flag over, and unused on this branch.
-        previous = previous_pin
+        #
+        # Re-read HERE, immediately before the write, rather than reusing the
+        # pre-loop snapshot the reports were given. The two reads answer
+        # different questions: the reports say what this run's claims moved
+        # against the lock it started from, and cannot be rewritten afterwards;
+        # the guard and the confession must speak for the file about to be
+        # overwritten. Measured with a concurrent writer adding a part 2 s into
+        # a 4 s build, the snapshot made the guard fail OPEN -- the added part
+        # was written out of the lock with neither the `dropped` line nor a
+        # refusal (adversarial review of #377, N1).
+        previous: dict[str, dict[str, str]] | None = None
+        unreadable: LockError | None = None
+        if args.pin.is_file():
+            try:
+                previous = read_lock(args.pin)
+            except LockError as exc:
+                unreadable = exc
 
         # A lock that SHRINKS because a target crashed is silent weakening, and
         # `expectation.py` states the design goal it violates: "the tool's job

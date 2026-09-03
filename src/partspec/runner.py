@@ -1807,10 +1807,14 @@ _DEFAULTED_VALUE_MARKER = "Unable to convert"
 
 `engines.openscad._SUBSTITUTED_VALUE_MARKERS` carries two, measured on both
 pinned engines, and only this one always means a default went in. The other,
-`Problem converting rotate(`, fires beside a byte-identical export in three of
-its five measured shapes -- 2021.01's `transform.cc` reads
+`Problem converting rotate(`, substitutes nothing at all in ONE of its five
+measured shapes -- 2021.01's `transform.cc` reads
 `default: ok &= false; /* fallthrough */ case 3:`, so `rotate([90,0,0,0])`
-has its first three components read and applied and substitutes nothing (#360).
+has its first three components read and applied, and its export is
+byte-identical (`cmp -s`, both pinned engines) to `rotate([90,0,0])`'s. One is
+enough: the sentence asserts a MECHANISM, and a mechanism that did not occur
+once is a sentence that is false once (#360). How many of the five leave a
+correct mesh is a different count, and not the one this constant turns on.
 
 Named here rather than imported because the choice being made is which
 SENTENCE to print, which is this module's, and because the fallback is the

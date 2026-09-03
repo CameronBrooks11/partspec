@@ -121,11 +121,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   therefore **disjoint** — they share no key — because §7.1 binds
   `matched: false` to `verdict: "error"`, and a permitted re-pin is exactly a
   mismatch that is not one, so a consumer keying on `matched` may never meet
-  this form. Absent on a first pin, on a part the lock did not cover, and on a
-  re-pin that moved nothing; that the flag was passed at all is
-  `invocation.argv`'s to say. The lock is read once now, **before** the first
-  target, because every report is written inside the target loop and the lock
-  write comes after it. `AGENT-CONTRACT.md` §4 and §5 name the third record.
+  this form. Absent in **four** cases: a first pin, a part the lock did not
+  cover, a re-pin that moved nothing — and a lock that could not be READ, which
+  is still overwritten when nothing failed to resolve and leaves every report
+  without the block, all three records of the move vanishing together, since a
+  lock whose bytes will not parse is also a lock whose diff a reviewer cannot
+  read. §7.1 names that fourth case so absence is not read as "nothing moved".
+  That the flag was passed at all is `invocation.argv`'s to say. The lock is
+  read **twice**: once before the first target, because every report is written
+  inside the target loop while the lock write comes after it, and again
+  immediately before that write, because the two reads answer different
+  questions. Reusing one snapshot for both let a part another process added
+  during the build be written out of the lock with neither the `dropped` line
+  nor a refusal — measured with a writer adding a part 2 s into a 4 s build.
+  The block records what was **compared**, not a write that happened: a crashed
+  target that would drop a claim set makes `--pin` refuse, leaving the lock
+  byte-unchanged at exit 4 while the surviving part's report still names the
+  differences. `AGENT-CONTRACT.md` §4 and §5, and `examples/spacer/README.md`,
+  name the third record and say the same thing about it.
 
 ## [0.7.7] - 2026-09-02
 

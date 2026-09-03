@@ -846,12 +846,26 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   exit 4, `--pin`'s counterpart to the uncovered-pin failure above), and the differences
   named here are then what the run declined to overwrite.
 
-  Absent on a **first** pin, on a part the lock did not cover, and on a re-pin that moved
-  nothing — an overwrite that overwrites nothing is not one, and reporting a new part's
-  every claim as `added` is how the loud case stops being read. That the flag was passed
+  Absent in **four** cases, three of which say nothing moved: a **first** pin, a part the
+  lock did not cover, and a re-pin that moved nothing — an overwrite that overwrites
+  nothing is not one, and reporting a new part's every claim as `added` is how the loud
+  case stops being read. That the flag was passed
   at all is `invocation.argv`'s to say, not this field's, so an always-emitted empty list
   would state twice what the artifact already carries once and dilute the signal this
   field exists for.
+
+  **The fourth case does not say that, and a reader MUST NOT take it to.** A lock that
+  could not be READ — malformed, or a schema this build does not know — is still
+  overwritten when nothing failed to resolve, since overwriting one is the documented way
+  out of it; there is then no previous claim set to compare against, so every report in
+  that run carries no `expectation` at all while the lock on disk was rewritten. It is
+  the arrival where the silence bites hardest: the stderr line saying partspec cannot
+  tell which claims moved is the run's only record, and a lock whose bytes will not parse
+  is also a lock whose diff a reviewer cannot read. Absence of this field therefore means
+  "nothing was overwritten" only for a run whose lock was readable, which
+  `invocation.argv` plus that stderr line are what establish. Recording the unreadable
+  arrival *in* the block would need a second shape for it, which is a schema question and
+  is deliberately not answered here.
 - **`invocation.timeout_s`** — the build budget that governed the run, in seconds. The CLI
   always records the fully resolved value (`--timeout`, then `PARTSPEC_TIMEOUT`, then the
   300 s default); `0` records an explicit waiver of the bound, and `null` means a library
