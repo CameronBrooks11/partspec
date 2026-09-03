@@ -87,6 +87,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "verifiable by construction" claim for `es_g` is falsified by the same
   measurement, and §10.1 records it so the work is not repeated.
 
+- **The substitution sentence no longer asserts a default nothing took**
+  (#360). `Problem converting rotate(...)` joined the substituted-value
+  markers in #333 and inherited that marker's diagnosis — *the engine could
+  not convert a value and built a default in place of it* — which is false for
+  one of its measured shapes. `rotate([90, 0, 0, 0]) cube([10, 5, 2])` exports
+  a mesh **byte-identical** to `rotate([90, 0, 0]) cube([10, 5, 2])` on both
+  pinned engines (`cmp -s`, 1485 bytes on 2021.01 and 1479 on 2026.08.01):
+  2021.01's `transform.cc` reads `default: ok &= false; /* fallthrough */
+  case 3:`, so an over-long vector has its first three components read and
+  applied and **nothing is substituted**. That line now gets a third cause —
+  *the engine could not use a value as written* — with a hint that says stderr
+  cannot tell which of the shapes it is in. `Unable to convert` keeps the
+  substitution text unchanged to the byte: for that marker a default really is
+  always taken, and one weaker sentence covering both would have cost the
+  precision that makes it actionable. **The refusal is unchanged**, at exit 4,
+  for `FAILURE-MODES.md` 9b's reason: the source is wrong whatever the mesh
+  is. `SPEC-contract.md` §4.12 and `AGENT-CONTRACT.md` §2.3 move with it.
+
+- **A re-pin confesses in the artifact, not only on the console** (#294). The
+  stderr half shipped in #351; the report's `expectation` block still carried
+  nothing, and `SPEC-report.md` §7.1 said the block was "present only when the
+  run was invoked with `--expect`". Both move together here. A `--pin` run over
+  a lock that already covered this part, whose declared claims differ from it,
+  now writes `{"repinned": [...]}` into that part's own report — the same lines
+  `compare()` gives the console under any single writer, with the caveat the
+  two reads below make explicit. Measured on `examples/spacer`: pin, edit `PLATE` from
+  (40, 30, 6) to (40, 30, 9), re-pin — the report went from no `expectation`
+  key to `repinned: ["changed: envelope — pinned 'envelope max=[40.0, 30.0,
+  6.0]', declared 'envelope max=[40.0, 30.0, 9.0]'"]`, at `verdict: "pass"`,
+  exit 0. **Still not a refusal and not an adjudication**: §4 of the agent
+  contract permits a deliberate re-pin. The two forms of the block are
+  therefore **disjoint** — they share no key — because §7.1 binds
+  `matched: false` to `verdict: "error"`, and a permitted re-pin is exactly a
+  mismatch that is not one, so a consumer keying on `matched` may never meet
+  this form. Absent in **four** cases: a first pin, a part the lock did not
+  cover, a re-pin that moved nothing — and a lock that could not be READ, which
+  is still overwritten when nothing failed to resolve and leaves every report
+  without the block, all three records of the move vanishing together, since a
+  lock whose bytes will not parse is also a lock whose diff a reviewer cannot
+  read. §7.1 names that fourth case so absence is not read as "nothing moved".
+  That the flag was passed at all is `invocation.argv`'s to say. The lock is
+  read **twice**: once before the first target, because every report is written
+  inside the target loop while the lock write comes after it, and again
+  immediately before that write, because the two reads answer different
+  questions. Reusing one snapshot for both let a part another process added
+  during the build be written out of the lock with neither the `dropped` line
+  nor a refusal — measured with a writer adding a part 2 s into a 4 s build.
+  The cost is that the report and the console can word one move two ways when
+  the lock moves under the run: seeded at `envelope max=[10, 10, 10]` and
+  rewritten to `[20, 20, 20]` mid-build, the console names `[20, 20, 20]` and
+  the report `[10, 10, 10]`, each correct for the question it answers. §7.1
+  says so rather than promising an equality that only holds for one writer.
+  The block records what was **compared**, not a write that happened: a crashed
+  target that would drop a claim set makes `--pin` refuse, leaving the lock
+  byte-unchanged at exit 4 while the surviving part's report still names the
+  differences. `AGENT-CONTRACT.md` §4 and §5, and `examples/spacer/README.md`,
+  name the third record and say the same thing about it.
+
 ## [0.7.7] - 2026-09-02
 
 ### Added
