@@ -205,6 +205,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   byte-unchanged at exit 4 while the surviving part's report still names the
   differences. `AGENT-CONTRACT.md` §4 and §5, and `examples/spacer/README.md`,
   name the third record and say the same thing about it.
+- **A library only the engine can read no longer makes every `-D` unjudgeable**
+  (#311, #287). `unbound_parameters` answers from the files *partspec*
+  resolved, and #287 made the refusal honest when that list is short. It could
+  not finish the job when the engine could open a file partspec could not: on
+  the pinned 2026.08.01 AppImage, which bundles `MCAD` inside its own squashfs,
+  `include <MCAD/units.scad>` with `mm=2.0` renders a 20 mm cube and partspec
+  refused it at exit 4, on a correct part and a correct contract — while the
+  report carried the disproof, `engine_inputs.state: complete` naming the
+  resolved path. The refusal is now **deferred** when, and only when, the
+  parameter binds nothing *and* an `include` did not resolve: the render goes
+  ahead, and on a `complete` depfile the closure is walked again with the
+  engine's own input list as a last-resort search path, matched back to the
+  reference by path suffix. Measured on that arm: exit 4 → exit 0, bbox
+  20 × 20 × 20, so the `-D` demonstrably reached the geometry. The other arm
+  must not move and does not — the issue's own `bore_diamter` transposition
+  beside the same unread library stays refused, now at `origin="model"` under
+  the ordinary sentence, because the re-asked list holds `bore_diameter`, `mm`,
+  `cm` … and still not `bore_diamter`. On apt 2021.01, which cannot read
+  `MCAD` either, both arms keep #287's `environment` refusal verbatim: the
+  depfile does not name the file, so nothing better is available and none is
+  claimed — and that is the ordinary Debian/Ubuntu case, not an exotic one: an
+  engine can have `-d`, write a `complete` depfile, and still be as blind to
+  the library as partspec is, in which case the render is paid for and the
+  answer does not improve. Ambiguity is not guessed at — two files ending in the
+  same reference leave it unresolved. The suffix is matched against the token
+  the depfile **wrote**, which is the half review found missing twice: partspec
+  resolved every token while the reference stayed a literal, so a library
+  reached through a symlink arrived under its real name and a decoy that still
+  ended with the literal became the unique hit — one library's variables read
+  behind another library's name. Measured, that returned an artifact for a `-D`
+  that never reached the geometry, and in a second shape an `origin="model"`
+  verdict blaming a correct contract off the decoy's contents, where main had
+  refused honestly. OpenSCAD writes each token as `searchdir + reference`, so
+  the literal is always a suffix of it — measured through a directory symlink
+  and a file symlink, both engines — and `RenderDeps` now keeps both spellings:
+  `files` resolved for identity, `missing` and the overwrite guard, `listed` as
+  written for this one question. A first attempt counted basenames instead; it
+  closed the directory-symlink shape, left the file-symlink shape open, and
+  refused a case main resolved. Two spellings of one file are not an ambiguity,
+  so the count is over resolved identity. The cost is one render on the path
+  that used to exit 4 before rendering anything, and exactly one: +110 ms on a
+  sphere whose bare engine render is 102 ms, +28 ms on the six-facet
+  reproduction.
 - **`EXIT_USAGE` no longer claims it writes no report** (#358). `check` puts a
   placeholder at every target's deterministic path before any target runs, and
   `--expect` is read after it, so a refused lock exits 64 over a report that is
