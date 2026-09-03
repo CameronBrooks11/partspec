@@ -1155,7 +1155,11 @@ def test_the_spacer_exemplars_diff_transcript_is_what_the_console_prints(tmp_pat
                 printed = last.stderr
             else:
                 printed = last.stdout + last.stderr
-            missing = [q for q in quoted if q.strip() not in printed]
+            # Per produced LINE, not a substring of the whole blob: #353
+            # falsified this README by APPENDING to the summary line, and the
+            # stale line is a substring of the line that replaced it.
+            produced = {ln.strip() for ln in printed.splitlines()}
+            missing = [q for q in quoted if q.strip() not in produced]
             assert not missing, (
                 f"the exemplar quotes console output `{line}` no longer prints:\n  "
                 + "\n  ".join(missing)
@@ -1246,13 +1250,14 @@ def test_every_openscad_fence_in_the_docs_parses():
     using the engine guard's own vocabulary (`_UNRESOLVED_NAME_MARKERS`) so the
     two cannot drift apart.
 
-    One marker is exempted, explicitly rather than by asserting only on the
-    exit status: the blocks are fragments and two of them legitimately call
-    modules they do not define (`SPEC-contract.md` §4.12 and
-    `skills/contract-authoring/SKILL.md`, `a`/`b`/`grown_b`). An unknown
-    MODULE renders nothing where it is called, which a reader of a fragment
-    expects; an unknown VARIABLE substitutes `undef` into a dimension, which
-    nobody does.
+    Three NAMES are exempted, not the module marker: the blocks are fragments
+    and two of them legitimately call modules they do not define
+    (`SPEC-contract.md` §4.12 and `skills/contract-authoring/SKILL.md`,
+    `a`/`b`/`grown_b`). An unknown MODULE renders nothing where it is called,
+    which a reader of a fragment expects; an unknown VARIABLE substitutes
+    `undef` into a dimension, which nobody does. Exempting the marker would
+    have exempted the typo too: a fence that calls the module it defines and
+    misspells the call renders nothing and used to pass.
     """
     import re
     import subprocess
@@ -1261,6 +1266,7 @@ def test_every_openscad_fence_in_the_docs_parses():
     from partspec.engines.openscad import _UNRESOLVED_NAME_MARKERS
 
     exempt = "Ignoring unknown module"
+    exempt_names = {"a", "b", "grown_b"}
     assert exempt in _UNRESOLVED_NAME_MARKERS, (
         "the engine guard no longer spells the module marker this way; the fence "
         "exemption is now silently wider or narrower than it was measured to be"
@@ -1299,7 +1305,13 @@ def test_every_openscad_fence_in_the_docs_parses():
                 f"{name}: fenced openscad did not export\n{proc.stderr}\n---\n{block}"
             )
             unresolved = [
-                line for line in proc.stderr.splitlines() if any(marker in line for marker in fatal)
+                line
+                for line in proc.stderr.splitlines()
+                if any(marker in line for marker in fatal)
+                or (
+                    (named := re.search(rf"{re.escape(exempt)} '(\w+)'", line))
+                    and named.group(1) not in exempt_names
+                )
             ]
             assert not unresolved, (
                 f"{name}: the fence exported, and the engine could not resolve a name in "
