@@ -1093,7 +1093,8 @@ def test_the_spec_samples_show_the_version_the_tool_actually_emits():
 
 @needs_openscad
 def test_every_openscad_fence_in_the_docs_parses():
-    """A fenced example a reader copies must at least be OpenSCAD.
+    """A fenced example a reader copies must at least be OpenSCAD, and must
+    build the part it is written to show.
 
     A mechanical rewrap of `SPEC-contract.md` once pushed the trailing word of
     a `//` comment onto its own line *inside* the fence, so the flagship
@@ -1104,19 +1105,56 @@ def test_every_openscad_fence_in_the_docs_parses():
 
     Covers ```openscad and ```scad alike -- `skills/openscad-authoring`
     uses the short form, and a guard that misses the document teaching
-    OpenSCAD would be the wrong half. Undefined modules are expected: the
-    blocks are fragments, and `Ignoring unknown module` is a warning, so the
-    assertion is on the exit status, which is what a rewrap breaks.
+    OpenSCAD would be the wrong half.
+
+    `examples/**` is globbed for the same reason and it is the half that was
+    missing (#366): an exemplar README is where a snippet is most likely to be
+    copied verbatim, and PR #364 shipped one broken fence into `docs/` and an
+    identical one into `examples/clearance/README.md`. The `docs/` copy turned
+    this suite red; the `examples/` copy was invisible to it.
+
+    Exit status alone is not the assertion, and used to be. Measured on both
+    pinned engines: delete the `CLEAR = 1.5;` line a fence depends on and both
+    export rc 0 with `WARNING: Ignoring unknown variable 'CLEAR'` -- a sphere
+    at the default radius instead of the prescribed one, which is precisely the
+    defect this guard exists to catch. So an unresolved NAME fails the fence,
+    using the engine guard's own vocabulary (`_UNRESOLVED_NAME_MARKERS`) so the
+    two cannot drift apart.
+
+    One marker is exempted, explicitly rather than by asserting only on the
+    exit status: the blocks are fragments and two of them legitimately call
+    modules they do not define (`SPEC-contract.md` §4.12 and
+    `skills/contract-authoring/SKILL.md`, `a`/`b`/`grown_b`). An unknown
+    MODULE renders nothing where it is called, which a reader of a fragment
+    expects; an unknown VARIABLE substitutes `undef` into a dimension, which
+    nobody does.
     """
     import re
     import subprocess
     import tempfile
 
+    from partspec.engines.openscad import _UNRESOLVED_NAME_MARKERS
+
+    exempt = "Ignoring unknown module"
+    assert exempt in _UNRESOLVED_NAME_MARKERS, (
+        "the engine guard no longer spells the module marker this way; the fence "
+        "exemption is now silently wider or narrower than it was measured to be"
+    )
+    fatal = tuple(m for m in _UNRESOLVED_NAME_MARKERS if m != exempt)
+    assert fatal, "every name marker was exempted; this guard asserts nothing"
+
     fences: list[tuple[str, str]] = []
-    for md in sorted(ROOT.glob("docs/*.md")) + sorted(ROOT.glob("skills/**/*.md")):
+    for md in (
+        sorted(ROOT.glob("docs/*.md"))
+        + sorted(ROOT.glob("skills/**/*.md"))
+        + sorted(ROOT.glob("examples/**/*.md"))
+    ):
         for block in re.findall(r"```(?:openscad|scad)\n(.*?)```", md.read_text(), re.S):
             fences.append((md.relative_to(ROOT).as_posix(), block))
     assert fences, "no openscad fences found; the query is wrong, not the docs"
+    assert any(name.startswith("examples/") for name, _ in fences), (
+        "no fence under examples/ -- the glob widened in #366 has lost its subject"
+    )
     assert OPENSCAD is not None  # guaranteed by @needs_openscad
 
     with tempfile.TemporaryDirectory(prefix="partspec-fence-") as tmp:
@@ -1134,6 +1172,15 @@ def test_every_openscad_fence_in_the_docs_parses():
             # docstring claims the export succeeds.
             assert proc.returncode == 0, (
                 f"{name}: fenced openscad did not export\n{proc.stderr}\n---\n{block}"
+            )
+            unresolved = [
+                line for line in proc.stderr.splitlines() if any(marker in line for marker in fatal)
+            ]
+            assert not unresolved, (
+                f"{name}: the fence exported, and the engine could not resolve a name in "
+                f"it -- so what it built is not what it shows\n"
+                + "\n".join(unresolved)
+                + f"\n---\n{block}"
             )
 
 

@@ -100,6 +100,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   participates in batch aggregation, was independently true and is kept — but
   no longer stated as a consequence of the false one.
 
+- **The fence guard reaches `examples/`, and reads more than the exit status**
+  (#366). `test_every_openscad_fence_in_the_docs_parses` globbed `docs/` and
+  `skills/` — the wrong half, since an exemplar README is where a snippet is
+  most likely to be copied verbatim: PR #364 shipped one broken fence into
+  `docs/` and an identical one into `examples/clearance/README.md`, and only
+  the first turned the suite red. Both halves are fixed. The glob now covers
+  `examples/**/*.md`, and a fence whose stderr carries an unresolved NAME
+  fails even at exit 0 — measured on both pinned engines, deleting the
+  `CLEAR = 1.5;` a fence depends on leaves both exporting rc 0 with `WARNING:
+  Ignoring unknown variable 'CLEAR'`, i.e. a sphere at the default radius
+  rather than the prescribed one. The vocabulary is the engine guard's own
+  `_UNRESOLVED_NAME_MARKERS`, so the two cannot drift apart, with `Ignoring
+  unknown module` exempted **explicitly** — two shipped fences legitimately
+  call modules they do not define (`SPEC-contract.md` §4.12 and
+  `skills/contract-authoring/SKILL.md`) — and an assertion that the exempted
+  marker is still spelled that way upstream.
+
 ## [0.7.7] - 2026-09-02
 
 ### Added
