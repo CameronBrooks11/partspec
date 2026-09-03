@@ -10,12 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **A dimension defaulted from `undef` is now narrated, and honestly not
-  refused** (#308, #332, #338). Prefixed `o = undef;`, seven builtins exit **0**
-  with a clean watertight single solid built to a number nobody wrote:
-  `cube(o)` and `cube(size=o)` to 1 mm, `linear_extrude(o)` and
+  refused** (#308, #332, #338). Prefixed `o = undef;`, seven spellings of five
+  builtins exit **0** with a clean watertight single solid built to a number
+  nobody wrote: `cube(o)` and `cube(size=o)` to 1 mm, `linear_extrude(o)` and
   `linear_extrude(height=o)` to **100**, `cylinder(h=o, d=10)` to h = 1,
-  `sphere(o)` to r = 1, `resize(o) cube(5)` to nothing — stderr **empty** for
-  all of them on both pinned engines. #332's eleven-row table was re-measured
+  `sphere(o)` to r = 1 — stderr **empty** for all of them on both pinned
+  engines. (`resize(o) cube(5)` is silent too but is a **no-op**, 12 facets and
+  bbox 5 x 5 x 5 unchanged, because `newsize` defaults to `[0,0,0]` and a 0
+  there means *keep this axis* — the one row of the seven whose resulting
+  dimension IS a number the author wrote.) #332's eleven-row table was re-measured
   here row for row, including both amendments it had already taken: `circle(r=o)`
   exits **1** with no STL, and `linear_extrude(o + 1)` warns **twice** on
   2021.01 and once on 2026.08.01. **No new refusal ships, and the reason is
@@ -38,7 +41,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the correct `n = 4` part passing. The rule's accepted noise is named rather
   than denied: an `undef` read only by an `echo` fires, and that is exactly the
   correct part PR #306 and PR #329 round 2 each refused at exit 4 — here it costs
-  nothing, because `lint` exits 0 whatever it finds.
+  nothing, because `lint` exits 0 whatever it finds. `tests/test_docs.py` executes
+  rule 8's two heights on whichever engine is pinned, and `docs/FAILURE-MODES.md`
+  gains **entry 10**; entry 9b's symptom is rewritten for the third cause #377
+  adds, so the two land in either order.
+
+  Adversarial review found the rule's edges wrong in three ways, all fixed here and
+  all with the corpus answer unchanged — **2338 findings over the 126 tracked
+  sources before and after, byte for byte**. Both this rule and
+  `scad-unused-top-level` asked their "is this name read elsewhere" question over
+  the **line**, so a packed `o = undef; h = o + 1; linear_extrude(h) …` — one legal
+  line, and the exact string `docs/LINT.md` printed as this rule's own example —
+  produced no finding here and a **false** "declared but never read" there. Both now
+  ask it over the assignment **statement**, which is what `scad-magic-number` learned
+  in the v0.7.0 pre-tag audit; `tests/test_lint.py` lints the documents' examples
+  verbatim out of the shipped files rather than re-rendering them, since the
+  harness's own newlines were what hid this. A `name =` at bracket depth >= 1 is a
+  **keyword argument**, never a read — `cylinder(h = 20)` names cylinder's parameter
+  and cannot reference the caller's `h` — which had said `'d'` was read by
+  `cylinder(d = 8)` on a correct 272-facet part while hiding a genuinely dead
+  `h = undef;` knob from `scad-unused-top-level`, so one rule stated a falsehood
+  while no rule stated the fault; both are now right. And a parameter's scope now
+  includes the parameter list, so `module m(a = undef, b = a)` is seen. The
+  remaining noise — a shadowing rebind, and a top-level name silenced by an
+  `is_undef` in an unrelated scope — is enumerated in `docs/LINT.md` rather than
+  left implicit.
 
 - **A backwards range is engine-defined, and neither engine says so where it
   matters** (#356). `for (i = [1 : n])` at `n = 0` — the shape a loop takes when

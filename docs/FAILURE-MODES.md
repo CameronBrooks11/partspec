@@ -288,7 +288,11 @@ cost is written down here rather than paid quietly.
 
 - **Symptom.** The same `ERROR: 3 skipped` at exit `4`, over a part that is rotated
   exactly as the source asked. The report says the engine "could not convert a value and
-  built a default in place of it", and for this shape **no default went in**.
+  built a default in place of it", and for this shape **no default went in** — the
+  defect #360 records. Since #377 this marker carries a cause of its own, "the engine
+  could not use a value as written", which is all the stderr line supports;
+  `Unable to convert` keeps the default-substitution wording unchanged to the byte,
+  because for that marker a default is certain.
 - **Root cause.** `Problem converting rotate(...)` means the engine could not use the
   `rotate` parameters *as written*. That is four different situations, and only some of
   them damage the mesh. Measured on both pinned engines, every byte comparison `cmp -s`
@@ -331,7 +335,10 @@ cost is written down here rather than paid quietly.
   each measured under both pinned engines with the source prefixed `o = undef;`:
   `cube(o)` and `cube(size=o)` build a 1 mm cube, `linear_extrude(o)` and
   `linear_extrude(height=o)` extrude to 100, `cylinder(h=o, d=10)` takes h = 1,
-  `sphere(o)` takes r = 1, and `resize(o) cube(5)` resizes to nothing. Only
+  `sphere(o)` takes r = 1. `resize(o) cube(5)` is the instructive exception: it is a
+  **no-op**, 12 facets and bbox 5 x 5 x 5 unchanged on both engines, because `newsize`
+  defaults to `[0, 0, 0]` and a 0 there means *keep this axis* — the one row of the seven
+  whose resulting dimension IS a number the author wrote. Only
   `circle(r=o)` escapes, and only because a 2D result cannot be exported to STL at all
   (exit 1, no file, both engines). #338's variant reaches the same place through a range
   that would not convert — `n = undef; r = [0:n]; h = r[2];` — and its sibling loses a

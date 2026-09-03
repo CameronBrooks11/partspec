@@ -54,21 +54,42 @@ was skipped and leave no way to find out which.
 ## `scad-untested-undef`
 
 - **Predicate:** a name **bound to a literal `undef`** — a top-level `o = undef;` of the
-  entry file, or a `module`/`function` parameter defaulted `undef` — that is **read**
-  somewhere in its scope, with **no test of that name** anywhere in that scope. A test is
+  entry file, or a `module`/`function` parameter defaulted `undef` — whose name **appears
+  in its scope outside its own assignment statements**, with **no test of that name**
+  anywhere in that scope. "Appears", as in `scad-unused-top-level`: this is a text scan,
+  not a dataflow analysis, and the gap between appearing and being read is where the
+  accepted noise below lives. A test is
   any `is_*(name)` predicate (`is_undef`, and also `is_num`, `is_list`, … — `is_num(h)`
   before using `h` as a dimension is the same guard wearing a narrower hat) or a `==`/`!=`
   comparison against `undef` in either order. Scope is the whole file for a top-level
   binding and the declaration's own body for a parameter, so a same-named variable
   elsewhere is not read as a use. A binding that is never read produces **no** finding
   here: that is `scad-unused-top-level`'s, and one fault should not report twice.
+- **Statements, not lines.** `o = undef; h = o + 1; linear_extrude(h) square([40,30]);`
+  is one legal line, and until the #372 review the scan was line-based and saw no binding
+  in it at all — while `scad-unused-top-level` reported a *false* "declared but never
+  read" on the same string, because dropping the assignment's line dropped the read with
+  it. Both rules now ask the question over the assignment **statement**, which is what
+  `scad-magic-number` already learned in the v0.7.0 pre-tag audit. The corpus answer is
+  unchanged: 2338 findings over the 126 tracked sources before and after, byte for byte.
+- **A keyword argument is not a read.** `cylinder(h = 20)` names *cylinder's* parameter
+  and cannot reference the caller's `h`, so a `name =` at bracket depth ≥ 1 is a keyword
+  argument or a signature default, never a use — the same distinction the magic-number
+  rule's depth counter already draws. Reading them as uses said `'d'` was read by
+  `cylinder(d = 8)` on a correct 272-facet part (measured, both engines), and hid a
+  genuinely dead `h = undef;` knob from `scad-unused-top-level` at the same time, so one
+  rule stated a falsehood while no rule stated the fault. Both are fixed; the dead knob
+  now reports as unused, which is what it is.
 - **Rationale:** where an `undef` reaches a dimension, OpenSCAD substitutes its own
   default and **narrates nothing at all**. Measured on both pinned engines, each source
   prefixed `o = undef;` and rendered `--export-format binstl`: `cube(o)`,
   `cube(size=o)`, `linear_extrude(o)`, `linear_extrude(height=o)`, `cylinder(h=o, d=10)`,
-  `sphere(o)` and `resize(o) cube(5)` all exit **0** with a clean, watertight,
+  `sphere(o)` all exit **0** with a clean, watertight,
   single-solid mesh built to a number nobody wrote — `cube` to 1, `linear_extrude` to
-  100, `cylinder` to h=1, `sphere` to r=1. Stderr is empty for every one of them. Add an
+  100, `cylinder` to h=1, `sphere` to r=1. (`resize(o) cube(5)` is silent too, but it is
+  a **no-op** rather than a substitution — `newsize` defaults to `[0,0,0]` and a 0 means
+  *keep this axis* — so the part stays 5 x 5 x 5 on both engines.) Stderr is empty for
+  every one of them. Add an
   arithmetic step (`o + 1`) and the only line that appears is
   `WARNING: undefined operation (undefined + number)`, which fires beside completely
   correct parts and was tried as a guard and reverted for that reason (PR #306). So this
@@ -106,8 +127,18 @@ was skipped and leave no way to find out which.
   bug rather than a guard; and a test written through an alias (`c = chamfer;` then
   `is_undef(c)`) is not seen, because the rule tracks the bound name and does not follow
   assignments. In the other direction the rule is **not** a taint analysis: in
-  `n = undef; r = [0:n]; h = r[2]; linear_extrude(h) …` it fires on `n`, which is the
-  actionable binding, and says nothing about `h`.
+  `n = undef; r = [0:n]; h = r[2]; linear_extrude(h) square([40,30]);` it fires on `n`,
+  which is the actionable binding, and says nothing about `h`.
+- **Appearing is not being read, and three shapes exploit the gap.** A name that only
+  ever appears in a *comment* cannot reach here (comments are stripped first), but a name
+  **rebound in an inner scope that shadows the `undef`** still counts as appearing, and
+  fires. So does a top-level `o = undef;` whose only mention is in a context the value
+  never flows through. And in the other direction a **top-level** binding is silenced by
+  an `is_undef(o)` anywhere in the file — including inside a module whose *own* parameter
+  happens to be named `o`, which is a different variable. The scope protection stated
+  above ("a same-named variable elsewhere is not read as a use") is a parameter's, not a
+  top-level name's: narrowing that one needs the scope analysis a text tier does not
+  have, and the failure direction is a missed finding rather than a false one.
 - **The remedy the finding names is a contract claim, not only an edit.** Measured on
   both engines with `watertight()` + `solid_count(1)` + an envelope: `envelope(max=…)`
   turns #332 row 1 and #338(b) from exit 0 into **FAIL, exit 1**; but geometry that

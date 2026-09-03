@@ -377,6 +377,86 @@ def test_the_undef_rules_false_positives_are_the_ones_a_refusal_could_not_afford
     ) == [("scad-untested-undef", 1)]
 
 
+def test_the_documents_undef_examples_fire_exactly_as_printed(tmp_path: Path):
+    """The doc strings themselves, linted verbatim — not re-rendered by the test.
+
+    The #372 review's HIGH finding: every other test here writes its example
+    with explicit `\\n`, so the harness was supplying line breaks a reader
+    would not. `docs/LINT.md` prints its "Real example" as a packed one-liner,
+    which is legal OpenSCAD, and the line-based scan saw no binding in it —
+    the document's own named example did not fire, and `scad-unused-top-level`
+    printed a FALSE "declared but never read" beside it.
+
+    So this pulls the examples OUT of the shipped documents and lints them
+    byte for byte. A rewrap or a reword that breaks them fails here, and the
+    test cannot flatter the rule by reformatting its input.
+    """
+    import re
+
+    docs = {
+        "docs/LINT.md": (ROOT / "docs" / "LINT.md").read_text(),
+        "docs/FAILURE-MODES.md": (ROOT / "docs" / "FAILURE-MODES.md").read_text(),
+    }
+    examples: list[tuple[str, str]] = []
+    for name, text in docs.items():
+        for span in re.findall(r"`([^`]*\bundef\b[^`]*)`", text):
+            # Complete statements only: the prose also names fragments
+            # (`o = undef;` alone) and elided forms carrying an ellipsis.
+            if span.rstrip().endswith(";") and "…" not in span and span.count(";") >= 2:
+                examples.append((name, span.strip()))
+    assert len(examples) >= 3, f"the documents' worked examples vanished: {examples}"
+
+    scad = tmp_path / "printed.scad"
+    for name, body in examples:
+        scad.write_text(body + "\n")
+        rules = [f.rule for f in lint_path(scad)]
+        assert "scad-untested-undef" in rules, f"{name}: {body!r} does not fire as printed"
+        assert "scad-unused-top-level" not in rules, (
+            f"{name}: {body!r} draws a FALSE unused finding — the name IS read, "
+            f"one statement over on the same line"
+        )
+
+
+def test_a_keyword_argument_is_not_a_read_of_a_same_named_variable(tmp_path: Path):
+    """#372 review, MEDIUM. `cylinder(h = 20)` names cylinder's own parameter
+    and cannot reference the caller's `h`, so counting it as a use said `'d'`
+    was read by `cylinder(d = 8)` on a correct 272-facet part (measured, both
+    engines) — and hid a genuinely dead knob from `scad-unused-top-level` at
+    the same time, so one rule stated a falsehood while no rule stated the
+    fault."""
+    correct = tmp_path / "correct.scad"
+    correct.write_text(
+        "module plate(d = undef) {\n"
+        "  difference() { cube([40,30,6], center=true);\n"
+        "                 cylinder(d=8, h=20, center=true, $fn=64); }\n"
+        "}\nplate();\n"
+    )
+    assert [f.rule for f in lint_path(correct) if f.rule != "scad-magic-number"] == []
+
+    dead = tmp_path / "dead.scad"
+    dead.write_text("h = undef;\ncylinder(h = 20, d = 10, $fn = 32);\n")
+    assert [f.rule for f in lint_path(dead) if f.rule != "scad-magic-number"] == [
+        "scad-unused-top-level"
+    ], "the dead knob is unused, and that is the finding it should draw"
+
+
+def test_a_packed_assignment_statement_is_not_an_unused_variable(tmp_path: Path):
+    """The same line-vs-statement defect in the older rule, which the fix above
+    also removes: `w = 4; cube([10, 10, w]);` reported `w` as never read at
+    v0.7.7, because dropping the assignment's LINE dropped the read too."""
+    scad = tmp_path / "packed.scad"
+    scad.write_text("w = 4; cube([10, 10, w]);\n")
+    assert [f.rule for f in lint_path(scad) if f.rule != "scad-magic-number"] == []
+
+
+def test_a_parameter_read_by_another_parameters_default_is_read(tmp_path: Path):
+    """#372 review, finding 4: the scope was the body alone, so `b = a` in the
+    signature was invisible and `module m(a = undef, b = a)` missed."""
+    assert _undef_findings(tmp_path, "module m(a = undef, b = a) { cube([b,b,b]); }\nm(3);\n") == [
+        ("scad-untested-undef", 1)
+    ]
+
+
 def test_the_undef_rule_fires_on_the_skills_before_form_and_not_its_after(tmp_path: Path):
     """docs/LINT.md's named real example, executed.
 
