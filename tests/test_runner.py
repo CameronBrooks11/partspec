@@ -1144,6 +1144,51 @@ def test_a_value_that_would_not_convert_gets_a_different_diagnosis_than_a_name()
     assert "OPENSCADPATH" not in convert_hint
 
 
+def test_an_over_long_rotate_vector_is_not_diagnosed_as_a_substitution():
+    """A third cause, because the second one asserts a mechanism (#360).
+
+    `Problem converting rotate(` joined the substitution markers in #333, and
+    the substitution SENTENCE went with it: "built a default in place of it",
+    printed over `rotate([90,0,0,0]) cube([10,5,2])` -- whose export is
+    byte-identical to `rotate([90,0,0]) cube([10,5,2])` on both pinned engines,
+    because 2021.01's `transform.cc` reads
+    `default: ok &= false; /* fallthrough */ case 3:` and applies the first
+    three components. Nothing is substituted, and the message said one was.
+
+    Both directions are pinned. `Unable to convert` keeps the substitution text
+    unchanged to the byte -- that marker really is always a default, and
+    weakening it to cover this one would have cost the precision that makes it
+    actionable -- while the rotate line gets a cause that claims only what
+    stderr supports. Engine-free: `_unresolved_diagnosis` reads a string.
+    """
+    rotate_cause, rotate_hint = _unresolved_diagnosis(
+        "WARNING: Problem converting rotate(a=[90, 0, 0, 0]) parameter in file q.scad, line 1"
+    )
+    convert_cause, convert_hint = _unresolved_diagnosis(
+        "WARNING: Unable to convert cube(size=[undef, 30, 6], ...) parameter to a"
+        " number or a vec3 of numbers in file q.scad, line 2"
+    )
+
+    assert "default" not in rotate_cause, "no default is taken for an over-long vector"
+    assert rotate_cause == "the engine could not use a value as written"
+    assert "OPENSCADPATH" not in rotate_hint, "still not the include path"
+
+    # Unchanged for the marker it was measured on, and the two are not merged.
+    assert convert_cause == (
+        "the engine could not convert a value and built a default in place of it"
+    )
+    assert "built its own default" in convert_hint
+    assert rotate_hint != convert_hint
+
+    # Anchored, so a model cannot pick its own diagnosis by echoing the marker
+    # back: OpenSCAD prints string literals into the warning verbatim.
+    literal, _ = _unresolved_diagnosis(
+        'WARNING: Problem converting rotate(a=["Unable to convert", 0, 0]) parameter'
+        " in file q.scad, line 1"
+    )
+    assert literal == rotate_cause
+
+
 @needs_scad_tier
 def test_a_defaulted_dimension_is_refused_with_the_conversion_diagnosis(tmp_path: Path):
     """The conversion message out of a real build, rather than off a literal.
@@ -1800,3 +1845,51 @@ def test_the_discriminating_export_honours_the_contracts_timeout(tmp_path: Path)
         monkey.undo()
 
     assert seen == [7.0], f"the .csg export ran with {seen}, not the contract's budget"
+
+
+@needs_openscad
+def test_a_method_scratch_that_failed_refuses_rather_than_exporting_the_bare_file(
+    tmp_path: Path, monkeypatch
+):
+    """B4's other half, and the one arm nothing else reaches (#362).
+
+    `_only_in_dropped_subtrees` refuses when `_method_scratch` returns a
+    `BuildError` instead of falling back to `source.path`. That refusal is
+    load-bearing -- the control below exports the bare file and exonerates a
+    real build input -- and it is unreachable through the runner's own
+    ordering: the build called `_method_scratch` moments earlier, and a genuine
+    failure becomes an environment refusal (`could not write the method scratch
+    file in ...`, `build_origin: "environment"`) before the guard is reached.
+    So deleting the branch changes no test, while forcing it changes behaviour
+    in the unsafe direction, which is what the monkeypatch pins.
+
+    Same route as `test_an_unattributable_build_error_is_not_adjudicated_as_the_model`,
+    for the same reason: what is asserted is the adjudication, not the producer.
+    """
+    from partspec.backend import BuildError
+    from partspec.engines import openscad as engine
+    from partspec.runner import _engine_source, _only_in_dropped_subtrees
+
+    src = tmp_path / "ms.scad"
+    src.write_text(
+        '%import("mate.stl");\nmodule make() {\n  cube([10,10,10]);\n  import("mate.stl");\n}\n'
+    )
+    missing = ((tmp_path / "mate.stl").resolve(),)
+    out = tmp_path / "out"
+    out.mkdir()
+
+    # The control, and the whole reason the branch matters: the BARE file's top
+    # level carries only the `%`-ed reference, so an export of it exonerates
+    # `mate.stl` -- while the method the contract names imports it plainly.
+    bare = _engine_source(Part("bare", openscad(src)))
+    assert _only_in_dropped_subtrees(bare, missing, out, None) == set(missing)
+
+    monkeypatch.setattr(
+        engine,
+        "_method_scratch",
+        lambda source, out_dir: BuildError("no scratch here", origin="environment"),
+    )
+    wrapped = _engine_source(Part("ms", openscad(src, method="make")))
+    assert _only_in_dropped_subtrees(wrapped, missing, out, None) == set(), (
+        "no usable entry is no evidence; falling back to source.path fails OPEN"
+    )
