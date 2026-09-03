@@ -1159,6 +1159,20 @@ def test_the_spacer_exemplars_diff_transcript_is_what_the_console_prints(tmp_pat
             # falsified this README by APPENDING to the summary line, and the
             # stale line is a substring of the line that replaced it.
             produced = {ln.strip() for ln in printed.splitlines()}
+            # A floor, because `quoted <= produced` is vacuous when `quoted` is
+            # empty: without it the README's whole console contract for this
+            # command can be DELETED and the gate stays green. A `--quiet` step
+            # legitimately prints nothing, so there the emptiness is the claim
+            # and is asserted in the other direction.
+            if "--quiet" in argv:
+                assert not quoted and not printed.strip(), (
+                    f"`{line}` is --quiet; the exemplar shows {quoted!r} and it printed {printed!r}"
+                )
+            else:
+                assert quoted, (
+                    f"the exemplar runs `{line}` and quotes nothing it printed; "
+                    "a step with no expected output asserts nothing"
+                )
             missing = [q for q in quoted if q.strip() not in produced]
             assert not missing, (
                 f"the exemplar quotes console output `{line}` no longer prints:\n  "
@@ -1309,9 +1323,15 @@ def test_every_openscad_fence_in_the_docs_parses():
                 for line in proc.stderr.splitlines()
                 if any(marker in line for marker in fatal)
                 or (
-                    (named := re.search(rf"{re.escape(exempt)} '(\w+)'", line))
+                    exempt in line
+                    # A name the pattern cannot read is NOT exempt: both engines
+                    # print `Ignoring unknown module '$weird'`, and `\w+` would
+                    # return None, drop the line, and say nothing -- a guard
+                    # degrading to silence, which is the shape this file refuses.
+                    and (named := re.search(rf"{re.escape(exempt)} '([\w$]+)'", line)) is not None
                     and named.group(1) not in exempt_names
                 )
+                or (exempt in line and re.search(rf"{re.escape(exempt)} '", line) is None)
             ]
             assert not unresolved, (
                 f"{name}: the fence exported, and the engine could not resolve a name in "

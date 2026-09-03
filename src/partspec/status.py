@@ -128,8 +128,10 @@ it must read the exit code too.
 The refusals that genuinely write nothing are the ones raised before the placeholder
 loop — argparse's usage errors, `--out` over colliding slugs, and the pre-dispatch
 refusals in `main` — and every 64 from a verb other than `check`, which writes no
-report at all. That is the rule; the examples are not a closed list, and `cli.py`'s
-own comment on enumerating these paths says why one should not be attempted.
+report at all. That is the rule; the examples are not a closed list. `cli.py`'s
+"No enumeration here on purpose" comment makes the general argument, about a
+different set of paths: four drafts of it tried to say which copies existed, and
+every one was short.
 """
 
 
