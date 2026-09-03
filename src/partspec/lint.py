@@ -45,6 +45,7 @@ FUNCTION_LINE_LIMIT = 60
 
 RULES = {
     "scad-unused-top-level": "a top-level variable the geometry never reads",
+    "scad-untested-undef": "a name bound to `undef`, used, and never tested",
     "scad-magic-number": "a numeric literal in geometry with no name",
     "scad-module-size": f"a module body over {MODULE_LINE_LIMIT} lines",
     "py-magic-number": "a numeric literal in a call inside a function body",
@@ -246,6 +247,186 @@ def _is_subscript_index(line_text: str, match: re.Match[str]) -> bool:
     return word is not None and word.group(0) not in _BEFORE_BRACKET_KEYWORDS
 
 
+_UNDEF_ASSIGNMENT = re.compile(r"\s*(\$?\w+)\s*=\s*undef\s*")
+_UNDEF_PARAMETER = re.compile(r"(\w+)\s*=\s*undef\s*(?=[,)])")
+_ANY_DECLARATION = re.compile(r"\b(?:function|module)\s+\w+\s*\(")
+
+
+def _top_level_statements(scope: str):
+    """(text, offset) for each statement at bracket depth 0.
+
+    Statements, not LINES. `o = undef; h = o + 1; linear_extrude(h) …` is one
+    legal line, and it is the exact string `docs/LINT.md` prints as this
+    rule's own example — a line-based scan saw no binding in it at all.
+    `scad-magic-number` learned this in the v0.7.0 pre-tag audit ("the
+    exemption is the STATEMENT's, not the line's"); this is that fact one rule
+    over.
+
+    A `}` closing back to depth 0 terminates a statement too. Without it a
+    `module m() { … }` swallows every top-level assignment after it, since a
+    module definition carries no `;` of its own.
+    """
+    depth = start = 0
+    for i, c in enumerate(scope):
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if c == "}" and depth <= 0:
+                yield scope[start : i + 1], start
+                start = i + 1
+        elif c == ";" and depth <= 0:
+            yield scope[start:i], start
+            start = i + 1
+    if scope[start:].strip():
+        yield scope[start:], start
+
+
+def _reads_outside_own_binding(scope: str, name: str) -> bool:
+    """Is `name` READ in `scope`, other than in its own assignment statements?
+
+    Two corrections to the line-based predicate both rules used to share.
+
+    **Statements, not lines.** Dropping every LINE that assigned the name
+    dropped the reads packed onto it: `w = 4; cube([10, 10, w]);` reported
+    `scad-unused-top-level` on a `w` the next statement reads (measured at
+    v0.7.7 — a false finding this replaces), and the same shape hid
+    `scad-untested-undef` from its own documented example.
+
+    **A `name =` inside brackets is a KEYWORD ARGUMENT or a signature
+    default, never a read.** `cylinder(h = 20)` names cylinder's own
+    parameter and cannot reference the caller's `h` — the same distinction
+    `_signature_default_offsets` and the magic-number depth counter already
+    draw in this file. Counting it as a read said `'d'` is read by
+    `cylinder(d = 8)` on a correct 272-facet part, and at the same time hid a
+    genuinely dead `h = undef;` knob from `scad-unused-top-level`, so one
+    rule stated a falsehood while no rule stated the fault.
+    """
+    token = re.compile(rf"(?<![\w$]){re.escape(name)}(?![\w])")
+    depth, i, n = 0, 0, len(scope)
+    while i < n:
+        c = scope[i]
+        if c in "([{":
+            depth += 1
+            i += 1
+            continue
+        if c in ")]}":
+            depth -= 1
+            i += 1
+            continue
+        m = token.match(scope, i)
+        if m is None:
+            i += 1
+            continue
+        after = m.end()
+        while after < n and scope[after].isspace():
+            after += 1
+        if after < n and scope[after] == "=" and not scope.startswith("==", after):
+            # At depth 0 this is the name's OWN assignment statement, and the
+            # whole statement is skipped; deeper it is a keyword argument or a
+            # signature default, and only the parameter name is.
+            i = _end_of_statement(scope, after + 1) if depth <= 0 else after + 1
+            continue
+        return True
+    return False
+
+
+def _end_of_statement(scope: str, pos: int) -> int:
+    """Index just past the `;` (or `}`) closing the statement open at `pos`."""
+    depth = 0
+    while pos < len(scope):
+        c = scope[pos]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == ";" and depth <= 0:
+            return pos + 1
+        pos += 1
+    return pos
+
+
+def _match_bracket(text: str, pos: int, opening: str, closing: str) -> int:
+    """Index one past the bracket that closes the one already open at `pos`."""
+    depth = 1
+    while pos < len(text) and depth:
+        if text[pos] in opening:
+            depth += 1
+        elif text[pos] in closing:
+            depth -= 1
+        pos += 1
+    return pos
+
+
+def _undef_bindings(stripped: str) -> list[tuple[str, int, str]]:
+    """(name, line, scope) for every binding of a name to a literal `undef`.
+
+    Two forms, because they are the two the corpus produces (#332, #338): a
+    top-level `o = undef;`, whose scope is the whole file, and a
+    `module`/`function` parameter defaulted `undef`, whose scope is that
+    declaration's body alone — a same-named variable elsewhere in the file is
+    a different variable, and reading it as a use would report the wrong
+    declaration.
+    """
+    bindings: list[tuple[str, int, str]] = []
+
+    for text, offset in _top_level_statements(stripped):
+        m = _UNDEF_ASSIGNMENT.fullmatch(text)
+        if m:
+            at = offset + (len(text) - len(text.lstrip()))
+            bindings.append((m.group(1), stripped.count("\n", 0, at) + 1, stripped))
+
+    for decl in _ANY_DECLARATION.finditer(stripped):
+        params_end = _match_bracket(stripped, decl.end(), "([", ")]")
+        # Through the closing paren, not up to it: the last parameter's default
+        # is delimited by that `)` and nothing else, so trimming it hid every
+        # single-parameter signature — `module rail(n = undef)`, which is
+        # #338(a) itself.
+        params = stripped[decl.end() : params_end]
+        after = params_end
+        while after < len(stripped) and stripped[after].isspace():
+            after += 1
+        if after < len(stripped) and stripped[after] == "{":
+            # INSIDE the braces: `_reads_outside_own_binding` reads bracket
+            # depth, and a leading `{` would put every statement of the body at
+            # depth 1, where an assignment reads as a keyword argument.
+            body = stripped[after + 1 : _match_bracket(stripped, after + 1, "{", "}") - 1]
+        else:
+            # `function f(...) = expr;` and the brace-less single-statement
+            # module body both run to the statement's own `;`.
+            end = stripped.find(";", after)
+            body = stripped[params_end : len(stripped) if end == -1 else end]
+        # The parameter LIST is part of the scope, parens kept so its contents
+        # stay at depth 1: `module m(a = undef, b = a)` reads `a`, and reading
+        # the body alone missed it (#372 review, finding 4).
+        scope = stripped[decl.end() - 1 : params_end] + "\n" + body
+        for m in _UNDEF_PARAMETER.finditer(params):
+            at = decl.end() + m.start()
+            bindings.append((m.group(1), stripped.count("\n", 0, at) + 1, scope))
+    return bindings
+
+
+def _tests_for_undef(scope: str, name: str) -> bool:
+    """Does `scope` test `name` before trusting it?
+
+    `undef` as a parameter default is the language's own spelling of "not
+    supplied" — BOSL2 and most libraries use it — so the untested-ness is the
+    whole predicate, not the `undef`. Any `is_*()` predicate counts, not only
+    `is_undef`: `is_num(h)` before using `h` as a dimension is the same guard
+    wearing a narrower hat.
+
+    A truthiness test (`n ? n : 1`) deliberately does NOT count. It cannot
+    distinguish `undef` from `0`, which for a count or a dimension is a second
+    bug rather than a guard, so the rule declines to read one as a test.
+    """
+    n = re.escape(name)
+    return bool(
+        re.search(rf"\bis_\w+\s*\(\s*{n}\s*[,)]", scope)
+        or re.search(rf"\b{n}\s*[!=]=\s*undef\b", scope)
+        or re.search(rf"\bundef\s*[!=]=\s*{n}\b", scope)
+    )
+
+
 def _lint_scad(path: Path) -> list[Finding]:
     raw = path.read_text(encoding="utf-8", errors="replace")
     stripped = _strip_preserving_lines(raw)
@@ -257,10 +438,7 @@ def _lint_scad(path: Path) -> list[Finding]:
             continue  # $fn etc. are read by the engine, not the text
         # Everything except this variable's own assignment lines; a reference
         # anywhere else (geometry, another assignment's right side) is a use.
-        others = "\n".join(
-            ln for ln in stripped.splitlines() if not re.match(rf"\s*{re.escape(name)}\s*=", ln)
-        )
-        if not re.search(rf"\b{re.escape(name)}\b", others):
+        if not _reads_outside_own_binding(stripped, name):
             findings.append(
                 Finding(
                     "scad-unused-top-level",
@@ -271,6 +449,26 @@ def _lint_scad(path: Path) -> list[Finding]:
                     f"then say so in a comment)",
                 )
             )
+
+    for name, line, scope in _undef_bindings(stripped):
+        if _tests_for_undef(scope, name):
+            continue
+        if not _reads_outside_own_binding(scope, name):
+            continue  # never read; that is `scad-unused-top-level`'s finding, not this one
+        findings.append(
+            Finding(
+                "scad-untested-undef",
+                str(path),
+                line,
+                f"'{name}' is bound to undef and its name appears outside its own "
+                f"assignment, with no is_undef()/== undef "
+                f"test — where an undef reaches a dimension OpenSCAD substitutes its "
+                f"own default and says nothing at all (cube -> 1, linear_extrude -> "
+                f"100), exporting a clean single solid at exit 0. Test it, or give it "
+                f"a real default; and assert the dimension in the contract, two-sided "
+                f"if a loop or an `if` builds it (skills/openscad-authoring rule 8)",
+            )
+        )
 
     assignment = re.compile(r"^\s*\$?\w+\s*=")
     # Whole scientific literals match as one number (1e-3 is 0.001, not a
