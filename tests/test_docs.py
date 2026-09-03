@@ -1062,6 +1062,131 @@ def test_the_readme_console_block_is_what_the_console_prints():
     )
 
 
+@needs_scad_tier
+def test_the_spacer_exemplars_diff_transcript_is_what_the_console_prints(tmp_path: Path):
+    """The exemplar quotes a `diff` run. The run must still say that.
+
+    #361: PR #351 committed this transcript, PR #353 changed what the summary
+    line can say, and the README kept the old text through three green gates —
+    `test_the_readme_console_block_is_what_the_console_prints` reads the ROOT
+    README, nothing in the suite read `examples/spacer/README.md` at all, and
+    `just example-spacer` runs `check --expect` and never `diff`. A falsified
+    document with `just check`, `just test` and a CI job all green over it.
+
+    The recipe was the issue's own preferred remedy and is the wrong half by
+    itself: `just example-spacer` gates the console contract by PRINTING it for
+    a human, so a `diff` step added there would have exited 1 over the very
+    summary line that had drifted and CI would still have been green. What
+    kills that mutation is comparing the quoted text to the produced text,
+    which is what this module is for.
+
+    So the transcript is REPLAYED rather than read: every `$` line is executed,
+    the narrative `# ... now edit BORE_D ...` line is applied as the edit it
+    describes, every quoted output line must appear in what the tool printed,
+    and every `echo $?` must match the exit code that came back. A command
+    shape the replay does not know fails loudly instead of being skipped —
+    silence must not read as success here either.
+
+    Run against a COPY. The transcript's second half edits the contract, and
+    the checkout's own `examples/spacer/spec.py` is the exemplar under `--pin`.
+    """
+    import shlex
+    import shutil
+
+    readme = ROOT / "examples" / "spacer" / "README.md"
+    text = readme.read_text()
+    block = next(
+        (
+            m.group(1)
+            for m in re.finditer(r"```console\n(.*?)```", text, re.S)
+            if "partspec diff" in m.group(1)
+        ),
+        None,
+    )
+    assert block is not None, "the exemplar no longer shows a diff run"
+
+    work = tmp_path / "examples" / "spacer"
+    work.mkdir(parents=True)
+    for name in ("spec.py", "spacer.scad", "claims.lock"):
+        shutil.copy(ROOT / "examples" / "spacer" / name, work / name)
+
+    steps: list[tuple[str, str, list[str]]] = []
+    for line in block.splitlines():
+        if line.startswith("$ "):
+            steps.append(("cmd", line[2:], []))
+        elif line.startswith("#"):
+            steps.append(("note", line, []))
+        elif line.strip():
+            assert steps, "the transcript opens with output and no command"
+            steps[-1][2].append(line)
+
+    edits = 0
+    last: subprocess.CompletedProcess[str] | None = None
+    for kind, line, quoted in steps:
+        if kind == "note":
+            edit = re.search(r"edit (\w+): ([\d.]+) -> ([\d.]+)", line)
+            if edit is None:
+                continue
+            name, before_v, after_v = edit.groups()
+            spec = work / "spec.py"
+            before, after = spec.read_text(), None
+            after = before.replace(f"{name} = {before_v}", f"{name} = {after_v}", 1)
+            assert after != before, f"the transcript says {line!r}; the contract has no such line"
+            spec.write_text(after)
+            edits += 1
+            continue
+
+        argv = shlex.split(line, comments=True)
+        redirect = None
+        if ">" in argv:
+            cut = argv.index(">")
+            redirect, argv = tmp_path / argv[cut + 1], argv[:cut]
+
+        if argv[0] == "partspec":
+            last = subprocess.run(
+                [sys.executable, "-m", "partspec", *argv[1:]],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if redirect is not None:
+                redirect.write_text(last.stdout)
+                printed = last.stderr
+            else:
+                printed = last.stdout + last.stderr
+            missing = [q for q in quoted if q.strip() not in printed]
+            assert not missing, (
+                f"the exemplar quotes console output `{line}` no longer prints:\n  "
+                + "\n  ".join(missing)
+                + f"\n--- actual ---\n{printed}"
+            )
+        elif argv[0] == "cp":
+            shutil.copy(tmp_path / argv[1], tmp_path / argv[2])
+        elif argv[:2] == ["echo", "$?"]:
+            assert last is not None, "`echo $?` with nothing run before it"
+            assert [q.split()[0] for q in quoted] == [str(last.returncode)], (
+                f"the exemplar quotes {[q.split()[0] for q in quoted]} for the exit code and "
+                f"the run exited {last.returncode}\n--- stderr ---\n{last.stderr}"
+            )
+        else:
+            pytest.fail(f"the transcript grew a command this replay cannot run: {line!r}")
+
+    assert edits == 1, "the transcript no longer says which edit produces the drift it shows"
+
+    # The entry quoted below the transcript is the same artifact, so it is the
+    # same claim: `drift.json` must carry it verbatim, not merely resemble it.
+    fences = re.findall(r"```json\n(.*?)```", text, re.S)
+    assert len(fences) == 1, "the exemplar's quoted drift entry has moved; this test lost it"
+    entry = json.loads(fences[0])
+    produced = json.loads((tmp_path / "drift.json").read_text())["checks"]
+    match = [c for c in produced if c["id"] == entry["id"]]
+    assert match == [entry], (
+        f"the exemplar quotes a drift entry `diff` no longer produces:\n"
+        f"  quoted:   {entry}\n  produced: {match}"
+    )
+
+
 def test_the_spec_samples_show_the_version_the_tool_actually_emits():
     """A sample is what a consumer copies, so its values must be real.
 

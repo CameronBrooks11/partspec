@@ -117,6 +117,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `skills/contract-authoring/SKILL.md`) — and an assertion that the exempted
   marker is still spelled that way upstream.
 
+- **The exemplar's `diff` transcript is now replayed, not read** (#361). PR
+  #353 changed what a `diff` summary line can say, `examples/spacer/README.md`
+  kept quoting the old text, and three gates stayed green over it: the console
+  test reads the ROOT README, nothing in the suite read the exemplar's README
+  at all, and `just example-spacer` runs `check --expect` and never `diff`.
+  `tests/test_docs.py` now executes that transcript — every `$` line run in a
+  copy of the exemplar, the narrative `# ... now edit BORE_D ...` applied as
+  the edit it describes, every quoted output line required in what the tool
+  printed, every `echo $?` matched against the exit code, the drift entry
+  quoted below it compared against `drift.json` verbatim, and a command shape
+  the replay does not know failed loudly rather than skipped. Falsifying the
+  summary line, the exit code, the `covered:` line or the quoted entry each
+  fails it on both pinned engines. The issue's other candidate — a `diff` step
+  in `just example-spacer` — is deliberately not taken and the recipe says
+  why: that recipe gates the console contract by printing it, and a `diff`
+  over a drifted baseline exits 1 whatever the summary line says.
+
 ## [0.7.7] - 2026-09-02
 
 ### Added
