@@ -3,7 +3,7 @@
 **Applies to:** v0.7.7 — the release this text describes. The `Status:` line records when
 this document was last revised in substance; it is provenance, not currency (#300).
 
-**Status:** v2 · 2026-08-22 · closes #26 (tier 1) and #118 (tier 2) · `csg-two-part-intersection` added (#270); refusals reach the console (#288)
+**Status:** v2 · 2026-08-22 · closes #26 (tier 1) and #118 (tier 2) · `csg-two-part-intersection` added (#270); refusals reach the console (#288); `scad-untested-undef` added (#332, #338)
 **Scope:** `partspec lint <source>…` over `.scad` and `.py` model sources. Findings are
 **advisory and never a verdict on the part — it is about the source** (#26, verbatim):
 exit 0 says the lint ran, the findings are data in the JSON payload, and 64 is reserved
@@ -50,6 +50,71 @@ was skipped and leave no way to find out which.
   the geometry. It exists for the *contract's* `requires` arithmetic, which is the
   documented legitimate case: the finding's message says so, and the advisory verdict
   means it costs nothing to accept knowingly.
+
+## `scad-untested-undef`
+
+- **Predicate:** a name **bound to a literal `undef`** — a top-level `o = undef;` of the
+  entry file, or a `module`/`function` parameter defaulted `undef` — that is **read**
+  somewhere in its scope, with **no test of that name** anywhere in that scope. A test is
+  any `is_*(name)` predicate (`is_undef`, and also `is_num`, `is_list`, … — `is_num(h)`
+  before using `h` as a dimension is the same guard wearing a narrower hat) or a `==`/`!=`
+  comparison against `undef` in either order. Scope is the whole file for a top-level
+  binding and the declaration's own body for a parameter, so a same-named variable
+  elsewhere is not read as a use. A binding that is never read produces **no** finding
+  here: that is `scad-unused-top-level`'s, and one fault should not report twice.
+- **Rationale:** where an `undef` reaches a dimension, OpenSCAD substitutes its own
+  default and **narrates nothing at all**. Measured on both pinned engines, each source
+  prefixed `o = undef;` and rendered `--export-format binstl`: `cube(o)`,
+  `cube(size=o)`, `linear_extrude(o)`, `linear_extrude(height=o)`, `cylinder(h=o, d=10)`,
+  `sphere(o)` and `resize(o) cube(5)` all exit **0** with a clean, watertight,
+  single-solid mesh built to a number nobody wrote — `cube` to 1, `linear_extrude` to
+  100, `cylinder` to h=1, `sphere` to r=1. Stderr is empty for every one of them. Add an
+  arithmetic step (`o + 1`) and the only line that appears is
+  `WARNING: undefined operation (undefined + number)`, which fires beside completely
+  correct parts and was tried as a guard and reverted for that reason (PR #306). So this
+  rule is the **only** thing in partspec that says the shape out loud, and it says it
+  advisorily. `undef` itself is not the fault — it is the language's own spelling of
+  "not supplied", and BOSL2 and most libraries use it — the **untested-ness** is.
+  (#308, #332, #338; FAILURE-MODES entry 10.)
+- **Real example:** the openscad skill's rule-8-before block fires once, on its
+  `module plate(t = undef)` parameter; its after-form lints clean. #308's own headline
+  reproduction — `o = undef; h = o + 1; linear_extrude(h) square([40,30]);` — fires on
+  line 1.
+- **Tier 1, and it has to be.** The `.csg` export cannot decide this and the reason is
+  not "not yet": a defaulted part's `.csg` is **byte-identical** to a correct part's.
+  Measured on both engines, `cmp` on the exports of `o=undef; cube(o);` against
+  `cube(1);`, `linear_extrude(o) …` against `linear_extrude(100) …`, `cylinder(h=o,…)`
+  against `cylinder(h=1,…)`, and `sphere(o)` against `sphere(1)` — identical, all four,
+  both engines. Any tier-2 rule that refused the left column would refuse the right one
+  byte for byte. Keying on the token `undef` in the `.csg` is worse still: `polygon()`
+  serialises `paths = undef` on every **correct** part, and where `undef` genuinely
+  reaches `points` the two engines disagree (`points = undef` on 2021.01,
+  `points = []` on 2026.08.01) — F13 inside the detector.
+- **Known noise, owned — and it is the interesting half.** An `undef` default read only
+  by an `echo` fires, and the part is correct:
+
+  ```
+  module plate(w, h, holes = undef) { echo("hole positions:", [0 : holes]); ... }
+  ```
+
+  That is exactly the source PR #306 and PR #329 round 2 each refused by mistake, at
+  exit 4, with a diagnosis whose every clause was false. It is a **finding** here and
+  costs nothing, because `lint` exits 0 whatever it finds — which is the whole reason
+  this signal lives in the lint and not in the success-path guard. Two more accepted
+  false positives: a truthiness guard (`n ? n : 1`) is not read as a test, deliberately,
+  because it cannot tell `undef` from `0` and for a count or a dimension that is a second
+  bug rather than a guard; and a test written through an alias (`c = chamfer;` then
+  `is_undef(c)`) is not seen, because the rule tracks the bound name and does not follow
+  assignments. In the other direction the rule is **not** a taint analysis: in
+  `n = undef; r = [0:n]; h = r[2]; linear_extrude(h) …` it fires on `n`, which is the
+  actionable binding, and says nothing about `h`.
+- **The remedy the finding names is a contract claim, not only an edit.** Measured on
+  both engines with `watertight()` + `solid_count(1)` + an envelope: `envelope(max=…)`
+  turns #332 row 1 and #338(b) from exit 0 into **FAIL, exit 1**; but geometry that
+  *vanished* (`module rail(n = undef)`, the loop gone) gets **smaller**, so a `max`-only
+  envelope still passes it at exit 0 and only a two-sided `envelope(min=…, max=…)` fails
+  it — exit 1 on both engines, while the same part at `n = 4` passes. That asymmetry is
+  `skills/openscad-authoring/SKILL.md` rule 8.
 
 ## `scad-magic-number`
 

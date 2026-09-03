@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A dimension defaulted from `undef` is now narrated, and honestly not
+  refused** (#308, #332, #338). Prefixed `o = undef;`, seven builtins exit **0**
+  with a clean watertight single solid built to a number nobody wrote:
+  `cube(o)` and `cube(size=o)` to 1 mm, `linear_extrude(o)` and
+  `linear_extrude(height=o)` to **100**, `cylinder(h=o, d=10)` to h = 1,
+  `sphere(o)` to r = 1, `resize(o) cube(5)` to nothing — stderr **empty** for
+  all of them on both pinned engines. #332's eleven-row table was re-measured
+  here row for row, including both amendments it had already taken: `circle(r=o)`
+  exits **1** with no STL, and `linear_extrude(o + 1)` warns **twice** on
+  2021.01 and once on 2026.08.01. **No new refusal ships, and the reason is
+  provable rather than provisional.** stderr cannot decide it — the silent rows
+  emit nothing, and `undefined operation` fires beside a correct 272-facet bored
+  plate (measured, genus 1, exact 40 × 30 × 6, both engines), which is why
+  PR #306 reverted it. The `.csg` cannot decide it either: `o = undef; cube(o);`
+  exports **byte-identical** to `cube(1);` on both engines, as do the
+  `linear_extrude`, `cylinder` and `sphere` rows against hand-written correct
+  counterparts, so any tier-2 rule refusing the fault refuses ordinary code byte
+  for byte. What ships instead is `partspec lint`'s tier-1 **`scad-untested-undef`**
+  — a name bound to a literal `undef`, read, with no `is_*()` or `== undef` test
+  in its scope — advisory, engine-free, and firing on none of this repository's
+  29 tracked `.scad` files. `skills/openscad-authoring/SKILL.md` gains rule 8 and
+  `FAILURE-MODES.md` entry 10, both carrying the contract half, which is the part
+  that actually refuses: `envelope(max=(40,30,6))` turns #332 row 1 and #338(b)
+  from exit 0 into **FAIL, exit 1** on both engines, while #338(a)'s vanished loop
+  gets *smaller* and still passes it — only a two-sided
+  `envelope(min=(40,8,10), max=(40,8,10))` fails that one, exit 1 on both engines,
+  with the correct `n = 4` part passing. The rule's accepted noise is named rather
+  than denied: an `undef` read only by an `echo` fires, and that is exactly the
+  correct part PR #306 and PR #329 round 2 each refused at exit 4 — here it costs
+  nothing, because `lint` exits 0 whatever it finds.
+
 - **A backwards range is engine-defined, and neither engine says so where it
   matters** (#356). `for (i = [1 : n])` at `n = 0` — the shape a loop takes when
   a count falls to zero — is normalised and iterated **ascending** by 2021.01 and

@@ -236,6 +236,85 @@ run against the before-form:
 moves. Write the bound two-sided and from theory, run under both pinned binaries, and
 the engine that builds the wrong part is the one that fails.
 
+## Rule 8 — An `undef` that reaches a dimension is silent; test it or default it
+
+`undef` is the language's own spelling of "not supplied", and using it as a parameter
+default is ordinary OpenSCAD — BOSL2 and most libraries do. What is not ordinary is
+letting one **reach geometry untested**, because the engine then substitutes a default
+of its own and tells you nothing. Measured on both pinned engines, each source prefixed
+`o = undef;` and rendered `--export-format binstl`:
+
+| source | stderr, both engines | exit | mesh |
+|---|---|---|---|
+| `cube(o);` / `cube(size=o);` | *(nothing)* | 0 | 12 facets — a 1 mm cube |
+| `linear_extrude(o) square([40,30]);` | *(nothing)* | 0 | 12 facets — **100 mm tall** |
+| `cylinder(h=o, d=10);` | *(nothing)* | 0 | 60 facets — h = 1 |
+| `sphere(o);` | *(nothing)* | 0 | 26 facets — r = 1 |
+| `resize(o) cube(5);` | *(nothing)* | 0 | 12 facets |
+| `cube(o + 1);` | `WARNING: undefined operation (undefined + number)` | 0 | 12 facets |
+
+Every one exits 0 with a clean, watertight, single solid built to a number nobody wrote
+down. The two engines agree, so a second binary does not catch this the way it catches
+rule 7. Only `circle(r=o)` is refused, and only because a 2D result cannot be exported
+to STL at all (exit 1, no file, both engines).
+
+**Do not count on the warning either.** The `undefined operation` line in the last row
+appears only because of the `+`, it fires beside completely correct parts
+(`echo("holes: " + holes)` prints it), and partspec deliberately does **not** guard on
+it — that was tried and reverted (PR #306). The `.csg` export cannot see the fault
+either: `o = undef; cube(o);` exports **byte-identical** to `cube(1);` on both engines,
+as do the `linear_extrude`, `cylinder` and `sphere` rows against their correct
+counterparts. `partspec lint`'s `scad-untested-undef` is the one thing that says it out
+loud, and it is advisory (`docs/LINT.md`).
+
+```scad
+// rule-8-before — `t` is never supplied and never tested, so linear_extrude()
+// takes its own default: a 40 x 30 x 100 part, silent, exit 0
+plate_w = 40;
+plate_d = 30;
+
+module plate(t = undef) {
+    linear_extrude(t) square([plate_w, plate_d]);
+}
+
+plate();
+```
+
+```scad
+// rule-8-after — the default is a real number a -D can drive and a contract
+// can name; 40 x 30 x 6 on both engines
+plate_w = 40;
+plate_d = 30;
+plate_t = 6;
+
+module plate(t = plate_t) {
+    linear_extrude(t) square([plate_w, plate_d]);
+}
+
+plate();
+```
+
+Where the value genuinely may be absent, **test it** — `is_undef(t)`, `t == undef`, or a
+narrower `is_num(t)` — and supply the fallback in the source, not in the engine's head.
+That is also what `scad-untested-undef` looks for, so a guarded optional parameter lints
+clean.
+
+**Assert the dimension in the contract.** A contract whose only geometry claims are
+`watertight()` and `solid_count()` cannot catch any of this, because it asserts no
+dimension — and that is the contract every reproduction above was built on. Adding one
+`envelope` moves them, measured on both engines:
+
+| part | `envelope(max=(40,30,6))` | `envelope(min=max=(40,8,10))` |
+|---|---|---|
+| `linear_extrude(undef)` — rule-8-before's shape | **FAIL, exit 1** | — |
+| a range that would not convert, `[0:undef][2]` | **FAIL, exit 1** | — |
+| a loop whose count went `undef` — geometry gone | PASS, exit 0 | **FAIL, exit 1** |
+| the same loop at `n = 4` (correct) | — | PASS, exit 0 |
+
+The third row is the one to take away, and it is rule 7's lesson again from the other
+side: **a `max`-only envelope cannot catch geometry that disappeared**, because the part
+got *smaller*. For anything a loop or an `if` builds, assert the lower bound too.
+
 ## The language moves — pin the binary, avoid removed constructs
 
 `assign()` was removed, and modern OpenSCAD *ignores* unknown modules — their children

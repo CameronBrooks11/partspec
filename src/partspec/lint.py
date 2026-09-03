@@ -45,6 +45,7 @@ FUNCTION_LINE_LIMIT = 60
 
 RULES = {
     "scad-unused-top-level": "a top-level variable the geometry never reads",
+    "scad-untested-undef": "a name bound to `undef`, used, and never tested",
     "scad-magic-number": "a numeric literal in geometry with no name",
     "scad-module-size": f"a module body over {MODULE_LINE_LIMIT} lines",
     "py-magic-number": "a numeric literal in a call inside a function body",
@@ -246,6 +247,87 @@ def _is_subscript_index(line_text: str, match: re.Match[str]) -> bool:
     return word is not None and word.group(0) not in _BEFORE_BRACKET_KEYWORDS
 
 
+_UNDEF_ASSIGNMENT = re.compile(r"\s*(\$?\w+)\s*=\s*undef\s*(?:;|$)")
+_UNDEF_PARAMETER = re.compile(r"(\w+)\s*=\s*undef\s*(?=[,)])")
+_ANY_DECLARATION = re.compile(r"\b(?:function|module)\s+\w+\s*\(")
+
+
+def _match_bracket(text: str, pos: int, opening: str, closing: str) -> int:
+    """Index one past the bracket that closes the one already open at `pos`."""
+    depth = 1
+    while pos < len(text) and depth:
+        if text[pos] in opening:
+            depth += 1
+        elif text[pos] in closing:
+            depth -= 1
+        pos += 1
+    return pos
+
+
+def _undef_bindings(stripped: str) -> list[tuple[str, int, str]]:
+    """(name, line, scope) for every binding of a name to a literal `undef`.
+
+    Two forms, because they are the two the corpus produces (#332, #338): a
+    top-level `o = undef;`, whose scope is the whole file, and a
+    `module`/`function` parameter defaulted `undef`, whose scope is that
+    declaration's body alone — a same-named variable elsewhere in the file is
+    a different variable, and reading it as a use would report the wrong
+    declaration.
+    """
+    bindings: list[tuple[str, int, str]] = []
+
+    depth = 0
+    for i, line in enumerate(stripped.splitlines(), start=1):
+        m = _UNDEF_ASSIGNMENT.fullmatch(line.rstrip()) if depth == 0 else None
+        if m:
+            bindings.append((m.group(1), i, stripped))
+        depth += sum(line.count(b) for b in "{([") - sum(line.count(b) for b in "})]")
+
+    for decl in _ANY_DECLARATION.finditer(stripped):
+        params_end = _match_bracket(stripped, decl.end(), "([", ")]")
+        # Through the closing paren, not up to it: the last parameter's default
+        # is delimited by that `)` and nothing else, so trimming it hid every
+        # single-parameter signature — `module rail(n = undef)`, which is
+        # #338(a) itself.
+        params = stripped[decl.end() : params_end]
+        after = params_end
+        while after < len(stripped) and stripped[after].isspace():
+            after += 1
+        if after < len(stripped) and stripped[after] == "{":
+            body_end = _match_bracket(stripped, after + 1, "{", "}")
+        else:
+            # `function f(...) = expr;` and the brace-less single-statement
+            # module body both run to the statement's own `;`.
+            body_end = stripped.find(";", after)
+            body_end = len(stripped) if body_end == -1 else body_end
+        body = stripped[params_end:body_end]
+        for m in _UNDEF_PARAMETER.finditer(params):
+            at = decl.end() + m.start()
+            bindings.append((m.group(1), stripped.count("\n", 0, at) + 1, body))
+    return bindings
+
+
+def _tests_for_undef(scope: str, name: str) -> bool:
+    """Does `scope` test `name` before trusting it?
+
+    `undef` as a parameter default is the language's own spelling of "not
+    supplied" — BOSL2 and most libraries use it — so the untested-ness is the
+    whole predicate, not the `undef`. Any `is_*()` predicate counts, not only
+    `is_undef`: `is_num(h)` before using `h` as a dimension is the same guard
+    wearing a narrower hat.
+
+    A truthiness test (`n ? n : 1`) deliberately does NOT count. It cannot
+    distinguish `undef` from `0`, which for a count or a dimension is a second
+    bug rather than a guard, so the rule declines to read one as a test.
+    """
+    n = re.escape(name)
+    return bool(
+        re.search(rf"\bis_\w+\s*\(\s*{n}\s*[,)]", scope)
+        or re.search(rf"\b{n}\s*[!=]=\s*undef\b", scope)
+        or re.search(rf"\bundef\s*[!=]=\s*{n}\b", scope)
+    )
+
+
 def _lint_scad(path: Path) -> list[Finding]:
     raw = path.read_text(encoding="utf-8", errors="replace")
     stripped = _strip_preserving_lines(raw)
@@ -271,6 +353,28 @@ def _lint_scad(path: Path) -> list[Finding]:
                     f"then say so in a comment)",
                 )
             )
+
+    for name, line, scope in _undef_bindings(stripped):
+        if _tests_for_undef(scope, name):
+            continue
+        used = "\n".join(
+            ln for ln in scope.splitlines() if not re.match(rf"\s*{re.escape(name)}\s*=", ln)
+        )
+        if not re.search(rf"\b{re.escape(name)}\b", used):
+            continue  # never read; that is `scad-unused-top-level`'s finding, not this one
+        findings.append(
+            Finding(
+                "scad-untested-undef",
+                str(path),
+                line,
+                f"'{name}' is bound to undef and read, with no is_undef()/== undef "
+                f"test — where an undef reaches a dimension OpenSCAD substitutes its "
+                f"own default and says nothing at all (cube -> 1, linear_extrude -> "
+                f"100), exporting a clean single solid at exit 0. Test it, or give it "
+                f"a real default; and assert the dimension in the contract, two-sided "
+                f"if a loop or an `if` builds it (skills/openscad-authoring rule 8)",
+            )
+        )
 
     assignment = re.compile(r"^\s*\$?\w+\s*=")
     # Whole scientific literals match as one number (1e-3 is 0.001, not a
