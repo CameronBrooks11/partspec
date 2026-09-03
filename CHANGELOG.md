@@ -7,27 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.7.8] - 2026-09-03
 
-- **The release workflow creates the GitHub release** (#381). It built,
-  asserted the tag was on `main`, asserted the tag matched the package
-  version, smoke-tested the wheel and published to PyPI — and never made the
-  release page. That step lived only in habit, named in no workflow, no
-  recipe and no document, and habit missed it three times running: **v0.7.5,
-  v0.7.6 and v0.7.7 were tagged and on PyPI with no release**, so the
-  repository advertised v0.7.4 as current for three weeks while users
-  installed 0.7.7. The tag and the upload were right every time; the only
-  human-readable record of them was the one step with no gate on it — epic
-  #305's third state, which its "Done means" says may not exist. The new job
-  takes the notes from the CHANGELOG section for the tagged version and
-  **fails when there is none**, which is the first thing to confirm that
-  `[Unreleased]` was renamed before the version reached PyPI rather than
-  after. Notes over GitHub's 125,000-character body limit are truncated with
-  a pointer to the file: v0.7.7's section is 170,793 bytes, so the first
-  draft of this job would have failed on the release that motivated it —
-  measured rather than assumed. The three missing releases were published
-  retroactively.
-
+### Added
 - **A dimension defaulted from `undef` is now narrated, and honestly not
   refused** (#308, #332, #338). Prefixed `o = undef;`, seven spellings of five
   builtins exit **0** with a clean watertight single solid built to a number
@@ -89,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `is_undef` in an unrelated scope — is enumerated in `docs/LINT.md` rather than
   left implicit.
 
+### Changed
 - **A backwards range is engine-defined, and neither engine says so where it
   matters** (#356). `for (i = [1 : n])` at `n = 0` — the shape a loop takes when
   a count falls to zero — is normalised and iterated **ascending** by 2021.01 and
@@ -111,24 +94,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exit 1, on 2021.01 against `PASS: 4 pass`, exit 0, on 2026.08.01, with
   `watertight` and `solid_count` passing on both. `tests/test_docs.py` executes
   rule 7 on whichever engine is pinned.
-
-- **`measure` answers every quantity it can, whatever defeated one of them**
-  (#365). A zero-thickness part — `intersection()` of two cubes meeting on a
-  face, which 2021.01 and 2026.08.01 both export as a closed, consistently
-  wound four-facet sheet — has no centre of mass, because the centroid divides
-  by the volume. `trimesh` returned `nan`, `Measurement` refused it by
-  raising, and the raise escaped the per-name loop: exit 4, **stdout 0
-  bytes**, no `area`, no `bbox`, on a part whose other thirteen names the
-  payload accounts for — eight measured, five unavailable on that tier — and
-  whose `area` the same geometry answers through `check` (480.0 mm², pass,
-  exit 0). The mesh tier's `center_of_mass` now refuses that shape with a
-  reason — "this mesh encloses no volume, so it has no centre of mass (check
-  volume first)" — leaving `area` 480.0, `bbox` (20, 12, 0) and `volume` 0.0
-  emitted, all fourteen names accounted for across the three §7.3 blocks.
-  `measure` also catches a raising backend per name and records it in
-  `refused` rather than ending the run, so the next one can cost one name and
-  not the verb. The OCCT tier already guarded this case and was measured
-  unaffected; `render` builds no `Measurement` and has no equivalent path.
 
 - **ISO 965-1 does not meet §10.1's formula-executed exception, measured**
   (#260, #246, #261). The exception admits a standard's tolerance grades and
@@ -166,6 +131,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ruling licensed this data is corrected, the released #261 entry's
   "verifiable by construction" claim for `es_g` is falsified by the same
   measurement, and §10.1 records it so the work is not repeated.
+
+### Fixed
+- **The release workflow creates the GitHub release** (#381). It built,
+  asserted the tag was on `main`, asserted the tag matched the package
+  version, smoke-tested the wheel and published to PyPI — and never made the
+  release page. That step lived only in habit, named in no workflow, no
+  recipe and no document, and habit missed it three times running: **v0.7.5,
+  v0.7.6 and v0.7.7 were tagged and on PyPI with no release**, so the
+  repository advertised v0.7.4 as current for three weeks while users
+  installed 0.7.7. The tag and the upload were right every time; the only
+  human-readable record of them was the one step with no gate on it — epic
+  #305's third state, which its "Done means" says may not exist. The new job
+  takes the notes from the CHANGELOG section for the tagged version and
+  **fails when there is none**, which is the first thing to confirm that
+  `[Unreleased]` was renamed before the version reached PyPI rather than
+  after. Notes over GitHub's 125,000-character body limit are truncated with
+  a pointer to the file: v0.7.7's section is 170,793 bytes, so the first
+  draft of this job would have failed on the release that motivated it —
+  measured rather than assumed. The three missing releases were published
+  retroactively.
+
+- **`measure` answers every quantity it can, whatever defeated one of them**
+  (#365). A zero-thickness part — `intersection()` of two cubes meeting on a
+  face, which 2021.01 and 2026.08.01 both export as a closed, consistently
+  wound four-facet sheet — has no centre of mass, because the centroid divides
+  by the volume. `trimesh` returned `nan`, `Measurement` refused it by
+  raising, and the raise escaped the per-name loop: exit 4, **stdout 0
+  bytes**, no `area`, no `bbox`, on a part whose other thirteen names the
+  payload accounts for — eight measured, five unavailable on that tier — and
+  whose `area` the same geometry answers through `check` (480.0 mm², pass,
+  exit 0). The mesh tier's `center_of_mass` now refuses that shape with a
+  reason — "this mesh encloses no volume, so it has no centre of mass (check
+  volume first)" — leaving `area` 480.0, `bbox` (20, 12, 0) and `volume` 0.0
+  emitted, all fourteen names accounted for across the three §7.3 blocks.
+  `measure` also catches a raising backend per name and records it in
+  `refused` rather than ending the run, so the next one can cost one name and
+  not the verb. The OCCT tier already guarded this case and was measured
+  unaffected; `render` builds no `Measurement` and has no equivalent path.
 
 - **The substitution sentence no longer asserts a default nothing took**
   (#360). `Problem converting rotate(...)` joined the substituted-value
@@ -224,6 +227,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   byte-unchanged at exit 4 while the surviving part's report still names the
   differences. `AGENT-CONTRACT.md` §4 and §5, and `examples/spacer/README.md`,
   name the third record and say the same thing about it.
+
 - **A library only the engine can read no longer makes every `-D` unjudgeable**
   (#311, #287). `unbound_parameters` answers from the files *partspec*
   resolved, and #287 made the refusal honest when that list is short. It could
@@ -267,6 +271,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that used to exit 4 before rendering anything, and exactly one: +110 ms on a
   sphere whose bare engine render is 102 ms, +28 ms on the six-facet
   reproduction.
+
 - **`EXIT_USAGE` no longer claims it writes no report** (#358). `check` puts a
   placeholder at every target's deterministic path before any target runs, and
   `--expect` is read after it, so a refused lock exits 64 over a report that is
@@ -4466,7 +4471,8 @@ callouts, and reports become comparable.
 [convergence-evals]: https://github.com/CameronBrooks11/partspec/blob/main/evals/CONVERGENCE.md
 [dogfood-results]: https://github.com/CameronBrooks11/partspec/blob/main/notes/dogfood-results.md
 
-[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.7...HEAD
+[Unreleased]: https://github.com/CameronBrooks11/partspec/compare/v0.7.8...HEAD
+[0.7.8]: https://github.com/CameronBrooks11/partspec/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/CameronBrooks11/partspec/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/CameronBrooks11/partspec/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/CameronBrooks11/partspec/compare/v0.7.4...v0.7.5

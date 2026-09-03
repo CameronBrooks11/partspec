@@ -2,7 +2,7 @@
 
 Verify CAD-as-code parts against declared engineering intent.
 
-> **Status: pre-alpha; v0.7.7 is on PyPI.** It runs end to end and is dogfooded on real
+> **Status: pre-alpha; v0.7.8 is on PyPI.** It runs end to end and is dogfooded on real
 > parts. Expect the Python API to move: the stable surface is the report schema plus the
 > exit codes. What changed in each release is in
 > [CHANGELOG.md](https://github.com/CameronBrooks11/partspec/blob/main/CHANGELOG.md).
