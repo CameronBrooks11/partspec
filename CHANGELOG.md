@@ -111,8 +111,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run was invoked with `--expect`". Both move together here. A `--pin` run over
   a lock that already covered this part, whose declared claims differ from it,
   now writes `{"repinned": [...]}` into that part's own report — the same lines
-  `compare()` gives the console, so the artifact and stderr cannot word one
-  move two ways. Measured on `examples/spacer`: pin, edit `PLATE` from
+  `compare()` gives the console under any single writer, with the caveat the
+  two reads below make explicit. Measured on `examples/spacer`: pin, edit `PLATE` from
   (40, 30, 6) to (40, 30, 9), re-pin — the report went from no `expectation`
   key to `repinned: ["changed: envelope — pinned 'envelope max=[40.0, 30.0,
   6.0]', declared 'envelope max=[40.0, 30.0, 9.0]'"]`, at `verdict: "pass"`,
@@ -134,6 +134,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   questions. Reusing one snapshot for both let a part another process added
   during the build be written out of the lock with neither the `dropped` line
   nor a refusal — measured with a writer adding a part 2 s into a 4 s build.
+  The cost is that the report and the console can word one move two ways when
+  the lock moves under the run: seeded at `envelope max=[10, 10, 10]` and
+  rewritten to `[20, 20, 20]` mid-build, the console names `[20, 20, 20]` and
+  the report `[10, 10, 10]`, each correct for the question it answers. §7.1
+  says so rather than promising an equality that only holds for one writer.
   The block records what was **compared**, not a write that happened: a crashed
   target that would drop a claim set makes `--pin` refuse, leaving the lock
   byte-unchanged at exit 4 while the surviving part's report still names the

@@ -836,8 +836,12 @@ Note there is **no `approximate` check here, and there cannot be one in v0** —
   The second form is `{repinned: [...]}`, present when the run was invoked with `--pin`
   over a lock that **already covered this part** and this contract's declared claims
   differ from it (#294). Same strings as the `--expect` differences and as the stderr
-  confession, from one `compare()`, so the artifact and the console cannot word one move
-  two ways. It is a **record, not an adjudication**: `--pin` is the deliberate-update
+  confession, from one `compare()` — computed against the lock as this run **found** it.
+  The confession is computed a second time at the write, against the lock as it stands
+  **then**, because the guard must speak for the file it is about to overwrite while a
+  report already written cannot be revised. Under a single writer those are the same
+  bytes and the two wordings are identical; where the file moved under the run they
+  differ, and that is deliberate rather than a drift between them (#294). It is a **record, not an adjudication**: `--pin` is the deliberate-update
   path (`AGENT-CONTRACT.md` §4), so the run proceeds to a real verdict and MAY be
   `pass`. That is why the two forms may not share `matched` — the MUST above binds a
   mismatch to `verdict: "error"`, and a permitted re-pin is exactly a mismatch that is

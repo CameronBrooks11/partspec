@@ -333,7 +333,10 @@ pinned part from the invocation — from where you sit these are indistinguishab
 - **re-pinning after weakening** (`--pin`) defeats nothing, and it leaves three records,
   not one: the committed lock's diff in your PR, a stderr line naming every claim the
   rewrite overwrote, and — in the report of each part the lock already covered and whose
-  claims moved — `expectation.repinned` carrying the same lines (#294). That block says
+  claims moved — `expectation.repinned` carrying the same lines (#294), which they are
+  under any single writer: the report answers for the lock the run found and the stderr
+  line for the lock it is about to overwrite, two reads that agree unless the file moved
+  under the run (SPEC-report §7.1). That block says
   what was **compared, not what was written**: the write is refused when a crashed target
   would drop a claim set, and the differences named are then what the run declined to
   overwrite (SPEC-report §7.1). The report half matters because the first two can both be
