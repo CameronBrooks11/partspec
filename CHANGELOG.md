@@ -48,10 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Adversarial review found the rule's edges wrong in three ways, all fixed here and
   all with the corpus answer unchanged — **linting the same 126 tracked sources
-  with the rule before and after produces byte-identical output**, 2348 findings
-  at this branch's tip. (The invariant is the byte-identity; the count itself
-  moves whenever the corpus does, and did, when this branch's own new test
-  arrived.) Both this rule and
+  with the rule before and after produces byte-identical output**. The stated
+  number is gone: two successive drafts quoted one, and both were stale within
+  hours, because the corpus moves whenever any branch adds a literal. The
+  byte-identity is the invariant and it does not move. Both this rule and
   `scad-unused-top-level` asked their "is this name read elsewhere" question over
   the **line**, so a packed `o = undef; h = o + 1; linear_extrude(h) …` — one legal
   line, and the exact string `docs/LINT.md` printed as this rule's own example —
