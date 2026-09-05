@@ -278,8 +278,13 @@ test-cadquery-only:
     trap 'rm -rf "$(dirname "$env")"' EXIT
     uv venv --quiet "$env"
     uv pip install --quiet --no-config --python "$env/bin/python" -e '.[cadquery]' pytest
-    uv pip install --quiet --no-config --python "$env/bin/python" --no-deps --reinstall-package cadquery-ocp cadquery-ocp
-    "$env/bin/python" -c 'import cadquery' || { echo "cadquery did not import — the OCP clobber landed novtk-side despite the re-assert above; see README"; exit 1; }
+    # Re-assert the VTK provider LAST so it wins the OCP/ clobber -- but pin it to
+    # the version the solve above chose. Unpinned, this fetches the newest release
+    # and silently replaces a correctly-resolved OCP with a different major that
+    # cadquery was not built against (#386).
+    ocp="$("$env/bin/python" -c 'import importlib.metadata as m; print(m.version("cadquery-ocp"))')"
+    uv pip install --quiet --no-config --python "$env/bin/python" --no-deps --reinstall-package cadquery-ocp "cadquery-ocp==$ocp"
+    "$env/bin/python" -c 'import cadquery' || { echo "cadquery did not import against OCP $ocp — either the clobber landed novtk-side, or the installed OCP/ is a major cadquery was not built for; see README and #386"; exit 1; }
     "$env/bin/python" -c 'import importlib.util as u; assert u.find_spec("trimesh") is None, "the mesh extra leaked in — this recipe no longer proves anything"'
     "$env/bin/python" -m pytest tests/ -q -rs
 
